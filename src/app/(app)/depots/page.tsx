@@ -1,8 +1,32 @@
+import Box from "@mui/material/Box";
+import Card from "@mui/material/Card";
+import CardContent from "@mui/material/CardContent";
+import Typography from "@mui/material/Typography";
 import type { Metadata } from "next";
-import { Placeholder } from "@/app/_components/Placeholder";
+import { CreateDepotButton } from "@/app/_components/depots/DepotDialogs";
+import { DepotList } from "@/app/_components/depots/DepotList";
+import { PageTitle } from "@/app/_components/Placeholder";
+import { listDepots } from "@/modules/ledger";
 
 export const metadata: Metadata = { title: "Depots" };
 
-export default function DepotsPage() {
-  return <Placeholder title="Depots" />;
+export default async function DepotsPage() {
+  const depots = await listDepots();
+  return (
+    <>
+      <PageTitle>Depots</PageTitle>
+      <Box sx={{ mb: 2 }}>
+        <CreateDepotButton />
+      </Box>
+      {depots.length === 0 ? (
+        <Card>
+          <CardContent>
+            <Typography>Noch kein Depot.</Typography>
+          </CardContent>
+        </Card>
+      ) : (
+        <DepotList depots={depots} />
+      )}
+    </>
+  );
 }

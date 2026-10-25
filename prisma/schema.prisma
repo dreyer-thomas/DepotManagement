@@ -9,3 +9,17 @@ generator client {
 datasource db {
   provider = "sqlite"
 }
+
+enum Broker {
+  COMDIRECT
+  DEUTSCHE_BANK
+  FINANZEN_ZERO
+}
+
+// Owned by the ledger module. The Cash Account is implicit (one per Depot); its balance is
+// computed on read and never stored.
+model Depot {
+  id     String @id @default(cuid())
+  name   String @unique
+  broker Broker
+}
