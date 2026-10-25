@@ -62,7 +62,7 @@ Behavioral; visual specs in `DESIGN.md.Components`.
 | Transaction form | Dialog (desktop), full-screen page (phone) | Type first; fields adapt to type (BUY/SELL: Security, date, quantity, price, fee, tax; DIVIDEND: Security, amount, tax; FEE/TAX: value; DEPOSIT/WITHDRAWAL: amount). Security via Autocomplete on ISIN or name; unknown ISIN offers "Neue Security anlegen". Shows the computed cash effect live. On save a possible duplicate shows an inline warning requiring explicit "Trotzdem buchen". Delete asks for confirmation. |
 | Import review table | Import | One section per file with status chip; proposals editable inline; per proposal: book / discard. Ambiguous duplicates require a decision before "Buchen" is enabled. Failed files show reason and a "Manuell erfassen" link to the prefilled form. |
 | Stale badge | Every price display | Appears when Price older than 3 days; tooltip shows source and fetch time. |
-| Composition donut | Overview, Depot | Donut + legend list; toggle: by Position · by asset type · by Depot (Overview only). By Position shows the top 8 and "Sonstige". Cash always its own segment. Tapping a legend row highlights the segment. |
+| Composition donut | Overview, Depot | Donut + legend list; toggle: by Position · by asset type (ETF · Fonds · Aktie · Zertifikat · Krypto · Guthaben) · by Depot (Overview only). By Position shows the top 8 and "Sonstige". Cash always its own segment. Tapping a legend row highlights the segment. |
 | Price refresh | Securities, Overview menu | "Kurse aktualisieren" triggers on-demand fetch; button shows progress; result snackbar names failures. |
 | Destructive confirm | Delete Transaction, archive Depot, restore | Dialog naming the object. Restore requires typing "WIEDERHERSTELLEN" and states that all data will be replaced and an automatic export is taken first. |
 
@@ -147,7 +147,7 @@ Failure: the ISIN is unknown → "Neue Security anlegen" creates it; type is ask
 
 1. Before cancelling Parqet, Tommy exports one CSV per portfolio.
 2. Settings → "Aus Parqet übernehmen": he uploads the first file and selects the target Depot.
-3. Preview shows counts per type, ISIN changes detected, flagged rows (unpaired transfers, non-EUR, unclassified Securities) and the resulting Positions and cash balance as of the export date.
-4. He classifies the flagged Securities and resolves flagged rows.
+3. Preview shows counts per type, detected splits, ISIN changes and deliveries, the estimated asset type per Security (optionally changeable), a collapsed "Nicht übernommen (n)" list, and the resulting Positions and cash balance as of the export date.
+4. He clicks "Übernehmen" — no per-row decisions.
 5. **Climax:** After confirming, the Depot shows the same Positions, invested capital and cash balance Parqet showed on export day; the summary lists the comparison against Parqet's `realizedgains`.
 

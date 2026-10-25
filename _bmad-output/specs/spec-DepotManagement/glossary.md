@@ -5,7 +5,7 @@ Domain terms are code names (spine Consistency Conventions).
 - **Depot** — One securities account at one Broker; holds zero or more Positions; owns exactly one Cash Account.
 - **Broker** — Institution holding a Depot. v1: comdirect/cominvest, Deutsche Bank/ROBIN, finanzen.net zero/Baader Bank.
 - **Portfolio** — Combined view of all non-archived Depots.
-- **Security** — Tradable instrument identified by ISIN (or symbol for crypto). Asset types: stock, ETF, certificate (e.g. open-end turbo), crypto. Stocks and ETFs dominate.
+- **Security** — Tradable instrument identified by ISIN (or symbol for crypto). Asset types: stock, ETF (incl. ETC), fund (active mutual fund), certificate (e.g. open-end turbo), crypto. Stocks and ETFs dominate.
 - **Cash Account** — Settlement account (Verrechnungskonto) of exactly one Depot; EUR balance changed by Deposits, Withdrawals and the cash side of Transactions.
 - **Position** — Holding of one Security in one Depot: quantity, Cost Basis, current value.
 - **Transaction** — Booked event changing a Position or Cash Account: buy, sell, dividend/distribution, fee, tax, Deposit, Withdrawal. Corporate actions are separate events (spine AD-7).

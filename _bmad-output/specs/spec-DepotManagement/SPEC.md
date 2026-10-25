@@ -62,14 +62,14 @@ CAP-N corresponds to PRD FR-N.
   - **intent:** Tommy can see Gain/Loss for a selectable Period, split into realized and unrealized, with dividends and fees accounted for.
   - **success:** TTWROR and XIRR are shown side by side for the Portfolio and each Depot; realized Gain/Loss uses FIFO and after migration matches Parqet's `realizedgains` per sale (cent-level differences across many lots acceptable); figures are gross with taxes paid in the Period shown separately.
 - **CAP-13** — Composition
-  - **intent:** Tommy can see the Portfolio or a Depot broken down by Position, by asset type (stock, ETF, certificate, crypto, cash) and by Depot.
+  - **intent:** Tommy can see the Portfolio or a Depot broken down by Position, by asset type (stock, ETF, fund, certificate, crypto, cash) and by Depot.
   - **success:** Shares per breakdown sum to the total value including cash.
 - **CAP-14** — News on holdings
   - **intent:** Tommy can see news headlines from the last 14 days for held Securities, overall and per Security.
   - **success:** Each headline links to the original article; quality is comparable to Parqet's feed in Tommy's judgment.
 - **CAP-15** — Initial migration from Parqet
   - **intent:** Tommy can bring his full Transaction history for all Depots in once from Parqet CSV exports (`parqet-export-format.md`), one file per Depot with the target Depot selected.
-  - **success:** Positions, invested capital and Cash Account balance per Depot match Parqet as of the export date; a paired same-timestamp Security TransferOut/TransferIn becomes an ISIN change, an unpaired one is flagged for review; documents later imported for migrated Transactions are detected as duplicates.
+  - **success:** Positions, invested capital and Cash Account balance per Depot match Parqet as of the export date; same-timestamp Security transfers become splits or ISIN changes, an unpaired TransferIn becomes a delivery at Parqet's cost, and the migration completes without per-row decisions (asset types estimated from names, editable later); documents later imported for migrated Transactions are detected as duplicates.
 - **CAP-16** — Export and backup
   - **intent:** Tommy can export all data to an open file format and restore from it.
   - **success:** Export then restore into an empty instance reproduces identical Depots, Cash Accounts, Transactions, manual Prices and evaluations; restore replaces all data, never merges.

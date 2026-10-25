@@ -42,7 +42,7 @@ Owning the code is the second payoff: once parity is reached, Tommy can add the 
 - **Depot** — One securities account at one broker. Belongs to exactly one Broker; holds zero or more Positions.
 - **Broker** — The institution where a Depot is held (in v1: comdirect/cominvest, Deutsche Bank/ROBIN, finanzen.net zero/Baader Bank).
 - **Portfolio** — The combined view of all Depots.
-- **Security** — A tradable instrument identified by ISIN (or symbol for crypto). Asset types: stock, ETF, certificate (e.g. open-end turbo), crypto. Stocks and ETFs dominate; certificates and crypto are a small share.
+- **Security** — A tradable instrument identified by ISIN (or symbol for crypto). Asset types: stock, ETF (incl. ETC), fund (active mutual fund), certificate (e.g. open-end turbo), crypto. Stocks and ETFs dominate; certificates and crypto are a small share.
 - **Cash Account** — The settlement account (Verrechnungskonto) belonging to exactly one Depot; holds a EUR balance changed by Deposits, Withdrawals, and the cash side of Transactions.
 - **Position** — The holding of one Security within one Depot: quantity, Cost Basis, current value.
 - **Transaction** — A booked event that changes a Position or a Cash Account: buy, sell, dividend/distribution, fee, tax, corporate action, Deposit, or Withdrawal.
@@ -138,7 +138,7 @@ Tommy can see Gain/Loss for a selectable Period, split into realized and unreali
 **Notes:** Tommy reads both; depending on the year and cash-flow timing they differ noticeably, so neither replaces the other.
 
 #### FR-13: Composition
-Tommy can see the Portfolio or a Depot broken down by Position, by asset type (stock, ETF, certificate, crypto, cash), and by Depot.
+Tommy can see the Portfolio or a Depot broken down by Position, by asset type (stock, ETF, fund, certificate, crypto, cash), and by Depot.
 **Out of Scope:** ETF look-through to underlying holdings, sectors, or countries.
 
 ### 4.5 News
@@ -155,7 +155,8 @@ Tommy can bring his existing Transaction history for all Depots into DepotManage
 - After migration, Positions and invested capital per Depot match Parqet as of the export date.
 - Documents later imported for Transactions already covered by the migration are detected as duplicates (FR-6).
 - One export file is imported per Depot; Tommy selects the target Depot.
-- A paired Security TransferOut/TransferIn with the same timestamp is treated as an ISIN change (corporate action, FR-3); an unpaired Security transfer is flagged for manual review.
+- Security transfers at one timestamp are paired by ISIN into splits, then a single out/in of different ISINs into an ISIN change (FR-3); an unpaired TransferIn is booked as a delivery at Parqet's cost (buy plus equal deposit); only an unpaired TransferOut is flagged.
+- The migration needs no per-row decisions; asset types are estimated from Security names and stay editable later.
 - Cash Account movements in the export become Deposits, Withdrawals, and the cash side of Transactions (FR-17).
 - After migration, each Cash Account balance matches Parqet as of the export date.
 
@@ -195,7 +196,7 @@ The Portfolio and Depot overviews (FR-10, FR-11) include Cash Account balances i
 ### 6.1 In Scope
 - Depots, manual Transactions, corporate actions (splits, ISIN changes) — FR-1 to FR-3
 - Cash Account per Depot — FR-17, FR-18
-- Asset types: stock, ETF, certificate, crypto
+- Asset types: stock, ETF, fund, certificate, crypto
 - Document Import with review and duplicate protection — FR-4 to FR-6
 - Automatic current and historical Prices with manual fallback — FR-7 to FR-9
 - Portfolio/Depot overview, value chart, Gain/Loss, composition — FR-10 to FR-13

@@ -35,9 +35,9 @@ FR9: Tommy can enter or correct a Price manually when no Price Source covers a S
 FR10: Tommy can see current value, invested capital and Gain/Loss (absolute and %) for the Portfolio and each Depot, plus the list of Positions with value and Gain/Loss.
 FR11: Tommy can see a chart of value and invested capital over a selectable Period for the Portfolio or a single Depot.
 FR12: Tommy can see Gain/Loss for a selectable Period split into realized and unrealized with dividends and fees; TTWROR and XIRR side by side for Portfolio and each Depot; realized Gain/Loss uses FIFO and matches Parqet's `realizedgains` per sale after migration; shown gross with taxes paid in the Period as a separate figure.
-FR13: Tommy can see the Portfolio or a Depot broken down by Position, by asset type (stock, ETF, certificate, crypto, cash) and by Depot; no ETF look-through.
+FR13: Tommy can see the Portfolio or a Depot broken down by Position, by asset type (stock, ETF, fund, certificate, crypto, cash) and by Depot; no ETF look-through.
 FR14: Tommy can see news headlines of the last 14 days for held Securities, overall and per Security, each linking to the original article.
-FR15: Tommy can import his full Transaction history once from Parqet CSV exports, one file per Depot with target Depot selected; Positions, invested capital and Cash Account balance match Parqet at export date; paired same-timestamp Security TransferOut/TransferIn → ISIN change, unpaired → flagged; Cash movements become Deposits, Withdrawals and cash sides; later imported documents for migrated Transactions are detected as duplicates. Depends on FR3 and FR17.
+FR15: Tommy can import his full Transaction history once from Parqet CSV exports, one file per Depot with target Depot selected; Positions, invested capital and Cash Account balance match Parqet at export date; same-timestamp Security transfers paired by ISIN → split, single out/in of different ISINs → ISIN change, unpaired TransferIn → delivery (BUY + equal DEPOSIT), only unpaired TransferOut flagged; no per-row decisions, asset types estimated from names; Cash movements become Deposits, Withdrawals and cash sides; later imported documents for migrated Transactions are detected as duplicates. Depends on FR3 and FR17.
 FR16: Tommy can export all Depots and Transactions to an open file format and restore from it; export → restore into an empty instance reproduces identical Depots, Cash Accounts, Transactions, manual Prices and evaluations; restore replaces, never merges.
 FR17: Tommy can see balance and booking history of each Depot's Cash Account; buy, sell, dividend, fee and tax book their cash side automatically; Deposits and Withdrawals are entered manually and change only the Cash Account.
 FR18: Portfolio and Depot overviews and charts include Cash Account balances in total value, shown separately from Positions; Deposits and Withdrawals are external cash flows in both return metrics.
@@ -101,7 +101,7 @@ UX-DR13: Import review — upload dropzone (multi-PDF), per-file section with st
 UX-DR14: Stale badge and Overview stale Alert ("Kurse für N Wertpapiere veraltet") linking to Securities; tooltip with source and fetch time.
 UX-DR15: Securities surface — list of all Securities; classify `UNCLASSIFIED`; edit provider mapping; manual Price entry; "Kurse aktualisieren" with progress and failure snackbar; replace/upload logo.
 UX-DR16: Settings — Depots (create, rename, archive with disabled reason "Depot hat noch Positionen oder Guthaben."; archived group read-only), Parqet migration entry, export/restore (restore requires typing "WIEDERHERSTELLEN"), appearance (theme toggle).
-UX-DR17: Parqet migration wizard — file → target Depot → preview (counts per type, detected ISIN changes, flagged rows: unpaired transfers, non-EUR, unclassified) → resolve → confirm → summary with Parqet comparison.
+UX-DR17: Parqet migration wizard — file → target Depot → preview (counts per type, detected splits, ISIN changes and deliveries, estimated asset type per Security, collapsed list of rows not taken over) → one-click confirm → summary with Parqet comparison.
 UX-DR18: State patterns — empty states (no Depot: "Depot anlegen" / "Aus Parqet übernehmen"; Depot without Transactions; no news), Skeleton loading, session-expired redirect with return URL, form errors keep input, price fetch failure per row.
 UX-DR19: Voice and tone — German, short, factual microcopy per EXPERIENCE.md examples; name Depot and Security in confirmations.
 UX-DR20: Interaction rules — no optimistic writes, no hover-only actions, no auto-booking, modal depth ≤ 1, Enter submits / Esc closes.
@@ -123,7 +123,7 @@ FR11: Epic 4 - Value development chart
 FR12: Epic 4 - Gain/Loss, TTWROR, XIRR
 FR13: Epic 4 - Composition
 FR14: Epic 3 - News on holdings
-FR15: Epic 2 - One-time Parqet migration
+FR15: Epic 2 - One-time Parqet migration (Stories 2.3, 2.4; hands-off rework in 2.5)
 FR16: Epic 6 - Export and restore
 FR17: Epic 1 - Cash Account balance and history
 FR18: Epic 4 - Cash in overviews and return metrics
@@ -138,7 +138,34 @@ Tommy can sign in, create and manage Depots, record every Transaction type by ha
 Tommy can record splits and ISIN changes and bring his complete history from Parqet into DepotManagement, with Positions, invested capital and Cash Account balances reconciled against Parqet. From here on he works with real data.
 **FRs covered:** FR3, FR15 · **Also:** AR7, AR15, AR16, AR21, UX-DR17
 
-### Epic 3: Market Data — Prices, Logos, News
+#### Story 2.5: Hands-off Parqet Migration
+
+As Tommy,
+I want the Parqet migration to book my history without asking me row by row,
+So that moving away from Parqet takes minutes, not an afternoon of decisions.
+
+**Acceptance Criteria:**
+
+**Given** the asset types of the ledger
+**Then** `FUND` (active mutual fund, label "Fonds") is added to `AssetType` via a new migration and is selectable wherever an asset type is chosen (new Security in the Transaction form, ISIN-change dialog, migration preview)
+**Given** a Parqet preview with new Securities from `assettype = Security`
+**When** the preview is built
+**Then** a pure core classifier assigns each one a type from its name, in this order: contains `ETF`, `ETC`, `ETN` or `UCITS ETF`, or issuer `iShares`, `Xtrackers`, `Vanguard`, `Amundi`, `Lyxor`, `SPDR`, `Invesco`, `WisdomTree` → ETF; contains `Turbo`, `Knock-Out`, `Mini Future`, `Optionsschein`, `Open End` → CERTIFICATE; contains `SICAV`, `Fund`, `Funds`, `Fonds` → FUND; otherwise STOCK; `Crypto` rows stay CRYPTO
+**And** classification is no longer an open decision: the preview shows the estimated type per Security with an optional inline override, and the type stays editable later
+**And** the classifier is unit-tested with the fund, ETF and ETC names from the real-data trial (AB SICAV I Concentrated US Equity Portfolio, BlackRock Global Funds European Special Situations Fund, Fidelity Funds - USD Bond Fund, iShares Developed Markets Property Yield UCITS ETF, Xtrackers Physical Gold ETC) and typical stock and turbo names
+**Given** Security transfer rows sharing one instant
+**When** the reader groups them
+**Then** it first pairs `TransferOut` and `TransferIn` of the same ISIN into a split proposal (ratio = new quantity / old quantity, AD-7); then a remaining single out + single in of different ISINs becomes an ISIN change as before
+**And** every remaining `TransferIn` becomes a delivery: a BUY with Parqet's shares, price and amount plus a DEPOSIT of the same amount on the same date, so the Cash Account is unchanged and the delivery counts as an external inflow (AD-10, AD-14)
+**And** only a remaining unpaired `TransferOut` is still flagged
+**Given** remaining flags (unpaired `TransferOut`, `non-eur`, `unparseable`, `unsupported-row`, `cash-pair-mismatch`)
+**Then** they are listed in a collapsed "Nicht übernommen (n)" section that does not block "Übernehmen"; a single "Alle wie in Parqet übernehmen" books every flag that has a valid prefilled correction and skips the rest; the summary lists what was skipped
+**And** duplicate matching against an existing ledger (AD-15) still shows matches for decision; on an empty Depot there are none
+**Given** the synthetic fixture extended with a five-row `TransferIn` group, a same-ISIN out/in split pair and fund/ETC names
+**When** it is previewed into an empty Depot
+**Then** there are zero open decisions, "Übernehmen" is enabled immediately, and the resulting Positions, invested capital and Cash Account balance match the fixture's expected values
+
+## Epic 3: Market Data — Prices, Logos, News
 Tommy gets current and historical Prices automatically, sees stale Prices flagged, can enter manual Prices and fix provider mappings, sees logos at every Security, and reads the last 14 days of news on his holdings.
 **FRs covered:** FR7, FR8, FR9, FR14 · **Also:** NFR2, NFR6, AR9, AR11, AR13 (scheduler), AR19, AR20, UX-DR14, UX-DR15
 
@@ -225,7 +252,7 @@ So that my trades are in the ledger.
 
 **Given** a Depot exists
 **When** I open "Neue Buchung" (dialog on desktop, full-screen on phone) and choose Kauf or Verkauf
-**Then** I can pick a Security via Autocomplete by ISIN or name, or choose "Neue Security anlegen" with ISIN (or crypto symbol), name and asset type (STOCK, ETF, CERTIFICATE, CRYPTO) (UX-DR12)
+**Then** I can pick a Security via Autocomplete by ISIN or name, or choose "Neue Security anlegen" with ISIN (or crypto symbol), name and asset type (STOCK, ETF, FUND, CERTIFICATE, CRYPTO; FUND added by Story 2.5) (UX-DR12)
 **And** the Security is created only on save via idempotent `ledger.ensureSecurity`; ISIN and upper-case crypto symbol are unique (AD-16)
 **And** I enter date, quantity (up to 8 decimals), price, fee and tax; inputs accept German decimal comma and pasted `1.234,56`
 **And** the saved Transaction follows AD-14 (amount = unsigned gross value = quantity × price as entered or stated, fee ≥ 0, signed tax), values are stored as TEXT decimal strings (AD-5), the business date as `YYYY-MM-DD`, and the ledger service assigns the next intra-day sequence (AD-8)
@@ -391,7 +418,7 @@ So that I can see and fix where each Security's prices come from.
 **Then** I see every Security with logo placeholder, name, ISIN or symbol, asset type and its ProviderMapping (provider + symbol) (UX-DR15)
 **And** the `prices` module (ProviderMapping model created here) auto-resolves a mapping once for each Security without one: OpenFIGI by ISIN (preferring the Xetra listing), falling back to Yahoo search; crypto maps to CoinGecko by symbol (AD-9, `data-sources.md`)
 **And** I can edit the provider and symbol; at most one active mapping exists per Security; outbound requests carry only ISIN or symbol (AD-13)
-**And** I can classify an `UNCLASSIFIED` Security (through `ledger`, AD-16); an "Typ unbekannt" chip marks unclassified ones (UX-DR18)
+**And** I can change any Security's type (STOCK, ETF, FUND, CERTIFICATE, CRYPTO) through `ledger` (AD-16); an "Typ unbekannt" chip marks the rare `UNCLASSIFIED` ones (UX-DR18)
 **And** the mapping resolver is unit-tested with recorded provider responses (no live network in tests).
 
 ### Story 3.2: Prices for Stocks and ETFs
@@ -571,7 +598,7 @@ So that I understand my allocation.
 
 **Given** Overview or Depot detail
 **When** I view "Zusammensetzung"
-**Then** a donut with legend shows shares by Position (top 8 + "Sonstige"), by asset type (ETF, Aktie, Zertifikat, Krypto, Guthaben, Unklassifiziert if any) and — on Overview only — by Depot (FR13, UX-DR8)
+**Then** a donut with legend shows shares by Position (top 8 + "Sonstige"), by asset type (ETF, Fonds, Aktie, Zertifikat, Krypto, Guthaben, Unklassifiziert if any) and — on Overview only — by Depot (FR13, UX-DR8)
 **And** cash is always its own segment in `{colors.cash}`; segments follow the series color order
 **And** percentages sum to 100 % of total value including cash; the legend shows percentage and amount, and tapping a legend row highlights its segment
 **And** the donut has a text alternative listing the segments (UX-DR21).

@@ -8,6 +8,7 @@ scope: 'DepotManagement v1 — the whole product as defined by the PRD (FR-1..FR
 status: final
 created: '2026-10-25'
 updated: '2026-10-25'
+change_log: ['2026-10-25 sprint change: AD-7, AD-16 amended (hands-off Parqet migration, FUND type)']
 binds: [FR-1, FR-2, FR-3, FR-4, FR-5, FR-6, FR-7, FR-8, FR-9, FR-10, FR-11, FR-12, FR-13, FR-14, FR-15, FR-16, FR-17, FR-18]
 sources:
   - _bmad-output/planning-artifacts/prds/prd-DepotManagement-2026-10-25/prd.md
@@ -94,7 +95,7 @@ graph TD
 
 - **Binds:** FR-3, FR-8, FR-11, FR-12, FR-15
 - **Prevents:** split-adjusted and unadjusted data mixed; FIFO dates lost on ISIN change; a split applied in one Depot but not another.
-- **Rule:** Splits and ISIN changes are stored as CorporateAction rows on the Security and apply in every Depot holding it; Transactions and Prices before them are never modified. Split adjustment of quantities and Prices is applied by core on read, on top of unadjusted stored Prices (AD-9). An ISIN change links old and new Security (each its own row) with old/new quantity; core moves open FIFO lots, their original purchase dates and total Cost Basis to the new Security. A Parqet same-timestamp TransferOut/TransferIn pair becomes one ISIN-change CorporateAction; an unpaired Security transfer is flagged, never booked. CorporateActions are created, edited and deleted only through `ledger`.
+- **Rule:** Splits and ISIN changes are stored as CorporateAction rows on the Security and apply in every Depot holding it; Transactions and Prices before them are never modified. Split adjustment of quantities and Prices is applied by core on read, on top of unadjusted stored Prices (AD-9). An ISIN change links old and new Security (each its own row) with old/new quantity; core moves open FIFO lots, their original purchase dates and total Cost Basis to the new Security. Parqet Security transfers at one timestamp are paired by ISIN first (same ISIN → split CorporateAction), then a single out/in of different ISINs → ISIN-change CorporateAction; an unpaired TransferIn is migrated as a delivery (BUY at Parqet cost plus same-day DEPOSIT of equal amount, AD-14); only an unpaired TransferOut is flagged. CorporateActions are created, edited and deleted only through `ledger`.
 
 ### AD-8 — Dates and ordering `[ADOPTED]`
 
@@ -148,7 +149,7 @@ graph TD
 
 - **Binds:** FR-2, FR-4, FR-13, FR-15
 - **Prevents:** the same instrument created twice from different paths; asset types guessed differently per path.
-- **Rule:** Securities are created only by idempotent `ledger.ensureSecurity({ isin } | { cryptoSymbol })`, called at confirmation or save, never during staging. ISIN and upper-case base crypto symbol (e.g. `BTC`) are each unique. Only `ledger` writes name and `assetType` (`STOCK | ETF | CERTIFICATE | CRYPTO | UNCLASSIFIED`); other modules may suggest values. A Security whose type is unknown (e.g. Parqet `Security`) is stored `UNCLASSIFIED` and flagged for the user to classify, never guessed.
+- **Rule:** Securities are created only by idempotent `ledger.ensureSecurity({ isin } | { cryptoSymbol })`, called at confirmation or save, never during staging. ISIN and upper-case base crypto symbol (e.g. `BTC`) are each unique. Only `ledger` writes name and `assetType` (`STOCK | ETF | FUND | CERTIFICATE | CRYPTO | UNCLASSIFIED`); other modules may suggest values. The Parqet migration estimates the type with one pure core classifier (name rules; default STOCK) and never blocks on it; the type stays editable through `ledger`. `UNCLASSIFIED` remains only for Securities no path could classify.
 
 ### AD-17 — Archived Depots and the held set
 
