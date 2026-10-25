@@ -89,12 +89,19 @@ export type ParqetPreview = {
   duplicates: PreviewDuplicate[];
   /** False when the file has no Cash Account rows (cash cannot be reconciled; funding DEPOSITs are added). */
   hasCashRows: boolean;
-  /** Number of funding DEPOSITs added for a file without Cash rows (0 with Cash rows). */
+  /** Number of funding DEPOSITs added (every export, with or without Cash rows) to keep cash ≥ 0. */
   fundingCount: number;
-  /** Number of standalone TAX proposals booking a difference between trades and Cash rows (> €0.01). */
+  /** Number of standalone TAX proposals booking an outflow-side difference between trades and Cash rows (> €0.01). */
   cashDifferenceCount: number;
   /** Canonical Σ tax of those TAX proposals; "0" without any. */
   cashDifferenceTotal: string;
+  /**
+   * Number of deposits the file lacks: contribution DEPOSITs (inflow-side group differences) plus, when the
+   * file has Cash rows, funding DEPOSITs (a cash-less file reports its funding via `fundingCount` only).
+   */
+  missingDepositCount: number;
+  /** Canonical Σ amount of those DEPOSITs; "0" without any. */
+  missingDepositTotal: string;
   /** Number of SELLs clamped to the held quantity (rounding oversell ≤ 0.001). */
   roundingCount: number;
   figures: PreviewFigures | null;
@@ -205,7 +212,11 @@ export async function analyzeParqetExport(
     (proposal) => proposal.originalAmount !== undefined || proposal.originalTax !== undefined,
   ).length;
 
-  const cashDifferences = read.proposals.filter((proposal) => proposal.cashDifference);
+  const cashDifferences = read.proposals.filter((proposal) => proposal.cashDifference && proposal.type === "TAX");
+  const missingDeposits = read.proposals.filter(
+    (proposal) =>
+      proposal.type === "DEPOSIT" && (proposal.cashDifference || (read.hasCashRows && proposal.funding === true)),
+  );
 
   const recordedChanges = await listIsinChanges(db);
   const coreChanges: IsinChange[] = recordedChanges.map((change) => ({
@@ -291,6 +302,10 @@ export async function analyzeParqetExport(
         cashDifferenceCount: cashDifferences.length,
         cashDifferenceTotal: canonicalDecimal(
           cashDifferences.reduce((sum, proposal) => sum.plus(proposal.tax), new ExactDecimal(0)),
+        ),
+        missingDepositCount: missingDeposits.length,
+        missingDepositTotal: canonicalDecimal(
+          missingDeposits.reduce((sum, proposal) => sum.plus(proposal.amount), new ExactDecimal(0)),
         ),
         roundingCount: read.proposals.filter((proposal) => proposal.type === "SELL" && proposal.originalQuantity !== undefined)
           .length,

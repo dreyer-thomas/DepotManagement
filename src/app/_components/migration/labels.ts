@@ -132,10 +132,28 @@ export function fundingNote(count: number): string {
   return `Export ohne Kontobewegungen: ${count === 1 ? "1 Einzahlung wird" : `${count} Einzahlungen werden`} ergänzt`;
 }
 
-/** Preview note: "3 Kontodifferenzen werden als Steuer gebucht (Summe 12,34 €)"; `total` is the signed Σ tax. */
+/** Preview note: "3 Kontodifferenzen als Steuer gebucht (Summe 12,34 €)"; `total` is the Σ tax. */
 export function cashDifferenceNote(count: number, total: string): string {
-  const subject = count === 1 ? "1 Kontodifferenz wird" : `${count} Kontodifferenzen werden`;
+  const subject = count === 1 ? "1 Kontodifferenz" : `${count} Kontodifferenzen`;
   return `${subject} als Steuer gebucht (Summe ${formatMoney(total)})`;
+}
+
+/** Preview note: "2 fehlende Einzahlungen ergänzt (Summe 142,00 €)". */
+export function missingDepositNote(count: number, total: string): string {
+  const subject = count === 1 ? "1 fehlende Einzahlung" : `${count} fehlende Einzahlungen`;
+  return `${subject} ergänzt (Summe ${formatMoney(total)})`;
+}
+
+/**
+ * Summary note under the totals (funding DEPOSITs only): "Parqet fehlen Einzahlungen: 2 zur Deckung ergänzte
+ * Einzahlungen (Summe …) sind im Parqet-Saldo nicht enthalten."
+ */
+export function missingDepositsCashNote(count: number, total: string): string {
+  const subject =
+    count === 1
+      ? `1 zur Deckung ergänzte Einzahlung (Summe ${formatMoney(total)}) ist`
+      : `${count} zur Deckung ergänzte Einzahlungen (Summe ${formatMoney(total)}) sind`;
+  return `Parqet fehlen Einzahlungen: ${subject} im Parqet-Saldo nicht enthalten.`;
 }
 
 /** Preview note: "2 Rundungsreste ausgeglichen". */
@@ -256,4 +274,9 @@ export function openingBalanceSuccess(
 /** The status text of a compared figure; differences are named in words, never by color alone. */
 export function comparisonStatus(mismatch: boolean): string {
   return mismatch ? "Abweichung" : "gleich";
+}
+
+/** The status text of a fully explained difference (story 2.8). */
+export function explainedStatus(explained: "fees" | "missing-deposits"): string {
+  return explained === "fees" ? "Gebühren" : "fehlende Einzahlungen";
 }

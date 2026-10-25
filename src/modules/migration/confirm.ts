@@ -9,6 +9,7 @@ import { cashBalance } from "@/core/cash";
 import { isBusinessDate } from "@/core/dates";
 import { canonicalDecimal, ExactDecimal, isDecimalString } from "@/core/decimal";
 import { parseDecimalInput } from "@/core/decimal-input";
+import { classifyGainDifference, saleKey } from "@/core/fee-attribution";
 import {
   type BatchEntry,
   type BatchFailure,
@@ -58,7 +59,12 @@ export type CorrectionFieldFailure = {
 
 export type BookingFailure = BatchFailure | CorrectionFieldFailure;
 
-export type Figure = { ledger: string; file: string; mismatch: boolean };
+/**
+ * Ledger vs file. `explained` (story 2.8): the difference is fully explained — `fees` (a sale's gain differs
+ * by exactly its attributable fees; Parqet's `realizedgains` excludes them) or `missing-deposits` (the cash
+ * balance differs by exactly the funding DEPOSITs Parqet lacks); an explained figure is never a mismatch.
+ */
+export type Figure = { ledger: string; file: string; mismatch: boolean; explained?: "fees" | "missing-deposits" };
 
 export type PositionComparison = {
   key: string;
@@ -96,7 +102,12 @@ export type MigrationSummary = {
     cash: Figure | null;
     sales: SaleComparison[];
   } | null;
-  /** Offered when the file has no Cash rows: book the difference to the broker's balance at `asOf`. */
+  /** Funding DEPOSITs added to keep cash ≥ 0 (count 0, total "0" without any). */
+  funding: { count: number; total: string };
+  /**
+   * Offered when the file has no Cash rows or funding was added: book the difference to the broker's balance
+   * at `asOf`.
+   */
   openingBalance: { date: string; asOf: string; ledgerBalance: string } | null;
 };
 
@@ -349,8 +360,12 @@ export async function confirmParqetMigration(
     },
     skippedFlags,
     comparison: null,
+    funding: { count: 0, total: "0" },
     openingBalance: null,
   };
+  const funding = read.proposals.filter((proposal) => proposal.funding);
+  const fundingTotal = funding.reduce((sum, proposal) => sum.plus(proposal.amount), new ExactDecimal(0));
+  summary.funding = { count: funding.length, total: canonicalDecimal(fundingTotal) };
   const asOf = read.exportDate;
   if (asOf === null || !preview.figures) return { ok: true, summary };
 
@@ -379,31 +394,45 @@ export async function confirmParqetMigration(
   const ledgerCash = cashBalance(ledgerRows, asOf);
 
   const realized = await listRealizedSales(preview.depot.id, asOf, db);
-  const gainAt = new Map(realized.map((sale) => [`${sale.date}|${sale.sequence}`, sale.gain]));
+  const saleAt = new Map(realized.map((sale) => [saleKey(sale.date, sale.sequence), sale]));
   const sales: SaleComparison[] = [];
   for (const proposal of read.proposals) {
     if (proposal.type !== "SELL" || proposal.realizedGain === null || proposal.securityKey === null) continue;
     const known = knownSellRows.get(itemKey(proposal));
     const row = typeof known === "string" ? result.transactions[known] : known;
     if (!row) continue;
-    const gain = gainAt.get(`${row.date}|${row.sequence}`);
-    if (gain === undefined) continue;
+    const sale = saleAt.get(saleKey(row.date, row.sequence));
+    if (sale === undefined) continue;
+    let gain = figure(sale.gain, proposal.realizedGain);
+    if (gain.mismatch && classifyGainDifference(sale.gain, proposal.realizedGain, sale.fees) === "fees") {
+      gain = { ...gain, mismatch: false, explained: "fees" };
+    }
     sales.push({
       key: itemKey(proposal),
       securityKey: proposal.securityKey,
       name: names.get(proposal.securityKey) ?? proposal.securityKey,
       date: proposal.date,
-      gain: figure(gain, proposal.realizedGain),
+      gain,
     });
   }
 
+  let cash: Figure | null = null;
+  if (read.hasCashRows) {
+    // Parqet's own balance: the proposals' balance without the funding DEPOSITs (contribution DEPOSITs and
+    // difference TAXes already sum to the file's Cash rows).
+    cash = figure(ledgerCash, canonicalDecimal(new ExactDecimal(preview.figures.cashBalance).minus(fundingTotal)));
+    const unexplained = new ExactDecimal(ledgerCash).minus(cash.file).minus(fundingTotal).abs();
+    if (funding.length > 0 && unexplained.lessThanOrEqualTo(MONEY_TOLERANCE)) {
+      cash = { ...cash, mismatch: false, explained: "missing-deposits" };
+    }
+  }
   summary.comparison = {
     positions,
     investedCapital: figure(canonicalDecimal(ledgerInvested), preview.figures.investedCapital),
-    cash: read.hasCashRows ? figure(ledgerCash, preview.figures.cashBalance) : null,
+    cash,
     sales,
   };
-  if (!read.hasCashRows) {
+  if (!read.hasCashRows || funding.length > 0) {
     // Dated at the export date: aligning down to the broker's balance never makes past cash negative.
     summary.openingBalance = { date: asOf, asOf, ledgerBalance: ledgerCash };
   }
@@ -419,9 +448,9 @@ export type OpeningBalanceResult =
   | Extract<RecordTransactionResult, { ok: false }>;
 
 /**
- * Opening cash booking for a file without Cash rows: books the difference between `balance` (the
- * broker's balance at `asOf`, the export date) and the ledger's balance at `asOf` as a DEPOSIT (> 0) or
- * WITHDRAWAL (< 0) dated `date` (≤ `asOf`). A zero difference books nothing.
+ * Opening cash booking for a file without Cash rows or with funding added: books the difference between
+ * `balance` (the broker's balance at `asOf`, the export date) and the ledger's balance at `asOf` as a
+ * DEPOSIT (> 0) or WITHDRAWAL (< 0) dated `date` (≤ `asOf`). A zero difference books nothing.
  */
 export async function recordOpeningBalance(input: OpeningBalanceInput, db: LedgerDb = prisma): Promise<OpeningBalanceResult> {
   if (!isDecimalString(input.balance)) return { ok: false, reason: "balance-invalid" };

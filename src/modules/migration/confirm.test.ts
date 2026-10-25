@@ -13,7 +13,7 @@ import {
   listTransactions,
   recordTransaction,
 } from "@/modules/ledger";
-import { cashBalance } from "@/core/cash";
+import { cashBalance, cashEffect } from "@/core/cash";
 import { canonicalDecimal, ExactDecimal } from "@/core/decimal";
 import { confirmParqetMigration, type ConfirmResult, recordOpeningBalance } from "./confirm";
 import {
@@ -31,6 +31,10 @@ const NO_CASH = readFileSync(resolve(__dirname, "../../../test/fixtures/parqet/s
 const CASHLESS = readFileSync(resolve(__dirname, "../../../test/fixtures/parqet/synthetic-export-cashless.csv.txt"), "utf8");
 const HANDS_OFF = readFileSync(resolve(__dirname, "../../../test/fixtures/parqet/synthetic-export-hands-off.csv.txt"), "utf8");
 const ROBUST = readFileSync(resolve(__dirname, "../../../test/fixtures/parqet/synthetic-export-robust-pairing.csv.txt"), "utf8");
+const MISSING_DEPOSITS = readFileSync(
+  resolve(__dirname, "../../../test/fixtures/parqet/synthetic-export-missing-deposits.csv.txt"),
+  "utf8",
+);
 
 const OLD = "DE0007164600";
 const NEW = "DE000SYN0013";
@@ -151,11 +155,13 @@ describe("confirmParqetMigration", () => {
 
     const rows = await listTransactions(depotId, db());
     expect(rows).toHaveLength(12);
-    // Records 4-5: the BUY as in Parqet, then a TAX refund of the difference to the cash row (−100 vs. −90).
+    // Records 4-5: a DEPOSIT of the difference to the cash row (−100 vs. −90), then the BUY as in Parqet.
     expect(rows.filter((row) => row.date === "2024-07-04").sort((a, b) => a.sequence - b.sequence).map((row) => [row.type, row.amount, row.fee, row.tax, row.quantity, row.security?.isin ?? null])).toEqual([
+      ["DEPOSIT", "10", "0", "0", null, null],
       ["BUY", "99", "1", "0", "10", APFEL],
-      ["TAX", "0", "0", "-10", null, APFEL],
     ]);
+    expect(rows.some((row) => row.type === "TAX" && row.tax.startsWith("-"))).toBe(false);
+    expect(summary.funding).toEqual({ count: 0, total: "0" });
     expect(rows.find((row) => row.type === "BUY" && row.security?.isin === OLD)?.security?.assetType).toBe("STOCK");
     // The delivery: DEPOSIT then BUY on the same date, cash unchanged.
     expect(rows.filter((row) => row.date === "2024-07-03").sort((a, b) => a.sequence - b.sequence).map((row) => [row.type, row.sequence, row.amount, row.security?.isin ?? null])).toEqual([
@@ -176,7 +182,7 @@ describe("confirmParqetMigration", () => {
     const preview = await previewParqetMigration(depotId, FIXTURE, db());
     if (!preview.ok) throw new Error(preview.reason);
     expect(preview.preview.duplicates.map((d) => d.status)).toEqual(Array(12).fill("duplicate"));
-    expect(preview.preview.duplicates.map((d) => d.key).slice(-4)).toEqual(["6d", "6", "5", "4-5"]);
+    expect(preview.preview.duplicates.map((d) => d.key).slice(-4)).toEqual(["6d", "6", "4-5", "5"]);
     expect(preview.preview.isinChanges[0].recorded).toBe(true);
 
     const summary = ok(await confirmParqetMigration(depotId, FIXTURE, await rerunDecisions(depotId), db()));
@@ -494,9 +500,11 @@ describe("robust cash pairing and rounding fixture (story 2-7)", () => {
     const preview = await previewParqetMigration(depotId, ROBUST, db());
     if (!preview.ok) throw new Error(preview.reason);
     expect(preview.preview.flagged).toEqual([]);
-    expect(preview.preview.cashDifferenceCount).toBe(4);
-    // −5 (fee omitted) + 22 (withheld tax) + 2 (dividend) + 2 (rebalancing).
-    expect(preview.preview.cashDifferenceTotal).toBe("21");
+    expect(preview.preview.cashDifferenceCount).toBe(3);
+    // 22 (withheld tax) + 2 (dividend) + 2 (rebalancing); the omitted fee (5) is a missing deposit.
+    expect(preview.preview.cashDifferenceTotal).toBe("26");
+    expect(preview.preview.missingDepositCount).toBe(1);
+    expect(preview.preview.missingDepositTotal).toBe("5");
     expect(preview.preview.roundingCount).toBe(1);
     expect(openDecisions(preview.preview, EMPTY_DECISIONS)).toEqual([]);
 
@@ -528,7 +536,6 @@ describe("robust cash pairing and rounding fixture (story 2-7)", () => {
       ["SELL", D, "0.0008", "50", "0.04", "0", "0"],
     ]);
     expect(rows.filter((row) => row.type === "TAX").reverse().map((row) => [row.date, row.tax, row.security?.isin ?? null])).toEqual([
-      ["2024-01-10", "-5", A],
       ["2024-02-10", "22", A],
       ["2024-03-01", "2", A],
       ["2024-04-01", "2", null],
@@ -654,5 +661,67 @@ describe("file without Cash rows", () => {
     expect(await recordOpeningBalance({ ...base, depotId: "nope" }, db())).toEqual({ ok: false, reason: "depot-not-found" });
     expect((await archiveDepot(depotId, db())).ok).toBe(true);
     expect(await recordOpeningBalance(base, db())).toEqual({ ok: false, reason: "depot-archived" });
+  });
+});
+
+describe("missing deposits and fee-aware gains fixture (story 2-8)", () => {
+  const A = "DE000SYNCA09";
+  const B = "DE000SYNCB08";
+  const C = "DE000SYNCC07";
+
+  it("books the contribution and funding as DEPOSITs, explains the cash and fee-only gain differences", async () => {
+    const depotId = await depot();
+    const preview = await previewParqetMigration(depotId, MISSING_DEPOSITS, db());
+    if (!preview.ok) throw new Error(preview.reason);
+    expect(preview.preview.flagged).toEqual([]);
+    // Contribution 100 before the 2024-02-01 Sell, funding 42 before Buy C.
+    expect(preview.preview.missingDepositCount).toBe(2);
+    expect(preview.preview.missingDepositTotal).toBe("142");
+    expect(preview.preview.fundingCount).toBe(1);
+    expect(preview.preview.cashDifferenceCount).toBe(1);
+    expect(preview.preview.cashDifferenceTotal).toBe("20");
+
+    const summary = ok(await confirmParqetMigration(depotId, MISSING_DEPOSITS, EMPTY_DECISIONS, db()));
+    const positions = await listPositions(depotId, "2024-05-02", db());
+    expect(Object.fromEntries(positions.map((p) => [p.security.isin, [p.quantity, p.costBasis]]))).toEqual({
+      [A]: ["5", "501"],
+      [B]: ["5", "300"],
+    });
+
+    const rows = (await listTransactions(depotId, db())).sort((a, b) =>
+      a.date !== b.date ? (a.date < b.date ? -1 : 1) : a.sequence - b.sequence,
+    );
+    expect(rows.some((row) => row.type === "TAX" && row.tax.startsWith("-"))).toBe(false);
+    expect(rows.filter((row) => row.date === "2024-02-01").map((row) => [row.type, row.amount, row.security?.isin ?? null])).toEqual([
+      ["DEPOSIT", "100", null],
+      ["SELL", "220", A],
+      ["BUY", "300", B],
+    ]);
+    let balance = new ExactDecimal(0);
+    for (const row of rows) {
+      balance = balance.plus(cashEffect(row));
+      expect(balance.isNegative()).toBe(false);
+    }
+    expect(canonicalDecimal(balance)).toBe("420");
+
+    const comparison = summary.comparison!;
+    expect(comparison.positions.some((p) => p.mismatch)).toBe(false);
+    expect(comparison.investedCapital).toEqual({ ledger: "801", file: "801", mismatch: false });
+    expect(comparison.cash).toEqual({ ledger: "420", file: "378", mismatch: false, explained: "missing-deposits" });
+    expect(summary.funding).toEqual({ count: 1, total: "42" });
+    expect(summary.openingBalance).toEqual({ date: "2024-05-02", asOf: "2024-05-02", ledgerBalance: "420" });
+    expect(comparison.sales.map((sale) => [sale.securityKey, sale.gain])).toEqual([
+      [A, { ledger: "18.6", file: "20", mismatch: false, explained: "fees" }],
+      [A, { ledger: "58.4", file: "60", mismatch: false, explained: "fees" }],
+      [C, { ledger: "20", file: "30", mismatch: true }],
+    ]);
+  });
+
+  it("keeps the cash a mismatch when the ledger differs beyond the funding total", async () => {
+    const depotId = await depot();
+    expect((await recordTransaction({ depotId, type: "DEPOSIT", date: "2024-01-01", amount: "10" }, db())).ok).toBe(true);
+    const summary = ok(await confirmParqetMigration(depotId, MISSING_DEPOSITS, EMPTY_DECISIONS, db()));
+    expect(summary.comparison!.cash).toEqual({ ledger: "430", file: "378", mismatch: true });
+    expect(summary.funding).toEqual({ count: 1, total: "42" });
   });
 });

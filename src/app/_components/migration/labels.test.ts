@@ -7,6 +7,9 @@ import {
   CLASSIFICATION_OPTIONS,
   comparisonStatus,
   confirmFailureMessage,
+  explainedStatus,
+  missingDepositNote,
+  missingDepositsCashNote,
   countRows,
   fundingNote,
   openDecisionsLabel,
@@ -30,8 +33,19 @@ describe("migration labels", () => {
   });
 
   it("announces cash differences booked as TAX with their total, in singular and plural", () => {
-    expect(cashDifferenceNote(1, "-5")).toBe("1 Kontodifferenz wird als Steuer gebucht (Summe -5,00\u00a0€)");
-    expect(cashDifferenceNote(4, "17")).toBe("4 Kontodifferenzen werden als Steuer gebucht (Summe 17,00\u00a0€)");
+    expect(cashDifferenceNote(1, "5")).toBe("1 Kontodifferenz als Steuer gebucht (Summe 5,00\u00a0€)");
+    expect(cashDifferenceNote(4, "17")).toBe("4 Kontodifferenzen als Steuer gebucht (Summe 17,00\u00a0€)");
+  });
+
+  it("announces missing deposits in the preview and the summary, in singular and plural", () => {
+    expect(missingDepositNote(1, "5")).toBe("1 fehlende Einzahlung ergänzt (Summe 5,00\u00a0€)");
+    expect(missingDepositNote(2, "142")).toBe("2 fehlende Einzahlungen ergänzt (Summe 142,00\u00a0€)");
+    expect(missingDepositsCashNote(1, "42")).toBe(
+      "Parqet fehlen Einzahlungen: 1 zur Deckung ergänzte Einzahlung (Summe 42,00\u00a0€) ist im Parqet-Saldo nicht enthalten.",
+    );
+    expect(missingDepositsCashNote(3, "1234.5")).toBe(
+      "Parqet fehlen Einzahlungen: 3 zur Deckung ergänzte Einzahlungen (Summe 1.234,50\u00a0€) sind im Parqet-Saldo nicht enthalten.",
+    );
   });
 
   it("announces balanced rounding remainders in singular and plural", () => {
@@ -173,6 +187,8 @@ describe("migration confirm labels", () => {
     ).toBe("2024-07-03T06:00:00.000Z · TransferIn · Security · IE00B4L5Y983 · Welt ETF · Stück 3 · Kurs 0 · Betrag 300 · EUR");
     expect(comparisonStatus(true)).toBe("Abweichung");
     expect(comparisonStatus(false)).toBe("gleich");
+    expect(explainedStatus("fees")).toBe("Gebühren");
+    expect(explainedStatus("missing-deposits")).toBe("fehlende Einzahlungen");
   });
 
   it("explains the opening booking", () => {

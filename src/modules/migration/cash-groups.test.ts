@@ -15,9 +15,23 @@ const B = "DE000SYNCB08";
 const C = "DE000SYNCC07";
 
 describe("reconcileCashGroup", () => {
-  it("books an omitted fee as a TAX refund of the BUY's Security", () => {
+  it("books an omitted fee as a DEPOSIT, never a negative TAX", () => {
     const buy = trade({ name: "buy", type: "BUY", amount: "1000", fee: "5", securityKey: A });
-    expect(reconcileCashGroup([buy], [{ direction: "out", amount: "1000" }])).toEqual({ kind: "tax", tax: "-5", securityKey: A });
+    expect(reconcileCashGroup([buy], [{ direction: "out", amount: "1000" }])).toEqual({ kind: "deposit", amount: "5" });
+  });
+
+  it("books a contribution invested in a rebalancing instant as one DEPOSIT", () => {
+    const trades = [
+      trade({ name: "a", type: "SELL", amount: "220", fee: "1", securityKey: A }),
+      trade({ name: "b", type: "BUY", amount: "300", securityKey: B }),
+    ];
+    expect(reconcileCashGroup(trades, [{ direction: "in", amount: "19" }])).toEqual({ kind: "deposit", amount: "100" });
+  });
+
+  it("aligns a group difference of exactly 0.01", () => {
+    const sell = trade({ name: "sell", type: "SELL", amount: "100", securityKey: A });
+    expect(reconcileCashGroup([sell], [{ direction: "in", amount: "100.01" }])).toEqual({ kind: "align", trade: sell.trade, effect: "100.01" });
+    expect(reconcileCashGroup([sell], [{ direction: "in", amount: "99.99" }])).toEqual({ kind: "align", trade: sell.trade, effect: "99.99" });
   });
 
   it("books withheld tax on a SELL as TAX", () => {
@@ -69,8 +83,9 @@ describe("reconcileCashGroup", () => {
       trade({ name: "a1", type: "BUY", amount: "100", securityKey: A }),
       trade({ name: "a2", type: "BUY", amount: "50", securityKey: A }),
     ];
-    expect(reconcileCashGroup(trades, [{ direction: "out", amount: "140" }])).toEqual({ kind: "tax", tax: "-10", securityKey: A });
+    expect(reconcileCashGroup(trades, [{ direction: "out", amount: "160" }])).toEqual({ kind: "tax", tax: "10", securityKey: A });
     const keyless = [trade({ name: "t", type: "TAX", amount: "0", tax: "5", securityKey: null })];
-    expect(reconcileCashGroup(keyless, [{ direction: "out", amount: "3" }])).toEqual({ kind: "tax", tax: "-2", securityKey: null });
+    expect(reconcileCashGroup(keyless, [{ direction: "out", amount: "7" }])).toEqual({ kind: "tax", tax: "2", securityKey: null });
+    expect(reconcileCashGroup(keyless, [{ direction: "out", amount: "3" }])).toEqual({ kind: "deposit", amount: "2" });
   });
 });

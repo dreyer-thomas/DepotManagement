@@ -5,8 +5,12 @@
  * - `difference = Σ derived cash effects − Σ signed cash rows` (in +, out −).
  * - |difference| ≤ €0.01: the trade with the largest |effect| (ties: first given, i.e. chronologically
  *   first) is aligned so the set's derived total equals the cash rows.
- * - Otherwise one standalone TAX of `tax = difference` (negative = refund) closes the gap; its cash effect
- *   `−tax` makes derived + (−difference) = cash. The trades stay unchanged.
+ * - difference > €0.01 (outflow side: the cash rows show more going out / less coming in than the trades):
+ *   one standalone TAX of positive `tax = difference` closes the gap; its cash effect `−tax` makes
+ *   derived − difference = cash.
+ * - difference < −€0.01 (inflow side, story 2.8: e.g. a savings contribution invested directly): one DEPOSIT
+ *   of `amount = −difference` closes the gap (derived + amount = cash). Never a negative TAX.
+ * The trades stay unchanged.
  */
 import { canonicalDecimal, ExactDecimal } from "@/core/decimal";
 
@@ -19,10 +23,12 @@ export type GroupCash = { direction: "in" | "out"; amount: string };
 export type GroupReconciliation<T> =
   /** Within tolerance: `trade` must get the cash effect `effect` (equal to its current effect when the group matches). */
   | { kind: "align"; trade: T; effect: string }
-  /** Above tolerance: one TAX of signed `tax`, for `securityKey` when all trades share one Security. */
-  | { kind: "tax"; tax: string; securityKey: string | null };
+  /** Outflow side above tolerance: one TAX of positive `tax`, for `securityKey` when all trades share one Security. */
+  | { kind: "tax"; tax: string; securityKey: string | null }
+  /** Inflow side above tolerance: one DEPOSIT of positive `amount`. */
+  | { kind: "deposit"; amount: string };
 
-/** Group differences within this tolerance are aligned instead of booked as TAX. */
+/** Group differences within this tolerance are aligned instead of booked as TAX or DEPOSIT. */
 export const GROUP_TOLERANCE = "0.01";
 
 /** Reconciles the leftover trades (chronological order, at least one) with the instant's unused cash rows. */
@@ -46,6 +52,8 @@ export function reconcileCashGroup<T>(
     }
     return { kind: "align", trade: largest.trade, effect: canonicalDecimal(new ExactDecimal(largest.effect).minus(difference)) };
   }
+
+  if (difference.isNegative()) return { kind: "deposit", amount: canonicalDecimal(difference.negated()) };
 
   const keys = new Set(trades.map((trade) => trade.securityKey));
   const [only] = keys;

@@ -34,6 +34,7 @@ import {
   confirmFailureMessage,
   countRows,
   fundingNote,
+  missingDepositNote,
   openDecisionsLabel,
   previewFailureMessage,
   roundingNote,
@@ -119,6 +120,11 @@ export function ParqetPreviewView({ preview, classification }: { preview: Parqet
         <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
           Rundung angeglichen: {preview.adjustedCount}
         </Typography>
+      ) : null}
+      {preview.missingDepositCount > 0 ? (
+        <Alert severity="info" sx={{ mt: 1 }}>
+          {missingDepositNote(preview.missingDepositCount, preview.missingDepositTotal)}
+        </Alert>
       ) : null}
       {preview.cashDifferenceCount > 0 ? (
         <Alert severity="info" sx={{ mt: 1 }}>

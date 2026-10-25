@@ -51,7 +51,7 @@ describe("previewParqetMigration", () => {
 
     expect(preview.depot).toEqual({ id: target.id, name: "Hauptdepot" });
     expect(preview.exportDate).toBe("2024-07-04");
-    expect(preview.counts).toEqual({ BUY: 5, SELL: 1, DIVIDEND: 1, TAX: 2, DEPOSIT: 2, WITHDRAWAL: 1 });
+    expect(preview.counts).toEqual({ BUY: 5, SELL: 1, DIVIDEND: 1, TAX: 1, DEPOSIT: 3, WITHDRAWAL: 1 });
     expect(preview.adjustedCount).toBe(1);
     expect(preview.splits).toEqual([]);
     expect(preview.isinChanges).toEqual([expect.objectContaining({ oldKey: "DE0007164600", recorded: false })]);
@@ -61,9 +61,11 @@ describe("previewParqetMigration", () => {
     expect(preview.duplicates).toEqual([]);
     expect(preview.hasCashRows).toBe(true);
     expect(preview.fundingCount).toBe(0);
-    // Records 4-5: BUY 99 + fee 1 against a cash row of 90 → the BUY as in Parqet plus a TAX refund of 10.
-    expect(preview.cashDifferenceCount).toBe(1);
-    expect(preview.cashDifferenceTotal).toBe("-10");
+    // Records 4-5: BUY 99 + fee 1 against a cash row of 90 → the BUY as in Parqet plus a missing DEPOSIT of 10.
+    expect(preview.cashDifferenceCount).toBe(0);
+    expect(preview.cashDifferenceTotal).toBe("0");
+    expect(preview.missingDepositCount).toBe(1);
+    expect(preview.missingDepositTotal).toBe("10");
     expect(preview.roundingCount).toBe(0);
     expect(preview.flagged[0].rows[0]).toMatchObject({ type: "Buy", assettype: "Cash" });
     expect(preview.flagged.map((flag) => flag.reason)).toEqual([
@@ -125,6 +127,31 @@ describe("previewParqetMigration", () => {
     expect(result.preview.fundingCount).toBe(0);
     expect(result.preview.counts.DEPOSIT).toBe(0);
     expect(result.preview.figures?.cashBalance).toBe("25");
+  });
+
+  it("counts funding as missing deposits only when the file has Cash rows", async () => {
+    const target = await depot();
+    const header = "datetime;price;shares;amount;tax;fee;realizedgains;type;assettype;identifier;currency;holdingname";
+    const buy = "2024-04-01T09:00:00.000Z;100;4;400;0;0;;Buy;Security;DE000SYNCC07;EUR;Synth C";
+    const cashless = await previewParqetMigration(target.id, [header, buy].join("\n"), testDb.client);
+    if (!cashless.ok) throw new Error(cashless.reason);
+    expect(cashless.preview).toMatchObject({ fundingCount: 1, missingDepositCount: 0, missingDepositTotal: "0" });
+
+    const withCash = [
+      header,
+      buy,
+      "2024-04-01T09:00:00.000Z;;;400;0;0;;TransferOut;Cash;;EUR;",
+      "2024-01-02T09:00:00.000Z;;;358;0;0;;TransferIn;Cash;;EUR;",
+    ].join("\n");
+    const result = await previewParqetMigration(target.id, withCash, testDb.client);
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.preview).toMatchObject({
+      hasCashRows: true,
+      fundingCount: 1,
+      missingDepositCount: 1,
+      missingDepositTotal: "42",
+      cashDifferenceCount: 0,
+    });
   });
 
   it("refuses an unknown or archived Depot", async () => {

@@ -98,9 +98,10 @@ describe("listRealizedSales", () => {
 
     // 12 sold: 10 × 100 + 5 fee, then 2 of the 5 (2 × 120 + 2 × 2/5 fee) → cost 1245.8; proceeds 1557.
     expect(await listRealizedSales(depotId, TODAY, db())).toEqual([
-      { securityId: appleId, date: "2026-03-10", sequence: 1, gain: "311.2" },
-      // Remaining 3 units (cost 361.2) became 6; sold for 420.
-      { securityId: newId, date: "2026-05-01", sequence: 1, gain: "58.8" },
+      // Fees: sell fee 3 + buy fee 5 + 2/5 of buy fee 2.
+      { securityId: appleId, date: "2026-03-10", sequence: 1, gain: "311.2", fees: "8.8" },
+      // Remaining 3 units (cost 361.2) became 6; sold for 420. Fees: 3/5 of buy fee 2.
+      { securityId: newId, date: "2026-05-01", sequence: 1, gain: "58.8", fees: "1.2" },
     ]);
     expect(await listRealizedSales(depotId, "2026-04-30", db())).toHaveLength(1);
   });

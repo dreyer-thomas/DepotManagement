@@ -1,6 +1,6 @@
 /**
- * Funding for cash-less Parqet exports (AD-6/AD-14): the minimal same-day deposits that keep the Cash
- * Account from going negative. Pure, decimal strings only.
+ * Funding for Parqet exports (AD-6/AD-14; every export since story 2.8): the minimal same-day deposits
+ * that keep the Cash Account from going negative. Pure, decimal strings only.
  */
 import { cashEffect, type CashRow } from "./cash";
 import { canonicalDecimal, ExactDecimal } from "./decimal";

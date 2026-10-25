@@ -52,13 +52,16 @@ export type TransactionProposal = {
    */
   delivery?: "buy" | "deposit";
   /**
-   * Set on a funding DEPOSIT of a cash-less export (no Cash rows): the minimal same-day inflow that keeps the
-   * Cash Account from going negative before the proposal directly after it (whose `records` it shares).
+   * Set on a funding DEPOSIT (every export, with or without Cash rows; story 2.8): the minimal same-day inflow
+   * that keeps the Cash Account from going negative before the proposal directly after it (whose `records` it
+   * shares).
    */
   funding?: true;
   /**
-   * Set on the standalone TAX that books the difference between an instant's trades and its Cash rows
-   * (above €0.01): `tax` = derived cash effect − cash rows; sequenced directly after those trades.
+   * Set on the proposal that books the difference between an instant's trades and its Cash rows (above
+   * €0.01), with `records` = the group's trade and cash records. Outflow side: a standalone TAX of positive
+   * `tax` = derived cash effect − cash rows, sequenced directly after those trades. Inflow side (story 2.8):
+   * a DEPOSIT of `amount` = cash rows − derived cash effect, sequenced directly before them.
    */
   cashDifference?: true;
 };
@@ -436,8 +439,9 @@ function alignToEffect(trade: Trade, target: Decimal, effect: Decimal): void {
 }
 
 /**
- * Cash-less export: inserts a funding DEPOSIT (core `fundingShortfalls`) directly before each proposal that
- * would push the Cash Account below zero, then re-sequences all proposals 1..n.
+ * Every export (story 2.8; cash-less ones since 2.6): inserts a funding DEPOSIT (core `fundingShortfalls`)
+ * directly before each proposal that would push the Cash Account below zero, then re-sequences all
+ * proposals 1..n.
  */
 function withFunding(proposals: TransactionProposal[]): TransactionProposal[] {
   const funding = new Map(fundingShortfalls(proposals).map(({ row, amount }) => [row, amount]));
@@ -566,8 +570,10 @@ export function readParqetCsv(text: string): ParqetReadResult {
 
   // Phase 2 (story 2.7): per instant without a flagged trade row, the unpaired trades with a non-zero cash
   // effect and the unused cash rows are reconciled together: within €0.01 the largest trade is aligned,
-  // above it one standalone TAX books the difference. The trades keep Parqet's figures.
+  // above it one standalone TAX (outflow side) or DEPOSIT (inflow side, story 2.8) books the difference.
+  // The trades keep Parqet's figures.
   const cashDifferences: { at: Placement; proposal: Omit<TransactionProposal, "sequence"> }[] = [];
+  const missingDeposits: { at: Placement; proposal: Omit<TransactionProposal, "sequence"> }[] = [];
   const leftovers = new Map<number, { trades: Trade[]; cash: CashRow[] }>();
   const groupAt = (instant: number) => {
     let group = leftovers.get(instant);
@@ -592,6 +598,27 @@ export function readParqetCsv(text: string): ParqetReadResult {
       result.trade.cashRecords.push(...cashRecords);
       continue;
     }
+    const records = [...group.trades.map((trade) => trade.record), ...cashRecords].sort((a, b) => a - b);
+    if (result.kind === "deposit") {
+      const first = group.trades[0];
+      missingDeposits.push({
+        at: first,
+        proposal: {
+          type: "DEPOSIT",
+          date: first.date,
+          securityKey: null,
+          quantity: null,
+          price: null,
+          amount: result.amount,
+          fee: "0",
+          tax: "0",
+          realizedGain: null,
+          records,
+          cashDifference: true,
+        },
+      });
+      continue;
+    }
     const last = group.trades[group.trades.length - 1];
     cashDifferences.push({
       at: last,
@@ -605,7 +632,7 @@ export function readParqetCsv(text: string): ParqetReadResult {
         fee: "0",
         tax: result.tax,
         realizedGain: null,
-        records: [...group.trades.map((trade) => trade.record), ...cashRecords].sort((a, b) => a - b),
+        records,
         cashDifference: true,
       },
     });
@@ -669,7 +696,9 @@ export function readParqetCsv(text: string): ParqetReadResult {
   }
 
   // Each proposal keeps where it sits in time until it is ordered.
-  const pending: { at: Placement; proposal: Omit<TransactionProposal, "sequence"> }[] = [];
+  // Pushed before the trades: the stable sort keeps each contribution DEPOSIT directly before its group's
+  // first trade.
+  const pending: { at: Placement; proposal: Omit<TransactionProposal, "sequence"> }[] = [...missingDeposits];
   for (const trade of trades) {
     const proposal: Omit<TransactionProposal, "sequence"> = {
       type: trade.type,
@@ -762,7 +791,7 @@ export function readParqetCsv(text: string): ParqetReadResult {
       })),
     },
   );
-  const proposals = cashRows.length === 0 ? withFunding(sequenced) : sequenced;
+  const proposals = withFunding(sequenced);
 
   const splits: SplitProposal[] = splitPlacements.map(({ date, key, oldQuantity, newQuantity, ratioOld, ratioNew, records }) => ({
     date,

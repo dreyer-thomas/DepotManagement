@@ -24,6 +24,10 @@ const FIXTURE = readFileSync(resolve(__dirname, "../../../../test/fixtures/parqe
 const NO_CASH = readFileSync(resolve(__dirname, "../../../../test/fixtures/parqet/synthetic-export-no-cash.csv.txt"), "utf8");
 const CASHLESS = readFileSync(resolve(__dirname, "../../../../test/fixtures/parqet/synthetic-export-cashless.csv.txt"), "utf8");
 const HANDS_OFF = readFileSync(resolve(__dirname, "../../../../test/fixtures/parqet/synthetic-export-hands-off.csv.txt"), "utf8");
+const MISSING_DEPOSITS = readFileSync(
+  resolve(__dirname, "../../../../test/fixtures/parqet/synthetic-export-missing-deposits.csv.txt"),
+  "utf8",
+);
 
 const DECIDED: MigrationDecisions = EMPTY_DECISIONS;
 
@@ -33,6 +37,9 @@ let preview: ParqetPreview;
 let rerun: ParqetPreview;
 let summary: MigrationSummary;
 let noCashSummary: MigrationSummary;
+/** Preview and summary of the missing-deposits fixture (story 2-8) into an empty Depot. */
+let missingPreview: ParqetPreview;
+let missingSummary: MigrationSummary;
 /** Preview of the hands-off fixture into an empty Depot. */
 let handsOff: ParqetPreview;
 /** Previews of files without Cash rows into an empty Depot (1 and 3 funding DEPOSITs). */
@@ -70,6 +77,14 @@ beforeAll(async () => {
   );
   if (!noCash.ok) throw new Error(noCash.reason);
   noCashSummary = noCash.summary;
+  const missingDepot = await createDepot({ name: "Sparplandepot", broker: "FINANZEN_ZERO" }, testDb.client);
+  if (!missingDepot.ok) throw new Error("setup failed");
+  const missingFresh = await previewParqetMigration(missingDepot.depot.id, MISSING_DEPOSITS, testDb.client);
+  if (!missingFresh.ok) throw new Error(missingFresh.reason);
+  missingPreview = missingFresh.preview;
+  const missing = await confirmParqetMigration(missingDepot.depot.id, MISSING_DEPOSITS, EMPTY_DECISIONS, testDb.client);
+  if (!missing.ok) throw new Error(missing.reason);
+  missingSummary = missing.summary;
 });
 
 afterAll(async () => {
@@ -82,9 +97,10 @@ describe("ParqetPreviewView", () => {
     expect(text).toContain("Vorschau – Hauptdepot, Stand 04.07.2024");
     expect(text).toContain("Es wurde noch nichts gebucht.");
     expect(text).toContain("Rundung angeglichen: 1");
-    expect(text).toContain("1 Kontodifferenz wird als Steuer gebucht (Summe -10,00\u00a0€)");
+    expect(text).toContain("1 fehlende Einzahlung ergänzt (Summe 10,00\u00a0€)");
+    expect(text).not.toContain("Kontodifferenz");
     expect(text).not.toContain("Rundungsre");
-    expect(text).toContain("Kauf 5 Verkauf 1 Dividende 1 Steuer 2 Einzahlung 2 Auszahlung 1");
+    expect(text).toContain("Kauf 5 Verkauf 1 Dividende 1 Steuer 1 Einzahlung 3 Auszahlung 1");
     expect(text).toContain("Keine Splits erkannt.");
     expect(text).toContain(
       "02.05.2024: Altname Software SE (DE0007164600) → Neuname Software SE (DE000SYN0013), 12,00345678 : 6,00172839",
@@ -122,15 +138,32 @@ describe("ParqetPreviewView", () => {
     const plural = renderText(
       <ParqetPreviewView preview={{ ...preview, cashDifferenceCount: 4, cashDifferenceTotal: "21", roundingCount: 2 }} />,
     );
-    expect(plural).toContain("4 Kontodifferenzen werden als Steuer gebucht (Summe 21,00\u00a0€)");
+    expect(plural).toContain("4 Kontodifferenzen als Steuer gebucht (Summe 21,00\u00a0€)");
     expect(plural).toContain("2 Rundungsreste ausgeglichen");
     const singular = renderText(<ParqetPreviewView preview={{ ...preview, roundingCount: 1 }} />);
     expect(singular).toContain("1 Rundungsrest ausgeglichen");
     const none = renderText(
-      <ParqetPreviewView preview={{ ...preview, cashDifferenceCount: 0, cashDifferenceTotal: "0", roundingCount: 0 }} />,
+      <ParqetPreviewView
+        preview={{
+          ...preview,
+          cashDifferenceCount: 0,
+          cashDifferenceTotal: "0",
+          missingDepositCount: 0,
+          missingDepositTotal: "0",
+          roundingCount: 0,
+        }}
+      />,
     );
     expect(none).not.toContain("Kontodifferenz");
+    expect(none).not.toContain("fehlende Einzahlung");
     expect(none).not.toContain("Rundungsre");
+  });
+
+  it("announces missing deposits separately from cash differences booked as TAX", () => {
+    const text = renderText(<ParqetPreviewView preview={missingPreview} />);
+    expect(text).toContain("2 fehlende Einzahlungen ergänzt (Summe 142,00\u00a0€)");
+    expect(text).toContain("1 Kontodifferenz als Steuer gebucht (Summe 20,00\u00a0€)");
+    expect(text).not.toContain("Export ohne Kontobewegungen");
   });
 
   it("preselects each new Security's estimated type, or its override", () => {
@@ -263,6 +296,17 @@ describe("ParqetSummaryView", () => {
     expect(text).toContain("Keine Abweichung über 0,01 €.");
     expect(text).not.toMatch(/€ Abweichung/);
     expect(text).not.toContain("Nicht übernommen");
+  });
+
+  it("labels fee-only gain differences and deposits Parqet lacks instead of reporting a difference", () => {
+    const text = renderText(<ParqetSummaryView summary={missingSummary} />);
+    expect(text).toContain("Verrechnungskonto 420,00\u00a0€ 378,00\u00a0€ fehlende Einzahlungen");
+    expect(text).toContain("Parqet fehlen Einzahlungen: 1 zur Deckung ergänzte Einzahlung (Summe 42,00\u00a0€) ist im Parqet-Saldo nicht enthalten.");
+    expect(text).toContain("01.02.2024 Synthetik Alpha AG 18,60\u00a0€ 20,00\u00a0€ Gebühren");
+    expect(text).toContain("01.03.2024 Synthetik Alpha AG 58,40\u00a0€ 60,00\u00a0€ Gebühren");
+    expect(text).toContain("02.05.2024 Synthetik Gamma AG 20,00\u00a0€ 30,00\u00a0€ Abweichung");
+    expect(text).toContain("1 × Abweichung über 0,01 €");
+    expect(text).toContain("Eröffnungsbuchung");
   });
 });
 

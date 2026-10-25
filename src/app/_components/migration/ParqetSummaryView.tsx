@@ -13,7 +13,7 @@ import type { ReactNode } from "react";
 import { DepotLink } from "@/app/_components/depots/DepotLink";
 import { formatDate, formatMoney, formatQuantity } from "@/core/format";
 import type { Figure, MigrationSummary } from "@/modules/migration";
-import { comparisonStatus, skippedFlagLabel } from "./labels";
+import { comparisonStatus, explainedStatus, missingDepositsCashNote, skippedFlagLabel } from "./labels";
 import { OpeningBalanceForm } from "./OpeningBalanceForm";
 
 const NUMERIC = { fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" } as const;
@@ -22,12 +22,12 @@ function Scroll({ children }: { children: ReactNode }) {
   return <Box sx={{ overflowX: "auto" }}>{children}</Box>;
 }
 
-/** "Abweichung" with an icon, or "gleich" — never color alone. */
-function Status({ mismatch }: { mismatch: boolean }) {
+/** "Abweichung" with an icon, or "gleich" / an explained difference ("Gebühren") — never color alone. */
+function Status({ mismatch, explained }: { mismatch: boolean; explained?: Figure["explained"] }) {
   if (!mismatch) {
     return (
       <Typography variant="body2" component="span" color="text.secondary">
-        {comparisonStatus(false)}
+        {explained ? explainedStatus(explained) : comparisonStatus(false)}
       </Typography>
     );
   }
@@ -52,7 +52,7 @@ function FigureRow({ label, figure, format }: { label: string; figure: Figure; f
         {format(figure.file)}
       </TableCell>
       <TableCell>
-        <Status mismatch={figure.mismatch} />
+        <Status mismatch={figure.mismatch} explained={figure.explained} />
       </TableCell>
     </TableRow>
   );
@@ -173,6 +173,11 @@ export function ParqetSummaryView({ summary }: { summary: MigrationSummary }) {
               </Table>
             </Scroll>
           </Box>
+          {comparison.cash && summary.funding.count > 0 ? (
+            <Alert severity="info" sx={{ mt: 2 }}>
+              {missingDepositsCashNote(summary.funding.count, summary.funding.total)}
+            </Alert>
+          ) : null}
           {comparison.cash ? null : (
             <Alert severity="info" sx={{ mt: 2 }}>
               Verrechnungskonto nicht abgeglichen: Die Datei enthält keine Barbuchungen.

@@ -1,4 +1,5 @@
 import { prisma } from "@/db";
+import { saleFees, saleKey } from "@/core/fee-attribution";
 import { fifo } from "@/core/fifo";
 import { computePositions, type Position } from "@/core/positions";
 import type { PriceObservation } from "@/core/prices";
@@ -59,12 +60,16 @@ export async function listPositions(depotId: string, today: string, db: LedgerDb
   return positions.map(({ securityId, ...position }) => ({ ...position, security: byId.get(securityId)! }));
 }
 
-/** One realized SELL of a Depot (computed on read): its ledger position and FIFO gain (gross, tax excluded). */
-export type RealizedSaleRecord = { securityId: string; date: string; sequence: number; gain: string };
+/**
+ * One realized SELL of a Depot (computed on read): its ledger position, FIFO gain (gross, tax excluded) and
+ * the fees that gain deducts (sell fee plus the consumed share of buy fees, `core/fee-attribution`).
+ */
+export type RealizedSaleRecord = { securityId: string; date: string; sequence: number; gain: string; fees: string };
 
 /**
- * The Depot's SELLs dated on or before `asOf` with their FIFO realized gain (`core/fifo`, replayed with
- * every recorded corporate action as of `asOf`), ordered by `(date, sequence)`. Read-only.
+ * The Depot's SELLs dated on or before `asOf` with their FIFO realized gain and attributable fees
+ * (`core/fifo`, replayed with every recorded corporate action as of `asOf`), ordered by `(date, sequence)`.
+ * Read-only.
  */
 export async function listRealizedSales(depotId: string, asOf: string, db: LedgerDb = prisma): Promise<RealizedSaleRecord[]> {
   const rows = await db.transaction.findMany({
@@ -73,7 +78,16 @@ export async function listRealizedSales(depotId: string, asOf: string, db: Ledge
   });
   if (rows.length === 0) return [];
   const actions = await loadCorporateActions(db);
+  const fees = saleFees(rows, asOf, actions);
   return fifo(rows, asOf, actions)
-    .flatMap(({ securityId, sales }) => sales.map((sale) => ({ securityId, date: sale.date, sequence: sale.sequence, gain: sale.gain })))
+    .flatMap(({ securityId, sales }) =>
+      sales.map((sale) => ({
+        securityId,
+        date: sale.date,
+        sequence: sale.sequence,
+        gain: sale.gain,
+        fees: fees.get(saleKey(sale.date, sale.sequence)) ?? "0",
+      })),
+    )
     .sort((a, b) => (a.date !== b.date ? (a.date < b.date ? -1 : 1) : a.sequence - b.sequence));
 }
