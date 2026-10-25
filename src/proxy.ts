@@ -27,7 +27,15 @@ export async function proxy(request: NextRequest) {
   if (token !== undefined) {
     loginUrl.searchParams.set("expired", "1");
   }
-  const response = NextResponse.redirect(loginUrl);
+  // Server actions: the client's action fetch follows a 3xx as a re-POST to /login, where the
+  // action is not registered. Answer with Next's own action-redirect contract instead; without
+  // RSC content the client hard-navigates to the login URL.
+  const response = request.method === "POST" && request.headers.has("next-action")
+    ? new NextResponse(null, {
+        status: 200,
+        headers: { "x-action-redirect": `${loginUrl.pathname}${loginUrl.search};replace` },
+      })
+    : NextResponse.redirect(loginUrl);
   if (token !== undefined) {
     response.cookies.delete(SESSION_COOKIE);
   }

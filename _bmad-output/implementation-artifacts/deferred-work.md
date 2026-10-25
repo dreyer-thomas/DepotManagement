@@ -3,7 +3,9 @@ origin: spec-deferred 07c043545a5b
 location: src/proxy.ts:28
 source_spec: `spec-1-2-single-user-login.md`
 reason: Verified: POST /depots with a Next-Action header and no cookie returns 307 to /login?next=%2Fdepots (next start). Unverified: what the Next 16 client does with that 307 for a server action. Settle by letting the session expire in a browser, clicking "Abmelden" (or any later action), and observing whether the login page appears or an "unexpected response" error is thrown; if broken, answer action requests (Next-Action header) with a response the client can follow, plus a test.
-status: open
+status: done 2026-10-25
+resolution: resolved by sweep bundle dw-server-action-expired-session
+resolution-undo: 3b76023f2b0b0b2d631daef50add2aec1251c6c0e559bcb7c89d6a6a2aecc0d1 2026-10-25 7374617475733a206f70656e
 
 ### DW-2: The "Neue Buchung" form may lose some entered values after an error, if React 19's automatic form reset after an action also affects the MUI Select or Autocomplete inputs.
 origin: spec-deferred 45744b75451b
