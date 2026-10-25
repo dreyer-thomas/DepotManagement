@@ -1,10 +1,17 @@
 /**
- * Batch write (AD-3, AD-16): ensures Securities and books Transactions and ISIN changes in the given
+ * Batch write (AD-3, AD-16): ensures Securities and books Transactions, splits and ISIN changes in the given
  * order through the ledger's single write path, inside ONE DB transaction. The first failing item aborts
  * and rolls back everything. Used by the Parqet migration (story 2.4).
  */
 import { prisma } from "@/db";
-import { type IsinChangeRecord, type IsinChangeResult, recordIsinChange } from "./corporate-actions";
+import {
+  type IsinChangeRecord,
+  type IsinChangeResult,
+  recordIsinChange,
+  recordSplit,
+  type SplitRecord,
+  type SplitResult,
+} from "./corporate-actions";
 import type { LedgerDb } from "./depots";
 import {
   ensureSecurity,
@@ -44,7 +51,16 @@ export type BatchIsinChangeEntry = {
   newQuantity: string;
 };
 
-export type BatchEntry = BatchTransactionEntry | BatchIsinChangeEntry;
+/** A stock split of one of the batch's Securities; `ratio` is `old:new` text (e.g. `1:4`). */
+export type BatchSplitEntry = {
+  kind: "split";
+  ref: string;
+  securityRef: string;
+  date: string;
+  ratio: string;
+};
+
+export type BatchEntry = BatchTransactionEntry | BatchIsinChangeEntry | BatchSplitEntry;
 
 export type RecordBatchInput = { depotId: string; securities: BatchSecurity[]; entries: BatchEntry[] };
 
@@ -54,7 +70,8 @@ export type BatchFailure =
   | { ok: false; reason: "security-ref-unknown" }
   | Extract<SecurityResult, { ok: false }>
   | Extract<RecordTransactionResult, { ok: false }>
-  | Extract<IsinChangeResult, { ok: false }>;
+  | Extract<IsinChangeResult, { ok: false }>
+  | Extract<SplitResult, { ok: false }>;
 
 export type RecordBatchResult =
   | {
@@ -62,6 +79,7 @@ export type RecordBatchResult =
       securities: Record<string, SecuritySummary>;
       transactions: Record<string, TransactionRecord>;
       isinChanges: Record<string, IsinChangeRecord>;
+      splits: Record<string, SplitRecord>;
     }
   /** `ref` is the failing Security's or entry's ref, `"depot"` for a Depot failure. */
   | { ok: false; ref: string; failure: BatchFailure };
@@ -95,6 +113,7 @@ async function apply(input: RecordBatchInput, tx: LedgerDb) {
 
   const transactions: Record<string, TransactionRecord> = {};
   const isinChanges: Record<string, IsinChangeRecord> = {};
+  const splits: Record<string, SplitRecord> = {};
   for (const entry of input.entries) {
     if (entry.kind === "transaction") {
       const result = await recordTransaction(
@@ -107,6 +126,13 @@ async function apply(input: RecordBatchInput, tx: LedgerDb) {
       );
       if (!result.ok) throw new BatchAbort(entry.ref, result);
       transactions[entry.ref] = result.transaction;
+    } else if (entry.kind === "split") {
+      const result = await recordSplit(
+        { securityId: idOf(entry.ref, entry.securityRef), date: entry.date, ratio: entry.ratio },
+        tx,
+      );
+      if (!result.ok) throw new BatchAbort(entry.ref, result);
+      splits[entry.ref] = result.split;
     } else {
       const result = await recordIsinChange(
         {
@@ -122,12 +148,12 @@ async function apply(input: RecordBatchInput, tx: LedgerDb) {
       isinChanges[entry.ref] = result.isinChange;
     }
   }
-  return { ok: true as const, securities, transactions, isinChanges };
+  return { ok: true as const, securities, transactions, isinChanges, splits };
 }
 
 /**
  * Ensures `securities` (idempotent `ensureSecurity`), then books `entries` in the given order into
- * Depot `depotId` via `recordTransaction` / `recordIsinChange` (the ledger assigns sequences, appended
+ * Depot `depotId` via `recordTransaction` / `recordSplit` / `recordIsinChange` (the ledger assigns sequences, appended
  * per date). All in one DB transaction with a long timeout: the first failing item aborts and rolls back
  * everything and is returned by its `ref`. Duplicate handling is the entry's `allowDuplicate`. Called with
  * a transaction client, it runs inside it and a failure throws so the caller's transaction rolls back.

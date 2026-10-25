@@ -1,9 +1,12 @@
 /**
  * Parqet CSV reader (FR-15; AD-6, AD-7, AD-8, AD-14, AD-16). Pure: `(text) → result`, no DB, no clock,
- * no I/O. Turns one Parqet export into chronological AD-14 Transaction proposals, ISIN-change proposals,
- * the Securities they reference and the rows that must not be booked (flagged, with reason).
+ * no I/O. Turns one Parqet export into chronological AD-14 Transaction proposals (including deliveries),
+ * split and ISIN-change proposals, the Securities they reference (with an estimated asset type) and the
+ * rows that are not booked by default (flagged, with reason).
  */
+import { classifySecurityName } from "@/core/asset-type";
 import { cashEffect } from "@/core/cash";
+import { parseSplitRatio } from "@/core/corporate-actions";
 import { businessDate, isBusinessDate } from "@/core/dates";
 import { canonicalDecimal, ExactDecimal } from "@/core/decimal";
 import { parseDecimalInput } from "@/core/decimal-input";
@@ -35,6 +38,22 @@ export type TransactionProposal = {
   originalTax?: string;
   /** CSV record numbers (header = 1) this proposal came from, ascending. */
   records: number[];
+  /**
+   * Set on the two halves of a delivery (an unpaired Security `TransferIn`): the BUY at Parqet's cost and
+   * the same-day DEPOSIT (WITHDRAWAL if the cost is negative) that keeps the Cash Account unchanged.
+   */
+  delivery?: "buy" | "deposit";
+};
+
+/** A same-instant `TransferOut`/`TransferIn` pair of one Security: a split `ratioOld:ratioNew` (AD-7). */
+export type SplitProposal = {
+  date: string;
+  key: string;
+  oldQuantity: string;
+  newQuantity: string;
+  ratioOld: string;
+  ratioNew: string;
+  records: number[];
 };
 
 export type IsinChangeProposal = {
@@ -51,7 +70,8 @@ export type ParqetSecurity = {
   isin: string | null;
   cryptoSymbol: string | null;
   name: string;
-  proposedAssetType: "UNCLASSIFIED" | "CRYPTO";
+  /** CRYPTO for `Crypto` rows, else the name classifier's estimate. */
+  proposedAssetType: "STOCK" | "ETF" | "FUND" | "CERTIFICATE" | "CRYPTO";
 };
 
 export const FLAG_REASONS = [
@@ -59,6 +79,7 @@ export const FLAG_REASONS = [
   "non-eur",
   "unsupported-row",
   "unpaired-security-transfer",
+  "unsupported-split",
   "cash-pair-mismatch",
 ] as const;
 export type FlagReason = (typeof FLAG_REASONS)[number];
@@ -93,12 +114,13 @@ export type ParqetReadResult =
   | {
       ok: true;
       proposals: TransactionProposal[];
+      splits: SplitProposal[];
       isinChanges: IsinChangeProposal[];
       securities: ParqetSecurity[];
       flagged: FlaggedRow[];
       /** True when the file has at least one parsed Cash Account row (TransferIn/TransferOut on `Cash`). */
       hasCashRows: boolean;
-      /** Latest business date among Transaction and ISIN-change proposals (else among all parsed dates); `null` without any. */
+      /** Latest business date among Transaction, split and ISIN-change proposals (else among all parsed dates); `null` without any. */
       exportDate: string | null;
     }
   | { ok: false; reason: "empty-file" }
@@ -142,7 +164,15 @@ type Trade = Placement & {
 
 type Direction = "in" | "out";
 type CashRow = Placement & { direction: Direction; amount: string };
-type Transfer = Placement & { direction: Direction; key: string; shares: string };
+type Transfer = Placement & {
+  direction: Direction;
+  key: string;
+  shares: string;
+  price: string;
+  amount: string;
+  fee: string;
+  tax: string;
+};
 type Named = { key: string; name: string; instant: number; position: number };
 
 type Parsed =
@@ -258,7 +288,16 @@ function parseRecord(
     } else if (type === "transferin" || type === "transferout") {
       result = {
         kind: "transfer",
-        row: { ...placement, direction: type === "transferin" ? "in" : "out", key: key!, shares: quantity() },
+        row: {
+          ...placement,
+          direction: type === "transferin" ? "in" : "out",
+          key: key!,
+          shares: quantity(),
+          price: number("price", { required: false }),
+          amount: number("amount", { required: false }),
+          fee: number("fee", { required: false }),
+          tax: number("tax", { required: false, absolute: false }),
+        },
       };
     } else if (type === "cost") {
       const amount = number("amount", { required: false });
@@ -323,6 +362,22 @@ function parseRecord(
     }
     throw error;
   }
+}
+
+const QUANTITY_SCALE = 10n ** BigInt(QUANTITY_MAX_DECIMALS);
+
+function gcd(a: bigint, b: bigint): bigint {
+  while (b !== 0n) [a, b] = [b, a % b];
+  return a;
+}
+
+/** Split ratio `old:new` of two quantities (≤ 8 decimals) in lowest terms; `null` when the ledger cannot store it. */
+export function splitRatio(oldQuantity: string, newQuantity: string): { ratioOld: string; ratioNew: string } | null {
+  const scaled = (value: string) => BigInt(new ExactDecimal(value).times(QUANTITY_SCALE.toString()).toFixed(0));
+  const [old, current] = [scaled(oldQuantity), scaled(newQuantity)];
+  if (old <= 0n || current <= 0n) return null;
+  const divisor = gcd(old, current);
+  return parseSplitRatio(`${old / divisor}:${current / divisor}`);
 }
 
 function effectOf(trade: Trade): Decimal {
@@ -449,6 +504,63 @@ export function readParqetCsv(text: string): ParqetReadResult {
     flag.records = [...flag.records, cash.record].sort((a, b) => a - b);
   }
 
+  // Security transfers per instant (AD-7): (a) per Security, TransferOut and TransferIn pair (file order)
+  // into a split; (b) of the rest, exactly one out + one in of different Securities is an ISIN change;
+  // (c) every remaining TransferIn is a delivery; (d) every remaining TransferOut is flagged.
+  const byInstant = new Map<number, Transfer[]>();
+  for (const transfer of transfers) {
+    const group = byInstant.get(transfer.instant);
+    if (group) group.push(transfer);
+    else byInstant.set(transfer.instant, [transfer]);
+  }
+  const splitPlacements: (SplitProposal & Placement)[] = [];
+  const changes: (IsinChangeProposal & Placement)[] = [];
+  const deliveries: Transfer[] = [];
+  for (const group of byInstant.values()) {
+    group.sort((a, b) => a.position - b.position);
+    const paired = new Set<Transfer>();
+    const keys = [...new Set(group.map((transfer) => transfer.key))];
+    for (const key of keys) {
+      const out = group.filter((transfer) => transfer.key === key && transfer.direction === "out");
+      const into = group.filter((transfer) => transfer.key === key && transfer.direction === "in");
+      for (let index = 0; index < Math.min(out.length, into.length); index += 1) {
+        const [before, after] = [out[index], into[index]];
+        paired.add(before);
+        paired.add(after);
+        const records = [before.record, after.record].sort((a, b) => a - b);
+        const ratio = splitRatio(before.shares, after.shares);
+        if (!ratio) {
+          flagged.push({ records, reason: "unsupported-split" });
+          continue;
+        }
+        splitPlacements.push({
+          ...before,
+          key,
+          oldQuantity: before.shares,
+          newQuantity: after.shares,
+          ...ratio,
+          records,
+        });
+      }
+    }
+    const rest = group.filter((transfer) => !paired.has(transfer));
+    const out = rest.filter((transfer) => transfer.direction === "out");
+    const into = rest.filter((transfer) => transfer.direction === "in");
+    if (out.length === 1 && into.length === 1 && out[0].key !== into[0].key) {
+      changes.push({
+        ...out[0],
+        oldKey: out[0].key,
+        newKey: into[0].key,
+        oldQuantity: out[0].shares,
+        newQuantity: into[0].shares,
+        records: [out[0].record, into[0].record].sort((a, b) => a - b),
+      });
+      continue;
+    }
+    deliveries.push(...into);
+    for (const transfer of out) flagged.push({ records: [transfer.record], reason: "unpaired-security-transfer" });
+  }
+
   // Each proposal keeps where it sits in time until it is ordered.
   const pending: { at: Placement; proposal: Omit<TransactionProposal, "sequence"> }[] = [];
   for (const trade of trades) {
@@ -487,37 +599,58 @@ export function readParqetCsv(text: string): ParqetReadResult {
       },
     });
   }
+  // A delivery: the cash inflow (amount + fee + tax, so the BUY leaves the Cash Account unchanged), then
+  // the BUY at Parqet's cost. Same placement: the stable sort keeps DEPOSIT before BUY.
+  for (const delivery of deliveries) {
+    const cost = new ExactDecimal(delivery.amount).plus(delivery.fee).plus(delivery.tax);
+    if (!cost.isZero()) {
+      pending.push({
+        at: delivery,
+        proposal: {
+          type: cost.isNegative() ? "WITHDRAWAL" : "DEPOSIT",
+          date: delivery.date,
+          securityKey: null,
+          quantity: null,
+          price: null,
+          amount: canonicalDecimal(cost.abs()),
+          fee: "0",
+          tax: "0",
+          realizedGain: null,
+          records: [delivery.record],
+          delivery: "deposit",
+        },
+      });
+    }
+    pending.push({
+      at: delivery,
+      proposal: {
+        type: "BUY",
+        date: delivery.date,
+        securityKey: delivery.key,
+        quantity: delivery.shares,
+        price: delivery.price,
+        amount: delivery.amount,
+        fee: delivery.fee,
+        tax: delivery.tax,
+        realizedGain: null,
+        records: [delivery.record],
+        delivery: "buy",
+      },
+    });
+  }
   pending.sort((a, b) => compareChronological(a.at, b.at));
   const proposals: TransactionProposal[] = pending.map(({ proposal }, index) => ({ ...proposal, sequence: index + 1 }));
 
-  // Security transfers: exactly one TransferOut + one TransferIn of different Securities at the same
-  // instant is an ISIN change; anything else at that instant is flagged (AD-7).
-  const byDatetime = new Map<number, Transfer[]>();
-  for (const transfer of transfers) {
-    const group = byDatetime.get(transfer.instant);
-    if (group) group.push(transfer);
-    else byDatetime.set(transfer.instant, [transfer]);
-  }
-  const changes: (IsinChangeProposal & Placement)[] = [];
-  for (const group of byDatetime.values()) {
-    const out = group.filter((transfer) => transfer.direction === "out");
-    const into = group.filter((transfer) => transfer.direction === "in");
-    if (out.length === 1 && into.length === 1 && out[0].key !== into[0].key) {
-      changes.push({
-        ...out[0],
-        oldKey: out[0].key,
-        newKey: into[0].key,
-        oldQuantity: out[0].shares,
-        newQuantity: into[0].shares,
-        records: [out[0].record, into[0].record].sort((a, b) => a - b),
-      });
-    } else {
-      flagged.push({
-        records: group.map((transfer) => transfer.record).sort((a, b) => a - b),
-        reason: "unpaired-security-transfer",
-      });
-    }
-  }
+  splitPlacements.sort(compareChronological);
+  const splits: SplitProposal[] = splitPlacements.map(({ date, key, oldQuantity, newQuantity, ratioOld, ratioNew, records }) => ({
+    date,
+    key,
+    oldQuantity,
+    newQuantity,
+    ratioOld,
+    ratioNew,
+    records,
+  }));
   changes.sort(compareChronological);
   const isinChanges: IsinChangeProposal[] = changes.map(({ date, oldKey, newKey, oldQuantity, newQuantity, records }) => ({
     date,
@@ -531,9 +664,10 @@ export function readParqetCsv(text: string): ParqetReadResult {
   flagged.sort((a, b) => a.records[0] - b.records[0]);
   const flaggedRows: FlaggedRow[] = flagged.map((flag) => ({ ...flag, rows: flag.records.map(rawOf) }));
 
-  // Securities referenced by proposals and ISIN changes; name from the newest row that has one.
+  // Securities referenced by proposals, splits and ISIN changes; name from the newest row that has one.
   const keys = new Set<string>();
   for (const proposal of proposals) if (proposal.securityKey) keys.add(proposal.securityKey);
+  for (const split of splits) keys.add(split.key);
   for (const change of isinChanges) {
     keys.add(change.oldKey);
     keys.add(change.newKey);
@@ -548,12 +682,13 @@ export function readParqetCsv(text: string): ParqetReadResult {
   }
   const securities: ParqetSecurity[] = [...keys].sort().map((key) => {
     const crypto = !isinSchema.safeParse(key).success;
+    const name = newestName.get(key)?.name ?? key;
     return {
       key,
       isin: crypto ? null : key,
       cryptoSymbol: crypto ? key : null,
-      name: newestName.get(key)?.name ?? key,
-      proposedAssetType: crypto ? "CRYPTO" : "UNCLASSIFIED",
+      name,
+      proposedAssetType: crypto ? "CRYPTO" : classifySecurityName(name),
     };
   });
 
@@ -562,8 +697,12 @@ export function readParqetCsv(text: string): ParqetReadResult {
     for (const value of values) if (max === null || value > max) max = value;
     return max;
   };
-  const proposedDates = [...proposals.map((proposal) => proposal.date), ...isinChanges.map((change) => change.date)];
+  const proposedDates = [
+    ...proposals.map((proposal) => proposal.date),
+    ...splits.map((split) => split.date),
+    ...isinChanges.map((change) => change.date),
+  ];
   const exportDate = proposedDates.length > 0 ? latest(proposedDates) : latest(dates);
 
-  return { ok: true, proposals, isinChanges, securities, flagged: flaggedRows, hasCashRows: cashRows.length > 0, exportDate };
+  return { ok: true, proposals, splits, isinChanges, securities, flagged: flaggedRows, hasCashRows: cashRows.length > 0, exportDate };
 }

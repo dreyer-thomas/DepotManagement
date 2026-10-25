@@ -23,12 +23,13 @@ export function transactionTypeLabel(type: TransactionType): string {
 export const ASSET_TYPE_LABELS: Record<AssetType, string> = {
   STOCK: "Aktie",
   ETF: "ETF",
+  FUND: "Fonds",
   CERTIFICATE: "Zertifikat",
   CRYPTO: "Krypto",
   UNCLASSIFIED: "Nicht zugeordnet",
 };
 
-export const NEW_SECURITY_ASSET_TYPES: AssetType[] = ["STOCK", "ETF", "CERTIFICATE", "CRYPTO"];
+export const NEW_SECURITY_ASSET_TYPES: AssetType[] = ["STOCK", "ETF", "FUND", "CERTIFICATE", "CRYPTO"];
 
 export type TransactionErrorReason = TransactionFailureReason | "unauthorized";
 
@@ -63,7 +64,7 @@ const MESSAGES: Record<MessageReason, string> = {
   "isin-invalid": "Bitte eine gültige ISIN eingeben.",
   "crypto-symbol-invalid": "Bitte ein gültiges Krypto-Symbol eingeben (bis 10 Buchstaben oder Ziffern).",
   "security-name-invalid": "Bitte einen Namen mit höchstens 100 Zeichen eingeben.",
-  "asset-type-invalid": "Bitte eine passende Art wählen: Krypto braucht ein Krypto-Symbol, Aktie, ETF und Zertifikat eine ISIN.",
+  "asset-type-invalid": "Bitte eine passende Art wählen: Krypto braucht ein Krypto-Symbol, Aktie, ETF, Fonds und Zertifikat eine ISIN.",
   "possible-duplicate": "Mögliche Doppelbuchung.",
   "transaction-not-found": "Buchung nicht gefunden.",
   unauthorized: "Sitzung abgelaufen. Bitte erneut anmelden.",

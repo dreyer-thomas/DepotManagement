@@ -18,7 +18,7 @@ vi.mock("next/headers", () => ({
 vi.mock("next/cache", () => ({ revalidatePath }));
 
 import { prisma } from "@/db";
-import { archiveDepot, createDepot, listTransactions } from "@/modules/ledger";
+import { archiveDepot, createDepot, listTransactions, recordTransaction } from "@/modules/ledger";
 import type { MigrationDecisions } from "@/modules/migration";
 import { confirmParqetAction, openingBalanceAction, previewParqetAction } from "./migration";
 
@@ -26,8 +26,8 @@ const FIXTURE = readFileSync(resolve(__dirname, "../../../test/fixtures/parqet/s
 const NO_CASH = readFileSync(resolve(__dirname, "../../../test/fixtures/parqet/synthetic-export-no-cash.csv.txt"), "utf8");
 
 const DECIDED: MigrationDecisions = {
-  classifications: { DE0007164600: "STOCK", DE000SYN0013: "ETF", US0378331005: "STOCK" },
-  flags: Object.fromEntries(["2", "3", "4-5", "6", "7", "8"].map((key) => [key, { action: "skip" as const }])),
+  classifications: { DE0007164600: "STOCK", DE000SYN0013: "ETF", US0378331005: "FUND" },
+  flags: Object.fromEntries(["2", "3", "4-5", "7", "8"].map((key) => [key, { action: "skip" as const }])),
   duplicates: {},
 };
 const SECRET = "test-secret-with-at-least-32-characters";
@@ -76,7 +76,7 @@ describe("previewParqetAction", () => {
     const result = await previewParqetAction(null, form({ depotId: id, file: csvFile(FIXTURE) }));
     if (!result?.ok) throw new Error(JSON.stringify(result));
     expect(result.preview.depot.name).toBe("Hauptdepot");
-    expect(result.preview.exportDate).toBe("2024-06-10");
+    expect(result.preview.exportDate).toBe("2024-07-03");
     expect(result.preview.figures?.cashBalance).toBe("9142.666322");
     expect(await prisma.security.count()).toBe(0);
     expect(await prisma.transaction.count()).toBe(0);
@@ -141,16 +141,19 @@ describe("confirmParqetAction", () => {
     const id = await depotId();
     const result = await confirmParqetAction(form({ depotId: id, file: csvFile(FIXTURE), decisions: JSON.stringify(DECIDED) }));
     if (!result.ok) throw new Error(JSON.stringify(result));
-    expect(result.summary.booked).toEqual({ transactions: 8, isinChanges: 1, securities: 4 });
-    expect(await listTransactions(id)).toHaveLength(8);
+    expect(result.summary.booked).toEqual({ transactions: 10, splits: 0, isinChanges: 1, securities: 5 });
+    const rows = await listTransactions(id);
+    expect(rows).toHaveLength(10);
+    expect(rows.find((row) => row.security?.isin === "US0378331005")?.security?.assetType).toBe("FUND");
     expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
   });
 
   it("returns decisions-open with the fresh preview, without revalidating", async () => {
     const id = await depotId();
-    const result = await confirmParqetAction(form({ depotId: id, file: csvFile(FIXTURE), decisions: JSON.stringify({ ...DECIDED, flags: {} }) }));
-    expect(result).toMatchObject({ ok: false, reason: "decisions-open" });
-    expect(await prisma.transaction.count()).toBe(0);
+    expect((await recordTransaction({ depotId: id, type: "DEPOSIT", date: "2024-01-02", amount: "10000" })).ok).toBe(true);
+    const result = await confirmParqetAction(form({ depotId: id, file: csvFile(FIXTURE), decisions: JSON.stringify(DECIDED) }));
+    expect(result).toMatchObject({ ok: false, reason: "decisions-open", open: [{ kind: "duplicate", key: "24" }] });
+    expect(await prisma.transaction.count()).toBe(1);
     expect(revalidatePath).not.toHaveBeenCalled();
   });
 

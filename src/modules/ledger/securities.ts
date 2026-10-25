@@ -9,7 +9,7 @@ export type { AssetType } from "@/db/generated/prisma/client";
 export const ASSET_TYPES = Object.values(AssetType) as [AssetType, ...AssetType[]];
 
 /** Asset types that are identified by an ISIN. */
-export const ISIN_ASSET_TYPES: readonly AssetType[] = ["STOCK", "ETF", "CERTIFICATE"];
+export const ISIN_ASSET_TYPES: readonly AssetType[] = ["STOCK", "ETF", "FUND", "CERTIFICATE"];
 
 export const SECURITY_NAME_MAX_LENGTH = 100;
 

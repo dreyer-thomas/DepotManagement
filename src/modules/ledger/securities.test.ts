@@ -37,6 +37,15 @@ describe("ensureSecurity", () => {
     expect(await listSecurities(db())).toHaveLength(1);
   });
 
+  it("creates a FUND Security identified by its ISIN", async () => {
+    const fund = await ensureSecurity({ isin: "LU000SYNF017" }, { name: "AB SICAV I", assetType: "FUND" }, db());
+    expect(fund.ok && fund.security).toMatchObject({ isin: "LU000SYNF017", assetType: "FUND" });
+    expect(await ensureSecurity({ cryptoSymbol: "XYZ" }, { name: "X", assetType: "FUND" }, db())).toEqual({
+      ok: false,
+      reason: "asset-type-invalid",
+    });
+  });
+
   it("upper-cases crypto symbols and requires CRYPTO", async () => {
     const result = await ensureSecurity({ cryptoSymbol: " btc " }, { name: "Bitcoin", assetType: "CRYPTO" }, db());
     expect(result.ok && result.security).toMatchObject({ cryptoSymbol: "BTC", isin: null, assetType: "CRYPTO" });

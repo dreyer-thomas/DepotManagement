@@ -3,7 +3,12 @@ import type {
   OpeningBalanceActionResult,
   PreviewParqetActionState,
 } from "@/app/_actions/migration";
-import { isinChangeErrorMessage, type IsinChangeErrorReason } from "@/app/_components/corporate-actions/labels";
+import {
+  isinChangeErrorMessage,
+  type IsinChangeErrorReason,
+  splitErrorMessage,
+  type SplitErrorReason,
+} from "@/app/_components/corporate-actions/labels";
 import {
   failureDetail,
   TRANSACTION_TYPE_LABELS,
@@ -52,10 +57,17 @@ export function flagReasonLabel(flag: Pick<FlaggedRow, "reason" | "detail">): st
     case "unsupported-row":
       return flag.detail ? `Nicht unterstützte Zeile (${flag.detail})` : "Nicht unterstützte Zeile";
     case "unpaired-security-transfer":
-      return "Wertpapier-Übertrag ohne passendes Gegenstück";
+      return "Ausgehender Wertpapier-Übertrag ohne passenden Eingang";
+    case "unsupported-split":
+      return "Split-Verhältnis nicht darstellbar";
     case "cash-pair-mismatch":
       return "Buchung und Barbuchung weichen um mehr als 0,01 € ab";
   }
+}
+
+/** A skipped flag in the summary: `Zeilen 4, 5: Keine Euro-Buchung (Währung USD)`. */
+export function skippedFlagLabel(flag: Pick<FlaggedRow, "records" | "reason" | "detail">): string {
+  return `${recordsLabel(flag.records)}: ${flagReasonLabel(flag)}`;
 }
 
 /** `Zeile 5` / `Zeilen 4, 5` (CSV record numbers, header = 1). */
@@ -79,6 +91,7 @@ export function countRows(counts: Record<ProposalType, number>): { type: Proposa
 const ASSET_TYPE_LABELS: Record<AssetType, string> = {
   STOCK: "Aktie",
   ETF: "ETF",
+  FUND: "Fonds",
   CERTIFICATE: "Zertifikat",
   CRYPTO: "Krypto",
   UNCLASSIFIED: "Typ unbekannt",
@@ -93,6 +106,7 @@ export function securityTypeLabel(assetType: AssetType): string {
 export const CLASSIFICATION_OPTIONS: { value: ClassificationType; label: string }[] = [
   { value: "STOCK", label: "Aktie" },
   { value: "ETF", label: "ETF" },
+  { value: "FUND", label: "Fonds" },
   { value: "CERTIFICATE", label: "Zertifikat" },
 ];
 
@@ -144,6 +158,8 @@ export function bookingItemLabel(item: BookingItem): string {
       return `Markierte ${recordsLabel(item.records)} (korrigiert als ${TRANSACTION_TYPE_LABELS[item.type]}${on(item.date)})`;
     case "isin-change":
       return `${recordsLabel(item.records)} (ISIN-Wechsel ${item.oldKey} → ${item.newKey}${on(item.date)})`;
+    case "split":
+      return `${recordsLabel(item.records)} (Split ${item.ratio} von ${item.securityKey}${on(item.date)})`;
   }
 }
 
@@ -168,6 +184,8 @@ export function bookingFailureMessage(item: BookingItem, failure: BookingFailure
   let reason: string;
   if (failure.reason === "security-ref-unknown") {
     reason = "Wertpapier fehlt.";
+  } else if (item.kind === "split") {
+    reason = splitErrorMessage(failure.reason as SplitErrorReason, failureDetail(failure));
   } else if (item.kind === "isin-change" || ISIN_CHANGE_ONLY_REASONS.has(failure.reason)) {
     reason = isinChangeErrorMessage(failure.reason as IsinChangeErrorReason, failureDetail(failure));
   } else {

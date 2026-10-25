@@ -7,7 +7,7 @@
  */
 import { prisma } from "@/db";
 import { cashBalance } from "@/core/cash";
-import type { IsinChange } from "@/core/corporate-actions";
+import type { IsinChange, Split } from "@/core/corporate-actions";
 import { canonicalDecimal, ExactDecimal } from "@/core/decimal";
 import { matchDuplicates } from "@/core/duplicates";
 import { computePositions } from "@/core/positions";
@@ -17,6 +17,7 @@ import {
   type LedgerDb,
   listIsinChanges,
   listSecurities,
+  listSplits,
   listTransactions,
   type SecuritySummary,
   type TransactionRecord,
@@ -29,6 +30,7 @@ import {
   type ParqetReadResult,
   type ProposalType,
   readParqetCsv,
+  type SplitProposal,
   type TransactionProposal,
 } from "./parqet-reader";
 
@@ -42,6 +44,8 @@ export type PreviewSecurity = {
   assetType: AssetType;
   /** True when the ISIN / crypto symbol is already in the ledger. */
   existing: boolean;
+  /** True for a new ISIN Security: its type is the name classifier's estimate (overridable). */
+  estimated: boolean;
 };
 
 export type PreviewPosition = { securityKey: string; name: string; quantity: string; costBasis: string };
@@ -65,6 +69,9 @@ export type PreviewDuplicate = {
 /** A detected ISIN change; `recorded` when its old Security already has an ISIN change on that date. */
 export type PreviewIsinChange = IsinChangeProposal & { recorded: boolean };
 
+/** A detected split; `recorded` when its Security already has a split of the same ratio on that date. */
+export type PreviewSplit = SplitProposal & { recorded: boolean };
+
 export type ParqetPreview = {
   depot: { id: string; name: string };
   /** `null` when the file has no datable row; then there are no figures. */
@@ -72,7 +79,10 @@ export type ParqetPreview = {
   counts: Record<ProposalType, number>;
   /** Proposals whose amount (or tax) was aligned to the cash row. */
   adjustedCount: number;
+  splits: PreviewSplit[];
   isinChanges: PreviewIsinChange[];
+  /** The BUY halves of deliveries (unpaired Security `TransferIn`), in proposal order. */
+  deliveries: TransactionProposal[];
   flagged: FlaggedRow[];
   securities: PreviewSecurity[];
   /** Proposals matching existing rows of the target Depot, in proposal order. */
@@ -146,7 +156,7 @@ function duplicatesOf(
 
 /**
  * Reads `text` for Depot `depotId` against the current ledger: Depot check, Security annotation,
- * duplicates of the Depot's rows, recorded ISIN changes and the file's figures. Read-only.
+ * duplicates of the Depot's rows, recorded splits and ISIN changes and the file's figures. Read-only.
  */
 export async function analyzeParqetExport(
   depotId: string,
@@ -175,6 +185,7 @@ export async function analyzeParqetExport(
         name: existing?.name ?? security.name,
         assetType: existing?.assetType ?? security.proposedAssetType,
         existing: existing !== undefined,
+        estimated: existing === undefined && security.cryptoSymbol === null,
       };
     })
     .sort((a, b) => a.name.localeCompare(b.name, "de-DE") || (a.key < b.key ? -1 : 1));
@@ -200,6 +211,21 @@ export async function analyzeParqetExport(
     return { ...change, recorded };
   });
 
+  const recordedSplits = await listSplits(db);
+  const splits: PreviewSplit[] = read.splits.map((split) => {
+    const security = stored.get(split.key);
+    const recorded =
+      security !== undefined &&
+      recordedSplits.some(
+        (r) =>
+          r.security.id === security.id &&
+          r.date === split.date &&
+          r.ratioOld === split.ratioOld &&
+          r.ratioNew === split.ratioNew,
+      );
+    return { ...split, recorded };
+  });
+
   const duplicates = duplicatesOf(depot.id, read.proposals, await listTransactions(depot.id, db), stored, coreChanges);
 
   let figures: PreviewFigures | null = null;
@@ -212,7 +238,13 @@ export async function analyzeParqetExport(
       oldQuantity: change.oldQuantity,
       newQuantity: change.newQuantity,
     }));
-    const positions = computePositions(rows, [], read.exportDate, { splits: [], isinChanges: fileChanges })
+    const fileSplits: Split[] = read.splits.map((split) => ({
+      securityId: split.key,
+      date: split.date,
+      ratioOld: split.ratioOld,
+      ratioNew: split.ratioNew,
+    }));
+    const positions = computePositions(rows, [], read.exportDate, { splits: fileSplits, isinChanges: fileChanges })
       .map((position) => ({
         securityKey: position.securityId,
         name: nameOf.get(position.securityId) ?? position.securityId,
@@ -238,7 +270,9 @@ export async function analyzeParqetExport(
         exportDate: read.exportDate,
         counts,
         adjustedCount,
+        splits,
         isinChanges,
+        deliveries: read.proposals.filter((proposal) => proposal.delivery === "buy"),
         flagged: read.flagged,
         securities,
         duplicates,

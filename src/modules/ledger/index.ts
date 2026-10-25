@@ -74,6 +74,7 @@ export type {
   BatchFailure,
   BatchIsinChangeEntry,
   BatchSecurity,
+  BatchSplitEntry,
   BatchTransactionEntry,
   RecordBatchInput,
   RecordBatchResult,

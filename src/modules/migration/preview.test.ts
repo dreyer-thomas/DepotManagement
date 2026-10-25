@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createTestDatabase, type TestDatabase } from "../../../test/helpers/test-db";
-import { archiveDepot, createDepot, ensureSecurity, recordIsinChange, recordTransaction } from "@/modules/ledger";
+import { archiveDepot, createDepot, ensureSecurity, recordIsinChange, recordSplit, recordTransaction } from "@/modules/ledger";
 import { previewParqetMigration } from "./preview";
 
 const FIXTURE = readFileSync(resolve(__dirname, "../../../test/fixtures/parqet/synthetic-export.csv.txt"), "utf8");
@@ -50,10 +50,14 @@ describe("previewParqetMigration", () => {
     const { preview } = result;
 
     expect(preview.depot).toEqual({ id: target.id, name: "Hauptdepot" });
-    expect(preview.exportDate).toBe("2024-06-10");
-    expect(preview.counts).toEqual({ BUY: 3, SELL: 1, DIVIDEND: 1, TAX: 1, DEPOSIT: 1, WITHDRAWAL: 1 });
+    expect(preview.exportDate).toBe("2024-07-03");
+    expect(preview.counts).toEqual({ BUY: 4, SELL: 1, DIVIDEND: 1, TAX: 1, DEPOSIT: 2, WITHDRAWAL: 1 });
     expect(preview.adjustedCount).toBe(1);
+    expect(preview.splits).toEqual([]);
     expect(preview.isinChanges).toEqual([expect.objectContaining({ oldKey: "DE0007164600", recorded: false })]);
+    expect(preview.deliveries).toEqual([
+      expect.objectContaining({ type: "BUY", securityKey: "IE00B4L5Y983", quantity: "3", amount: "300", delivery: "buy", records: [6] }),
+    ]);
     expect(preview.duplicates).toEqual([]);
     expect(preview.hasCashRows).toBe(true);
     expect(preview.flagged[0].rows[0]).toMatchObject({ type: "Buy", assettype: "Cash" });
@@ -61,23 +65,24 @@ describe("previewParqetMigration", () => {
       "unsupported-row",
       "unparseable",
       "cash-pair-mismatch",
-      "unpaired-security-transfer",
       "unparseable",
       "non-eur",
     ]);
-    expect(preview.securities.map((s) => [s.name, s.assetType, s.existing])).toEqual([
-      ["Altname Software SE", "UNCLASSIFIED", false],
-      ['Apfel "Tech" Inc.; Class A', "UNCLASSIFIED", false],
-      ["Bitcoin", "CRYPTO", false],
-      ["Neuname Software SE", "UNCLASSIFIED", false],
+    expect(preview.securities.map((s) => [s.name, s.assetType, s.existing, s.estimated])).toEqual([
+      ["Altname Software SE", "STOCK", false, true],
+      ['Apfel "Tech" Inc.; Class A', "STOCK", false, true],
+      ["Bitcoin", "CRYPTO", false, false],
+      ["Neuname Software SE", "STOCK", false, true],
+      ["Welt ETF", "ETF", false, true],
     ]);
     expect(preview.figures).toEqual({
       positions: [
         { securityKey: "US0378331005", name: 'Apfel "Tech" Inc.; Class A', quantity: "5", costBasis: "62.23" },
         { securityKey: "BTC", name: "Bitcoin", quantity: "0.00012345", costBasis: "4.938" },
         { securityKey: "DE000SYN0013", name: "Neuname Software SE", quantity: "6.00172839", costBasis: "1201.335678" },
+        { securityKey: "IE00B4L5Y983", name: "Welt ETF", quantity: "3", costBasis: "300" },
       ],
-      investedCapital: "1268.503678",
+      investedCapital: "1568.503678",
       cashBalance: "9142.666322",
     });
     // Plain, serialisable data.
@@ -99,6 +104,7 @@ describe("previewParqetMigration", () => {
       name: "Apple Inc.",
       assetType: "STOCK",
       existing: true,
+      estimated: false,
     });
     expect(result.preview.figures?.positions.find((p) => p.securityKey === "US0378331005")?.name).toBe("Apple Inc.");
   });
@@ -169,5 +175,36 @@ describe("previewParqetMigration — against the existing ledger", () => {
     const result = await previewParqetMigration(target.id, FIXTURE, testDb.client);
     if (!result.ok) throw new Error(result.reason);
     expect(result.preview.isinChanges[0].recorded).toBe(true);
+  });
+
+  it("lists file splits, applies them to the figures and marks one already recorded", async () => {
+    const target = await depot();
+    const text = [
+      "datetime;price;shares;amount;tax;fee;type;assettype;identifier;currency;holdingname",
+      "2024-06-01T00:00:00Z;;40;;;;TransferIn;Security;US0378331005;EUR;Apfel",
+      "2024-06-01T00:00:00Z;;10;;;;TransferOut;Security;US0378331005;EUR;Apfel",
+      "2024-05-06T09:00:00Z;40;10;400;0;0;Buy;Security;US0378331005;EUR;Apfel",
+    ].join("\n");
+    const fresh = await previewParqetMigration(target.id, text, testDb.client);
+    if (!fresh.ok) throw new Error(fresh.reason);
+    expect(fresh.preview.splits).toEqual([
+      { date: "2024-06-01", key: "US0378331005", oldQuantity: "10", newQuantity: "40", ratioOld: "1", ratioNew: "4", records: [2, 3], recorded: false },
+    ]);
+    expect(fresh.preview.figures?.positions).toEqual([
+      { securityKey: "US0378331005", name: "Apfel", quantity: "40", costBasis: "400" },
+    ]);
+
+    const apple = await ensureSecurity({ isin: "US0378331005" }, { name: "Apfel", assetType: "STOCK" }, testDb.client);
+    if (!apple.ok) throw new Error("setup failed");
+    expect((await recordSplit({ securityId: apple.security.id, date: "2024-06-01", ratio: "1:4" }, testDb.client)).ok).toBe(true);
+    const again = await previewParqetMigration(target.id, text, testDb.client);
+    if (!again.ok) throw new Error(again.reason);
+    expect(again.preview.splits[0].recorded).toBe(true);
+
+    // A recorded split of another ratio on that date is not this one: it is booked (and fails loudly).
+    const reverse = text.replace(";40;;;;TransferIn", ";5;;;;TransferIn");
+    const other = await previewParqetMigration(target.id, reverse, testDb.client);
+    if (!other.ok) throw new Error(other.reason);
+    expect(other.preview.splits[0]).toMatchObject({ ratioOld: "2", ratioNew: "1", recorded: false });
   });
 });

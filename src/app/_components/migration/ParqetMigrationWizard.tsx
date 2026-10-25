@@ -17,22 +17,23 @@ import Typography from "@mui/material/Typography";
 import { type FormEvent, type ReactNode, useState, useTransition } from "react";
 import { confirmParqetAction, previewParqetAction } from "@/app/_actions/migration";
 import { formatDate, formatMoney, formatQuantity } from "@/core/format";
-import type { MigrationSummary, ParqetPreview } from "@/modules/migration";
+import type { MigrationSummary, ParqetPreview, PreviewSecurity } from "@/modules/migration";
 import {
   carryDecisions,
+  type ClassificationType,
   EMPTY_DECISIONS,
   initialDecisions,
   type MigrationDecisions,
   openDecisions,
+  submittedDecisions,
 } from "@/modules/migration/decisions";
 import {
   ACTION_FAILED_MESSAGE,
+  CLASSIFICATION_OPTIONS,
   confirmFailureMessage,
   countRows,
-  flagReasonLabel,
   openDecisionsLabel,
   previewFailureMessage,
-  recordsLabel,
   securityTypeLabel,
 } from "./labels";
 import { ParqetDecisions } from "./ParqetDecisions";
@@ -59,8 +60,47 @@ function Scroll({ children }: { children: ReactNode }) {
   return <Box sx={{ overflowX: "auto" }}>{children}</Box>;
 }
 
-/** The read-only preview of a Parqet export (counts, ISIN changes, flags, Securities, figures). */
-export function ParqetPreviewView({ preview }: { preview: ParqetPreview }) {
+type Classification = {
+  decisions: MigrationDecisions;
+  onChange: (decisions: MigrationDecisions) => void;
+  disabled?: boolean;
+};
+
+/** A new ISIN Security's estimated type as an inline select (an override is a classification decision). */
+function TypeSelect({ security, classification }: { security: PreviewSecurity; classification?: Classification }) {
+  const value = classification?.decisions.classifications[security.key] ?? security.assetType;
+  return (
+    <TextField
+      select
+      size="small"
+      label="Art (geschätzt)"
+      value={value}
+      disabled={!classification || classification.disabled}
+      onChange={(event) => {
+        if (!classification) return;
+        const { decisions, onChange } = classification;
+        const rest = { ...decisions.classifications };
+        delete rest[security.key];
+        const next = event.target.value as ClassificationType;
+        onChange({ ...decisions, classifications: next === security.assetType ? rest : { ...rest, [security.key]: next } });
+      }}
+      slotProps={{ select: { native: true }, htmlInput: { "aria-label": `Art von ${security.name}` } }}
+      sx={{ minWidth: 160 }}
+    >
+      {CLASSIFICATION_OPTIONS.map((option) => (
+        <option key={option.value} value={option.value}>
+          {option.label}
+        </option>
+      ))}
+    </TextField>
+  );
+}
+
+/**
+ * The preview of a Parqet export (counts, splits, ISIN changes, deliveries, Securities, figures). Each
+ * new ISIN Security shows its estimated type as an inline select, editable with `classification`.
+ */
+export function ParqetPreviewView({ preview, classification }: { preview: ParqetPreview; classification?: Classification }) {
   const nameOf = new Map(preview.securities.map((security) => [security.key, security.name]));
   const securityLabel = (key: string) => `${nameOf.get(key) ?? key} (${key})`;
   const title = preview.exportDate
@@ -101,6 +141,26 @@ export function ParqetPreviewView({ preview }: { preview: ParqetPreview }) {
         </Scroll>
       </Section>
 
+      <Section id="parqet-splits" title="Splits">
+        {preview.splits.length === 0 ? (
+          <Typography variant="body2" color="text.secondary">
+            Keine Splits erkannt.
+          </Typography>
+        ) : (
+          <Box component="ul" sx={{ m: 0, pl: 2.5 }}>
+            {preview.splits.map((split) => (
+              <li key={split.records.join("-")}>
+                <Typography variant="body2" component="span" sx={{ fontVariantNumeric: "tabular-nums" }}>
+                  {formatDate(split.date)}: {securityLabel(split.key)}, Verhältnis {split.ratioOld}:{split.ratioNew} (
+                  {formatQuantity(split.oldQuantity)} → {formatQuantity(split.newQuantity)} Stück)
+                  {split.recorded ? " · bereits erfasst, wird nicht erneut gebucht" : ""}
+                </Typography>
+              </li>
+            ))}
+          </Box>
+        )}
+      </Section>
+
       <Section id="parqet-isin-changes" title="ISIN-Wechsel">
         {preview.isinChanges.length === 0 ? (
           <Typography variant="body2" color="text.secondary">
@@ -121,21 +181,23 @@ export function ParqetPreviewView({ preview }: { preview: ParqetPreview }) {
         )}
       </Section>
 
-      <Section id="parqet-flagged" title="Markierte Zeilen">
-        {preview.flagged.length === 0 ? (
+      <Section id="parqet-deliveries" title="Einlieferungen">
+        {preview.deliveries.length === 0 ? (
           <Typography variant="body2" color="text.secondary">
-            Keine markierten Zeilen.
+            Keine Einlieferungen erkannt.
           </Typography>
         ) : (
           <>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-              Diese Zeilen fließen in keine Zahl ein und werden nur gebucht, wenn du sie korrigierst.
+              Eingelieferte Wertpapiere werden als Kauf zu Parqets Einstand gebucht, mit einer gleich hohen Einzahlung am
+              selben Tag – das Verrechnungskonto bleibt unverändert.
             </Typography>
             <Box component="ul" sx={{ m: 0, pl: 2.5 }}>
-              {preview.flagged.map((flag) => (
-                <li key={flag.records.join("-")}>
-                  <Typography variant="body2" component="span">
-                    {recordsLabel(flag.records)} – {flagReasonLabel(flag)}
+              {preview.deliveries.map((delivery) => (
+                <li key={delivery.records.join("-")}>
+                  <Typography variant="body2" component="span" sx={{ fontVariantNumeric: "tabular-nums" }}>
+                    {formatDate(delivery.date)}: {securityLabel(delivery.securityKey ?? "")},{" "}
+                    {formatQuantity(delivery.quantity ?? "0")} Stück, {formatMoney(delivery.amount)}
                   </Typography>
                 </li>
               ))}
@@ -164,12 +226,16 @@ export function ParqetPreviewView({ preview }: { preview: ParqetPreview }) {
                     {security.existing ? " · bereits vorhanden" : ""}
                   </Typography>
                 </Box>
-                <Chip
-                  size="small"
-                  label={securityTypeLabel(security.assetType)}
-                  color={security.assetType === "UNCLASSIFIED" ? "warning" : "default"}
-                  variant="outlined"
-                />
+                {security.estimated ? (
+                  <TypeSelect security={security} classification={classification} />
+                ) : (
+                  <Chip
+                    size="small"
+                    label={securityTypeLabel(security.assetType)}
+                    color={security.assetType === "UNCLASSIFIED" ? "warning" : "default"}
+                    variant="outlined"
+                  />
+                )}
               </Box>
             ))}
           </Box>
@@ -237,10 +303,11 @@ export function ParqetPreviewView({ preview }: { preview: ParqetPreview }) {
 type Loaded = { preview: ParqetPreview; file: File; depotId: string };
 
 /**
- * "Aus Parqet übernehmen" wizard: pick a Parqet CSV and the target Depot, review the preview, decide the
- * open items, then "Übernehmen" re-sends the same file and Depot with the decisions; the summary compares
- * the booked ledger with Parqet. Server actions are called directly so preview, decisions and summary
- * live in one client state; nothing is written optimistically.
+ * "Aus Parqet übernehmen" wizard: pick a Parqet CSV and the target Depot, review the preview (optionally
+ * override estimated types, decide duplicates and flagged rows), then "Übernehmen" re-sends the same file
+ * and Depot with the decisions ("Alle wie in Parqet übernehmen": bookable flags as Parqet has them); the
+ * summary compares the booked ledger with Parqet. Server actions are called directly so preview,
+ * decisions and summary live in one client state; nothing is written optimistically.
  */
 export function ParqetMigrationWizard({ depots }: { depots: WizardDepot[] }) {
   const [depotId, setDepotId] = useState(depots[0]?.id ?? "");
@@ -292,12 +359,12 @@ export function ParqetMigrationWizard({ depots }: { depots: WizardDepot[] }) {
 
   const open = loaded ? openDecisions(loaded.preview, decisions) : [];
 
-  const confirm = () => {
+  const confirm = (asIs = false) => {
     if (!loaded || open.length > 0) return;
     const data = new FormData();
     data.set("file", loaded.file);
     data.set("depotId", loaded.depotId);
-    data.set("decisions", JSON.stringify(decisions));
+    data.set("decisions", JSON.stringify(submittedDecisions(loaded.preview, decisions, asIs)));
     startTransition(async () => {
       let result: Awaited<ReturnType<typeof confirmParqetAction>>;
       try {
@@ -384,9 +451,18 @@ export function ParqetMigrationWizard({ depots }: { depots: WizardDepot[] }) {
       ) : null}
       {loaded ? (
         <>
-          <ParqetPreviewView preview={loaded.preview} />
-          <ParqetDecisions preview={loaded.preview} decisions={decisions} onChange={changeDecisions} disabled={pending} />
-          <ConfirmBar openCount={open.length} pending={pending} onConfirm={confirm} />
+          <ParqetPreviewView
+            preview={loaded.preview}
+            classification={{ decisions, onChange: changeDecisions, disabled: pending }}
+          />
+          <ParqetDecisions
+            preview={loaded.preview}
+            decisions={decisions}
+            onChange={changeDecisions}
+            disabled={pending}
+            onConfirmAsIs={open.length > 0 || pending ? undefined : () => confirm(true)}
+          />
+          <ConfirmBar openCount={open.length} pending={pending} onConfirm={() => confirm()} />
         </>
       ) : null}
       {summary ? <ParqetSummaryView summary={summary} /> : null}
@@ -394,7 +470,7 @@ export function ParqetMigrationWizard({ depots }: { depots: WizardDepot[] }) {
   );
 }
 
-/** "Offene Entscheidungen: n" and "Übernehmen" (enabled only with none open and nothing pending). */
+/** "Offene Entscheidungen: n" (undecided duplicates) and "Übernehmen" (enabled only with none open and nothing pending). */
 export function ConfirmBar({ openCount, pending, onConfirm }: { openCount: number; pending: boolean; onConfirm: () => void }) {
   return (
     <Box sx={{ mt: 3, mb: 2, display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap" }}>

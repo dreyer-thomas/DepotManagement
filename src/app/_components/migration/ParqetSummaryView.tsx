@@ -13,7 +13,7 @@ import type { ReactNode } from "react";
 import { DepotLink } from "@/app/_components/depots/DepotLink";
 import { formatDate, formatMoney, formatQuantity } from "@/core/format";
 import type { Figure, MigrationSummary } from "@/modules/migration";
-import { comparisonStatus } from "./labels";
+import { comparisonStatus, skippedFlagLabel } from "./labels";
 import { OpeningBalanceForm } from "./OpeningBalanceForm";
 
 const NUMERIC = { fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" } as const;
@@ -88,10 +88,24 @@ export function ParqetSummaryView({ summary }: { summary: MigrationSummary }) {
         Übernommen – {summary.depot.name}
       </Typography>
       <Alert severity="success" role="status">
-        Gebucht: {booked.transactions} Buchungen, {booked.isinChanges} ISIN-Wechsel, {booked.securities} neue Wertpapiere.
-        Übersprungen: {skipped.duplicates} Doppelbuchungen, {skipped.flags} markierte Zeilen, {skipped.isinChanges} bereits
-        erfasste ISIN-Wechsel.
+        Gebucht: {booked.transactions} Buchungen, {booked.splits} Splits, {booked.isinChanges} ISIN-Wechsel,{" "}
+        {booked.securities} neue Wertpapiere. Übersprungen: {skipped.duplicates} Doppelbuchungen, {skipped.flags} nicht
+        übernommene Zeilen, {skipped.splits} bereits erfasste Splits, {skipped.isinChanges} bereits erfasste ISIN-Wechsel.
       </Alert>
+      {summary.skippedFlags.length > 0 ? (
+        <Box component="section" aria-labelledby="parqet-skipped-title" sx={{ mt: 2 }}>
+          <Typography id="parqet-skipped-title" component="h3" variant="subtitle1" sx={{ fontWeight: 600, mb: 0.5 }}>
+            Nicht übernommen ({summary.skippedFlags.length})
+          </Typography>
+          <Box component="ul" sx={{ m: 0, pl: 3 }}>
+            {summary.skippedFlags.map((flag) => (
+              <Typography key={flag.key} component="li" variant="body2">
+                {skippedFlagLabel(flag)}
+              </Typography>
+            ))}
+          </Box>
+        </Box>
+      ) : null}
       <Typography variant="body2" sx={{ mt: 1 }}>
         <DepotLink id={summary.depot.id}>Zum Depot {summary.depot.name}</DepotLink>
       </Typography>

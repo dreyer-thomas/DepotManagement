@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createTestDatabase, type TestDatabase } from "../../../test/helpers/test-db";
 import { type BatchEntry, type BatchSecurity, recordBatch } from "./batch";
-import { archiveDepot, createDepot, ensureSecurity, listIsinChanges, listTransactions } from "./index";
+import { archiveDepot, createDepot, ensureSecurity, listIsinChanges, listPositions, listSplits, listTransactions } from "./index";
 
 let testDb: TestDatabase;
 let depotId: string;
@@ -76,6 +76,43 @@ describe("recordBatch", () => {
     expect(result.isinChanges.i).toMatchObject({ date: "2024-02-01", oldQuantity: "12", newQuantity: "6" });
     expect(await listTransactions(depotId, db())).toHaveLength(4);
     expect(await listIsinChanges(db())).toHaveLength(1);
+  });
+
+  it("books splits via recordSplit, returning them by ref", async () => {
+    const result = await recordBatch(
+      {
+        depotId,
+        securities: SECURITIES,
+        entries: [
+          buy("b1", "2024-01-02"),
+          { kind: "split", ref: "sp", securityRef: "old", date: "2024-02-01", ratio: "1:4" },
+          { kind: "transaction", ref: "s", securityRef: "old", input: { type: "SELL", date: "2024-03-01", quantity: "40", price: "3" } },
+        ],
+      },
+      db(),
+    );
+    if (!result.ok) throw new Error(JSON.stringify(result));
+    expect(result.splits.sp).toMatchObject({ date: "2024-02-01", ratioOld: "1", ratioNew: "4" });
+    expect(result.splits.sp.security.isin).toBe(OLD);
+    expect(await listSplits(db())).toHaveLength(1);
+    expect(await listPositions(depotId, "2024-03-01", db())).toEqual([]);
+  });
+
+  it("rolls back and names a failing split", async () => {
+    const before = await counts();
+    const result = await recordBatch(
+      {
+        depotId,
+        securities: SECURITIES,
+        entries: [
+          buy("b1", "2024-01-02"),
+          { kind: "split", ref: "sp", securityRef: "old", date: "2024-02-01", ratio: "4:4" },
+        ],
+      },
+      db(),
+    );
+    expect(result).toEqual({ ok: false, ref: "sp", failure: { ok: false, reason: "ratio-invalid" } });
+    expect(await counts()).toEqual(before);
   });
 
   it("rolls everything back on the first failing entry and names it", async () => {

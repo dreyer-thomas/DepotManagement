@@ -51,7 +51,7 @@ describe("ISIN-change labels", () => {
     ["security-name-invalid", "Bitte einen Namen mit höchstens 100 Zeichen eingeben.", "securityName"],
     [
       "asset-type-invalid",
-      "Bitte eine passende Art wählen: Krypto braucht ein Krypto-Symbol, Aktie, ETF und Zertifikat eine ISIN.",
+      "Bitte eine passende Art wählen: Krypto braucht ein Krypto-Symbol, Aktie, ETF, Fonds und Zertifikat eine ISIN.",
       "assetType",
     ],
     ["unauthorized", "Sitzung abgelaufen. Bitte erneut anmelden.", undefined],

@@ -1,6 +1,6 @@
 // Parqet migration (FR-15): a pure CSV reader, a read-only preview and the confirmation, which books
 // through `ledger.recordBatch` (story 2.4).
-export { FLAG_REASONS, PROPOSAL_TYPES, RAW_COLUMNS, readParqetCsv, REQUIRED_COLUMNS } from "./parqet-reader";
+export { FLAG_REASONS, PROPOSAL_TYPES, RAW_COLUMNS, readParqetCsv, REQUIRED_COLUMNS, splitRatio } from "./parqet-reader";
 export type {
   FlaggedRow,
   RawColumn,
@@ -10,6 +10,7 @@ export type {
   ParqetReadResult,
   ParqetSecurity,
   ProposalType,
+  SplitProposal,
   TransactionProposal,
 } from "./parqet-reader";
 export { PARQET_MAX_FILE_BYTES } from "./limits";
@@ -25,8 +26,10 @@ export type {
   PreviewPosition,
   PreviewResult,
   PreviewSecurity,
+  PreviewSplit,
 } from "./preview";
 export {
+  bookableCorrection,
   carryDecisions,
   CLASSIFICATION_TYPES,
   CORRECTION_ASSET_TYPES,
@@ -36,8 +39,10 @@ export {
   EMPTY_DECISIONS,
   initialDecisions,
   itemKey,
-  needsClassification,
+  isClassifiable,
   openDecisions,
+  parqetAsIsDecisions,
+  submittedDecisions,
   SECURITY_CORRECTION_TYPES,
 } from "./decisions";
 export type {
@@ -61,4 +66,5 @@ export type {
   OpeningBalanceResult,
   PositionComparison,
   SaleComparison,
+  SkippedFlag,
 } from "./confirm";

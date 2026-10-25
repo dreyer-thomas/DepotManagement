@@ -3,6 +3,7 @@ import {
   ACTION_FAILED_MESSAGE,
   bookingFailureMessage,
   bookingItemLabel,
+  CLASSIFICATION_OPTIONS,
   comparisonStatus,
   confirmFailureMessage,
   countRows,
@@ -15,6 +16,7 @@ import {
   type PreviewFailureReason,
   recordsLabel,
   securityTypeLabel,
+  skippedFlagLabel,
 } from "./labels";
 
 describe("migration labels", () => {
@@ -41,7 +43,8 @@ describe("migration labels", () => {
     [{ reason: "non-eur", detail: "USD" }, "Keine Euro-Buchung (Währung USD)"],
     [{ reason: "non-eur", detail: "" }, "Keine Euro-Buchung (Währung leer)"],
     [{ reason: "unsupported-row", detail: "Buy/Cash" }, "Nicht unterstützte Zeile (Buy/Cash)"],
-    [{ reason: "unpaired-security-transfer" }, "Wertpapier-Übertrag ohne passendes Gegenstück"],
+    [{ reason: "unpaired-security-transfer" }, "Ausgehender Wertpapier-Übertrag ohne passenden Eingang"],
+    [{ reason: "unsupported-split" }, "Split-Verhältnis nicht darstellbar"],
     [{ reason: "cash-pair-mismatch" }, "Buchung und Barbuchung weichen um mehr als 0,01 € ab"],
   ] as const)("flag %j → %j", (flag, label) => {
     expect(flagReasonLabel(flag)).toBe(label);
@@ -67,6 +70,15 @@ describe("migration labels", () => {
     expect(securityTypeLabel("UNCLASSIFIED")).toBe("Typ unbekannt");
     expect(securityTypeLabel("CRYPTO")).toBe("Krypto");
     expect(securityTypeLabel("ETF")).toBe("ETF");
+    expect(securityTypeLabel("FUND")).toBe("Fonds");
+  });
+
+  it("offers every ISIN asset type, Fonds included, in selection order", () => {
+    expect(CLASSIFICATION_OPTIONS.map((option) => option.label)).toEqual(["Aktie", "ETF", "Fonds", "Zertifikat"]);
+  });
+
+  it("lists a skipped flag with its records and reason", () => {
+    expect(skippedFlagLabel({ records: [8], reason: "non-eur", detail: "USD" })).toBe("Zeile 8: Keine Euro-Buchung (Währung USD)");
   });
 });
 
@@ -84,6 +96,9 @@ describe("migration confirm labels", () => {
     expect(
       bookingItemLabel({ kind: "isin-change", key: "12-13", records: [12, 13], date: "2024-05-02", oldKey: "A", newKey: "B" }),
     ).toBe("Zeilen 12, 13 (ISIN-Wechsel A → B vom 02.05.2024)");
+    expect(
+      bookingItemLabel({ kind: "split", key: "4-5", records: [4, 5], date: "2021-06-01", securityKey: "A", ratio: "1:4" }),
+    ).toBe("Zeilen 4, 5 (Split 1:4 von A vom 01.06.2021)");
   });
 
   it("explains a booking failure with the ledger's message for that item", () => {
@@ -101,6 +116,11 @@ describe("migration confirm labels", () => {
       "Bitte eine gültige ISIN eingeben.",
     );
     expect(bookingFailureMessage({ kind: "depot" }, { ok: false, reason: "security-ref-unknown" })).toContain("Wertpapier fehlt.");
+    const split = { kind: "split", key: "4-5", records: [4, 5], date: "2021-06-01", securityKey: "A", ratio: "10:1" } as const;
+    expect(bookingFailureMessage(split, { ok: false, reason: "later-sell-exceeds-holding", date: "2024-07-01" })).toContain(
+      "Der Verkauf am 01.07.2024 würde den Bestand übersteigen.",
+    );
+    expect(bookingFailureMessage(split, { ok: false, reason: "split-exists" })).toContain("bereits ein Split erfasst");
   });
 
   it("explains confirm failures", () => {

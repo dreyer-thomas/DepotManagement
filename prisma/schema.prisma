@@ -30,6 +30,7 @@ model Depot {
 enum AssetType {
   STOCK
   ETF
+  FUND
   CERTIFICATE
   CRYPTO
   UNCLASSIFIED

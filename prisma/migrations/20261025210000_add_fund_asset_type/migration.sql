@@ -1,0 +1,3 @@
+-- Adds FUND (active mutual fund) to the AssetType enum (story 2-5, AD-16).
+-- SQLite stores Prisma enums as TEXT without a CHECK constraint, so the new value needs no schema
+-- change; `prisma migrate diff` yields an empty script. This migration only records the enum change.

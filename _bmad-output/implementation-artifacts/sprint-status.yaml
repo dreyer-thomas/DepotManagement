@@ -51,7 +51,7 @@ development_status:
   2-2-record-isin-changes: done
   2-3-parqet-export-preview: done
   2-4-confirm-migration-and-reconcile-with-parqet: backlog
-  2-5-hands-off-parqet-migration: backlog
+  2-5-hands-off-parqet-migration: done
   epic-2-retrospective: optional
 
   epic-3: backlog

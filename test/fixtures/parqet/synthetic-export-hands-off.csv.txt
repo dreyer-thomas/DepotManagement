@@ -1,0 +1,15 @@
+datetime;date;time;price;shares;amount;tax;fee;realizedgains;type;broker;assettype;identifier;wkn;originalcurrency;currency;fxrate;holding;holdingname;holdingnickname;exchange;avgholdingperiod;notes
+2022-06-01T09:00:00.000Z;01.06.2022;09:00;;;600;;;;TransferIn;;Cash;;;EUR;EUR;1;h-cash-0001;"Verrechnungskonto";;;;
+2022-06-01T09:00:00.000Z;01.06.2022;09:00;12;50;600;0;0;100;Sell;;Security;LU000SYNF033;;EUR;EUR;1;h-f3;"Fidelity Funds - USD Bond Fund";;;;
+2022-05-02T09:00:00.000Z;02.05.2022;09:00;;;599;;;;TransferIn;;Cash;;;EUR;EUR;1;h-cash-0001;"Verrechnungskonto";;;;
+2022-05-02T09:00:00.000Z;02.05.2022;09:00;30;20;600;0;1;98,5;Sell;;Security;DE000SYNS010;;EUR;EUR;1;h-s1;"Synthetik Maschinenbau AG";;;;
+2021-06-01T00:00:00.000Z;01.06.2021;00:00;0;40;0;0;0;;TransferIn;;Security;DE000SYNS010;;EUR;EUR;1;h-s1;"Synthetik Maschinenbau AG";;;;
+2021-06-01T00:00:00.000Z;01.06.2021;00:00;0;10;0;0;0;;TransferOut;;Security;DE000SYNS010;;EUR;EUR;1;h-s1;"Synthetik Maschinenbau AG";;;;
+2020-03-02T09:00:00.000Z;02.03.2020;09:00;;;1001;;;;TransferOut;;Cash;;;EUR;EUR;1;h-cash-0001;"Verrechnungskonto";;;;
+2020-03-02T09:00:00.000Z;02.03.2020;09:00;100;10;1000;0;1;;Buy;;Security;DE000SYNS010;;EUR;EUR;1;h-s1;"Synthetik Maschinenbau AG";;;;
+2020-01-09T10:00:00.000Z;09.01.2020;10:00;100,5;5;502,5;0;0;;TransferIn;;Security;DE000SYNC014;;EUR;EUR;1;h-c1;"Xtrackers Physical Gold ETC";;;;
+2020-01-09T10:00:00.000Z;09.01.2020;10:00;25;40;1000;0;0;;TransferIn;;Security;IE000SYNE015;;EUR;EUR;1;h-e1;"iShares Developed Markets Property Yield UCITS ETF";;;;
+2020-01-09T10:00:00.000Z;09.01.2020;10:00;10;100;1000;0;0;;TransferIn;;Security;LU000SYNF033;;EUR;EUR;1;h-f3;"Fidelity Funds - USD Bond Fund";;;;
+2020-01-09T10:00:00.000Z;09.01.2020;10:00;25;20;500;0;0;;TransferIn;;Security;LU000SYNF025;;EUR;EUR;1;h-f2;"BlackRock Global Funds European Special Situations Fund";;;;
+2020-01-09T10:00:00.000Z;09.01.2020;10:00;50;10;500;0;0;;TransferIn;;Security;LU000SYNF017;;EUR;EUR;1;h-f1;"AB SICAV I Concentrated US Equity Portfolio";;;;
+2020-01-02T00:00:00.000Z;02.01.2020;00:00;;;10000;;;;TransferIn;;Cash;;;EUR;EUR;1;h-cash-0001;"Verrechnungskonto";;;;

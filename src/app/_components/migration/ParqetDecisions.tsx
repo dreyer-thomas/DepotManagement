@@ -1,6 +1,11 @@
 "use client";
 
+import ExpandMore from "@mui/icons-material/ExpandMore";
+import Accordion from "@mui/material/Accordion";
+import AccordionDetails from "@mui/material/AccordionDetails";
+import AccordionSummary from "@mui/material/AccordionSummary";
 import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
 import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
 import ToggleButton from "@mui/material/ToggleButton";
@@ -10,20 +15,17 @@ import type { ReactNode } from "react";
 import { duplicateWarning } from "@/app/_components/transactions/transaction-form";
 import { formatDate, formatMoney, formatQuantity } from "@/core/format";
 import {
-  type ClassificationType,
   type Correction,
   CORRECTION_ASSET_TYPES,
   correctionDraft,
   correctionFields,
   itemKey,
   type MigrationDecisions,
-  needsClassification,
   SECURITY_CORRECTION_TYPES,
 } from "@/modules/migration/decisions";
 import type { FlaggedRow, ParqetPreview, PreviewDuplicate } from "@/modules/migration";
 import { ASSET_TYPE_LABELS } from "@/app/_components/transactions/labels";
 import {
-  CLASSIFICATION_OPTIONS,
   CORRECTION_TYPE_OPTIONS,
   DECISION_LABELS,
   flagReasonLabel,
@@ -39,6 +41,8 @@ type Props = {
   decisions: MigrationDecisions;
   onChange: (decisions: MigrationDecisions) => void;
   disabled?: boolean;
+  /** "Alle wie in Parqet übernehmen"; the button is disabled without it. */
+  onConfirmAsIs?: () => void;
 };
 
 function Section({ id, title, children }: { id: string; title: string; children: ReactNode }) {
@@ -143,10 +147,16 @@ function CorrectionFields({
   );
 }
 
-function FlagItem({ flag, decisions, onChange, disabled }: { flag: FlaggedRow } & Omit<Props, "preview">) {
+function FlagItem({
+  flag,
+  decisions,
+  onChange,
+  disabled,
+}: { flag: FlaggedRow } & Omit<Props, "preview" | "onConfirmAsIs">) {
   const key = itemKey(flag);
   const decision = decisions.flags[key];
-  const value = decision ? (decision.action === "skip" ? "skip" : "book") : null;
+  // No decision means skipped.
+  const value = decision?.action === "book" ? "book" : "skip";
   const setFlag = (next: MigrationDecisions["flags"][string]) => onChange({ ...decisions, flags: { ...decisions.flags, [key]: next } });
   return (
     <Box component="li" sx={ITEM_SX}>
@@ -198,78 +208,44 @@ function proposalText(duplicate: PreviewDuplicate, nameOf: Map<string, string>):
 }
 
 /**
- * The decisions a preview needs before "Übernehmen": classify each new Security, skip or correct each
- * flagged row, skip or book each possible duplicate of the target Depot's ledger.
+ * The decisions on a preview: possible duplicates of the target Depot's ledger (skip or book; the only
+ * ones that block "Übernehmen") and, collapsed under "Nicht übernommen (n)", the flagged rows — skipped
+ * unless corrected, or all booked as Parqet has them where bookable ("Alle wie in Parqet übernehmen").
  */
-export function ParqetDecisions({ preview, decisions, onChange, disabled }: Props) {
-  const toClassify = preview.securities.filter(needsClassification);
+export function ParqetDecisions({ preview, decisions, onChange, disabled, onConfirmAsIs }: Props) {
   const nameOf = new Map(preview.securities.map((security) => [security.key, security.name]));
+  const flagCount = preview.flagged.length;
   return (
     <Box component="section" aria-labelledby="parqet-decisions-title" sx={{ mt: 3 }}>
       <Typography id="parqet-decisions-title" component="h2" variant="h6" sx={{ fontWeight: 600 }}>
         Entscheidungen
       </Typography>
 
-      <Section id="parqet-classify" title="Neue Wertpapiere einordnen">
-        {toClassify.length === 0 ? (
-          <Typography variant="body2" color="text.secondary">
-            Keine Wertpapiere einzuordnen.
-          </Typography>
-        ) : (
-          <Box component="ul" sx={{ listStyle: "none", m: 0, p: 0 }}>
-            {toClassify.map((security) => (
-              <Box
-                component="li"
-                key={security.key}
-                sx={{ ...ITEM_SX, display: "flex", gap: 1.5, alignItems: "center", flexWrap: "wrap" }}
-              >
-                <Box sx={{ flex: 1, minWidth: 160 }}>
-                  <Typography variant="body2">{security.name}</Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    {security.key}
-                  </Typography>
-                </Box>
-                <TextField
-                  select
-                  size="small"
-                  label="Art"
-                  value={decisions.classifications[security.key] ?? ""}
-                  disabled={disabled}
-                  onChange={(event) => {
-                    const rest = { ...decisions.classifications };
-                    delete rest[security.key];
-                    const value = event.target.value as ClassificationType | "";
-                    onChange({ ...decisions, classifications: value ? { ...rest, [security.key]: value } : rest });
-                  }}
-                  slotProps={{ select: { native: true } }}
-                  sx={{ minWidth: 160 }}
-                >
-                  <option value="">Bitte wählen</option>
-                  {CLASSIFICATION_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </TextField>
-              </Box>
-            ))}
-          </Box>
-        )}
-      </Section>
-
-      <Section id="parqet-flag-decisions" title="Markierte Zeilen entscheiden">
-        {preview.flagged.length === 0 ? (
-          <Typography variant="body2" color="text.secondary">
-            Keine markierten Zeilen.
-          </Typography>
-        ) : (
-          <Box component="ul" sx={{ listStyle: "none", m: 0, p: 0 }}>
-            {preview.flagged.map((flag) => (
-              <FlagItem key={itemKey(flag)} flag={flag} decisions={decisions} onChange={onChange} disabled={disabled} />
-            ))}
-          </Box>
-        )}
-      </Section>
+      {flagCount > 0 ? (
+        <Accordion disableGutters variant="outlined" sx={{ mt: 2 }}>
+          <AccordionSummary expandIcon={<ExpandMore />} aria-controls="parqet-flagged-content" id="parqet-flagged-title">
+            <Typography component="h3" variant="subtitle1" sx={{ fontWeight: 600 }}>
+              Nicht übernommen ({flagCount})
+            </Typography>
+          </AccordionSummary>
+          <AccordionDetails id="parqet-flagged-content">
+            <Typography variant="body2" color="text.secondary">
+              Diese Zeilen werden übersprungen, außer du korrigierst sie. „Alle wie in Parqet übernehmen“ bucht jede Zeile,
+              die sich unverändert buchen lässt, und überspringt den Rest.
+            </Typography>
+            <Box sx={{ mt: 1.5 }}>
+              <Button variant="outlined" onClick={onConfirmAsIs} disabled={disabled || !onConfirmAsIs} sx={TOUCH_TARGET}>
+                Alle wie in Parqet übernehmen
+              </Button>
+            </Box>
+            <Box component="ul" sx={{ listStyle: "none", m: 0, p: 0, mt: 1 }}>
+              {preview.flagged.map((flag) => (
+                <FlagItem key={itemKey(flag)} flag={flag} decisions={decisions} onChange={onChange} disabled={disabled} />
+              ))}
+            </Box>
+          </AccordionDetails>
+        </Accordion>
+      ) : null}
 
       <Section id="parqet-duplicates" title="Mögliche Doppelbuchungen">
         {preview.duplicates.length === 0 ? (

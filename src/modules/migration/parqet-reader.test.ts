@@ -2,7 +2,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { cashEffect } from "@/core/cash";
-import { type FlaggedRow, type ParqetReadResult, readParqetCsv } from "./parqet-reader";
+import { canonicalDecimal, ExactDecimal } from "@/core/decimal";
+import { type FlaggedRow, type ParqetReadResult, readParqetCsv, splitRatio } from "./parqet-reader";
 
 const FIXTURE = readFileSync(resolve(__dirname, "../../../test/fixtures/parqet/synthetic-export.csv.txt"), "utf8");
 
@@ -24,6 +25,7 @@ type Row = Partial<{
 }>;
 
 const AAPL = "US0378331005";
+const WELT = "IE00B4L5Y983";
 const T = "2024-05-06T09:00:00.000Z";
 
 function csv(...rows: Row[]): string {
@@ -60,6 +62,11 @@ function withoutRows(flagged: readonly FlaggedRow[]) {
     delete copy.rows;
     return copy;
   });
+}
+
+/** Summed cash effect of proposals, exact. */
+function cashTotal(proposals: Parameters<typeof cashEffect>[0][]): string {
+  return canonicalDecimal(proposals.reduce((sum, proposal) => sum.plus(cashEffect(proposal)), new ExactDecimal(0)));
 }
 
 function ok(result: ParqetReadResult) {
@@ -177,6 +184,34 @@ describe("readParqetCsv — synthetic fixture", () => {
         realizedGain: null,
         records: [9],
       },
+      {
+        type: "DEPOSIT",
+        date: "2024-07-03",
+        sequence: 9,
+        securityKey: null,
+        quantity: null,
+        price: null,
+        amount: "300",
+        fee: "0",
+        tax: "0",
+        realizedGain: null,
+        records: [6],
+        delivery: "deposit",
+      },
+      {
+        type: "BUY",
+        date: "2024-07-03",
+        sequence: 10,
+        securityKey: WELT,
+        quantity: "3",
+        price: "0",
+        amount: "300",
+        fee: "0",
+        tax: "0",
+        realizedGain: null,
+        records: [6],
+        delivery: "buy",
+      },
     ]);
   });
 
@@ -198,36 +233,36 @@ describe("readParqetCsv — synthetic fixture", () => {
       { records: [2], reason: "unsupported-row", detail: "Buy/Cash" },
       { records: [3], reason: "unparseable", detail: "datetime" },
       { records: [4, 5], reason: "cash-pair-mismatch" },
-      { records: [6], reason: "unpaired-security-transfer" },
       { records: [7], reason: "unparseable", detail: "shares" },
       { records: [8], reason: "non-eur", detail: "USD" },
     ]);
   });
 
-  it("lists the Securities with the newest name and proposed types", () => {
+  it("lists the Securities with the newest name and estimated types", () => {
     expect(result.securities).toEqual([
       { key: "BTC", isin: null, cryptoSymbol: "BTC", name: "Bitcoin", proposedAssetType: "CRYPTO" },
-      { key: "DE0007164600", isin: "DE0007164600", cryptoSymbol: null, name: "Altname Software SE", proposedAssetType: "UNCLASSIFIED" },
-      { key: "DE000SYN0013", isin: "DE000SYN0013", cryptoSymbol: null, name: "Neuname Software SE", proposedAssetType: "UNCLASSIFIED" },
-      { key: AAPL, isin: AAPL, cryptoSymbol: null, name: 'Apfel "Tech" Inc.; Class A', proposedAssetType: "UNCLASSIFIED" },
+      { key: "DE0007164600", isin: "DE0007164600", cryptoSymbol: null, name: "Altname Software SE", proposedAssetType: "STOCK" },
+      { key: "DE000SYN0013", isin: "DE000SYN0013", cryptoSymbol: null, name: "Neuname Software SE", proposedAssetType: "STOCK" },
+      { key: WELT, isin: WELT, cryptoSymbol: null, name: "Welt ETF", proposedAssetType: "ETF" },
+      { key: AAPL, isin: AAPL, cryptoSymbol: null, name: 'Apfel "Tech" Inc.; Class A', proposedAssetType: "STOCK" },
     ]);
   });
 
   it("keeps the raw text of each flagged record for review and correction", () => {
-    const transfer = result.flagged.find((flag) => flag.reason === "unpaired-security-transfer");
-    expect(transfer?.rows).toEqual([
+    const usd = result.flagged.find((flag) => flag.reason === "non-eur");
+    expect(usd?.rows).toEqual([
       {
-        datetime: "2024-07-03T06:00:00.000Z",
-        type: "TransferIn",
+        datetime: "2024-07-01T09:00:00.000Z",
+        type: "Buy",
         assettype: "Security",
-        identifier: "IE00B4L5Y983",
-        holdingname: "Welt ETF",
-        shares: "3",
-        price: "0",
-        amount: "300",
+        identifier: "US5949181045",
+        holdingname: "Fenster Corp.",
+        shares: "1",
+        price: "10",
+        amount: "10",
         fee: "0",
         tax: "0",
-        currency: "EUR",
+        currency: "USD",
       },
     ]);
     const mismatch = result.flagged.find((flag) => flag.reason === "cash-pair-mismatch");
@@ -245,8 +280,8 @@ describe("readParqetCsv — synthetic fixture", () => {
     expect(noCash.hasCashRows).toBe(false);
   });
 
-  it("takes the latest proposal date as export date", () => {
-    expect(result.exportDate).toBe("2024-06-10");
+  it("takes the latest proposal date (here a delivery) as export date", () => {
+    expect(result.exportDate).toBe("2024-07-03");
   });
 });
 
@@ -371,28 +406,129 @@ describe("readParqetCsv — mapping rules", () => {
     expect(result.exportDate).toBe("2024-05-06");
   });
 
-  it.each([
-    ["a lone TransferIn", [{ type: "TransferIn", identifier: AAPL, shares: "3" }], [2]],
-    [
-      "two TransferIns",
-      [
-        { type: "TransferIn", identifier: AAPL, shares: "3" },
-        { type: "TransferIn", identifier: "DE000SYN0013", shares: "3" },
-      ],
-      [2, 3],
-    ],
-    [
-      "a pair of the same Security",
-      [
-        { type: "TransferOut", identifier: AAPL, shares: "3" },
-        { type: "TransferIn", identifier: AAPL, shares: "3" },
-      ],
-      [2, 3],
-    ],
-  ] as [string, Row[], number[]][])("flags %s as unpaired-security-transfer", (_label, rows, records) => {
-    const result = ok(readParqetCsv(csv(...rows)));
+  it("books a lone TransferIn as a delivery: DEPOSIT of amount + fee + tax, then BUY at Parqet's cost", () => {
+    const result = ok(
+      readParqetCsv(csv({ type: "TransferIn", identifier: AAPL, shares: "3", price: "10", amount: "30", fee: "1", tax: "-0,5" })),
+    );
+    expect(withoutRows(result.flagged)).toEqual([]);
+    expect(result.proposals).toEqual([
+      expect.objectContaining({ type: "DEPOSIT", sequence: 1, amount: "30.5", securityKey: null, records: [2], delivery: "deposit" }),
+      expect.objectContaining({
+        type: "BUY",
+        sequence: 2,
+        securityKey: AAPL,
+        quantity: "3",
+        price: "10",
+        amount: "30",
+        fee: "1",
+        tax: "-0.5",
+        records: [2],
+        delivery: "buy",
+      }),
+    ]);
+    // The Cash Account is unchanged.
+    expect(cashTotal(result.proposals)).toBe("0");
+  });
+
+  it("offsets a delivery whose tax refund outweighs amount + fee with a WITHDRAWAL", () => {
+    const result = ok(readParqetCsv(csv({ type: "TransferIn", identifier: AAPL, shares: "3", price: "0", amount: "0", fee: "0", tax: "-2" })));
+    expect(result.proposals).toEqual([
+      expect.objectContaining({ type: "WITHDRAWAL", amount: "2", securityKey: null, records: [2], delivery: "deposit" }),
+      expect.objectContaining({ type: "BUY", amount: "0", tax: "-2", delivery: "buy" }),
+    ]);
+    expect(cashTotal(result.proposals)).toBe("0");
+  });
+
+  it("books a delivery of amount 0 without a DEPOSIT", () => {
+    const result = ok(readParqetCsv(csv({ type: "TransferIn", identifier: AAPL, shares: "3", price: "0", amount: "0" })));
+    expect(result.proposals).toEqual([expect.objectContaining({ type: "BUY", amount: "0", price: "0", delivery: "buy" })]);
+  });
+
+  it("books five same-instant TransferIns of different Securities as five deliveries, no flag", () => {
+    const keys = [AAPL, "DE000SYN0013", "DE0007164600", WELT, "US5949181045"];
+    const result = ok(
+      readParqetCsv(csv(...keys.map((identifier) => ({ type: "TransferIn", identifier, shares: "2", price: "5", amount: "10" })))),
+    );
+    expect(withoutRows(result.flagged)).toEqual([]);
     expect(result.isinChanges).toEqual([]);
-    expect(withoutRows(result.flagged)).toEqual([{ records, reason: "unpaired-security-transfer" }]);
+    expect(result.proposals.map((p) => [p.type, p.delivery])).toEqual(
+      Array.from({ length: 5 }, () => [
+        ["DEPOSIT", "deposit"],
+        ["BUY", "buy"],
+      ]).flat(),
+    );
+    expect(result.proposals.filter((p) => p.type === "BUY").map((p) => p.securityKey).sort()).toEqual([...keys].sort());
+  });
+
+  it("pairs a same-Security TransferOut/TransferIn into a split in lowest terms", () => {
+    const result = ok(
+      readParqetCsv(
+        csv(
+          { datetime: "2024-05-06T09:00:00Z", type: "Buy", identifier: AAPL, shares: "10", price: "40", amount: "400" },
+          { datetime: "2024-06-01T00:00:00Z", type: "TransferIn", identifier: AAPL, shares: "40" },
+          { datetime: "2024-06-01T00:00:00Z", type: "TransferOut", identifier: AAPL, shares: "10" },
+        ),
+      ),
+    );
+    expect(withoutRows(result.flagged)).toEqual([]);
+    expect(result.splits).toEqual([
+      { date: "2024-06-01", key: AAPL, oldQuantity: "10", newQuantity: "40", ratioOld: "1", ratioNew: "4", records: [3, 4] },
+    ]);
+    expect(result.proposals.map((p) => p.type)).toEqual(["BUY"]);
+    expect(result.exportDate).toBe("2024-06-01");
+  });
+
+  it.each([
+    ["equal quantities", "3", "3"],
+    ["terms with more than 6 digits", "1", "1234567"],
+  ])("flags a split pair with %s as unsupported-split", (_label, out, into) => {
+    const result = ok(
+      readParqetCsv(
+        csv({ type: "TransferOut", identifier: AAPL, shares: out }, { type: "TransferIn", identifier: AAPL, shares: into }),
+      ),
+    );
+    expect(result.splits).toEqual([]);
+    expect(withoutRows(result.flagged)).toEqual([{ records: [2, 3], reason: "unsupported-split" }]);
+  });
+
+  it("books two TransferIns beside one TransferOut as deliveries and flags the TransferOut", () => {
+    const result = ok(
+      readParqetCsv(
+        csv(
+          { type: "TransferOut", identifier: AAPL, shares: "3" },
+          { type: "TransferIn", identifier: "DE000SYN0013", shares: "3", price: "1", amount: "3" },
+          { type: "TransferIn", identifier: WELT, shares: "2", price: "1", amount: "2" },
+        ),
+      ),
+    );
+    expect(result.isinChanges).toEqual([]);
+    expect(result.proposals.filter((p) => p.type === "BUY").map((p) => p.securityKey).sort()).toEqual(["DE000SYN0013", WELT].sort());
+    expect(withoutRows(result.flagged)).toEqual([{ records: [2], reason: "unpaired-security-transfer" }]);
+  });
+
+  it("pairs splits first, then a single remaining out/in into an ISIN change", () => {
+    const result = ok(
+      readParqetCsv(
+        csv(
+          { type: "TransferOut", identifier: WELT, shares: "2" },
+          { type: "TransferIn", identifier: WELT, shares: "4" },
+          { type: "TransferOut", identifier: AAPL, shares: "10" },
+          { type: "TransferIn", identifier: "DE000SYN0013", shares: "5" },
+        ),
+      ),
+    );
+    expect(result.splits).toEqual([expect.objectContaining({ key: WELT, ratioOld: "1", ratioNew: "2", records: [2, 3] })]);
+    expect(result.isinChanges).toEqual([expect.objectContaining({ oldKey: AAPL, newKey: "DE000SYN0013", records: [4, 5] })]);
+    expect(result.proposals).toEqual([]);
+    expect(withoutRows(result.flagged)).toEqual([]);
+  });
+
+  it("computes split ratios from quantities with up to 8 decimals", () => {
+    expect(splitRatio("10", "40")).toEqual({ ratioOld: "1", ratioNew: "4" });
+    expect(splitRatio("12.5", "2.5")).toEqual({ ratioOld: "5", ratioNew: "1" });
+    expect(splitRatio("0.00000003", "0.00000002")).toEqual({ ratioOld: "3", ratioNew: "2" });
+    expect(splitRatio("3", "3")).toBeNull();
+    expect(splitRatio("1", "0.0000001")).toBeNull();
   });
 
   it.each([

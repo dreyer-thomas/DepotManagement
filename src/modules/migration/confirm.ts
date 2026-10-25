@@ -35,7 +35,7 @@ import {
   openDecisions,
   SECURITY_CORRECTION_TYPES,
 } from "./decisions";
-import type { ProposalType } from "./parqet-reader";
+import type { FlagReason, ProposalType } from "./parqet-reader";
 import { analyzeParqetExport, type ParqetPreview, type PreviewFailure } from "./preview";
 
 /** Money differences above this are an "Abweichung". */
@@ -47,7 +47,8 @@ export type BookingItem =
   | { kind: "security"; key: string }
   | { kind: "proposal"; key: string; records: readonly number[]; date: string; type: ProposalType }
   | { kind: "flag"; key: string; records: readonly number[]; date: string; type: CorrectionType }
-  | { kind: "isin-change"; key: string; records: readonly number[]; date: string; oldKey: string; newKey: string };
+  | { kind: "isin-change"; key: string; records: readonly number[]; date: string; oldKey: string; newKey: string }
+  | { kind: "split"; key: string; records: readonly number[]; date: string; securityKey: string; ratio: string };
 
 /** Unparseable correction figures fail like the ledger's validation of that field. */
 export type CorrectionFieldFailure = {
@@ -76,11 +77,17 @@ export type SaleComparison = {
   gain: Figure;
 };
 
+/** A flagged row (or group) that was not booked. */
+export type SkippedFlag = { key: string; records: number[]; reason: FlagReason; detail?: string };
+
 export type MigrationSummary = {
   depot: { id: string; name: string };
   exportDate: string | null;
-  booked: { transactions: number; isinChanges: number; securities: number };
-  skipped: { duplicates: number; flags: number; isinChanges: number };
+  booked: { transactions: number; splits: number; isinChanges: number; securities: number };
+  /** `splits` / `isinChanges`: already recorded, not booked again. */
+  skipped: { duplicates: number; flags: number; splits: number; isinChanges: number };
+  /** Every flag that was skipped, in preview order. */
+  skippedFlags: SkippedFlag[];
   /** Ledger vs file at export date; `null` without an export date. */
   comparison: {
     positions: PositionComparison[];
@@ -134,11 +141,12 @@ type Planned = { date: string; group: number; order: number; entry: BatchEntry; 
 
 /**
  * Books Parqet export `text` into Depot `depotId` with `decisions`. Re-reads the file and re-checks
- * duplicates against the current ledger: any open decision gives `decisions-open` with a fresh preview.
- * Booking order: by date; on one date ISIN changes, then file proposals in reader sequence, then
- * corrected flagged rows. Duplicates decided "skip" and ISIN changes already recorded are not booked;
- * everything booked uses `allowDuplicate` (the user decided). Atomic: a failure names its item and
- * writes nothing.
+ * duplicates against the current ledger: an undecided duplicate gives `decisions-open` with a fresh
+ * preview. A new Security gets its classification override, else the estimated type; a flag without a
+ * decision is skipped. Booking order: by date; on one date splits, then ISIN changes, then file
+ * proposals in reader sequence, then corrected flagged rows. Duplicates decided "skip" and splits / ISIN
+ * changes already recorded are not booked; everything booked uses `allowDuplicate` (the user decided).
+ * Atomic: a failure names its item and writes nothing.
  */
 export async function confirmParqetMigration(
   depotId: string,
@@ -171,7 +179,8 @@ export async function confirmParqetMigration(
         identifier: identifierOf(key, file.cryptoSymbol !== null),
         details: {
           name: file.name,
-          assetType: file.proposedAssetType === "CRYPTO" ? "CRYPTO" : decisions.classifications[key],
+          assetType:
+            file.proposedAssetType === "CRYPTO" ? "CRYPTO" : (decisions.classifications[key] ?? file.proposedAssetType),
         },
       });
     }
@@ -183,8 +192,25 @@ export async function confirmParqetMigration(
   /** The ledger row of each SELL proposal: booked (by ref) or a single-match skipped duplicate. */
   const knownSellRows = new Map<string, TransactionRecord | string>();
   let skippedDuplicates = 0;
-  let skippedFlags = 0;
+  const skippedFlags: SkippedFlag[] = [];
   let recordedChanges = 0;
+  let recordedSplits = 0;
+
+  preview.splits.forEach((split, index) => {
+    if (split.recorded) {
+      recordedSplits += 1;
+      return;
+    }
+    const key = itemKey(split);
+    const ratio = `${split.ratioOld}:${split.ratioNew}`;
+    planned.push({
+      date: split.date,
+      group: 0,
+      order: index,
+      entry: { kind: "split", ref: `split:${key}`, securityRef: refFor(split.key), date: split.date, ratio },
+      item: { kind: "split", key, records: split.records, date: split.date, securityKey: split.key, ratio },
+    });
+  });
 
   preview.isinChanges.forEach((change, index) => {
     if (change.recorded) {
@@ -195,7 +221,7 @@ export async function confirmParqetMigration(
     const ref = `isin-change:${key}`;
     planned.push({
       date: change.date,
-      group: 0,
+      group: 1,
       order: index,
       entry: {
         kind: "isin-change",
@@ -222,7 +248,7 @@ export async function confirmParqetMigration(
     if (proposal.type === "SELL") knownSellRows.set(key, ref);
     planned.push({
       date: proposal.date,
-      group: 1,
+      group: 2,
       order: proposal.sequence,
       entry: {
         kind: "transaction",
@@ -247,7 +273,12 @@ export async function confirmParqetMigration(
     const key = itemKey(flag);
     const decision = decisions.flags[key];
     if (!decision || decision.action === "skip") {
-      skippedFlags += 1;
+      skippedFlags.push({
+        key,
+        records: flag.records,
+        reason: flag.reason,
+        ...(flag.detail !== undefined ? { detail: flag.detail } : {}),
+      });
       continue;
     }
     const { correction } = decision;
@@ -270,7 +301,7 @@ export async function confirmParqetMigration(
     }
     planned.push({
       date: item.date,
-      group: 2,
+      group: 3,
       order: flag.records[0],
       entry: { kind: "transaction", ref: `flag:${key}`, securityRef: ref, input: parsed.input },
       item,
@@ -306,10 +337,17 @@ export async function confirmParqetMigration(
     exportDate: read.exportDate,
     booked: {
       transactions: Object.keys(result.transactions).length,
+      splits: Object.keys(result.splits).length,
       isinChanges: Object.keys(result.isinChanges).length,
       securities: createdSecurities.size,
     },
-    skipped: { duplicates: skippedDuplicates, flags: skippedFlags, isinChanges: recordedChanges },
+    skipped: {
+      duplicates: skippedDuplicates,
+      flags: skippedFlags.length,
+      splits: recordedSplits,
+      isinChanges: recordedChanges,
+    },
+    skippedFlags,
     comparison: null,
     openingBalance: null,
   };

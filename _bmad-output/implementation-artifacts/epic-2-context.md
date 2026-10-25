@@ -4,7 +4,7 @@
 
 ## Goal
 
-Let Tommy record stock splits and ISIN changes so quantities, Prices and FIFO Cost Basis stay correct across them, and then bring his complete Transaction history from Parqet CSV exports (one file per Depot) into DepotManagement. After migration, Positions, invested capital and Cash Account balance per Depot must match what Parqet showed on export day, and realized Gain/Loss must match Parqet's per-sale `realizedgains`. This is the point where the app switches from synthetic to real data and becomes Tommy's source of truth, so correctness and "nothing booked unseen" matter more than anywhere else.
+Tommy can record stock splits and ISIN changes, and can bring his complete Transaction history over from Parqet CSV exports (one file per Depot) without making decisions row by row. After that, Positions, invested capital and Cash Account balances match what Parqet showed on export day, and FIFO realized Gain/Loss matches Parqet's per-sale `realizedgains`. From this point on he works with real data, so the migration has to be correct and complete in minutes.
 
 ## Stories
 
@@ -12,42 +12,88 @@ Let Tommy record stock splits and ISIN changes so quantities, Prices and FIFO Co
 - Story 2.2: Record ISIN Changes
 - Story 2.3: Parqet Export Preview
 - Story 2.4: Confirm Migration and Reconcile with Parqet
+- Story 2.5: Hands-off Parqet Migration (added by the approved sprint change; reworks 2.3/2.4 behavior)
 
 ## Requirements & Constraints
 
-- Split: ratio + effective date; earlier quantities and per-unit Prices shown split-adjusted; total Cost Basis unchanged; applies in every Depot holding the Security.
-- ISIN change: old and new quantity (ratio may differ from 1:1); open FIFO lots move to the new Security keeping original purchase dates and total Cost Basis; old Security disappears as an open Position after the effective date but its history stays visible; later sells of the new Security realize against carried-over lots.
-- Splits and ISIN changes are editable and deletable; views reflect changes on the next read.
-- Migration: one CSV per Depot, target Depot chosen at upload; nothing is written until confirmation. Repeatable per Depot; re-running the same file books only non-duplicates.
-- Parqet format quirks the reader must handle: semicolon-delimited, quoted text, German decimal comma, newest rows first (emit proposals chronologically); `datetime` is ISO UTC → convert to Europe/Berlin business date, drop synthetic times (06:00Z/00:00Z); types `Buy`, `Sell`, `Dividend`, `TransferIn`, `TransferOut`, `cost`; `assettype` `Security` (type not distinguishable), `Cash`, `Crypto` (e.g. `BTC`, 8-decimal quantities); fractional quantities anywhere.
-- Mapping rules: Buy/Sell/Dividend collapse with their Cash TransferOut/TransferIn pair into one Transaction; on rounding mismatch adjust `amount` so the derived cash booking equals the cash row. Dividends use `amount`, never `price × shares` (often `shares=1`). Negative `tax` = refund. `cost` row with amount 0 and only `tax` → TAX Transaction. Unpaired Cash TransferIn/Out → Deposit/Withdrawal. Same-timestamp Security TransferOut (old ISIN, price 0) + TransferIn (new ISIN) → ISIN-change proposal. Unpaired Security transfer, non-EUR row and unparseable row → flagged with reason, never booked silently.
-- `assettype = Security` → proposed `UNCLASSIFIED`; user must classify (STOCK/ETF/CERTIFICATE) before confirm. `Crypto` → CRYPTO keyed by upper-case symbol.
-- Preview shows counts per type, detected ISIN changes, flagged rows, and resulting Positions, invested capital and Cash Account balance at export date.
-- Confirm ("Übernehmen") enabled only when no decision is open; summary compares Positions, invested capital and cash balance vs. Parqet, plus per-sale FIFO realized Gain/Loss vs. `realizedgains`, highlighting differences > €0.01 per sale (cent-level drift across many lots is acceptable overall).
-- Export without cash rows: summary states cash could not be reconciled and offers an opening Deposit/Withdrawal.
-- Public repo: reader tested only with a synthetic, anonymised fixture covering every quirk (`*.csv.txt` under `test/fixtures/`); real exports are never committed or read into the repo; reconciliation against real exports uses local untracked files.
+- Splits: ratio plus effective date. Quantities and per-unit prices before the effective date are shown split-adjusted, and total Cost Basis is unchanged.
+- ISIN changes: old and new quantity (the ratio may differ from 1:1). Total Cost Basis and the original FIFO purchase dates carry over to the new Security. The old Security stops being an open Position after the change, but its history stays visible.
+- Migration input: one Parqet CSV per Depot, with the target Depot chosen at upload. The format is semicolon-delimited, text quoted, German decimal comma, newest rows first, ISO UTC `datetime`. `assettype` is `Security`, `Cash` or `Crypto`. `type` is `Buy`, `Sell`, `Dividend`, `TransferIn`, `TransferOut` or `cost`.
+- Format quirks to handle:
+  - Each trade or dividend has a paired Cash transfer. Collapse the pair into one Transaction, and on a rounding mismatch adjust `amount` so the derived cash booking equals the cash row.
+  - Dividends: use `amount`, not `price × shares`, because dividend rows sometimes show `shares=1`.
+  - A negative `tax` is a refund.
+  - A `cost` row that has only `tax` becomes a TAX Transaction.
+  - An unpaired Cash TransferIn/TransferOut becomes a Deposit/Withdrawal.
+  - Drop the synthetic times and convert `datetime` to the Europe/Berlin business date.
+  - Quantities can be fractional, up to 8 decimals.
+- Grouping of Security transfers at the same instant (in this order):
+  1. A TransferOut and TransferIn of the same ISIN become a split (ratio = new qty / old qty).
+  2. A single remaining out plus in of different ISINs becomes an ISIN change.
+  3. Each remaining TransferIn becomes a delivery: a BUY at Parqet's shares, price and amount, plus a DEPOSIT of the same amount on the same date. The Cash Account stays unchanged and the delivery counts as an external inflow.
+  4. Only a remaining unpaired TransferOut is flagged.
+- Flags (unpaired TransferOut, `non-eur`, `unparseable`, `unsupported-row`, `cash-pair-mismatch`) do not block. They are listed collapsed as "Nicht übernommen (n)". "Alle wie in Parqet übernehmen" books every flag that has a valid prefilled correction and skips the rest. The summary lists what was skipped.
+- Asset types: add `FUND` ("Fonds", active mutual fund) through a new Prisma migration. It must be selectable wherever an asset type is chosen (new-Security form, ISIN-change dialog, migration preview).
+- New Parqet `Security` rows are classified by a pure core name classifier, checked in this order:
+  1. ETF/ETC/ETN/"UCITS ETF", or one of the issuers iShares, Xtrackers, Vanguard, Amundi, Lyxor, SPDR, Invesco, WisdomTree → ETF
+  2. Turbo/Knock-Out/Mini Future/Optionsschein/Open End → CERTIFICATE
+  3. SICAV/Fund/Funds/Fonds → FUND
+  4. otherwise → STOCK
+
+  `Crypto` rows stay CRYPTO, keyed by symbol. Classification is never an open decision: the preview offers an inline override, and the type stays editable later.
+- On an empty Depot the preview must have zero open decisions, and "Übernehmen" must be enabled immediately. Duplicate matches against an existing ledger are still shown for a decision.
+- Reconciliation summary:
+  - Show Positions, invested capital and Cash Account balance next to the values the file implies at export date.
+  - Compare FIFO realized Gain/Loss with `realizedgains` per sale and highlight differences above €0.01.
+  - If the file has no cash rows, say so and offer an opening Deposit/Withdrawal.
+- The migration is repeatable per Depot. Re-running the same file books only the rows that are not duplicates.
+- Correctness: Depot value and Cost Basis must be exact. Cent-level drift in realized Gain/Loss summed over many lots is acceptable.
+- Tests use synthetic, anonymised fixtures only (`*.csv.txt` under `test/fixtures/`). They must cover every format quirk, the five-row TransferIn delivery group, a same-ISIN split pair and fund/ETC names. Real exports are never committed or read into the repo.
 
 ## Technical Decisions
 
-- **CorporateAction model** (created in 2.1) is owned and written only by `ledger`; Security-scoped, applies across all Depots. Transactions and stored Prices are never modified — core applies split adjustment on read. ISIN change links old and new Security (each its own row) with old/new quantity; core moves lots.
-- Ordering: `(date, sequence)`; on the same date corporate actions apply before Transactions. Business dates `YYYY-MM-DD`; core gets "today" passed in.
-- Core work lives in pure `src/core` (e.g. corporate-actions, FIFO, cash, duplicates) importing only its own files and `decimal.js`. Core tests: split between two buys + partial sell; 1:1 and non-1:1 ISIN change + partial sell.
-- `core/duplicates` must resolve an incoming old ISIN to its current Security by following ISIN-change actions. Duplicate key: `(depotId, date, type, securityId|null, quantity|null, amount within €0.01)`; result `unique | duplicate | ambiguous`, advisory only. Migration matches against the existing ledger only, not within its own file; matches shown for decision before booking.
-- `modules/migration` holds a pure CSV reader producing canonical Transaction proposals; booking goes through the single ledger write path (zod validation, sequence assignment oldest-first) in one DB transaction. Securities created only via idempotent `ledger.ensureSecurity` at confirmation, never during preview; ISIN changes booked as CorporateActions.
-- Canonical Transaction shape: types `BUY SELL DIVIDEND FEE TAX DEPOSIT WITHDRAWAL`; `amount` unsigned gross (excl. fee/tax; dividend = gross total); `fee ≥ 0`; `tax` signed (+ paid, − refund); quantity/price only on BUY/SELL; standalone FEE/TAX use `amount = 0`. Cash effect: BUY −(amount+fee+tax); SELL/DIVIDEND +amount−fee−tax; FEE −fee; TAX −tax; DEPOSIT +amount; WITHDRAWAL −amount.
-- Money/quantity/price as TEXT decimal strings via `decimal.js`; no JS `number`, Prisma Decimal or SQL arithmetic. EUR only — non-EUR rows go to review.
-- Expected failures return typed results `{ ok: false, reason }`; zod at every shell boundary (upload, form, parser output). Never log per-Transaction amounts.
-- Recording a split should trigger a price-history refetch for that Security once the prices module exists (Epic 3); stored Prices stay unadjusted.
+- **Corporate actions:**
+  - Stored as CorporateAction rows on the Security, written only by `ledger`. They apply in every Depot that holds the Security.
+  - Stored Transactions and Prices are never modified. Core applies split adjustment on read.
+  - An ISIN change links the old and new Security (each its own row) with old and new quantity. Core moves the open FIFO lots, scaled by the ratio, with their original dates and total Cost Basis.
+- **Ordering:** by `(date, sequence)`, and on the same date corporate actions apply before Transactions. Only the ledger assigns sequence. Migration submits rows oldest-first. Core gets "today" passed in.
+- **Single write path:** migration builds AD-14 proposals in `modules/migration`, using a pure reader with no DB access during preview. On confirm it books everything through the ledger service in one DB transaction:
+  - Securities via idempotent `ledger.ensureSecurity({ isin } | { cryptoSymbol })`, only at confirmation and never during staging.
+  - Splits and ISIN changes as CorporateActions.
+- **Canonical Transaction shape:**
+  - Types are BUY/SELL/DIVIDEND/FEE/TAX/DEPOSIT/WITHDRAWAL.
+  - `amount` is unsigned gross; `fee ≥ 0`; `tax` is signed (negative = refund).
+  - `quantity`/`price` are set only on BUY/SELL.
+  - Standalone FEE/TAX have `amount = 0`.
+  - The cash effect is derived only in `core/cash`: BUY −(amount+fee+tax); SELL/DIVIDEND +amount−fee−tax; FEE −fee; TAX −tax; DEPOSIT +amount; WITHDRAWAL −amount.
+- **Cash Account:** the Cash Account is the Depot (1:1, no table). Only Deposit and Withdrawal are cash-only Transactions.
+- **Duplicates:** `core/duplicates` is advisory and returns `unique | duplicate | ambiguous`.
+  - Match key: `(depotId, date, type, securityId|null, quantity|null, amount ±€0.01)`.
+  - An incoming old ISIN is first resolved to the current Security by following ISIN-change actions.
+  - Migration matches against the existing ledger only, not within its own file.
+- **Asset type enum:** `STOCK | ETF | FUND | CERTIFICATE | CRYPTO | UNCLASSIFIED`. `UNCLASSIFIED` is kept only for Securities that no path could classify. Only `ledger` writes the name and assetType.
+- **Decimals:** money, quantities and prices are TEXT decimal strings handled with `decimal.js`. Never use JS `number`, Prisma Decimal or SQL arithmetic on them.
+- **Pure core:** `src/core` stays pure. The classifier, split and ISIN-change logic and the duplicate matcher live there.
+- **Prisma migrations:** never edit a committed Prisma migration; add a new one. After a schema change, run `npx prisma generate`.
+- **Errors:** expected failures return typed `{ ok: false, reason }` results; zod validates at shell boundaries.
 
 ## UX & Interaction Patterns
 
-- Corporate actions start from the Position's row menu in the Positions table: "Corporate Action → Split" / "Corporate Action → ISIN-Wechsel"; new Security selectable or creatable.
-- Migration wizard ("Aus Parqet übernehmen", in Settings and the Overview empty state — now enabled): file → target Depot → preview → resolve flagged rows / classify Securities → confirm → summary with Parqet comparison. Desktop-optimised but must work at phone width.
-- No auto-booking, no optimistic writes, modal depth ≤ 1, Enter submits / Esc closes; German, short factual microcopy naming Depot and Security; gain/loss never by color alone.
+- **Corporate actions entry:** the row menu of a Position in the Positions table, "Corporate Action → Split" or "→ ISIN-Wechsel". The new Security for an ISIN change can be selected or created there.
+- **Migration entry:** "Aus Parqet übernehmen" in Settings and in the Overview empty state when there is no Depot.
+- **Migration wizard:**
+  1. Choose the file, then the target Depot.
+  2. Preview: counts per type, detected splits, ISIN changes and deliveries, the estimated asset type per Security with an inline override, a collapsed "Nicht übernommen (n)" list, and the resulting Positions and cash balance at export date.
+  3. One-click "Übernehmen".
+  4. Summary with the Parqet comparison.
+- **General rules:** German UI and de-DE formats; no optimistic writes; nothing is booked without being shown first; modal depth ≤ 1. Desktop is the primary surface for migration, but it must still work at phone width.
 
 ## Cross-Story Dependencies
 
-- Builds on Epic 1: ledger service, canonical shape, `ensureSecurity`, duplicate matcher, sequence, FIFO/cash core, Positions table, Settings Depots section.
-- 2.1 creates the CorporateAction model; 2.2 extends it and the duplicate matcher's ISIN resolution.
-- Migration (2.3/2.4) depends on 2.1–2.2 (ISIN-change proposals, split handling) and on the Cash Account (Epic 1). 2.4 consumes 2.3's preview.
-- Later: Epic 5 document import must detect migrated Transactions as duplicates; Epic 3 price backfill must respect splits.
+- 2.1 and 2.2 add the CorporateAction model and the core logic that 2.3–2.5 reuse when migrating split and ISIN-change pairs. 2.2 also extends `core/duplicates` with ISIN-change resolution.
+- 2.3 (preview/reader) → 2.4 (confirm/reconcile) → 2.5 (hands-off rework of both).
+  - 2.4 stays `awaiting-operator`. Its operator check (real-export reconciliation) runs only after 2.5 is done.
+- These stories build on Epic 1: the ledger service, `ensureSecurity`, FIFO/cash core, the duplicate matcher and the Transaction form.
+- Downstream effects of `FUND`:
+  - Epic 3 (Securities page, Story 3.1) must offer FUND when classifying a Security.
+  - Epic 4 composition (Story 4.5) gets a "Fonds" segment.

@@ -1,18 +1,20 @@
 /**
- * The user's decisions on a Parqet preview (story 2.4). Pure and client-safe: no Prisma, no I/O — the
- * wizard and the server share the schema and the "open decisions" rule.
+ * The user's decisions on a Parqet preview (stories 2.4, 2.5). Pure and client-safe: no Prisma, no I/O —
+ * the wizard and the server share the schema and the "open decisions" rule.
  *
  * Decisions are keyed by `itemKey` (a flag's or proposal's records joined by "-") and, for
- * classifications, by Security key (ISIN). Open: a new `UNCLASSIFIED` Security without a type, a flag
- * without skip/book, a duplicate without skip/book.
+ * classifications, by Security key (ISIN). Classifications override the estimated type; a flag without
+ * a decision is skipped. Open (blocking) is only a duplicate without skip/book.
  */
 import { z } from "zod";
-import { businessDate } from "@/core/dates";
+import { businessDate, isBusinessDate } from "@/core/dates";
+import { ExactDecimal } from "@/core/decimal";
+import { parseDecimalInput } from "@/core/decimal-input";
 import type { FlaggedRow, RawRow } from "./parqet-reader";
 import type { ParqetPreview, PreviewSecurity } from "./preview";
 
 /** Types a new Parqet `Security` can be classified as (crypto comes classified). */
-export const CLASSIFICATION_TYPES = ["STOCK", "ETF", "CERTIFICATE"] as const;
+export const CLASSIFICATION_TYPES = ["STOCK", "ETF", "FUND", "CERTIFICATE"] as const;
 export type ClassificationType = (typeof CLASSIFICATION_TYPES)[number];
 
 /** Transaction types a flagged row can be corrected to. */
@@ -23,7 +25,7 @@ export type CorrectionType = (typeof CORRECTION_TYPES)[number];
 export const SECURITY_CORRECTION_TYPES: readonly CorrectionType[] = ["BUY", "SELL", "DIVIDEND", "TAX"];
 
 /** Asset types a correction may give a Security that is neither in the file nor in the ledger. */
-export const CORRECTION_ASSET_TYPES = ["STOCK", "ETF", "CERTIFICATE", "CRYPTO"] as const;
+export const CORRECTION_ASSET_TYPES = ["STOCK", "ETF", "FUND", "CERTIFICATE", "CRYPTO"] as const;
 
 const text = (max: number) => z.string().max(max);
 
@@ -70,32 +72,26 @@ export type MigrationDecisions = z.infer<typeof decisionsSchema>;
 
 export const EMPTY_DECISIONS: MigrationDecisions = { classifications: {}, flags: {}, duplicates: {} };
 
-/** The key of a proposal or flag: its CSV record numbers joined by "-". */
-export function itemKey(item: { records: readonly number[] }): string {
-  return item.records.join("-");
+/**
+ * The key of a proposal or flag: its CSV record numbers joined by "-"; a delivery's DEPOSIT (same record
+ * as its BUY) gets a trailing "d".
+ */
+export function itemKey(item: { records: readonly number[]; delivery?: "buy" | "deposit" }): string {
+  return item.records.join("-") + (item.delivery === "deposit" ? "d" : "");
 }
 
-/** True for a Security that is not in the ledger yet and still has no type. */
-export function needsClassification(security: Pick<PreviewSecurity, "existing" | "assetType">): boolean {
-  return !security.existing && security.assetType === "UNCLASSIFIED";
+/** True for a Security that is not in the ledger yet and is identified by an ISIN: its estimated type can be overridden. */
+export function isClassifiable(security: Pick<PreviewSecurity, "existing" | "cryptoSymbol">): boolean {
+  return !security.existing && security.cryptoSymbol === null;
 }
 
-export type OpenDecision = { kind: "classification" | "flag" | "duplicate"; key: string };
+export type OpenDecision = { kind: "duplicate"; key: string };
 
 type DecisionPreview = Pick<ParqetPreview, "securities" | "flagged" | "duplicates">;
 
-/** Every decision still open; confirmation is possible only when this is empty. */
-export function openDecisions(preview: DecisionPreview, decisions: MigrationDecisions): OpenDecision[] {
+/** Every decision still open (a duplicate without skip/book); confirmation is possible only when this is empty. */
+export function openDecisions(preview: Pick<ParqetPreview, "duplicates">, decisions: MigrationDecisions): OpenDecision[] {
   const open: OpenDecision[] = [];
-  for (const security of preview.securities) {
-    if (needsClassification(security) && !decisions.classifications[security.key]) {
-      open.push({ kind: "classification", key: security.key });
-    }
-  }
-  for (const flag of preview.flagged) {
-    const key = itemKey(flag);
-    if (!decisions.flags[key]) open.push({ kind: "flag", key });
-  }
   for (const duplicate of preview.duplicates) {
     if (!decisions.duplicates[duplicate.key]) open.push({ kind: "duplicate", key: duplicate.key });
   }
@@ -114,7 +110,7 @@ export function initialDecisions(preview: DecisionPreview): MigrationDecisions {
 /** `previous` decisions whose keys still exist in `preview`, on top of its initial decisions. */
 export function carryDecisions(preview: DecisionPreview, previous: MigrationDecisions): MigrationDecisions {
   const initial = initialDecisions(preview);
-  const securityKeys = new Set(preview.securities.filter(needsClassification).map((security) => security.key));
+  const securityKeys = new Set(preview.securities.filter(isClassifiable).map((security) => security.key));
   const flagKeys = new Set(preview.flagged.map(itemKey));
   const keep = <T>(record: Record<string, T>, keys: Set<string>) =>
     Object.fromEntries(Object.entries(record).filter(([key]) => keys.has(key)));
@@ -176,4 +172,90 @@ export function correctionDraft(flag: Pick<FlaggedRow, "rows">): Correction {
     fee: unsigned(row.fee),
     tax: row.tax,
   };
+}
+
+/** The ledger's `QUANTITY_MAX_DECIMALS` (not imported: this file stays client-safe). */
+const QUANTITY_MAX_DECIMALS = 8;
+
+const isEur = (row: RawRow) => row.currency.trim().toUpperCase() === "EUR";
+
+/** The parsed figure, `null` when it does not parse; empty input gives `""`. */
+function figureOf(text: string): string | null {
+  const parsed = parseDecimalInput(text);
+  return parsed.ok ? parsed.value : null;
+}
+
+/** Figures of a draft that satisfy the ledger's rules for its type (see `ledger.recordTransaction`). */
+function figuresBookable(draft: Correction): boolean {
+  const quantity = figureOf(draft.quantity);
+  const price = figureOf(draft.price);
+  const amount = figureOf(draft.amount);
+  const fee = figureOf(draft.fee);
+  const tax = figureOf(draft.tax);
+  const atLeastZero = (value: string | null, required: boolean) =>
+    value !== null && (value === "" ? !required : !new ExactDecimal(value).isNegative());
+  const positive = (value: string | null) => value !== null && value !== "" && new ExactDecimal(value).greaterThan(0);
+  switch (draft.type) {
+    case "BUY":
+    case "SELL": {
+      if (!positive(quantity) || new ExactDecimal(quantity!).decimalPlaces() > QUANTITY_MAX_DECIMALS) return false;
+      return atLeastZero(price, true) && atLeastZero(amount, false) && atLeastZero(fee, false) && tax !== null;
+    }
+    case "DIVIDEND":
+      return positive(amount) && atLeastZero(fee, false) && tax !== null;
+    case "TAX":
+      return tax !== null && tax !== "" && !new ExactDecimal(tax).isZero();
+    case "DEPOSIT":
+    case "WITHDRAWAL":
+      return positive(amount);
+  }
+}
+
+/**
+ * True when `draft` (the flag's prefilled correction) can be booked as-is: every raw row is in EUR, the
+ * date is a business date, the figures satisfy the ledger's rules for the type, and BUY/SELL/DIVIDEND name
+ * a Security of the preview (`securityKeys`; TAX: none or such a Security).
+ */
+export function bookableCorrection(
+  flag: Pick<FlaggedRow, "rows">,
+  draft: Correction,
+  securityKeys: ReadonlySet<string>,
+): boolean {
+  if (flag.rows.length === 0 || !flag.rows.every(isEur)) return false;
+  // The draft books one Security row; a flag of several (e.g. an unsupported split pair) is not as-is bookable.
+  if (flag.rows.filter((row) => row.assettype.toLowerCase() !== "cash").length > 1) return false;
+  if (!isBusinessDate(draft.date)) return false;
+  if (!figuresBookable(draft)) return false;
+  const key = draft.securityKey.trim().toUpperCase();
+  if (draft.type === "BUY" || draft.type === "SELL" || draft.type === "DIVIDEND") return securityKeys.has(key);
+  if (draft.type === "TAX") return key === "" || securityKeys.has(key);
+  return true;
+}
+
+/**
+ * "Alle wie in Parqet übernehmen": `decisions` with every flag decided — booked with its prefilled
+ * correction when that is bookable, else skipped.
+ */
+export function parqetAsIsDecisions(
+  preview: Pick<ParqetPreview, "securities" | "flagged">,
+  decisions: MigrationDecisions,
+): MigrationDecisions {
+  const securityKeys = new Set(preview.securities.map((security) => security.key));
+  const flags: Record<string, FlagDecision> = {};
+  for (const flag of preview.flagged) {
+    const draft = correctionDraft(flag);
+    flags[itemKey(flag)] = bookableCorrection(flag, draft, securityKeys)
+      ? { action: "book", correction: draft }
+      : { action: "skip" };
+  }
+  return { ...decisions, flags };
+}
+
+/** The decisions "Übernehmen" sends: as-is (`parqetAsIsDecisions`) for "Alle wie in Parqet übernehmen", else unchanged. */
+export function submittedDecisions(
+  preview: Pick<ParqetPreview, "securities" | "flagged">,
+  decisions: MigrationDecisions,
+  asIs: boolean,
+): MigrationDecisions {
+  return asIs ? parqetAsIsDecisions(preview, decisions) : decisions;
 }

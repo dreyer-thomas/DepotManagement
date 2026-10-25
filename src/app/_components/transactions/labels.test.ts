@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  ASSET_TYPE_LABELS,
   failureDetail,
+  NEW_SECURITY_ASSET_TYPES,
   TRANSACTION_TYPE_ORDER,
   transactionErrorField,
   transactionErrorMessage,
@@ -11,6 +13,10 @@ import {
 import type { TransactionType } from "@/modules/ledger";
 
 describe("transaction labels", () => {
+  it("offers Fonds as an asset type for a new Security, in selection order", () => {
+    expect(NEW_SECURITY_ASSET_TYPES.map((type) => ASSET_TYPE_LABELS[type])).toEqual(["Aktie", "ETF", "Fonds", "Zertifikat", "Krypto"]);
+  });
+
   it("names every type in German, in selection order", () => {
     expect(TRANSACTION_TYPE_ORDER.map(transactionTypeLabel)).toEqual([
       "Kauf",
