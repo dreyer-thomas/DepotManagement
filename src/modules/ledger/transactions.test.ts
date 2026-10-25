@@ -2,13 +2,16 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createTestDatabase, type TestDatabase } from "../../../test/helpers/test-db";
 import {
   createDepot,
+  deleteTransaction,
   ensureSecurity,
+  listPositions,
   listSecurities,
   listTransactions,
   recordTrade,
   type RecordTradeInput,
   recordTransaction,
   type RecordTransactionInput,
+  updateTransaction,
 } from "./index";
 
 let testDb: TestDatabase;
@@ -94,7 +97,7 @@ describe("recordTrade", () => {
     expect(first.security?.id).toBe(appleId);
     const etf = { new: { isin: "IE00B4L5Y983", name: "iShares Core MSCI World", assetType: "ETF" } };
     const a = await record({ security: etf });
-    const b = await record({ security: etf });
+    const b = await record({ security: etf, allowDuplicate: true });
     expect(a.security?.isin).toBe("IE00B4L5Y983");
     expect(b.security?.id).toBe(a.security?.id);
     expect(await listSecurities(db())).toHaveLength(2);
@@ -387,3 +390,173 @@ describe("listTransactions", () => {
     expect(await listTransactions("other", db())).toEqual([]);
   });
 });
+
+describe("duplicate check", () => {
+  it("rejects a manual repeat with the match unless allowDuplicate is set", async () => {
+    const first = await record();
+    const repeat = await recordTrade(trade(), db());
+    expect(repeat).toEqual({ ok: false, reason: "possible-duplicate", status: "duplicate", matches: [first] });
+    expect(await listTransactions(depotId, db())).toHaveLength(1);
+    const booked = await recordTrade(trade({ allowDuplicate: true }), db());
+    expect(booked).toMatchObject({ ok: true, transaction: { sequence: 2 } });
+    expect(await listTransactions(depotId, db())).toHaveLength(2);
+  });
+
+  it("reports both rows of a repeated savings plan as ambiguous", async () => {
+    const plan = { quantity: "3.412871", price: "43.951", amount: "150", fee: "0", date: "2026-10-15" };
+    const a = await record(plan);
+    const b = await record({ ...plan, allowDuplicate: true });
+    expect(await recordTrade(trade(plan), db())).toEqual({ ok: false, reason: "possible-duplicate", status: "ambiguous", matches: [a, b] });
+  });
+
+  it("matches amounts within 0.01 and non-trades by their value", async () => {
+    await record({ amount: "150.00", price: "15" });
+    expect((await recordTrade(trade({ amount: "150.01", price: "15" }), db())).ok).toBe(false);
+    expect((await recordTrade(trade({ amount: "150.02", price: "15" }), db())).ok).toBe(true);
+    await recordTransaction({ depotId, type: "DEPOSIT", date: "2026-10-15", amount: "500" }, db());
+    expect(await recordTransaction({ depotId, type: "DEPOSIT", date: "2026-10-15", amount: "500" }, db())).toMatchObject({
+      ok: false,
+      reason: "possible-duplicate",
+      status: "duplicate",
+    });
+    await recordTransaction({ depotId, type: "FEE", date: "2026-10-15", fee: "4.9" }, db());
+    expect((await recordTransaction({ depotId, type: "FEE", date: "2026-10-15", fee: "5.9" }, db())).ok).toBe(true);
+  });
+
+  it("checks validation and holdings first, and skips a not-yet-existing new Security", async () => {
+    await record();
+    expect((await recordTrade(trade({ quantity: "0" }), db()))).toEqual({ ok: false, reason: "quantity-invalid" });
+    await record({ type: "SELL", quantity: "8" });
+    expect(await recordTrade(trade({ type: "SELL", quantity: "8" }), db())).toEqual({
+      ok: false,
+      reason: "sell-exceeds-holding",
+      available: "2",
+    });
+    const etf = { new: { isin: "IE00B4L5Y983", name: "ETF", assetType: "ETF" } };
+    expect((await recordTrade(trade({ security: etf }), db())).ok).toBe(true);
+  });
+});
+
+describe("updateTransaction", () => {
+  it("updates a price in place, keeping the sequence; Cost Basis follows on the next read", async () => {
+    const buy = await record({ quantity: "10", price: "100", fee: "4.9" });
+    const result = await updateTransaction(buy.id, trade({ quantity: "10", price: "90", fee: "4.9" }), db());
+    expect(result).toEqual({
+      ok: true,
+      transaction: { ...buy, price: "90", amount: "900" },
+    });
+    const [position] = await listPositions(depotId, "2026-10-25", db());
+    expect(position.costBasis).toBe("904.9");
+  });
+
+  it("may change the type and ignores input.depotId", async () => {
+    const buy = await record();
+    const other = await createDepot({ name: "ZERO", broker: "FINANZEN_ZERO" }, db());
+    if (!other.ok) throw new Error("setup failed");
+    const result = await updateTransaction(buy.id, { depotId: other.depot.id, type: "DEPOSIT", date: "2026-10-01", amount: "50" }, db());
+    expect(result).toMatchObject({ ok: true, transaction: { depotId, type: "DEPOSIT", quantity: null, price: null, amount: "50", security: null } });
+  });
+
+  it("appends a moved row after the last row of its new date", async () => {
+    const moved = await record({ date: "2026-10-01" });
+    await record({ date: "2026-10-05", quantity: "1" });
+    const result = await updateTransaction(moved.id, trade({ date: "2026-10-05" }), db());
+    expect(result).toMatchObject({ ok: true, transaction: { date: "2026-10-05", sequence: 2 } });
+  });
+
+  it("rejects an edit that makes a later sell exceed the holding", async () => {
+    const buy = await record({ date: "2026-10-01", quantity: "10" });
+    await record({ type: "SELL", date: "2026-10-20", quantity: "8" });
+    const before = await listTransactions(depotId, db());
+    expect(await updateTransaction(buy.id, trade({ quantity: "5" }), db())).toEqual({
+      ok: false,
+      reason: "later-sell-exceeds-holding",
+      date: "2026-10-20",
+    });
+    expect(await listTransactions(depotId, db())).toEqual(before);
+  });
+
+  it("rejects moving a buy after the sell it covers, and changing its Security", async () => {
+    const buy = await record({ date: "2026-10-01", quantity: "10" });
+    await record({ type: "SELL", date: "2026-10-20", quantity: "8" });
+    expect(await updateTransaction(buy.id, trade({ date: "2026-10-21" }), db())).toMatchObject({ reason: "later-sell-exceeds-holding" });
+    const etf = { new: { isin: "IE00B4L5Y983", name: "ETF", assetType: "ETF" } };
+    expect(await updateTransaction(buy.id, trade({ security: etf }), db())).toMatchObject({ reason: "later-sell-exceeds-holding" });
+    expect(await listSecurities(db())).toHaveLength(1);
+  });
+
+  it("rejects an own sell beyond the holding with the available quantity", async () => {
+    await record({ date: "2026-10-01", quantity: "10" });
+    const sell = await record({ type: "SELL", date: "2026-10-20", quantity: "8" });
+    expect(await updateTransaction(sell.id, trade({ type: "SELL", date: "2026-10-20", quantity: "12" }), db())).toEqual({
+      ok: false,
+      reason: "sell-exceeds-holding",
+      available: "10",
+    });
+    expect(await updateTransaction(sell.id, trade({ type: "SELL", date: "2026-10-20", quantity: "10" }), db())).toMatchObject({ ok: true });
+  });
+
+  it("does not block an unrelated edit over an already oversold history", async () => {
+    const buy = await record({ date: "2026-10-01", quantity: "10", fee: "0" });
+    const sell = await record({ type: "SELL", date: "2026-10-20", quantity: "8" });
+    // Only reachable through future import paths: force an oversold history directly.
+    await db().transaction.update({ where: { id: sell.id }, data: { quantity: "20" } });
+    const deposit = await book({ type: "DEPOSIT", date: "2026-10-02", amount: "5" });
+    expect(await updateTransaction(deposit.id, { depotId, type: "DEPOSIT", date: "2026-10-02", amount: "6" }, db())).toMatchObject({ ok: true });
+    // An edit of the oversold Security itself that does not change its holdings passes too.
+    expect(await updateTransaction(buy.id, trade({ date: "2026-10-01", quantity: "10", fee: "1" }), db())).toMatchObject({
+      ok: true,
+      transaction: { fee: "1" },
+    });
+  });
+
+  it("warns about a duplicate of another row but never of itself", async () => {
+    const a = await record({ date: "2026-10-01" });
+    const b = await record({ date: "2026-10-02" });
+    expect(await updateTransaction(a.id, trade({ date: "2026-10-01" }), db())).toMatchObject({ ok: true });
+    expect(await updateTransaction(a.id, trade({ date: "2026-10-02" }), db())).toEqual({
+      ok: false,
+      reason: "possible-duplicate",
+      status: "duplicate",
+      matches: [b],
+    });
+    expect(await updateTransaction(a.id, trade({ date: "2026-10-02", allowDuplicate: true }), db())).toMatchObject({ ok: true });
+  });
+
+  it("validates like recordTransaction and rejects an unknown id without writing", async () => {
+    const buy = await record();
+    expect(await updateTransaction(buy.id, trade({ quantity: "-1" }), db())).toEqual({ ok: false, reason: "quantity-invalid" });
+    expect(await updateTransaction("nope", trade(), db())).toEqual({ ok: false, reason: "transaction-not-found" });
+    expect(await listTransactions(depotId, db())).toEqual([buy]);
+  });
+});
+
+describe("deleteTransaction", () => {
+  it("deletes a row and keeps its Security", async () => {
+    const buy = await record();
+    expect(await deleteTransaction(buy.id, db())).toEqual({ ok: true, transaction: buy });
+    expect(await listTransactions(depotId, db())).toEqual([]);
+    expect(await listSecurities(db())).toHaveLength(1);
+  });
+
+  it("rejects deleting a buy a later sell needs", async () => {
+    const buy = await record({ date: "2026-10-01", quantity: "10" });
+    const sell = await record({ type: "SELL", date: "2026-10-20", quantity: "8" });
+    expect(await deleteTransaction(buy.id, db())).toEqual({ ok: false, reason: "later-sell-exceeds-holding", date: "2026-10-20" });
+    expect(await listTransactions(depotId, db())).toHaveLength(2);
+    expect(await deleteTransaction(sell.id, db())).toMatchObject({ ok: true });
+    expect(await deleteTransaction(buy.id, db())).toMatchObject({ ok: true });
+  });
+
+  it("rejects an unknown id", async () => {
+    await record();
+    expect(await deleteTransaction("nope", db())).toEqual({ ok: false, reason: "transaction-not-found" });
+    expect(await listTransactions(depotId, db())).toHaveLength(1);
+  });
+});
+
+async function book(input: Omit<RecordTransactionInput, "depotId">) {
+  const result = await recordTransaction({ depotId, ...input }, db());
+  if (!result.ok) throw new Error(`setup failed: ${result.reason}`);
+  return result.transaction;
+}

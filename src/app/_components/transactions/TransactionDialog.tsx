@@ -20,13 +20,32 @@ import Typography from "@mui/material/Typography";
 import { useTheme } from "@mui/material/styles";
 import useMediaQuery from "@mui/material/useMediaQuery";
 import { useActionState, useId, useState } from "react";
-import { recordTransactionAction, type TransactionActionState } from "@/app/_actions/transactions";
-import type { SecuritySummary, TransactionType } from "@/modules/ledger";
+import {
+  deleteTransactionAction,
+  type DeleteTransactionActionState,
+  saveTransactionAction,
+  type TransactionActionState,
+} from "@/app/_actions/transactions";
+import type { SecuritySummary, TransactionRecord, TransactionType } from "@/modules/ledger";
 import { cashPreview } from "./cash-preview";
-import { NEW_SECURITY_MARKER, TRADE_FIELDS } from "./form-fields";
-import { errorPlacement, FORM_SECTIONS, type FormSection, securityMode } from "./transaction-form";
+import { ALLOW_DUPLICATE_MARKER, NEW_SECURITY_MARKER, TRADE_FIELDS } from "./form-fields";
+import {
+  deleteConfirmText,
+  duplicateWarning,
+  emptyValues,
+  errorPlacement,
+  formDataKey,
+  FORM_SECTIONS,
+  type FormSection,
+  initialValues,
+  securityKey,
+  securityMode,
+  submitDecision,
+  valuesKey,
+} from "./transaction-form";
 import {
   ASSET_TYPE_LABELS,
+  failureDetail,
   NEW_SECURITY_ASSET_TYPES,
   TRANSACTION_TYPE_ORDER,
   transactionErrorField,
@@ -80,53 +99,131 @@ const TYPE_GROUP = {
 } as const;
 
 
+/** The Depot a Transaction belongs to; its name appears in the delete confirmation. */
+export type DialogDepot = { id: string; name: string };
+
 /**
- * "Neue Buchung" form for all Transaction types: the type comes first and the fields adapt to it.
- * Inputs are controlled so they keep their values after an error; success closes the dialog. The
- * server action parses German decimals and calls only the ledger. The cash effect updates live.
+ * Transaction form for all types, new (`transaction` absent) or edit (prefilled from `transaction`):
+ * the type comes first and the fields adapt to it. Inputs are controlled so they keep their values
+ * after an error; success closes the dialog. The server action parses German decimals and calls only
+ * the ledger. The cash effect updates live. A possible duplicate shows an inline warning and turns the
+ * submit button into "Trotzdem buchen". In edit mode, "Löschen" switches the same dialog to a confirm
+ * view. Renders the dialog's title and content.
  */
 function TransactionForm({
-  depotId,
+  depot,
   securities,
   today,
+  transaction,
+  titleId,
   onSuccess,
   onCancel,
 }: {
-  depotId: string;
+  depot: DialogDepot;
   securities: SecuritySummary[];
   today: string;
+  transaction?: TransactionRecord;
+  titleId: string;
   onSuccess: () => void;
   onCancel: () => void;
 }) {
   const typeLabelId = useId();
   const typeErrorId = useId();
   const previewId = useId();
-  const [type, setType] = useState<TransactionType>("BUY");
-  const [security, setSecurity] = useState<SecurityOption | null>(null);
+  const [initial] = useState(() => (transaction ? initialValues(transaction) : emptyValues(today)));
+  const [type, setType] = useState<TransactionType>(initial.type);
+  const [security, setSecurity] = useState<SecurityOption | null>(
+    initial.security ? { kind: "security", security: initial.security } : null,
+  );
   const [securityInput, setSecurityInput] = useState("");
   const [identifier, setIdentifier] = useState("");
   const [name, setName] = useState("");
   const [assetType, setAssetType] = useState("");
-  const [date, setDate] = useState(today);
-  const [quantity, setQuantity] = useState("");
-  const [price, setPrice] = useState("");
-  const [fee, setFee] = useState("");
-  const [tax, setTax] = useState("");
-  const [amount, setAmount] = useState("");
-  const [submittedType, setSubmittedType] = useState<TransactionType>("BUY");
+  const [date, setDate] = useState(initial.date);
+  const [quantity, setQuantity] = useState(initial.quantity);
+  const [price, setPrice] = useState(initial.price);
+  const [fee, setFee] = useState(initial.fee);
+  const [tax, setTax] = useState(initial.tax);
+  const [amount, setAmount] = useState(initial.amount);
+  const [submittedType, setSubmittedType] = useState<TransactionType>(initial.type);
+  const [submittedKey, setSubmittedKey] = useState<string | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const [state, formAction, pending] = useActionState<TransactionActionState, FormData>(async (previous, formData) => {
     setSubmittedType(formData.get(TRADE_FIELDS.type) as TransactionType);
-    const result = await recordTransactionAction(previous, formData);
+    setSubmittedKey(formDataKey(formData));
+    const result = await saveTransactionAction(previous, formData);
     if (result?.ok) onSuccess();
     return result;
   }, null);
 
+  const [deleteState, deleteAction, deleting] = useActionState<DeleteTransactionActionState, FormData>(async () => {
+    if (!transaction) return null;
+    const result = await deleteTransactionAction(transaction.id);
+    if (result?.ok) onSuccess();
+    return result;
+  }, null);
+
+  if (transaction && confirmingDelete) {
+    const deleteFailure = deleteState && !deleteState.ok ? deleteState : undefined;
+    return (
+      <>
+        <DialogTitle id={titleId}>Buchung löschen</DialogTitle>
+        <Box
+          component="form"
+          action={deleteAction}
+          sx={{ display: "flex", flexDirection: "column", flex: "1 1 auto", minHeight: 0 }}
+        >
+          <DialogContent sx={{ pt: 1 }}>
+            <Stack spacing={2} sx={{ pt: 1 }}>
+              {deleteFailure ? (
+                <Alert severity="error" role="alert">
+                  {transactionErrorMessage(deleteFailure.reason, failureDetail(deleteFailure))}
+                </Alert>
+              ) : null}
+              <Typography>{deleteConfirmText(transaction, depot.name)}</Typography>
+            </Stack>
+          </DialogContent>
+          <DialogActions sx={{ px: 3, pb: 2, mt: "auto" }}>
+            <Button onClick={() => setConfirmingDelete(false)} disabled={deleting} sx={TOUCH_TARGET} autoFocus>
+              Abbrechen
+            </Button>
+            <Button type="submit" variant="contained" color="error" disabled={deleting} sx={TOUCH_TARGET}>
+              Löschen
+            </Button>
+          </DialogActions>
+        </Box>
+      </>
+    );
+  }
+
   const sections = FORM_SECTIONS[type];
-  const failure = state && !state.ok ? state : undefined;
-  const message = failure
-    ? transactionErrorMessage(failure.reason, "available" in failure ? failure.available : undefined, submittedType)
-    : undefined;
+  const rawFailure = state && !state.ok ? state : undefined;
+  // A possible duplicate is a warning, not an error; it stays active only for the values it was found for.
+  const currentKey = valuesKey({
+    type,
+    date,
+    quantity,
+    price,
+    fee,
+    tax,
+    amount,
+    security: securityKey(
+      security?.kind === "security"
+        ? { id: security.security.id }
+        : security?.kind === "new"
+          ? { identifier, name, assetType }
+          : null,
+    ),
+  });
+  const decision = submitDecision({
+    editing: Boolean(transaction),
+    warnedKey: rawFailure?.reason === "possible-duplicate" ? submittedKey : null,
+    currentKey,
+  });
+  const duplicate = decision.duplicateActive && rawFailure?.reason === "possible-duplicate" ? rawFailure : undefined;
+  const failure = rawFailure?.reason === "possible-duplicate" ? undefined : rawFailure;
+  const message = failure ? transactionErrorMessage(failure.reason, failureDetail(failure), submittedType) : undefined;
   const placement = failure
     ? errorPlacement(type, submittedType, transactionErrorField(failure.reason, submittedType))
     : ({ kind: "none" } as const);
@@ -289,87 +386,145 @@ function TransactionForm({
   };
 
   return (
-    <Box
-      component="form"
-      action={formAction}
-      noValidate
-      sx={{ display: "flex", flexDirection: "column", flex: "1 1 auto", minHeight: 0 }}
-    >
-      <DialogContent sx={{ pt: 1 }}>
-        <Stack spacing={2} sx={{ pt: 1 }}>
-          {alert ? (
-            <Alert severity="error" role="alert">
-              {alert}
-            </Alert>
-          ) : null}
-          <input type="hidden" name={TRADE_FIELDS.depotId} value={depotId} />
-          <input type="hidden" name={TRADE_FIELDS.type} value={type} />
-          {hasSecurity && security?.kind === "security" ? <input type="hidden" name={TRADE_FIELDS.securityId} value={security.security.id} /> : null}
-          {isNew ? <input type="hidden" name={TRADE_FIELDS.newSecurity} value={NEW_SECURITY_MARKER} /> : null}
+    <>
+      <DialogTitle id={titleId}>{transaction ? "Buchung bearbeiten" : "Neue Buchung"}</DialogTitle>
+      <Box
+        component="form"
+        action={formAction}
+        noValidate
+        sx={{ display: "flex", flexDirection: "column", flex: "1 1 auto", minHeight: 0 }}
+      >
+        <DialogContent sx={{ pt: 1 }}>
+          <Stack spacing={2} sx={{ pt: 1 }}>
+            {alert ? (
+              <Alert severity="error" role="alert">
+                {alert}
+              </Alert>
+            ) : null}
+            {duplicate ? (
+              <Alert severity="warning" role="alert">
+                {duplicateWarning(duplicate)}
+              </Alert>
+            ) : null}
+            <input type="hidden" name={TRADE_FIELDS.depotId} value={depot.id} />
+            {transaction && decision.sendTransactionId ? (
+              <input type="hidden" name={TRADE_FIELDS.transactionId} value={transaction.id} />
+            ) : null}
+            {decision.allowDuplicate ? <input type="hidden" name={TRADE_FIELDS.allowDuplicate} value={ALLOW_DUPLICATE_MARKER} /> : null}
+            <input type="hidden" name={TRADE_FIELDS.type} value={type} />
+            {hasSecurity && security?.kind === "security" ? <input type="hidden" name={TRADE_FIELDS.securityId} value={security.security.id} /> : null}
+            {isNew ? <input type="hidden" name={TRADE_FIELDS.newSecurity} value={NEW_SECURITY_MARKER} /> : null}
 
-          <FormControl error={Boolean(errorFor("type"))}>
-            <FormLabel id={typeLabelId} sx={{ mb: 0.5 }}>
-              Art der Buchung
-            </FormLabel>
-            <ToggleButtonGroup
-              exclusive
-              color="primary"
-              value={type}
-              onChange={(_event, value: TransactionType | null) => {
-                if (value) setType(value);
-              }}
-              aria-labelledby={typeLabelId}
-              aria-describedby={errorFor("type") ? typeErrorId : undefined}
-              sx={TYPE_GROUP}
+            <FormControl error={Boolean(errorFor("type"))}>
+              <FormLabel id={typeLabelId} sx={{ mb: 0.5 }}>
+                Art der Buchung
+              </FormLabel>
+              <ToggleButtonGroup
+                exclusive
+                color="primary"
+                value={type}
+                onChange={(_event, value: TransactionType | null) => {
+                  if (value) setType(value);
+                }}
+                aria-labelledby={typeLabelId}
+                aria-describedby={errorFor("type") ? typeErrorId : undefined}
+                sx={TYPE_GROUP}
+              >
+                {TRANSACTION_TYPE_ORDER.map((value) => (
+                  <ToggleButton key={value} value={value} sx={TOUCH_TARGET}>
+                    {transactionTypeLabel(value)}
+                  </ToggleButton>
+                ))}
+              </ToggleButtonGroup>
+              {errorFor("type") ? <FormHelperText id={typeErrorId}>{errorFor("type")}</FormHelperText> : null}
+            </FormControl>
+
+            {sections.map(renderSection)}
+            <Typography
+              id={previewId}
+              aria-live="polite"
+              sx={{ fontWeight: 600, fontVariantNumeric: "tabular-nums" }}
             >
-              {TRANSACTION_TYPE_ORDER.map((value) => (
-                <ToggleButton key={value} value={value} sx={TOUCH_TARGET}>
-                  {transactionTypeLabel(value)}
-                </ToggleButton>
-              ))}
-            </ToggleButtonGroup>
-            {errorFor("type") ? <FormHelperText id={typeErrorId}>{errorFor("type")}</FormHelperText> : null}
-          </FormControl>
-
-          {sections.map(renderSection)}
-          <Typography
-            id={previewId}
-            aria-live="polite"
-            sx={{ fontWeight: 600, fontVariantNumeric: "tabular-nums" }}
-          >
-            Cash-Effekt: {preview}
-          </Typography>
-        </Stack>
-      </DialogContent>
-      <DialogActions sx={{ px: 3, pb: 2, mt: "auto" }}>
-        <Button onClick={onCancel} disabled={pending} sx={TOUCH_TARGET}>
-          Abbrechen
-        </Button>
-        <Button type="submit" variant="contained" disabled={pending} sx={TOUCH_TARGET}>
-          Buchen
-        </Button>
-      </DialogActions>
-    </Box>
+              Cash-Effekt: {preview}
+            </Typography>
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2, mt: "auto", flexWrap: "wrap", rowGap: 1 }}>
+          {transaction ? (
+            <Button
+              color="error"
+              onClick={() => setConfirmingDelete(true)}
+              disabled={pending}
+              sx={{ ...TOUCH_TARGET, mr: "auto" }}
+            >
+              Löschen
+            </Button>
+          ) : null}
+          <Button onClick={onCancel} disabled={pending} sx={TOUCH_TARGET}>
+            Abbrechen
+          </Button>
+          <Button type="submit" variant="contained" disabled={pending} sx={TOUCH_TARGET}>
+            {decision.label}
+          </Button>
+        </DialogActions>
+      </Box>
+    </>
   );
 }
 
-/** Button that opens the "Neue Buchung" dialog (full-screen below `sm`). Each opening starts fresh. */
-export function NewTransactionButton({
-  depotId,
+/**
+ * The Transaction dialog (full-screen below `sm`): "Neue Buchung" without `transaction`, else
+ * "Buchung bearbeiten". Change `formKey` to start a fresh form.
+ */
+export function TransactionDialog({
+  open,
+  onClose,
+  formKey,
+  depot,
   securities,
   today,
+  transaction,
 }: {
-  depotId: string;
+  open: boolean;
+  onClose: () => void;
+  formKey: number;
+  depot: DialogDepot;
   securities: SecuritySummary[];
-  /** Default "Datum": today's Europe/Berlin business date, computed on the server. */
   today: string;
+  transaction?: TransactionRecord;
 }) {
   const theme = useTheme();
   const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
   const titleId = useId();
+  return (
+    <Dialog open={open} onClose={onClose} fullScreen={fullScreen} fullWidth maxWidth="sm" aria-labelledby={titleId}>
+      <TransactionForm
+        key={formKey}
+        depot={depot}
+        securities={securities}
+        today={today}
+        transaction={transaction}
+        titleId={titleId}
+        onSuccess={onClose}
+        onCancel={onClose}
+      />
+    </Dialog>
+  );
+}
+
+/** Button that opens the "Neue Buchung" dialog. Each opening starts fresh. */
+export function NewTransactionButton({
+  depot,
+  securities,
+  today,
+}: {
+  depot: DialogDepot;
+  securities: SecuritySummary[];
+  /** Default "Datum": today's Europe/Berlin business date, computed on the server. */
+  today: string;
+}) {
   const [open, setOpen] = useState(false);
   const [session, setSession] = useState(0);
-  const hide = () => setOpen(false);
   return (
     <>
       <Button
@@ -382,17 +537,14 @@ export function NewTransactionButton({
       >
         Neue Buchung
       </Button>
-      <Dialog open={open} onClose={hide} fullScreen={fullScreen} fullWidth maxWidth="sm" aria-labelledby={titleId}>
-        <DialogTitle id={titleId}>Neue Buchung</DialogTitle>
-        <TransactionForm
-          key={session}
-          depotId={depotId}
-          securities={securities}
-          today={today}
-          onSuccess={hide}
-          onCancel={hide}
-        />
-      </Dialog>
+      <TransactionDialog
+        open={open}
+        onClose={() => setOpen(false)}
+        formKey={session}
+        depot={depot}
+        securities={securities}
+        today={today}
+      />
     </>
   );
 }

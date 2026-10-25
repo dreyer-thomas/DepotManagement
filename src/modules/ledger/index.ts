@@ -36,23 +36,30 @@ export type { PositionRecord } from "./positions";
 export { listCashBookings } from "./cash";
 export type { CashBookingRecord } from "./cash";
 export {
+  deleteTransaction,
   listTransactions,
   QUANTITY_MAX_DECIMALS,
   recordTrade,
   recordTransaction,
   TRADE_TYPES,
   TRANSACTION_TYPES,
+  updateTransaction,
 } from "./transactions";
 export type {
+  DeleteTransactionResult,
+  LaterSellExceedsHoldingFailure,
   NewSecurityInput,
+  PossibleDuplicateFailure,
   RecordTradeInput,
   RecordTradeResult,
   RecordTransactionInput,
   RecordTransactionResult,
   SecurityRefInput,
+  SellExceedsHoldingFailure,
   TradeFailureReason,
   TransactionFailureReason,
   TradeType,
   TransactionRecord,
   TransactionType,
+  UpdateTransactionResult,
 } from "./transactions";

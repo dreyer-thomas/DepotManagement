@@ -55,7 +55,8 @@ export default async function DepotDetailPage({ params, searchParams }: Props) {
     tab === "positions" ? listPositions(depot.id, today) : Promise.resolve([]),
     tab === "cash" ? listCashBookings(depot.id) : Promise.resolve([]),
   ]);
-  const newTransaction = <NewTransactionButton depotId={depot.id} securities={securities} today={today} />;
+  const dialogDepot = { id: depot.id, name: depot.name };
+  const newTransaction = <NewTransactionButton depot={dialogDepot} securities={securities} today={today} />;
   // An empty Depot shows its only "Neue Buchung" button inside the empty state of every tab.
   const emptyState = transactions.length === 0;
 
@@ -68,7 +69,7 @@ export default async function DepotDetailPage({ params, searchParams }: Props) {
       </Message>
     );
   } else if (tab === "transactions") {
-    content = <TransactionList transactions={transactions} />;
+    content = <TransactionList transactions={transactions} depot={dialogDepot} securities={securities} today={today} />;
   } else if (tab === "positions") {
     content = <PositionsTable positions={positions} cashBalance={depot.cashBalance} />;
   } else {

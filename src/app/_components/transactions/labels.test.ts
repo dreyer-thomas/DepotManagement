@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  failureDetail,
   TRANSACTION_TYPE_ORDER,
   transactionErrorField,
   transactionErrorMessage,
@@ -66,6 +67,21 @@ describe("transaction labels", () => {
   ])("%s for %s shows on %s", (reason, type, field, message) => {
     expect(transactionErrorField(reason, type)).toBe(field);
     expect(transactionErrorMessage(reason, undefined, type)).toBe(message);
+  });
+
+  it("formats the later-sell message with the SELL's date, and the unknown-Transaction message", () => {
+    expect(transactionErrorMessage("later-sell-exceeds-holding", "2026-10-20")).toBe(
+      "Nicht möglich: Der Verkauf am 20.10.2026 würde den Bestand übersteigen.",
+    );
+    expect(transactionErrorField("later-sell-exceeds-holding")).toBeUndefined();
+    expect(transactionErrorMessage("transaction-not-found")).toBe("Buchung nicht gefunden.");
+    expect(transactionErrorField("transaction-not-found")).toBeUndefined();
+  });
+
+  it("picks the failure detail", () => {
+    expect(failureDetail({ ok: false, reason: "sell-exceeds-holding", available: "10" })).toBe("10");
+    expect(failureDetail({ ok: false, reason: "later-sell-exceeds-holding", date: "2026-10-20" })).toBe("2026-10-20");
+    expect(failureDetail({ ok: false, reason: "date-invalid" })).toBeUndefined();
   });
 
   it("shows the session message", () => {

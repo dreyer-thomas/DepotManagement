@@ -1,4 +1,4 @@
-import { formatQuantity } from "@/core/format";
+import { formatDate, formatQuantity } from "@/core/format";
 import type { AssetType, TransactionFailureReason, TransactionType } from "@/modules/ledger";
 
 /** German labels of the Transaction types. */
@@ -45,7 +45,7 @@ export type TransactionField =
   | "tax"
   | "amount";
 
-type MessageReason = Exclude<TransactionErrorReason, "sell-exceeds-holding">;
+type MessageReason = Exclude<TransactionErrorReason, "sell-exceeds-holding" | "later-sell-exceeds-holding">;
 
 const MESSAGES: Record<MessageReason, string> = {
   "depot-not-found": "Depot nicht gefunden.",
@@ -63,6 +63,8 @@ const MESSAGES: Record<MessageReason, string> = {
   "crypto-symbol-invalid": "Bitte ein gültiges Krypto-Symbol eingeben (bis 10 Buchstaben oder Ziffern).",
   "security-name-invalid": "Bitte einen Namen mit höchstens 100 Zeichen eingeben.",
   "asset-type-invalid": "Bitte eine passende Art wählen: Krypto braucht ein Krypto-Symbol, Aktie, ETF und Zertifikat eine ISIN.",
+  "possible-duplicate": "Mögliche Doppelbuchung.",
+  "transaction-not-found": "Buchung nicht gefunden.",
   unauthorized: "Sitzung abgelaufen. Bitte erneut anmelden.",
 };
 
@@ -75,11 +77,15 @@ const TYPE_MESSAGES: Partial<Record<TransactionType, Partial<Record<MessageReaso
 };
 
 /**
- * German message for a write failure; `available` is the sellable quantity on an oversell, `type` the
- * submitted Transaction type (some messages depend on it).
+ * German message for a write failure; `detail` is the sellable quantity on `sell-exceeds-holding` and
+ * the SELL's date on `later-sell-exceeds-holding`, `type` the submitted Transaction type (some messages
+ * depend on it).
  */
-export function transactionErrorMessage(reason: TransactionErrorReason, available?: string, type?: TransactionType): string {
-  if (reason === "sell-exceeds-holding") return `Verkauf übersteigt Bestand (${formatQuantity(available ?? "0")} Stück).`;
+export function transactionErrorMessage(reason: TransactionErrorReason, detail?: string, type?: TransactionType): string {
+  if (reason === "sell-exceeds-holding") return `Verkauf übersteigt Bestand (${formatQuantity(detail ?? "0")} Stück).`;
+  if (reason === "later-sell-exceeds-holding") {
+    return `Nicht möglich: Der Verkauf am ${detail ? formatDate(detail) : "?"} würde den Bestand übersteigen.`;
+  }
   return (type && TYPE_MESSAGES[type]?.[reason]) ?? MESSAGES[reason];
 }
 
@@ -113,4 +119,11 @@ const TYPE_FIELDS: Partial<Record<TransactionType, Partial<Record<TransactionErr
 /** Which form field an error belongs to for `type`; others (Depot, session) show as an Alert. */
 export function transactionErrorField(reason: TransactionErrorReason, type?: TransactionType): TransactionField | undefined {
   return (type && TYPE_FIELDS[type]?.[reason]) ?? FIELDS[reason];
+}
+
+/** The detail a failure's message needs: the available quantity or the later SELL's date. */
+export function failureDetail(failure: object): string | undefined {
+  if ("available" in failure && typeof failure.available === "string") return failure.available;
+  if ("date" in failure && typeof failure.date === "string") return failure.date;
+  return undefined;
 }

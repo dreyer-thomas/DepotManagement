@@ -15,7 +15,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { prisma } from "@/db";
-import { createDepot, recordTrade, recordTransaction, type RecordTransactionInput } from "@/modules/ledger";
+import { createDepot, recordTrade, recordTransaction, type RecordTransactionInput, updateTransaction } from "@/modules/ledger";
 import DepotDetailPage, { generateMetadata } from "./page";
 
 beforeEach(async () => {
@@ -283,5 +283,48 @@ describe("Depot detail page", () => {
     expect(renderText(tree)).toContain("Keine offenen Positionen. Cash-Konto 10,00\u00a0€");
     expect(renderText(tree)).not.toContain("Noch keine Buchungen.");
     expect((renderHtml(tree).match(/<button[^>]*>Neue Buchung/g) ?? []).length).toBe(1);
+  });
+
+  it("gives every Buchungen row an edit button labelled with its date", async () => {
+    const { id } = await depot();
+    await bookMatrix(id);
+    const html = renderHtml(await DepotDetailPage(props(id, "transactions")));
+    const buttons = html.match(/<button[^>]*aria-label="Buchung vom \d{2}\.\d{2}\.\d{4} bearbeiten"/g) ?? [];
+    expect(buttons).toHaveLength(7);
+    expect(html).toContain('aria-label="Buchung vom 10.01.2026 bearbeiten"');
+    expect(html).toContain('aria-label="Buchung vom 01.01.2099 bearbeiten"');
+  });
+
+  it("shows an edit made through the ledger on the next render of every tab", async () => {
+    const { id } = await depot();
+    const buy = await recordTrade({
+      depotId: id,
+      type: "BUY",
+      date: "2026-01-10",
+      quantity: "10",
+      price: "100",
+      fee: "5",
+      security: { new: { isin: "US0378331005", name: "Apple Inc.", assetType: "STOCK" } },
+    });
+    if (!buy.ok) throw new Error("setup failed");
+    await recordTransaction({ depotId: id, type: "DEPOSIT", date: "2026-01-05", amount: "2000" });
+    const edited = await updateTransaction(buy.transaction.id, {
+      depotId: id,
+      type: "BUY",
+      date: "2026-01-10",
+      quantity: "10",
+      price: "90",
+      fee: "5",
+      security: { id: buy.transaction.security!.id },
+    });
+    expect(edited.ok).toBe(true);
+
+    const transactions = renderText(await DepotDetailPage(props(id, "transactions")));
+    expect(transactions).toContain("Kauf AI Apple Inc. 10.01.2026 10 Stück 900,00\u00a0€ -905,00\u00a0€");
+    const positions = renderText(await DepotDetailPage(props(id)));
+    expect(positions).toContain("AI Apple Inc. 10 905,00\u00a0€ 90,50\u00a0€ 90,00\u00a0€ 900,00\u00a0€");
+    const cash = renderText(await DepotDetailPage(props(id, "cash")));
+    expect(cash).toContain("Cash-Konto 1.095,00\u00a0€");
+    expect(cash).toContain("10.01.2026 Kauf AI Apple Inc. -905,00\u00a0€ 1.095,00\u00a0€");
   });
 });

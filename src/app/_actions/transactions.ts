@@ -2,18 +2,30 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { NEW_SECURITY_MARKER, TRADE_FIELDS, type TradeFieldName } from "@/app/_components/transactions/form-fields";
+import {
+  ALLOW_DUPLICATE_MARKER,
+  NEW_SECURITY_MARKER,
+  TRADE_FIELDS,
+  type TradeFieldName,
+} from "@/app/_components/transactions/form-fields";
 import { parseDecimalInput } from "@/core/decimal-input";
 import { getSession } from "@/modules/auth";
 import {
+  deleteTransaction,
+  type DeleteTransactionResult,
   recordTransaction,
   type RecordTransactionInput,
-  type RecordTransactionResult,
-  type TransactionFailureReason,
+  updateTransaction,
+  type UpdateTransactionResult,
 } from "@/modules/ledger";
 
-/** Result of the "Neue Buchung" server action; `null` before the first submit. */
-export type TransactionActionState = RecordTransactionResult | { ok: false; reason: "unauthorized" } | null;
+type Unauthorized = { ok: false; reason: "unauthorized" };
+
+/** Result of `saveTransactionAction` (new or edited Transaction); `null` before the first submit. */
+export type TransactionActionState = UpdateTransactionResult | Unauthorized | null;
+
+/** Result of `deleteTransactionAction`; `null` before the first attempt. */
+export type DeleteTransactionActionState = DeleteTransactionResult | Unauthorized | null;
 
 // Non-string values (e.g. a File) become "", which the ledger rejects with a typed reason.
 const formText = z.string().catch("");
@@ -32,6 +44,8 @@ const tradeForm = z.object({
   [TRADE_FIELDS.securityIdentifier]: formText,
   [TRADE_FIELDS.securityName]: formText,
   [TRADE_FIELDS.assetType]: formText,
+  [TRADE_FIELDS.transactionId]: formText,
+  [TRADE_FIELDS.allowDuplicate]: formText,
 } satisfies Record<TradeFieldName, typeof formText>);
 
 const UNAUTHORIZED = { ok: false, reason: "unauthorized" } as const;
@@ -58,7 +72,7 @@ function usedFields(type: string): DecimalField[] {
 }
 
 /** The ledger reason for an unparseable field; the "Betrag" of a FEE/TAX is its fee/tax. */
-function fieldReason(field: DecimalField, type: string): Exclude<TransactionFailureReason, "sell-exceeds-holding"> {
+function fieldReason(field: DecimalField, type: string): `${DecimalField}-invalid` {
   if (field === "amount") return type === "FEE" ? "fee-invalid" : type === "TAX" ? "tax-invalid" : "amount-invalid";
   return `${field}-invalid`;
 }
@@ -80,7 +94,11 @@ function figures(type: string, values: Partial<Record<DecimalField, string>>): P
   }
 }
 
-export async function recordTransactionAction(
+/**
+ * Books the submitted Transaction through the ledger: a new one without `transactionId`, else an edit
+ * of that Transaction. `allowDuplicate` = "1" confirms a possible duplicate. Revalidates on success only.
+ */
+export async function saveTransactionAction(
   _previous: TransactionActionState,
   formData: FormData,
 ): Promise<TransactionActionState> {
@@ -94,7 +112,7 @@ export async function recordTransactionAction(
     if (parsed.value !== "") values[field] = parsed.value;
   }
 
-  const result = await recordTransaction({
+  const input: RecordTransactionInput = {
     depotId: form.depotId,
     type: form.type,
     date: form.date,
@@ -105,7 +123,19 @@ export async function recordTransactionAction(
         : form.securityId
           ? { id: form.securityId }
           : undefined,
-  });
+    allowDuplicate: form.allowDuplicate === ALLOW_DUPLICATE_MARKER,
+  };
+  const result = form.transactionId
+    ? await updateTransaction(form.transactionId, input)
+    : await recordTransaction(input);
+  if (result.ok) revalidatePath("/", "layout");
+  return result;
+}
+
+/** Deletes Transaction `id` through the ledger. Revalidates on success only. */
+export async function deleteTransactionAction(id: string): Promise<DeleteTransactionActionState> {
+  if (!(await getSession())) return UNAUTHORIZED;
+  const result = await deleteTransaction(typeof id === "string" ? id : "");
   if (result.ok) revalidatePath("/", "layout");
   return result;
 }
