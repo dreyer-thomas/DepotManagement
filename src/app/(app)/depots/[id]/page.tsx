@@ -10,12 +10,13 @@ import { type DepotTab, depotTab, depotTabId, depotTabPanelId } from "@/app/_com
 import { DepotTabs } from "@/app/_components/depots/DepotTabs";
 import { brokerLabel } from "@/app/_components/depots/labels";
 import { PageTitle } from "@/app/_components/Placeholder";
+import { CashBookings } from "@/app/_components/cash/CashBookings";
 import { NewTransactionButton } from "@/app/_components/transactions/TransactionDialog";
 import { PositionsTable } from "@/app/_components/positions/PositionsTable";
 import { TransactionList } from "@/app/_components/transactions/TransactionList";
 import { businessDate } from "@/core/dates";
 import { formatMoney } from "@/core/format";
-import { getDepot, listPositions, listSecurities, listTransactions } from "@/modules/ledger";
+import { getDepot, listCashBookings, listPositions, listSecurities, listTransactions } from "@/modules/ledger";
 
 type Props = {
   params: Promise<{ id: string }>;
@@ -48,14 +49,15 @@ export default async function DepotDetailPage({ params, searchParams }: Props) {
   if (!depot) notFound();
   const tab = depotTab((await searchParams)?.tab);
   const today = businessDate(new Date());
-  const [transactions, securities, positions] = await Promise.all([
+  const [transactions, securities, positions, cashBookings] = await Promise.all([
     listTransactions(depot.id),
     listSecurities(),
     tab === "positions" ? listPositions(depot.id, today) : Promise.resolve([]),
+    tab === "cash" ? listCashBookings(depot.id) : Promise.resolve([]),
   ]);
   const newTransaction = <NewTransactionButton depotId={depot.id} securities={securities} today={today} />;
-  // An empty Depot shows its only "Neue Buchung" button inside the empty state of Positionen and Buchungen.
-  const emptyState = (tab === "transactions" || tab === "positions") && transactions.length === 0;
+  // An empty Depot shows its only "Neue Buchung" button inside the empty state of every tab.
+  const emptyState = transactions.length === 0;
 
   let content: ReactNode;
   if (emptyState) {
@@ -68,20 +70,9 @@ export default async function DepotDetailPage({ params, searchParams }: Props) {
   } else if (tab === "transactions") {
     content = <TransactionList transactions={transactions} />;
   } else if (tab === "positions") {
-    content =
-      positions.length === 0 ? (
-        <Message>
-          <Typography>Keine offenen Positionen.</Typography>
-        </Message>
-      ) : (
-        <PositionsTable positions={positions} />
-      );
+    content = <PositionsTable positions={positions} cashBalance={depot.cashBalance} />;
   } else {
-    content = (
-      <Message>
-        <Typography color="text.secondary">Dieser Bereich folgt in einer späteren Version.</Typography>
-      </Message>
-    );
+    content = <CashBookings balance={depot.cashBalance} bookings={cashBookings} />;
   }
 
   return (

@@ -33,12 +33,25 @@ export type {
 } from "./securities";
 export { listPositions } from "./positions";
 export type { PositionRecord } from "./positions";
-export { listTransactions, QUANTITY_MAX_DECIMALS, recordTrade, TRADE_TYPES } from "./transactions";
+export { listCashBookings } from "./cash";
+export type { CashBookingRecord } from "./cash";
+export {
+  listTransactions,
+  QUANTITY_MAX_DECIMALS,
+  recordTrade,
+  recordTransaction,
+  TRADE_TYPES,
+  TRANSACTION_TYPES,
+} from "./transactions";
 export type {
   NewSecurityInput,
   RecordTradeInput,
   RecordTradeResult,
+  RecordTransactionInput,
+  RecordTransactionResult,
+  SecurityRefInput,
   TradeFailureReason,
+  TransactionFailureReason,
   TradeType,
   TransactionRecord,
   TransactionType,

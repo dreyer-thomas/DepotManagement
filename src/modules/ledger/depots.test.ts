@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createTestDatabase, type TestDatabase } from "../../../test/helpers/test-db";
-import { createDepot, getDepot, listDepots, renameDepot } from "./index";
+import { createDepot, getDepot, listDepots, recordTransaction, type RecordTransactionInput, renameDepot } from "./index";
 
 let testDb: TestDatabase;
 
@@ -116,6 +116,45 @@ describe("listDepots and getDepot", () => {
 
   it("returns null for an unknown id", async () => {
     expect(await getDepot("xyz", db())).toBeNull();
+  });
+});
+
+describe("cash balance", () => {
+  async function book(depotId: string, input: Omit<RecordTransactionInput, "depotId">) {
+    const result = await recordTransaction({ depotId, ...input }, db());
+    if (!result.ok) throw new Error(`setup failed: ${result.reason}`);
+  }
+
+  async function bookMatrix(depotId: string) {
+    const security = { new: { isin: "US0378331005", name: "Apple Inc.", assetType: "STOCK" } };
+    await book(depotId, { type: "WITHDRAWAL", date: "2026-03-04", amount: "300" });
+    await book(depotId, { type: "DIVIDEND", date: "2026-03-01", amount: "50", tax: "12.5", security });
+    await book(depotId, { type: "DEPOSIT", date: "2026-01-05", amount: "2000" });
+    await book(depotId, { type: "TAX", date: "2026-03-03", tax: "-3.5" });
+    await book(depotId, { type: "BUY", date: "2026-01-10", quantity: "10", price: "100", fee: "5", security });
+    await book(depotId, { type: "FEE", date: "2026-03-02", fee: "4.9" });
+  }
+
+  it("is computed from the Depot's Transactions, excluding future-dated ones", async () => {
+    const depot = await create("Hauptdepot");
+    await bookMatrix(depot.id);
+    await book(depot.id, { type: "DEPOSIT", date: "2099-01-01", amount: "100" });
+    expect((await getDepot(depot.id, db()))?.cashBalance).toBe("731.1");
+    const renamed = await renameDepot(depot.id, { name: "Neu" }, db());
+    expect(renamed.ok && renamed.depot.cashBalance).toBe("731.1");
+  });
+
+  it("lists each Depot with its own balance, including negative ones", async () => {
+    const a = await create("A");
+    const b = await create("B");
+    await create("C");
+    await bookMatrix(a.id);
+    await book(b.id, { type: "WITHDRAWAL", date: "2026-01-01", amount: "25.5" });
+    expect((await listDepots(db())).map((depot) => [depot.name, depot.cashBalance])).toEqual([
+      ["A", "731.1"],
+      ["B", "-25.5"],
+      ["C", "0"],
+    ]);
   });
 });
 

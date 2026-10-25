@@ -1,5 +1,3 @@
-import SellOutlined from "@mui/icons-material/SellOutlined";
-import ShoppingCartOutlined from "@mui/icons-material/ShoppingCartOutlined";
 import Card from "@mui/material/Card";
 import Stack from "@mui/material/Stack";
 import Table from "@mui/material/Table";
@@ -8,10 +6,11 @@ import TableCell from "@mui/material/TableCell";
 import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
 import Typography from "@mui/material/Typography";
+import { cashEffect } from "@/core/cash";
 import { formatDate, formatMoney, formatMonth, formatQuantity } from "@/core/format";
 import type { TransactionRecord } from "@/modules/ledger";
 import { SecurityLogo } from "../securities/SecurityLogo";
-import { transactionTypeLabel } from "./labels";
+import { CashEffectText, TransactionTypeLabel } from "./TransactionType";
 
 type MonthGroup = { key: string; label: string; transactions: TransactionRecord[] };
 
@@ -27,14 +26,11 @@ function groupByMonth(transactions: TransactionRecord[]): MonthGroup[] {
   return groups;
 }
 
-function TypeCell({ type }: { type: TransactionRecord["type"] }) {
-  const Icon = type === "SELL" ? SellOutlined : ShoppingCartOutlined;
-  return (
-    <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
-      <Icon fontSize="small" aria-hidden color={type === "SELL" ? "secondary" : "primary"} />
-      <span>{transactionTypeLabel(type)}</span>
-    </Stack>
-  );
+/** The event value shown as "Betrag": the gross amount, or the fee/tax of a standalone FEE/TAX. */
+function eventValue(transaction: TransactionRecord): string {
+  if (transaction.type === "FEE") return transaction.fee;
+  if (transaction.type === "TAX") return transaction.tax;
+  return transaction.amount;
 }
 
 const numeric = { textAlign: "right", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" } as const;
@@ -59,6 +55,7 @@ export function TransactionList({ transactions }: { transactions: TransactionRec
                     <TableCell>Datum</TableCell>
                     <TableCell sx={numeric}>Stück</TableCell>
                     <TableCell sx={numeric}>Betrag</TableCell>
+                    <TableCell sx={numeric}>Cash-Effekt</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -67,19 +64,24 @@ export function TransactionList({ transactions }: { transactions: TransactionRec
                     return (
                       <TableRow key={transaction.id} sx={{ "& td": { py: 1 } }}>
                         <TableCell>
-                          <TypeCell type={transaction.type} />
+                          <TransactionTypeLabel type={transaction.type} />
                         </TableCell>
                         <TableCell>
-                          <Stack direction="row" spacing={1.5} sx={{ alignItems: "center", minWidth: 160 }}>
-                            <SecurityLogo name={name} />
-                            <span>{name}</span>
-                          </Stack>
+                          {transaction.security ? (
+                            <Stack direction="row" spacing={1.5} sx={{ alignItems: "center", minWidth: 160 }}>
+                              <SecurityLogo name={name} />
+                              <span>{name}</span>
+                            </Stack>
+                          ) : null}
                         </TableCell>
                         <TableCell sx={{ whiteSpace: "nowrap" }}>{formatDate(transaction.date)}</TableCell>
                         <TableCell sx={numeric}>
                           {transaction.quantity ? `${formatQuantity(transaction.quantity)} Stück` : ""}
                         </TableCell>
-                        <TableCell sx={numeric}>{formatMoney(transaction.amount)}</TableCell>
+                        <TableCell sx={numeric}>{formatMoney(eventValue(transaction))}</TableCell>
+                        <TableCell sx={numeric}>
+                          <CashEffectText value={cashEffect(transaction)} />
+                        </TableCell>
                       </TableRow>
                     );
                   })}

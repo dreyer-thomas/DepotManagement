@@ -1,5 +1,5 @@
 import { formatQuantity } from "@/core/format";
-import type { AssetType, TradeFailureReason, TransactionType } from "@/modules/ledger";
+import type { AssetType, TransactionFailureReason, TransactionType } from "@/modules/ledger";
 
 /** German labels of the Transaction types. */
 export const TRANSACTION_TYPE_LABELS: Record<TransactionType, string> = {
@@ -11,6 +11,9 @@ export const TRANSACTION_TYPE_LABELS: Record<TransactionType, string> = {
   DEPOSIT: "Einzahlung",
   WITHDRAWAL: "Auszahlung",
 };
+
+/** All Transaction types in selection order. */
+export const TRANSACTION_TYPE_ORDER: TransactionType[] = ["BUY", "SELL", "DIVIDEND", "FEE", "TAX", "DEPOSIT", "WITHDRAWAL"];
 
 export function transactionTypeLabel(type: TransactionType): string {
   return TRANSACTION_TYPE_LABELS[type];
@@ -27,7 +30,7 @@ export const ASSET_TYPE_LABELS: Record<AssetType, string> = {
 
 export const NEW_SECURITY_ASSET_TYPES: AssetType[] = ["STOCK", "ETF", "CERTIFICATE", "CRYPTO"];
 
-export type TransactionErrorReason = TradeFailureReason | "unauthorized";
+export type TransactionErrorReason = TransactionFailureReason | "unauthorized";
 
 export type TransactionField =
   | "type"
@@ -39,19 +42,23 @@ export type TransactionField =
   | "quantity"
   | "price"
   | "fee"
-  | "tax";
+  | "tax"
+  | "amount";
 
-const MESSAGES: Record<Exclude<TransactionErrorReason, "sell-exceeds-holding">, string> = {
+type MessageReason = Exclude<TransactionErrorReason, "sell-exceeds-holding">;
+
+const MESSAGES: Record<MessageReason, string> = {
   "depot-not-found": "Depot nicht gefunden.",
-  "type-invalid": "Bitte Kauf oder Verkauf wählen.",
+  "type-invalid": "Bitte eine Buchungsart wählen.",
   "date-invalid": "Bitte ein gültiges Datum eingeben.",
   "quantity-invalid": "Bitte eine Stückzahl größer 0 mit höchstens 8 Nachkommastellen eingeben.",
   "price-invalid": "Bitte einen Kurs von mindestens 0 eingeben.",
   "fee-invalid": "Gebühren dürfen nicht negativ sein.",
   "tax-invalid": "Bitte einen gültigen Steuerbetrag eingeben.",
-  "amount-invalid": "Der Betrag darf nicht negativ sein.",
+  "amount-invalid": "Bitte einen Betrag größer 0 eingeben.",
   "security-required": "Bitte eine Security wählen.",
   "security-not-found": "Security nicht gefunden.",
+  "security-not-allowed": "Ein- und Auszahlungen haben keine Security.",
   "isin-invalid": "Bitte eine gültige ISIN eingeben.",
   "crypto-symbol-invalid": "Bitte ein gültiges Krypto-Symbol eingeben (bis 10 Buchstaben oder Ziffern).",
   "security-name-invalid": "Bitte einen Namen mit höchstens 100 Zeichen eingeben.",
@@ -59,10 +66,21 @@ const MESSAGES: Record<Exclude<TransactionErrorReason, "sell-exceeds-holding">, 
   unauthorized: "Sitzung abgelaufen. Bitte erneut anmelden.",
 };
 
-/** German message for a trade write failure; `available` is the sellable quantity on an oversell. */
-export function transactionErrorMessage(reason: TransactionErrorReason, available?: string): string {
+/** Messages that depend on the booked type, e.g. a FEE's "Betrag" is its fee. */
+const TYPE_MESSAGES: Partial<Record<TransactionType, Partial<Record<MessageReason, string>>>> = {
+  BUY: { "amount-invalid": "Der Betrag darf nicht negativ sein." },
+  SELL: { "amount-invalid": "Der Betrag darf nicht negativ sein." },
+  FEE: { "fee-invalid": "Bitte einen Betrag größer 0 eingeben." },
+  TAX: { "tax-invalid": "Bitte einen Betrag ungleich 0 eingeben." },
+};
+
+/**
+ * German message for a write failure; `available` is the sellable quantity on an oversell, `type` the
+ * submitted Transaction type (some messages depend on it).
+ */
+export function transactionErrorMessage(reason: TransactionErrorReason, available?: string, type?: TransactionType): string {
   if (reason === "sell-exceeds-holding") return `Verkauf übersteigt Bestand (${formatQuantity(available ?? "0")} Stück).`;
-  return MESSAGES[reason];
+  return (type && TYPE_MESSAGES[type]?.[reason]) ?? MESSAGES[reason];
 }
 
 const FIELDS: Partial<Record<TransactionErrorReason, TransactionField>> = {
@@ -76,13 +94,23 @@ const FIELDS: Partial<Record<TransactionErrorReason, TransactionField>> = {
   "tax-invalid": "tax",
   "security-required": "security",
   "security-not-found": "security",
+  "security-not-allowed": "security",
   "isin-invalid": "securityIdentifier",
   "crypto-symbol-invalid": "securityIdentifier",
   "security-name-invalid": "securityName",
   "asset-type-invalid": "assetType",
 };
 
-/** Which form field an error belongs to; others (Depot, session) show as an Alert. */
-export function transactionErrorField(reason: TransactionErrorReason): TransactionField | undefined {
-  return FIELDS[reason];
+/** Field overrides per type: non-trades enter their value in the single "amount" field. */
+const TYPE_FIELDS: Partial<Record<TransactionType, Partial<Record<TransactionErrorReason, TransactionField>>>> = {
+  DIVIDEND: { "amount-invalid": "amount" },
+  FEE: { "fee-invalid": "amount", "amount-invalid": "amount" },
+  TAX: { "tax-invalid": "amount", "amount-invalid": "amount" },
+  DEPOSIT: { "amount-invalid": "amount" },
+  WITHDRAWAL: { "amount-invalid": "amount" },
+};
+
+/** Which form field an error belongs to for `type`; others (Depot, session) show as an Alert. */
+export function transactionErrorField(reason: TransactionErrorReason, type?: TransactionType): TransactionField | undefined {
+  return (type && TYPE_FIELDS[type]?.[reason]) ?? FIELDS[reason];
 }

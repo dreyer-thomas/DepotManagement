@@ -1,5 +1,5 @@
 /**
- * FormData names shared by the "Neue Buchung" dialog and `recordTradeAction`, so a rename on
+ * FormData names shared by the "Neue Buchung" dialog and `recordTransactionAction`, so a rename on
  * either side fails typecheck instead of silently breaking the form.
  */
 export const TRADE_FIELDS = {
@@ -10,6 +10,8 @@ export const TRADE_FIELDS = {
   price: "price",
   fee: "fee",
   tax: "tax",
+  /** The single value field of non-trades ("Betrag"/"Bruttobetrag"); FEE/TAX map it to fee/tax. */
+  amount: "amount",
   securityId: "securityId",
   newSecurity: "newSecurity",
   securityIdentifier: "securityIdentifier",

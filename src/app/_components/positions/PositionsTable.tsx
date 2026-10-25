@@ -1,5 +1,6 @@
 "use client";
 
+import AccountBalanceWalletOutlined from "@mui/icons-material/AccountBalanceWalletOutlined";
 import ArrowDownward from "@mui/icons-material/ArrowDownward";
 import ArrowUpward from "@mui/icons-material/ArrowUpward";
 import Box from "@mui/material/Box";
@@ -54,7 +55,41 @@ function SecurityName({ name }: { name: string }) {
 
 type Sort = PositionSort;
 
-function DesktopTable({ rows, sort, onSort }: { rows: PositionRecord[]; sort: Sort; onSort: (key: PositionSortKey) => void }) {
+const CASH_LABEL = "Cash-Konto";
+const NO_POSITIONS = "Keine offenen Positionen.";
+/** Pinned Cash row: neutral cash left border and a soft cash tint (DESIGN.md: cash is deliberately neutral). */
+const cashRowSx = {
+  bgcolor: "color-mix(in srgb, var(--mui-palette-cash-main) 18%, transparent)",
+  boxShadow: "inset 4px 0 0 var(--mui-palette-cash-main)",
+} as const;
+
+function CashName() {
+  return (
+    <Stack direction="row" spacing={1.5} sx={{ alignItems: "center", minWidth: 0 }}>
+      <Box
+        component="span"
+        sx={{ width: 32, height: 32, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
+      >
+        <AccountBalanceWalletOutlined aria-hidden />
+      </Box>
+      <Typography component="span" variant="body2" sx={{ fontWeight: 500 }}>
+        {CASH_LABEL}
+      </Typography>
+    </Stack>
+  );
+}
+
+function DesktopTable({
+  rows,
+  cashBalance,
+  sort,
+  onSort,
+}: {
+  rows: PositionRecord[];
+  cashBalance: string;
+  sort: Sort;
+  onSort: (key: PositionSortKey) => void;
+}) {
   return (
     <Card sx={{ overflowX: "auto", display: { xs: "none", md: "block" } }}>
       <Table size="small" aria-label="Positionen">
@@ -97,13 +132,35 @@ function DesktopTable({ rows, sort, onSort }: { rows: PositionRecord[]; sort: So
               </TableCell>
             </TableRow>
           ))}
+          {rows.length === 0 ? (
+            <TableRow>
+              <TableCell colSpan={POSITION_SORT_KEYS.length}>{NO_POSITIONS}</TableCell>
+            </TableRow>
+          ) : null}
+          <TableRow sx={{ ...cashRowSx, "& td": { py: 1 } }} data-cash-row="">
+            {POSITION_SORT_KEYS.map((key) => (
+              <TableCell key={key} sx={key === "name" ? undefined : numeric}>
+                {key === "name" ? <CashName /> : key === "value" ? formatMoney(cashBalance) : null}
+              </TableCell>
+            ))}
+          </TableRow>
         </TableBody>
       </Table>
     </Card>
   );
 }
 
-function PhoneList({ rows, sort, onChange }: { rows: PositionRecord[]; sort: Sort; onChange: (sort: Sort) => void }) {
+function PhoneList({
+  rows,
+  cashBalance,
+  sort,
+  onChange,
+}: {
+  rows: PositionRecord[];
+  cashBalance: string;
+  sort: Sort;
+  onChange: (sort: Sort) => void;
+}) {
   const ascending = sort.direction === "asc";
   return (
     <Box sx={{ display: { xs: "block", md: "none" } }}>
@@ -143,7 +200,8 @@ function PhoneList({ rows, sort, onChange }: { rows: PositionRecord[]; sort: Sor
                 px: 2,
                 py: 1.25,
                 minHeight: 44,
-                "&:not(:last-of-type)": { borderBottom: 1, borderColor: "divider" },
+                borderBottom: 1,
+                borderColor: "divider",
               }}
             >
               <SecurityLogo name={position.security.name} />
@@ -163,21 +221,50 @@ function PhoneList({ rows, sort, onChange }: { rows: PositionRecord[]; sort: Sor
               </Stack>
             </Box>
           ))}
+          {rows.length === 0 ? (
+            <Box component="li" sx={{ px: 2, py: 1.25, minHeight: 44, borderBottom: 1, borderColor: "divider" }}>
+              <Typography variant="body2">{NO_POSITIONS}</Typography>
+            </Box>
+          ) : null}
+          <Box
+            component="li"
+            data-cash-row=""
+            sx={{ ...cashRowSx, display: "flex", alignItems: "center", gap: 1.5, px: 2, py: 1.25, minHeight: 44 }}
+          >
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              <CashName />
+            </Box>
+            <Typography variant="body2" sx={{ fontWeight: 600, ...numeric }}>
+              {formatMoney(cashBalance)}
+            </Typography>
+          </Box>
         </Box>
       </Card>
     </Box>
   );
 }
 
-/** Open Positions: sortable table from `md`, stacked rows below; both share one sort state. */
-export function PositionsTable({ positions }: { positions: PositionRecord[] }) {
-  const [sort, setSort] = useState<Sort>(DEFAULT_POSITION_SORT);
+/**
+ * Open Positions: sortable table from `md`, stacked rows below; both share one sort state. The Cash
+ * Account row is pinned below the sorted rows and never sorted.
+ */
+export function PositionsTable({
+  positions,
+  cashBalance,
+  initialSort = DEFAULT_POSITION_SORT,
+}: {
+  positions: PositionRecord[];
+  cashBalance: string;
+  /** Sort on first render (value descending by default). */
+  initialSort?: Sort;
+}) {
+  const [sort, setSort] = useState<Sort>(initialSort);
   const rows = sortPositions(positions, sort.key, sort.direction);
   const onSort = (key: PositionSortKey) => setSort((current) => nextSort(current, key));
   return (
     <>
-      <DesktopTable rows={rows} sort={sort} onSort={onSort} />
-      <PhoneList rows={rows} sort={sort} onChange={setSort} />
+      <DesktopTable rows={rows} cashBalance={cashBalance} sort={sort} onSort={onSort} />
+      <PhoneList rows={rows} cashBalance={cashBalance} sort={sort} onChange={setSort} />
     </>
   );
 }

@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { prisma } from "@/db";
 import { Broker, Prisma } from "@/db/generated/prisma/client";
+import { cashBalance, type CashRow } from "@/core/cash";
+import { businessDate } from "@/core/dates";
 
 export type { Broker } from "@/db/generated/prisma/client";
 
@@ -59,9 +61,19 @@ function isUniqueViolation(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
 }
 
-function toSummary(depot: { id: string; name: string; broker: Broker }): DepotSummary {
-  // Story 1.6 replaces the constant with the core cash computation over the Depot's Transactions.
-  return { id: depot.id, name: depot.name, broker: depot.broker, cashBalance: "0" };
+const CASH_SELECT = { type: true, date: true, sequence: true, amount: true, fee: true, tax: true } as const;
+
+/** Cash balance as of today's Europe/Berlin business date (future-dated rows excluded). */
+function currentBalance(rows: readonly CashRow[]): string {
+  return cashBalance(rows, businessDate(new Date()));
+}
+
+function toSummary(depot: { id: string; name: string; broker: Broker }, rows: readonly CashRow[]): DepotSummary {
+  return { id: depot.id, name: depot.name, broker: depot.broker, cashBalance: currentBalance(rows) };
+}
+
+async function cashRows(db: LedgerDb, depotId: string): Promise<CashRow[]> {
+  return db.transaction.findMany({ where: { depotId }, select: CASH_SELECT });
 }
 
 /** Creates a Depot; the name is trimmed and must be unique (case-insensitive). */
@@ -73,7 +85,7 @@ export async function createDepot(input: CreateDepotInput, db: LedgerDb = prisma
   if (await isNameTaken(db, name.value)) return { ok: false, reason: "name-taken" };
   try {
     const depot = await db.depot.create({ data: { name: name.value, broker: broker.value } });
-    return { ok: true, depot: toSummary(depot) };
+    return { ok: true, depot: toSummary(depot, []) };
   } catch (error) {
     if (isUniqueViolation(error)) return { ok: false, reason: "name-taken" };
     throw error;
@@ -89,7 +101,7 @@ export async function renameDepot(id: string, input: RenameDepotInput, db: Ledge
   if (await isNameTaken(db, name.value, id)) return { ok: false, reason: "name-taken" };
   try {
     const depot = await db.depot.update({ where: { id }, data: { name: name.value } });
-    return { ok: true, depot: toSummary(depot) };
+    return { ok: true, depot: toSummary(depot, await cashRows(db, id)) };
   } catch (error) {
     if (isUniqueViolation(error)) return { ok: false, reason: "name-taken" };
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {
@@ -101,12 +113,23 @@ export async function renameDepot(id: string, input: RenameDepotInput, db: Ledge
 
 /** All Depots sorted by name (de-DE collation). */
 export async function listDepots(db: LedgerDb = prisma): Promise<DepotSummary[]> {
-  const depots = await db.depot.findMany();
-  return depots.map(toSummary).sort((a, b) => a.name.localeCompare(b.name, "de-DE"));
+  const [depots, rows] = await Promise.all([
+    db.depot.findMany(),
+    db.transaction.findMany({ select: { depotId: true, ...CASH_SELECT } }),
+  ]);
+  const byDepot = new Map<string, CashRow[]>();
+  for (const row of rows) {
+    const list = byDepot.get(row.depotId);
+    if (list) list.push(row);
+    else byDepot.set(row.depotId, [row]);
+  }
+  return depots
+    .map((depot) => toSummary(depot, byDepot.get(depot.id) ?? []))
+    .sort((a, b) => a.name.localeCompare(b.name, "de-DE"));
 }
 
 /** One Depot, or null when the id is unknown. */
 export async function getDepot(id: string, db: LedgerDb = prisma): Promise<DepotSummary | null> {
   const depot = await db.depot.findUnique({ where: { id } });
-  return depot ? toSummary(depot) : null;
+  return depot ? toSummary(depot, await cashRows(db, id)) : null;
 }
