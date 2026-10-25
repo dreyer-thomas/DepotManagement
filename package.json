@@ -14,7 +14,8 @@
     "test": "vitest run",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "hash-password": "node scripts/hash-password.mjs"
   },
   "dependencies": {
     "@emotion/cache": "11.14.0",
@@ -25,9 +26,11 @@
     "@mui/material-nextjs": "9.5.0",
     "@prisma/adapter-better-sqlite3": "7.10.1",
     "@prisma/client": "7.10.1",
+    "bcrypt": "6.0.0",
     "better-sqlite3": "12.11.1",
     "decimal.js": "10.6.0",
     "dotenv": "17.4.2",
+    "jose": "6.2.13",
     "next": "16.4.2",
     "prisma": "7.10.1",
     "react": "19.3.0",
@@ -35,6 +38,7 @@
     "zod": "4.6.7"
   },
   "devDependencies": {
+    "@types/bcrypt": "6.0.0",
     "@types/node": "24.19.2",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",

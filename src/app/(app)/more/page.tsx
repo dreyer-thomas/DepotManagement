@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
-import { MoreLinks } from "../_components/MoreLinks";
-import { PageTitle } from "../_components/Placeholder";
+import { MoreLinks } from "@/app/_components/MoreLinks";
+import { PageTitle } from "@/app/_components/Placeholder";
 
 export const metadata: Metadata = { title: "Mehr" };
 

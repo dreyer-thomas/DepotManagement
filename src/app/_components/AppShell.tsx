@@ -1,10 +1,12 @@
 "use client";
 
+import LogoutOutlined from "@mui/icons-material/LogoutOutlined";
 import AppBar from "@mui/material/AppBar";
 import BottomNavigation from "@mui/material/BottomNavigation";
 import BottomNavigationAction from "@mui/material/BottomNavigationAction";
 import Box from "@mui/material/Box";
 import Drawer from "@mui/material/Drawer";
+import IconButton from "@mui/material/IconButton";
 import List from "@mui/material/List";
 import ListItemButton from "@mui/material/ListItemButton";
 import ListItemIcon from "@mui/material/ListItemIcon";
@@ -16,6 +18,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { spacing } from "@/theme/tokens";
+import { logout } from "../_actions/logout";
 import { ColorModeToggle } from "./ColorModeToggle";
 import { activeBottomHref, bottomItems, drawerItems, isActive } from "./navigation";
 
@@ -47,6 +50,11 @@ export function AppShell({ children }: { children: ReactNode }) {
             DepotManagement
           </Typography>
           <ColorModeToggle />
+          <form action={logout} style={{ display: "flex" }}>
+            <IconButton type="submit" color="inherit" size="large" aria-label="Abmelden" title="Abmelden">
+              <LogoutOutlined />
+            </IconButton>
+          </form>
         </Toolbar>
       </AppBar>
 

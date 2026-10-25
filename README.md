@@ -31,7 +31,7 @@ Requirements are documented in the [PRD](_bmad-output/planning-artifacts/prds/pr
 
 ```sh
 npm install              # or `npm ci`; runs `prisma generate` afterwards
-cp .env.example .env     # fill in values as later features need them
+cp .env.example .env     # set at least the three login variables (see "Login")
 npx prisma migrate deploy
 npm run dev              # http://localhost:3000
 ```
@@ -48,6 +48,7 @@ The database is a SQLite file. If `DATABASE_URL` is empty, it defaults to `~/.de
 | `npm test` | Vitest unit and architecture tests |
 | `npm run lint` | ESLint (`eslint-config-next`, core-web-vitals and TypeScript) |
 | `npm run typecheck` | `tsc --noEmit` |
+| `npm run hash-password` | Prints an `AUTH_PASSWORD_HASH=` line for `.env` (see "Login") |
 
 The `dev`, `build` and `start` scripts set `NEXT_TELEMETRY_DISABLED=1`, so Next.js telemetry is off. The app embeds no analytics.
 
@@ -57,7 +58,7 @@ The `dev`, `build` and `start` scripts set `NEXT_TELEMETRY_DISABLED=1`, so Next.
 src/
   app/        # Next.js routes and pages (thin); _components/ holds the app shell
   core/       # pure functions (decimal.js only; enforced by test/architecture)
-  modules/    # services per domain module (ledger, import, ...), added by later stories
+  modules/    # services per domain module (auth now; ledger, import, ... in later stories)
   db/         # Prisma client singleton (WAL, busy timeout) and database URL resolution
   theme/      # "Minze" MUI theme and design tokens
 prisma/       # schema.prisma and migrations/
@@ -69,6 +70,31 @@ test/
 ## Configuration
 
 All configuration comes from environment variables or an untracked `.env`. [.env.example](.env.example) lists every name without values: `DATABASE_URL`, `SESSION_SECRET`, `AUTH_USERNAME`, `AUTH_PASSWORD_HASH`, `BACKUP_DIR`, `BACKUP_KEEP`, `COINGECKO_API_KEY`, `OPENFIGI_API_KEY`, `LOGO_DEV_API_KEY`, `DATA_DIR`.
+
+## Login
+
+The app has a single user. Every page and route needs a login: pages redirect to `/login` and return to the original URL afterwards; route handlers under `/api/` answer `401`.
+
+Set three variables in `.env`:
+
+| Variable | Rule |
+| --- | --- |
+| `AUTH_USERNAME` | The login name; not empty. |
+| `AUTH_PASSWORD_HASH` | bcrypt hash of the password (`$2a$`/`$2b$`/`$2y$`, cost 04–31, 53 characters). |
+| `SESSION_SECRET` | Signs the session cookie; at least 32 characters, e.g. from `openssl rand -base64 48`. |
+
+Create the hash with the script. It asks for the password twice without echoing it, or reads it from stdin, never from the command line:
+
+```sh
+npm run -s hash-password                      # interactive prompt
+printf '%s\n' "$PASSWORD" | npm run -s hash-password
+```
+
+It prints a line like `AUTH_PASSWORD_HASH=\$2b\$12\$...`. Paste it into `.env` as printed: Next.js expands `$name` in `.env` values, even in quotes, so every `$` of the hash must be written as `\$`. If you set the variable in a real environment instead (systemd, Docker), use the plain hash without backslashes.
+
+If a variable is missing, empty or invalid, `npm run dev` and `npm start` print which variables are wrong (never their values) and exit with an error before serving any request. `npm run build` needs none of them.
+
+After login the session lasts 7 days and is not extended; then you log in again. The session cookie is `HttpOnly` and `SameSite=Lax`. It is marked `Secure` when the request came in over HTTPS, as reported by a TLS-terminating reverse proxy in `X-Forwarded-Proto`. "Abmelden" in the top bar ends the session. Changing `SESSION_SECRET` or `AUTH_USERNAME` logs out every open session. Changing the password (`AUTH_PASSWORD_HASH`) does not end existing sessions; rotate `SESSION_SECRET` too to log out everywhere.
 
 ## Definition of Done (UI stories)
 

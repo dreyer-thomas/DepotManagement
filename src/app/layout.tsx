@@ -6,7 +6,6 @@ import type { Metadata, Viewport } from "next";
 import { Roboto } from "next/font/google";
 import type { ReactNode } from "react";
 import { theme } from "@/theme/theme";
-import { AppShell } from "./_components/AppShell";
 
 // Self-hosted by next/font at build time; the browser never calls Google Fonts.
 const roboto = Roboto({
@@ -35,7 +34,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <AppRouterCacheProvider>
           <ThemeProvider theme={theme} defaultMode="system">
             <CssBaseline enableColorScheme />
-            <AppShell>{children}</AppShell>
+            {children}
           </ThemeProvider>
         </AppRouterCacheProvider>
       </body>
