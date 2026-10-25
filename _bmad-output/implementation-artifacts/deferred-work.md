@@ -81,11 +81,15 @@ origin: spec-deferred 5deaeedd1fe9
 location: src/modules/migration/parqet-reader.ts (phase 2, group.cash.length === 0)
 source_spec: `spec-2-7-robust-cash-pairing-and-rounding-tolerance-in-the-parqet-mig.md`
 reason: Spec requires >= 1 unused cash row for phase 2 (unchanged 2.3-2.6 behavior). Unknown whether real ROBIN / finanzen.net zero exports contain such trades; the correct-course analysis listed none. Settle by the operator's real-data migration: a cash mismatch in the 2.4 reconciliation would reveal it.
-status: open
+status: done 2026-10-25
+resolution: closed by human decision: Operator confirmed the real migration (756b381) with no Verrechnungskonto Abweichung, so no such trade showed up; the migration is one-off.
+decision: 2026-10-25 Close as moot after the confirmed real-data migration — Operator confirmed the real migration (756b381) with no Verrechnungskonto Abweichung, so no such trade showed up; the migration is one-off.
 
 ### DW-10: The summary's "Parqet" cash figure is the proposals' balance minus funding, not the literal sum of the file's Cash rows, so a trade without any Cash row at its instant is hidden from the cash
 origin: spec-deferred f78be9e85d01
 location: src/modules/migration/confirm.ts (cash comparison)
 source_spec: `spec-2-8-missing-deposits-and-fee-aware-gain-comparison-in-the-parqet.md`
 reason: confirm.ts derives the file figure from preview.figures.cashBalance (proposals) minus the funding total; the explanation check reduces to |ledger − proposals' balance|. Story 2.7 already compared against the proposals' balance (pre-existing), and its deferred item "trade with no cash row gets no difference TAX" is the same gap. Settle with the operator's real-data migration (story 2.4): compare the summary's Parqet figure with Parqet's displayed balance.
-status: open
+status: done 2026-10-25
+resolution: closed by human decision: Operator confirmed the real migration (756b381) with no Verrechnungskonto Abweichung; the migration is one-off and the gap is the same as DW-9.
+decision: 2026-10-25 Close as moot after the confirmed real-data migration — Operator confirmed the real migration (756b381) with no Verrechnungskonto Abweichung; the migration is one-off and the gap is the same as DW-9.
