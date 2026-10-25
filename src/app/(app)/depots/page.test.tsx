@@ -8,9 +8,9 @@ const dbFile = await vi.hoisted(async () => {
 });
 
 import { prisma } from "@/db";
-import { createDepot, renameDepot } from "@/modules/ledger";
+import { archiveDepot, createDepot, renameDepot } from "@/modules/ledger";
 import { CreateDepotButton } from "../../_components/depots/DepotDialogs";
-import { DepotList } from "../../_components/depots/DepotList";
+import { DepotGroups } from "../../_components/depots/DepotList";
 import DepotsPage from "./page";
 
 beforeEach(async () => {
@@ -38,7 +38,7 @@ describe("Depots page", () => {
     await renameDepot(created.depot.id, { name: "Hauptdepot" });
 
     const tree = await DepotsPage();
-    expect(findElement(tree, DepotList)?.props.depots).toEqual([
+    expect(findElement(tree, DepotGroups)?.props.depots).toEqual([
       expect.objectContaining({ name: "Bank" }),
       expect.objectContaining({ name: "Hauptdepot" }),
     ]);
@@ -48,5 +48,25 @@ describe("Depots page", () => {
     expect(text).not.toContain("Comdirect Depot");
     expect(text).not.toContain("Noch kein Depot.");
     expect(renderHtml(tree)).toContain(`href="/depots/${created.depot.id}"`);
+  });
+
+  it("groups archived Depots under a collapsed 'Archiviert' accordion", async () => {
+    await createDepot({ name: "Aktiv", broker: "COMDIRECT" });
+    const old = await createDepot({ name: "Alt", broker: "DEUTSCHE_BANK" });
+    if (!old.ok) throw new Error("setup failed");
+    expect((await archiveDepot(old.depot.id)).ok).toBe(true);
+
+    const tree = await DepotsPage();
+    const text = renderText(tree);
+    const html = renderHtml(tree);
+    expect(text).toMatch(/Aktiv comdirect Cash-Konto 0,00\u00a0€ .*Archiviert \(1\) Alt Deutsche Bank Cash-Konto 0,00\u00a0€/);
+    expect(html).toMatch(/aria-expanded="false"[^>]*>(?:(?!<\/button>).)*Archiviert \(1\)/);
+    expect(html).toContain(`href="/depots/${old.depot.id}"`);
+    expect(html).not.toContain("umbenennen");
+  });
+
+  it("shows no 'Archiviert' group without archived Depots", async () => {
+    await createDepot({ name: "Aktiv", broker: "COMDIRECT" });
+    expect(renderText(await DepotsPage())).not.toContain("Archiviert");
   });
 });

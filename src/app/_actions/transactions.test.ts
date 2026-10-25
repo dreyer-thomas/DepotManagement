@@ -16,7 +16,7 @@ vi.mock("next/headers", () => ({
 vi.mock("next/cache", () => ({ revalidatePath }));
 
 import { prisma } from "@/db";
-import { createDepot, listCashBookings, listPositions, listSecurities, listTransactions, recordTransaction } from "@/modules/ledger";
+import { archiveDepot, createDepot, listCashBookings, listPositions, listSecurities, listTransactions, recordTransaction } from "@/modules/ledger";
 import { transactionErrorMessage } from "@/app/_components/transactions/labels";
 import { deleteTransactionAction, saveTransactionAction } from "./transactions";
 
@@ -222,6 +222,21 @@ describe("saveTransactionAction (edit) and deleteTransactionAction", () => {
     expect(await deleteTransactionAction(buy.id)).toMatchObject({ ok: true, transaction: { id: buy.id } });
     expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
     expect(await listTransactions(depotId)).toEqual([]);
+  });
+
+  it("rejects save, edit and delete on an archived Depot with depot-archived, without revalidating", async () => {
+    const deposit = await recordTransaction({ depotId, type: "DEPOSIT", date: "2026-10-01", amount: "5" });
+    const withdrawal = await recordTransaction({ depotId, type: "WITHDRAWAL", date: "2026-10-02", amount: "5" });
+    if (!deposit.ok || !withdrawal.ok) throw new Error("setup failed");
+    expect((await archiveDepot(depotId)).ok).toBe(true);
+    revalidatePath.mockClear();
+    const archived = { ok: false, reason: "depot-archived" };
+    expect(await saveTransactionAction(null, form({ type: "DEPOSIT", amount: "5" }))).toEqual(archived);
+    expect(await saveTransactionAction(null, form({ transactionId: deposit.transaction.id, type: "DEPOSIT", amount: "7" }))).toEqual(archived);
+    expect(await deleteTransactionAction(deposit.transaction.id)).toEqual(archived);
+    expect(revalidatePath).not.toHaveBeenCalled();
+    expect(await listTransactions(depotId)).toHaveLength(2);
+    expect(transactionErrorMessage("depot-archived")).toBe("Depot ist archiviert. Bitte zuerst reaktivieren.");
   });
 
   it("rejects a delete that breaks a later sell, without revalidating", async () => {

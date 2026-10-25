@@ -4,7 +4,7 @@ import { isBusinessDate } from "@/core/dates";
 import { canonicalDecimal, ExactDecimal, isDecimalString } from "@/core/decimal";
 import { matchDuplicates } from "@/core/duplicates";
 import { firstOversell, sellableAt, type TradeRow } from "@/core/holdings";
-import type { LedgerDb } from "./depots";
+import { inTransaction, type LedgerDb } from "./depots";
 import {
   ensureSecurity,
   findSecurityByKey,
@@ -37,6 +37,7 @@ export type TransactionRecord = {
 
 export type TradeFailureReason =
   | "depot-not-found"
+  | "depot-archived"
   | "type-invalid"
   | "date-invalid"
   | "quantity-invalid"
@@ -103,7 +104,7 @@ export type UpdateTransactionResult =
 /** On success, `transaction` is the deleted row as it was. */
 export type DeleteTransactionResult =
   | { ok: true; transaction: TransactionRecord }
-  | { ok: false; reason: "transaction-not-found" }
+  | { ok: false; reason: "transaction-not-found" | "depot-archived" }
   | LaterSellExceedsHoldingFailure;
 
 export type NewSecurityInput =
@@ -394,13 +395,20 @@ function rowData(transaction: ValidTransaction) {
   };
 }
 
+/** True when the Depot is archived (read-only, AD-17). */
+async function isArchived(depotId: string, db: LedgerDb): Promise<boolean> {
+  const depot = await db.depot.findUnique({ where: { id: depotId }, select: { archived: true } });
+  return depot?.archived === true;
+}
+
 async function writeTransaction(
   transaction: ValidTransaction,
   allowDuplicate: boolean,
   db: LedgerDb,
 ): Promise<RecordTransactionResult> {
-  const depot = await db.depot.findUnique({ where: { id: transaction.depotId }, select: { id: true } });
+  const depot = await db.depot.findUnique({ where: { id: transaction.depotId }, select: { id: true, archived: true } });
   if (!depot) return { ok: false, reason: "depot-not-found" };
+  if (depot.archived) return { ok: false, reason: "depot-archived" };
 
   const resolved = await resolveSecurity(transaction, db);
   if (!resolved.ok) return resolved;
@@ -433,18 +441,12 @@ async function writeTransaction(
   return { ok: true, transaction: toRecord(row) };
 }
 
-/** Runs `write` in one DB transaction: its own, unless `db` already is one. */
-async function inTransaction<T>(db: LedgerDb, write: (tx: LedgerDb) => Promise<T>): Promise<T> {
-  const client = db as LedgerDb & Partial<Pick<typeof prisma, "$transaction">>;
-  if (typeof client.$transaction === "function") return client.$transaction((tx) => write(tx));
-  return write(db);
-}
-
 /**
  * Records a Transaction of any type in the AD-14 shape with the next intra-day sequence (appended at
  * the end of its date). BUY/SELL: quantity and price required, a SELL beyond the sellable quantity is
  * rejected. DIVIDEND: Security and amount > 0. FEE: fee > 0. TAX: tax ≠ 0 (negative = refund).
- * DEPOSIT/WITHDRAWAL: amount > 0, no Security. Cash may go negative. After every other check, a
+ * DEPOSIT/WITHDRAWAL: amount > 0, no Security. Cash may go negative. An archived Depot is
+ * `depot-archived`. After every other check, a
  * possible duplicate is `possible-duplicate` unless `allowDuplicate` is true. Expected failures never
  * throw; nothing is written on failure. Runs in one DB transaction (its own unless `db` already is one).
  */
@@ -462,7 +464,8 @@ export async function recordTransaction(
  * The Depot stays the row's Depot (`input.depotId` is ignored). Same date keeps the sequence; a new
  * date appends the row after the last row of that date. Rejects an edit that makes its own SELL or a
  * later SELL of the old or new Security exceed the held quantity, and a possible duplicate of another
- * row unless `allowDuplicate`. Nothing is written on failure; one DB transaction.
+ * row unless `allowDuplicate`. A row of an archived Depot is `depot-archived`. Nothing is written on
+ * failure; one DB transaction.
  */
 export async function updateTransaction(
   id: string,
@@ -478,6 +481,7 @@ export async function updateTransaction(
     const { depotId } = existing;
     const valid = validateTransaction({ ...input, depotId });
     if (!valid.ok) return valid;
+    if (await isArchived(depotId, tx)) return { ok: false, reason: "depot-archived" };
     const transaction = valid.value;
 
     const resolved = await resolveSecurity(transaction, tx);
@@ -515,7 +519,8 @@ export async function updateTransaction(
 
 /**
  * Deletes Transaction `id`, unless that makes a later SELL of its Security exceed the held quantity.
- * The Security row stays. Nothing is written on failure; one DB transaction.
+ * A row of an archived Depot is `depot-archived`. The Security row stays. Nothing is written on
+ * failure; one DB transaction.
  */
 export async function deleteTransaction(id: string, db: LedgerDb = prisma): Promise<DeleteTransactionResult> {
   return inTransaction(db, async (tx): Promise<DeleteTransactionResult> => {
@@ -524,6 +529,7 @@ export async function deleteTransaction(id: string, db: LedgerDb = prisma): Prom
       include: TRANSACTION_INCLUDE,
     });
     if (!existing) return { ok: false, reason: "transaction-not-found" };
+    if (await isArchived(existing.depotId, tx)) return { ok: false, reason: "depot-archived" };
     const holdings = await checkHoldings(
       { depotId: existing.depotId, removedId: existing.id, added: null, securityIds: [existing.securityId] },
       tx,

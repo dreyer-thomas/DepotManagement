@@ -15,7 +15,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { prisma } from "@/db";
-import { createDepot, recordTrade, recordTransaction, type RecordTransactionInput, updateTransaction } from "@/modules/ledger";
+import { archiveDepot, createDepot, recordTrade, recordTransaction, type RecordTransactionInput, updateTransaction } from "@/modules/ledger";
 import DepotDetailPage, { generateMetadata } from "./page";
 
 beforeEach(async () => {
@@ -326,5 +326,52 @@ describe("Depot detail page", () => {
     const cash = renderText(await DepotDetailPage(props(id, "cash")));
     expect(cash).toContain("Cash-Konto 1.095,00\u00a0€");
     expect(cash).toContain("10.01.2026 Kauf AI Apple Inc. -905,00\u00a0€ 1.095,00\u00a0€");
+  });
+
+  it("shows an archived Depot read-only on every tab", async () => {
+    const { id } = await depot();
+    await bookMatrix(id);
+    // Close the Position and empty the cash so the Depot can be archived.
+    const apple = (await prisma.security.findFirstOrThrow()).id;
+    for (const input of [
+      { type: "SELL", date: "2026-03-05", quantity: "10", price: "0", security: { id: apple } },
+      { type: "WITHDRAWAL", date: "2026-03-06", amount: "731.1" },
+      { type: "WITHDRAWAL", date: "2099-01-02", amount: "100" },
+    ] as const) {
+      const result = await recordTransaction({ depotId: id, ...input });
+      if (!result.ok) throw new Error(`setup failed: ${result.reason}`);
+    }
+    expect(await archiveDepot(id)).toMatchObject({ ok: true });
+
+    for (const tab of ["positions", "cash", "transactions"]) {
+      const tree = await DepotDetailPage(props(id, tab));
+      const text = renderText(tree);
+      const html = renderHtml(tree);
+      expect(text).toMatch(/Hauptdepot comdirect Archiviert Cash-Konto/);
+      expect(text).toMatch(/Archiviertes Depot – nur lesbar\. Reaktivieren unter Einstellungen ?\./);
+      expect(html).toMatch(/<a[^>]*href="\/settings"[^>]*>Einstellungen<\/a>/);
+      expect(html).not.toMatch(/<button[^>]*>Neue Buchung/);
+      expect(html).not.toContain("bearbeiten");
+    }
+    const transactions = renderHtml(await DepotDetailPage(props(id, "transactions")));
+    expect(transactions).toContain("<table");
+    expect(transactions).not.toContain("Aktionen");
+    expect(transactions).not.toMatch(/class="[^"]*MuiTableRow-hover/);
+  });
+
+  it("shows the empty state of an archived Depot without Neue Buchung", async () => {
+    const { id } = await depot();
+    expect(await archiveDepot(id)).toMatchObject({ ok: true });
+    const tree = await DepotDetailPage(props(id));
+    expect(renderText(tree)).toContain("Noch keine Buchungen.");
+    expect(renderText(tree)).toContain("Archiviert");
+    expect(renderHtml(tree)).not.toMatch(/<button[^>]*>Neue Buchung/);
+  });
+
+  it("shows no archive marker on an active Depot", async () => {
+    const { id } = await depot();
+    const text = renderText(await DepotDetailPage(props(id)));
+    expect(text).not.toContain("Archiviert");
+    expect(text).not.toContain("nur lesbar");
   });
 });

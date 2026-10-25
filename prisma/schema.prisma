@@ -22,6 +22,8 @@ model Depot {
   id     String @id @default(cuid())
   name   String @unique
   broker       Broker
+  /// Archived Depots are read-only and left out of Portfolio figures (AD-17).
+  archived     Boolean       @default(false)
   transactions Transaction[]
 }
 

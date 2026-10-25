@@ -8,7 +8,7 @@ const dbFile = await vi.hoisted(async () => {
 });
 
 import { prisma } from "@/db";
-import { createDepot } from "@/modules/ledger";
+import { archiveDepot, createDepot } from "@/modules/ledger";
 import { CreateDepotButton } from "../_components/depots/DepotDialogs";
 import { DepotList } from "../_components/depots/DepotList";
 import OverviewPage from "./page";
@@ -41,6 +41,31 @@ describe("Overview page", () => {
     expect(text).not.toContain("Noch kein Depot.");
     expect(text).toContain("Hauptdepot comdirect Cash-Konto 0,00 €");
     expect(text).toContain("ZERO finanzen.net zero Cash-Konto 0,00 €");
-    expect(findElement(tree, DepotList)?.props.renamable).toBeFalsy();
+    expect(findElement(tree, DepotList)?.props.settings).toBeFalsy();
+  });
+
+  it("leaves out archived Depots", async () => {
+    await createDepot({ name: "Hauptdepot", broker: "COMDIRECT" });
+    const old = await createDepot({ name: "Altdepot", broker: "DEUTSCHE_BANK" });
+    if (!old.ok) throw new Error("setup failed");
+    expect((await archiveDepot(old.depot.id)).ok).toBe(true);
+    const tree = await OverviewPage();
+    expect(findElement(tree, DepotList)?.props.depots).toEqual([expect.objectContaining({ name: "Hauptdepot" })]);
+    const text = renderText(tree);
+    expect(text).toContain("Hauptdepot");
+    expect(text).not.toContain("Altdepot");
+    expect(text).not.toContain("Archiviert");
+  });
+
+  it("says all Depots are archived when only archived ones exist", async () => {
+    const old = await createDepot({ name: "Altdepot", broker: "DEUTSCHE_BANK" });
+    if (!old.ok) throw new Error("setup failed");
+    expect((await archiveDepot(old.depot.id)).ok).toBe(true);
+    const tree = await OverviewPage();
+    const text = renderText(tree);
+    expect(text).toContain("Alle Depots sind archiviert.");
+    expect(text).not.toContain("Noch kein Depot.");
+    expect(text).not.toContain("Altdepot");
+    expect(renderHtml(tree)).toMatch(/<a[^>]*href="\/depots"[^>]*>Zu den Depots<\/a>/);
   });
 });

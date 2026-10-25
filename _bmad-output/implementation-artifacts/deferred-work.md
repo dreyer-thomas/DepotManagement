@@ -11,3 +11,11 @@ location: src/app/_components/transactions/TransactionDialog.tsx
 source_spec: `spec-1-4-record-buys-and-sells.md`
 reason: maybe-false: every input is controlled (useState), and the same pattern is used in DepotDialogs (story 1.3), but no browser or DOM test has confirmed it. Settle by opening the dialog in a browser, submitting with an invalid quantity (e.g. "0") after filling every field including a new Security and Art, and checking that all values are still there.
 status: open
+
+### DW-3: Archive confirmation dialog and Reaktivieren button have no interaction tests (open, close on success, error Alert, initial focus on Abbrechen).
+origin: spec-deferred ee53c8b1a4bb
+location: src/app/_components/depots/DepotDialogs.tsx
+source_spec: `spec-1-8-archive-depots.md`
+severity: low
+reason: vitest runs in the node environment with renderToStaticMarkup only; no jsdom/happy-dom/testing-library/playwright in the repo, so no test mounts ArchiveDepotButton/UnarchiveDepotButton. Inverting `if (result?.ok) onClose()`, dropping the failure Alert or removing the onEntered focus hook would pass npm test. The existing Create/Rename dialogs share the gap. Verified manually in a headless browser on 2026-10-25.
+status: open

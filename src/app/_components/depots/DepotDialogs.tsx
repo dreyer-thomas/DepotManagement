@@ -1,11 +1,13 @@
 "use client";
 
+import ArchiveOutlined from "@mui/icons-material/ArchiveOutlined";
 import EditOutlined from "@mui/icons-material/EditOutlined";
 import Alert from "@mui/material/Alert";
 import Button, { type ButtonProps } from "@mui/material/Button";
 import Dialog from "@mui/material/Dialog";
 import DialogActions from "@mui/material/DialogActions";
 import DialogContent from "@mui/material/DialogContent";
+import DialogContentText from "@mui/material/DialogContentText";
 import DialogTitle from "@mui/material/DialogTitle";
 import IconButton from "@mui/material/IconButton";
 import MenuItem from "@mui/material/MenuItem";
@@ -13,8 +15,15 @@ import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
 import { useTheme } from "@mui/material/styles";
 import useMediaQuery from "@mui/material/useMediaQuery";
-import { type ReactNode, useActionState, useState } from "react";
-import { createDepotAction, type DepotActionState, renameDepotAction } from "@/app/_actions/depots";
+import { type ReactNode, type RefObject, useActionState, useRef, useState } from "react";
+import {
+  type ArchiveActionState,
+  archiveDepotAction,
+  createDepotAction,
+  type DepotActionState,
+  renameDepotAction,
+  unarchiveDepotAction,
+} from "@/app/_actions/depots";
 import { BROKER_OPTIONS, depotErrorField, depotErrorMessage } from "./labels";
 
 type DepotAction = (previous: DepotActionState, formData: FormData) => Promise<DepotActionState>;
@@ -30,17 +39,31 @@ function DepotDialog({
   onClose,
   title,
   children,
+  initialFocus,
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
   children: ReactNode;
+  /**
+   * Element to focus once the dialog has opened. MUI's focus trap moves focus to the dialog itself
+   * on open, which overrides a child's `autoFocus`.
+   */
+  initialFocus?: RefObject<HTMLElement | null>;
 }) {
   const theme = useTheme();
   const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
   const titleId = `depot-dialog-title-${title.replace(/\W+/g, "-").toLowerCase()}`;
   return (
-    <Dialog open={open} onClose={onClose} fullScreen={fullScreen} fullWidth maxWidth="xs" aria-labelledby={titleId}>
+    <Dialog
+      open={open}
+      onClose={onClose}
+      fullScreen={fullScreen}
+      fullWidth
+      maxWidth="xs"
+      aria-labelledby={titleId}
+      slotProps={initialFocus ? { transition: { onEntered: () => initialFocus.current?.focus() } } : undefined}
+    >
       <DialogTitle id={titleId}>{title}</DialogTitle>
       {children}
     </Dialog>
@@ -203,5 +226,101 @@ export function RenameDepotButton({ depot }: { depot: { id: string; name: string
         />
       </DepotDialog>
     </>
+  );
+}
+
+/** Confirmation form of the "Depot archivieren" dialog; success closes it, a failure shows an Alert. */
+function ArchiveForm({
+  depot,
+  onClose,
+  cancelRef,
+}: {
+  depot: { id: string; name: string };
+  onClose: () => void;
+  cancelRef: RefObject<HTMLButtonElement | null>;
+}) {
+  const [state, formAction, pending] = useActionState<ArchiveActionState, FormData>(async (previous, formData) => {
+    const result = await archiveDepotAction(previous, formData);
+    if (result?.ok) onClose();
+    return result;
+  }, null);
+  const failure = state && !state.ok ? depotErrorMessage(state.reason) : undefined;
+  return (
+    <form action={formAction} noValidate>
+      <input type="hidden" name="id" value={depot.id} />
+      <DialogContent sx={{ pt: 1 }}>
+        <Stack spacing={2}>
+          {failure ? (
+            <Alert severity="error" role="alert">
+              {failure}
+            </Alert>
+          ) : null}
+          <DialogContentText>
+            Depot „{depot.name}“ archivieren? Es zählt dann nicht mehr zur Übersicht und kann nicht mehr bebucht werden.
+          </DialogContentText>
+        </Stack>
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2 }}>
+        <Button ref={cancelRef} onClick={onClose} disabled={pending} autoFocus sx={TOUCH_TARGET}>
+          Abbrechen
+        </Button>
+        <Button type="submit" variant="contained" disabled={pending} sx={TOUCH_TARGET}>
+          Archivieren
+        </Button>
+      </DialogActions>
+    </form>
+  );
+}
+
+/**
+ * Icon button that opens the "Depot archivieren" confirmation. Disabled while the Depot is not
+ * archivable; `describedBy` points at the visible reason.
+ */
+export function ArchiveDepotButton({
+  depot,
+  describedBy,
+}: {
+  depot: { id: string; name: string; archivable: boolean };
+  describedBy?: string;
+}) {
+  const dialog = useDialog();
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const label = `„${depot.name}“ archivieren`;
+  return (
+    <>
+      <IconButton
+        size="large"
+        onClick={dialog.show}
+        disabled={!depot.archivable}
+        aria-label={label}
+        aria-describedby={depot.archivable ? undefined : describedBy}
+        title={label}
+        sx={{ minWidth: 44, minHeight: 44 }}
+      >
+        <ArchiveOutlined />
+      </IconButton>
+      <DepotDialog open={dialog.open} onClose={dialog.hide} title="Depot archivieren" initialFocus={cancelRef}>
+        <ArchiveForm key={dialog.session} depot={depot} onClose={dialog.hide} cancelRef={cancelRef} />
+      </DepotDialog>
+    </>
+  );
+}
+
+/** "Reaktivieren" button of an archived Depot; submits directly, a failure shows an inline Alert. */
+export function UnarchiveDepotButton({ depot }: { depot: { id: string; name: string } }) {
+  const [state, formAction, pending] = useActionState<ArchiveActionState, FormData>(unarchiveDepotAction, null);
+  const failure = state && !state.ok ? depotErrorMessage(state.reason) : undefined;
+  return (
+    <Stack component="form" action={formAction} noValidate spacing={1} sx={{ alignItems: "flex-end" }}>
+      <input type="hidden" name="id" value={depot.id} />
+      <Button type="submit" variant="outlined" disabled={pending} aria-label={`„${depot.name}“ reaktivieren`} sx={TOUCH_TARGET}>
+        Reaktivieren
+      </Button>
+      {failure ? (
+        <Alert severity="error" role="alert">
+          {failure}
+        </Alert>
+      ) : null}
+    </Stack>
   );
 }

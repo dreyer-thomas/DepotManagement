@@ -61,18 +61,21 @@ const numeric = { textAlign: "right", fontVariantNumeric: "tabular-nums", whiteS
 
 /**
  * Transactions grouped by month (newest first) as semantic tables. A row click, or its edit button
- * (for keyboard users), opens the Transaction in the edit dialog.
+ * (for keyboard users), opens the Transaction in the edit dialog; `readOnly` (archived Depot) drops
+ * both and the dialog.
  */
 export function TransactionList({
   transactions,
   depot,
   securities,
   today,
+  readOnly = false,
 }: {
   transactions: TransactionRecord[];
   depot: DialogDepot;
   securities: SecuritySummary[];
   today: string;
+  readOnly?: boolean;
 }) {
   const [selected, setSelected] = useState<TransactionRecord | undefined>(undefined);
   const [open, setOpen] = useState(false);
@@ -84,7 +87,7 @@ export function TransactionList({
   };
   return (
     <Stack spacing={3}>
-      {selected ? (
+      {selected && !readOnly ? (
         <TransactionDialog
           open={open}
           onClose={() => setOpen(false)}
@@ -112,9 +115,11 @@ export function TransactionList({
                     <TableCell sx={numeric}>Stück</TableCell>
                     <TableCell sx={numeric}>Betrag</TableCell>
                     <TableCell sx={numeric}>Cash-Effekt</TableCell>
-                    <TableCell padding="none" sx={actionCell}>
-                      <span style={visuallyHidden}>Aktionen</span>
-                    </TableCell>
+                    {readOnly ? null : (
+                      <TableCell padding="none" sx={actionCell}>
+                        <span style={visuallyHidden}>Aktionen</span>
+                      </TableCell>
+                    )}
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -123,9 +128,9 @@ export function TransactionList({
                     return (
                       <TableRow
                         key={transaction.id}
-                        hover
-                        onClick={() => edit(transaction)}
-                        sx={{ cursor: "pointer", "& td": { py: 1 } }}
+                        hover={!readOnly}
+                        onClick={readOnly ? undefined : () => edit(transaction)}
+                        sx={{ cursor: readOnly ? undefined : "pointer", "& td": { py: 1 } }}
                       >
                         <TableCell>
                           <TransactionTypeLabel type={transaction.type} />
@@ -146,18 +151,20 @@ export function TransactionList({
                         <TableCell sx={numeric}>
                           <CashEffectText value={cashEffect(transaction)} />
                         </TableCell>
-                        <TableCell padding="none" sx={actionCell}>
-                          <IconButton
-                            aria-label={`Buchung vom ${formatDate(transaction.date)} bearbeiten`}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              edit(transaction);
-                            }}
-                            sx={{ minWidth: 44, minHeight: 44 }}
-                          >
-                            <EditOutlined fontSize="small" />
-                          </IconButton>
-                        </TableCell>
+                        {readOnly ? null : (
+                          <TableCell padding="none" sx={actionCell}>
+                            <IconButton
+                              aria-label={`Buchung vom ${formatDate(transaction.date)} bearbeiten`}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                edit(transaction);
+                              }}
+                              sx={{ minWidth: 44, minHeight: 44 }}
+                            >
+                              <EditOutlined fontSize="small" />
+                            </IconButton>
+                          </TableCell>
+                        )}
                       </TableRow>
                     );
                   })}

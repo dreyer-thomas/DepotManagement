@@ -1,0 +1,1740 @@
+diff --git a/prisma/migrations/20261025180000_archive_depot/migration.sql b/prisma/migrations/20261025180000_archive_depot/migration.sql
+new file mode 100644
+index 0000000..b7d88aa
+--- /dev/null
++++ b/prisma/migrations/20261025180000_archive_depot/migration.sql
+@@ -0,0 +1,2 @@
++-- AlterTable
++ALTER TABLE "Depot" ADD COLUMN "archived" BOOLEAN NOT NULL DEFAULT false;
+diff --git a/prisma/schema.prisma b/prisma/schema.prisma
+index 0752c75..691bafd 100644
+--- a/prisma/schema.prisma
++++ b/prisma/schema.prisma
+@@ -22,6 +22,8 @@ model Depot {
+   id     String @id @default(cuid())
+   name   String @unique
+   broker       Broker
++  /// Archived Depots are read-only and left out of Portfolio figures (AD-17).
++  archived     Boolean       @default(false)
+   transactions Transaction[]
+ }
+ 
+diff --git a/src/app/(app)/depots/[id]/page.test.tsx b/src/app/(app)/depots/[id]/page.test.tsx
+index 8eb6130..440465e 100644
+--- a/src/app/(app)/depots/[id]/page.test.tsx
++++ b/src/app/(app)/depots/[id]/page.test.tsx
+@@ -15,7 +15,7 @@ vi.mock("next/navigation", () => ({
+ }));
+ 
+ import { prisma } from "@/db";
+-import { createDepot, recordTrade, recordTransaction, type RecordTransactionInput, updateTransaction } from "@/modules/ledger";
++import { archiveDepot, createDepot, recordTrade, recordTransaction, type RecordTransactionInput, updateTransaction } from "@/modules/ledger";
+ import DepotDetailPage, { generateMetadata } from "./page";
+ 
+ beforeEach(async () => {
+@@ -327,4 +327,50 @@ describe("Depot detail page", () => {
+     expect(cash).toContain("Cash-Konto 1.095,00\u00a0€");
+     expect(cash).toContain("10.01.2026 Kauf AI Apple Inc. -905,00\u00a0€ 1.095,00\u00a0€");
+   });
++
++  it("shows an archived Depot read-only on every tab", async () => {
++    const { id } = await depot();
++    await bookMatrix(id);
++    // Close the Position and empty the cash so the Depot can be archived.
++    const apple = (await prisma.security.findFirstOrThrow()).id;
++    for (const input of [
++      { type: "SELL", date: "2026-03-05", quantity: "10", price: "0", security: { id: apple } },
++      { type: "WITHDRAWAL", date: "2026-03-06", amount: "731.1" },
++      { type: "WITHDRAWAL", date: "2099-01-02", amount: "100" },
++    ] as const) {
++      const result = await recordTransaction({ depotId: id, ...input });
++      if (!result.ok) throw new Error(`setup failed: ${result.reason}`);
++    }
++    expect(await archiveDepot(id)).toMatchObject({ ok: true });
++
++    for (const tab of ["positions", "cash", "transactions"]) {
++      const tree = await DepotDetailPage(props(id, tab));
++      const text = renderText(tree);
++      const html = renderHtml(tree);
++      expect(text).toMatch(/Hauptdepot comdirect Archiviert Cash-Konto/);
++      expect(text).toContain("Archiviertes Depot – nur lesbar. Reaktivieren unter Einstellungen.");
++      expect(html).not.toMatch(/<button[^>]*>Neue Buchung/);
++      expect(html).not.toContain("bearbeiten");
++    }
++    const transactions = renderHtml(await DepotDetailPage(props(id, "transactions")));
++    expect(transactions).toContain("<table");
++    expect(transactions).not.toContain("Aktionen");
++    expect(transactions).not.toMatch(/class="[^"]*MuiTableRow-hover/);
++  });
++
++  it("shows the empty state of an archived Depot without Neue Buchung", async () => {
++    const { id } = await depot();
++    expect(await archiveDepot(id)).toMatchObject({ ok: true });
++    const tree = await DepotDetailPage(props(id));
++    expect(renderText(tree)).toContain("Noch keine Buchungen.");
++    expect(renderText(tree)).toContain("Archiviert");
++    expect(renderHtml(tree)).not.toMatch(/<button[^>]*>Neue Buchung/);
++  });
++
++  it("shows no archive marker on an active Depot", async () => {
++    const { id } = await depot();
++    const text = renderText(await DepotDetailPage(props(id)));
++    expect(text).not.toContain("Archiviert");
++    expect(text).not.toContain("nur lesbar");
++  });
+ });
+diff --git a/src/app/(app)/depots/[id]/page.tsx b/src/app/(app)/depots/[id]/page.tsx
+index dd819b8..64da090 100644
+--- a/src/app/(app)/depots/[id]/page.tsx
++++ b/src/app/(app)/depots/[id]/page.tsx
+@@ -1,6 +1,8 @@
++import Alert from "@mui/material/Alert";
+ import Box from "@mui/material/Box";
+ import Card from "@mui/material/Card";
+ import CardContent from "@mui/material/CardContent";
++import Chip from "@mui/material/Chip";
+ import Stack from "@mui/material/Stack";
+ import Typography from "@mui/material/Typography";
+ import type { Metadata } from "next";
+@@ -56,7 +58,11 @@ export default async function DepotDetailPage({ params, searchParams }: Props) {
+     tab === "cash" ? listCashBookings(depot.id) : Promise.resolve([]),
+   ]);
+   const dialogDepot = { id: depot.id, name: depot.name };
+-  const newTransaction = <NewTransactionButton depot={dialogDepot} securities={securities} today={today} />;
++  // An archived Depot is read-only (AD-17): no write action anywhere on the page.
++  const readOnly = depot.archived;
++  const newTransaction = readOnly ? null : (
++    <NewTransactionButton depot={dialogDepot} securities={securities} today={today} />
++  );
+   // An empty Depot shows its only "Neue Buchung" button inside the empty state of every tab.
+   const emptyState = transactions.length === 0;
+ 
+@@ -64,12 +70,20 @@ export default async function DepotDetailPage({ params, searchParams }: Props) {
+   if (emptyState) {
+     content = (
+       <Message>
+-        <Typography sx={{ mb: 2 }}>Noch keine Buchungen.</Typography>
++        <Typography sx={readOnly ? undefined : { mb: 2 }}>Noch keine Buchungen.</Typography>
+         {newTransaction}
+       </Message>
+     );
+   } else if (tab === "transactions") {
+-    content = <TransactionList transactions={transactions} depot={dialogDepot} securities={securities} today={today} />;
++    content = (
++      <TransactionList
++        transactions={transactions}
++        depot={dialogDepot}
++        securities={securities}
++        today={today}
++        readOnly={readOnly}
++      />
++    );
+   } else if (tab === "positions") {
+     content = <PositionsTable positions={positions} cashBalance={depot.cashBalance} />;
+   } else {
+@@ -81,11 +95,17 @@ export default async function DepotDetailPage({ params, searchParams }: Props) {
+       <PageTitle>{depot.name}</PageTitle>
+       <Stack direction="row" spacing={3} sx={{ mb: 2, flexWrap: "wrap", alignItems: "center", rowGap: 1 }}>
+         <Typography color="text.secondary">{brokerLabel(depot.broker)}</Typography>
++        {readOnly ? <Chip label="Archiviert" size="small" /> : null}
+         <Typography>
+           Cash-Konto <Typography component="span" variant="figure">{formatMoney(depot.cashBalance)}</Typography>
+         </Typography>
+-        {emptyState ? null : <Box sx={{ ml: "auto !important" }}>{newTransaction}</Box>}
++        {emptyState || !newTransaction ? null : <Box sx={{ ml: "auto !important" }}>{newTransaction}</Box>}
+       </Stack>
++      {readOnly ? (
++        <Alert severity="info" sx={{ mb: 2 }}>
++          Archiviertes Depot – nur lesbar. Reaktivieren unter Einstellungen.
++        </Alert>
++      ) : null}
+       <DepotTabs depotId={depot.id} value={tab} />
+       <TabPanel tab={tab}>{content}</TabPanel>
+     </>
+diff --git a/src/app/(app)/depots/page.test.tsx b/src/app/(app)/depots/page.test.tsx
+index 08283f9..17c4838 100644
+--- a/src/app/(app)/depots/page.test.tsx
++++ b/src/app/(app)/depots/page.test.tsx
+@@ -8,9 +8,9 @@ const dbFile = await vi.hoisted(async () => {
+ });
+ 
+ import { prisma } from "@/db";
+-import { createDepot, renameDepot } from "@/modules/ledger";
++import { archiveDepot, createDepot, renameDepot } from "@/modules/ledger";
+ import { CreateDepotButton } from "../../_components/depots/DepotDialogs";
+-import { DepotList } from "../../_components/depots/DepotList";
++import { DepotGroups } from "../../_components/depots/DepotList";
+ import DepotsPage from "./page";
+ 
+ beforeEach(async () => {
+@@ -38,7 +38,7 @@ describe("Depots page", () => {
+     await renameDepot(created.depot.id, { name: "Hauptdepot" });
+ 
+     const tree = await DepotsPage();
+-    expect(findElement(tree, DepotList)?.props.depots).toEqual([
++    expect(findElement(tree, DepotGroups)?.props.depots).toEqual([
+       expect.objectContaining({ name: "Bank" }),
+       expect.objectContaining({ name: "Hauptdepot" }),
+     ]);
+@@ -49,4 +49,24 @@ describe("Depots page", () => {
+     expect(text).not.toContain("Noch kein Depot.");
+     expect(renderHtml(tree)).toContain(`href="/depots/${created.depot.id}"`);
+   });
++
++  it("groups archived Depots under a collapsed 'Archiviert' accordion", async () => {
++    await createDepot({ name: "Aktiv", broker: "COMDIRECT" });
++    const old = await createDepot({ name: "Alt", broker: "DEUTSCHE_BANK" });
++    if (!old.ok) throw new Error("setup failed");
++    expect((await archiveDepot(old.depot.id)).ok).toBe(true);
++
++    const tree = await DepotsPage();
++    const text = renderText(tree);
++    const html = renderHtml(tree);
++    expect(text).toMatch(/Aktiv comdirect Cash-Konto 0,00\u00a0€ .*Archiviert \(1\) Alt Deutsche Bank Cash-Konto 0,00\u00a0€/);
++    expect(html).toMatch(/aria-expanded="false"[^>]*>(?:(?!<\/button>).)*Archiviert \(1\)/);
++    expect(html).toContain(`href="/depots/${old.depot.id}"`);
++    expect(html).not.toContain("umbenennen");
++  });
++
++  it("shows no 'Archiviert' group without archived Depots", async () => {
++    await createDepot({ name: "Aktiv", broker: "COMDIRECT" });
++    expect(renderText(await DepotsPage())).not.toContain("Archiviert");
++  });
+ });
+diff --git a/src/app/(app)/depots/page.tsx b/src/app/(app)/depots/page.tsx
+index 5f5e488..39d47c0 100644
+--- a/src/app/(app)/depots/page.tsx
++++ b/src/app/(app)/depots/page.tsx
+@@ -4,7 +4,7 @@ import CardContent from "@mui/material/CardContent";
+ import Typography from "@mui/material/Typography";
+ import type { Metadata } from "next";
+ import { CreateDepotButton } from "@/app/_components/depots/DepotDialogs";
+-import { DepotList } from "@/app/_components/depots/DepotList";
++import { DepotGroups } from "@/app/_components/depots/DepotList";
+ import { PageTitle } from "@/app/_components/Placeholder";
+ import { listDepots } from "@/modules/ledger";
+ 
+@@ -25,7 +25,7 @@ export default async function DepotsPage() {
+           </CardContent>
+         </Card>
+       ) : (
+-        <DepotList depots={depots} />
++        <DepotGroups depots={depots} />
+       )}
+     </>
+   );
+diff --git a/src/app/(app)/page.test.tsx b/src/app/(app)/page.test.tsx
+index 159b4bb..be64365 100644
+--- a/src/app/(app)/page.test.tsx
++++ b/src/app/(app)/page.test.tsx
+@@ -8,7 +8,7 @@ const dbFile = await vi.hoisted(async () => {
+ });
+ 
+ import { prisma } from "@/db";
+-import { createDepot } from "@/modules/ledger";
++import { archiveDepot, createDepot } from "@/modules/ledger";
+ import { CreateDepotButton } from "../_components/depots/DepotDialogs";
+ import { DepotList } from "../_components/depots/DepotList";
+ import OverviewPage from "./page";
+@@ -41,6 +41,31 @@ describe("Overview page", () => {
+     expect(text).not.toContain("Noch kein Depot.");
+     expect(text).toContain("Hauptdepot comdirect Cash-Konto 0,00 €");
+     expect(text).toContain("ZERO finanzen.net zero Cash-Konto 0,00 €");
+-    expect(findElement(tree, DepotList)?.props.renamable).toBeFalsy();
++    expect(findElement(tree, DepotList)?.props.settings).toBeFalsy();
++  });
++
++  it("leaves out archived Depots", async () => {
++    await createDepot({ name: "Hauptdepot", broker: "COMDIRECT" });
++    const old = await createDepot({ name: "Altdepot", broker: "DEUTSCHE_BANK" });
++    if (!old.ok) throw new Error("setup failed");
++    expect((await archiveDepot(old.depot.id)).ok).toBe(true);
++    const tree = await OverviewPage();
++    expect(findElement(tree, DepotList)?.props.depots).toEqual([expect.objectContaining({ name: "Hauptdepot" })]);
++    const text = renderText(tree);
++    expect(text).toContain("Hauptdepot");
++    expect(text).not.toContain("Altdepot");
++    expect(text).not.toContain("Archiviert");
++  });
++
++  it("says all Depots are archived when only archived ones exist", async () => {
++    const old = await createDepot({ name: "Altdepot", broker: "DEUTSCHE_BANK" });
++    if (!old.ok) throw new Error("setup failed");
++    expect((await archiveDepot(old.depot.id)).ok).toBe(true);
++    const tree = await OverviewPage();
++    const text = renderText(tree);
++    expect(text).toContain("Alle Depots sind archiviert.");
++    expect(text).not.toContain("Noch kein Depot.");
++    expect(text).not.toContain("Altdepot");
++    expect(renderHtml(tree)).toMatch(/<a[^>]*href="\/depots"[^>]*>Zu den Depots<\/a>/);
+   });
+ });
+diff --git a/src/app/(app)/page.tsx b/src/app/(app)/page.tsx
+index 8383114..7ddcc60 100644
+--- a/src/app/(app)/page.tsx
++++ b/src/app/(app)/page.tsx
+@@ -5,6 +5,7 @@ import Stack from "@mui/material/Stack";
+ import Typography from "@mui/material/Typography";
+ import type { Metadata } from "next";
+ import { CreateDepotButton } from "@/app/_components/depots/DepotDialogs";
++import { AppLink } from "@/app/_components/depots/DepotLink";
+ import { DepotList } from "@/app/_components/depots/DepotList";
+ import { PageTitle } from "@/app/_components/Placeholder";
+ import { listDepots } from "@/modules/ledger";
+@@ -12,8 +13,8 @@ import { listDepots } from "@/modules/ledger";
+ export const metadata: Metadata = { title: "Übersicht" };
+ 
+ export default async function OverviewPage() {
+-  const depots = await listDepots();
+-  if (depots.length === 0) {
++  const all = await listDepots();
++  if (all.length === 0) {
+     return (
+       <>
+         <PageTitle>Übersicht</PageTitle>
+@@ -32,6 +33,21 @@ export default async function OverviewPage() {
+       </>
+     );
+   }
++  // Archived Depots are left out of the Overview (AD-17).
++  const depots = all.filter((depot) => !depot.archived);
++  if (depots.length === 0) {
++    return (
++      <>
++        <PageTitle>Übersicht</PageTitle>
++        <Card>
++          <CardContent>
++            <Typography sx={{ mb: 1 }}>Alle Depots sind archiviert.</Typography>
++            <AppLink href="/depots">Zu den Depots</AppLink>
++          </CardContent>
++        </Card>
++      </>
++    );
++  }
+   return (
+     <>
+       <PageTitle>Übersicht</PageTitle>
+diff --git a/src/app/(app)/settings/page.test.tsx b/src/app/(app)/settings/page.test.tsx
+index 3cc6975..c583b0e 100644
+--- a/src/app/(app)/settings/page.test.tsx
++++ b/src/app/(app)/settings/page.test.tsx
+@@ -8,12 +8,14 @@ const dbFile = await vi.hoisted(async () => {
+ });
+ 
+ import { prisma } from "@/db";
+-import { createDepot } from "@/modules/ledger";
++import { archiveDepot, createDepot, recordTrade } from "@/modules/ledger";
+ import { CreateDepotButton } from "../../_components/depots/DepotDialogs";
+-import { DepotList } from "../../_components/depots/DepotList";
++import { DepotGroups } from "../../_components/depots/DepotList";
+ import SettingsPage from "./page";
+ 
+ beforeEach(async () => {
++  await prisma.transaction.deleteMany();
++  await prisma.security.deleteMany();
+   await prisma.depot.deleteMany();
+ });
+ 
+@@ -35,8 +37,52 @@ describe("Settings page", () => {
+   it("lists Depots with a rename button each", async () => {
+     await createDepot({ name: "Hauptdepot", broker: "COMDIRECT" });
+     const tree = await SettingsPage();
+-    expect(findElement(tree, DepotList)?.props.renamable).toBe(true);
++    expect(findElement(tree, DepotGroups)?.props.settings).toBe(true);
+     expect(renderText(tree)).toContain("Hauptdepot comdirect Cash-Konto 0,00 €");
+     expect(renderHtml(tree)).toContain('aria-label="&quot;Hauptdepot&quot; umbenennen"');
+   });
++
++  it("offers an enabled archive button for a flat Depot", async () => {
++    await createDepot({ name: "Hauptdepot", broker: "COMDIRECT" });
++    const html = renderHtml(await SettingsPage());
++    const button = html.match(/<button[^>]*aria-label="„Hauptdepot“ archivieren"[^>]*>/)?.[0];
++    expect(button).toBeDefined();
++    expect(button).not.toMatch(/disabled/);
++    expect(renderText(await SettingsPage())).not.toContain("Depot hat noch Positionen oder Guthaben.");
++  });
++
++  it("disables the archive button and shows the reason for a Depot with a Position", async () => {
++    const created = await createDepot({ name: "Hauptdepot", broker: "COMDIRECT" });
++    if (!created.ok) throw new Error("setup failed");
++    const buy = await recordTrade({
++      depotId: created.depot.id,
++      type: "BUY",
++      date: "2026-01-10",
++      quantity: "1",
++      price: "0",
++      security: { new: { isin: "US0378331005", name: "Apple Inc.", assetType: "STOCK" } },
++    });
++    expect(buy.ok).toBe(true);
++    const tree = await SettingsPage();
++    const html = renderHtml(tree);
++    const button = html.match(/<button[^>]*aria-label="„Hauptdepot“ archivieren"[^>]*>/)?.[0];
++    expect(button).toMatch(/disabled/);
++    expect(button).toContain(`aria-describedby="depot-archive-blocked-${created.depot.id}"`);
++    expect(renderText(tree)).toContain("Depot hat noch Positionen oder Guthaben.");
++  });
++
++  it("lists archived Depots under 'Archiviert (1)' with a Reaktivieren button and no rename", async () => {
++    await createDepot({ name: "Aktiv", broker: "COMDIRECT" });
++    const old = await createDepot({ name: "Alt", broker: "FINANZEN_ZERO" });
++    if (!old.ok) throw new Error("setup failed");
++    expect((await archiveDepot(old.depot.id)).ok).toBe(true);
++    const tree = await SettingsPage();
++    const text = renderText(tree);
++    const html = renderHtml(tree);
++    expect(text).toMatch(/Archiviert \(1\) Alt finanzen\.net zero Cash-Konto 0,00\u00a0€ Reaktivieren/);
++    expect(html).toContain('aria-label="&quot;Aktiv&quot; umbenennen"');
++    expect(html).not.toContain('aria-label="&quot;Alt&quot; umbenennen"');
++    expect(html).not.toContain("„Alt“ archivieren");
++    expect(html).toMatch(/<button[^>]*type="submit"[^>]*>Reaktivieren/);
++  });
+ });
+diff --git a/src/app/(app)/settings/page.tsx b/src/app/(app)/settings/page.tsx
+index 1e9a819..9f23115 100644
+--- a/src/app/(app)/settings/page.tsx
++++ b/src/app/(app)/settings/page.tsx
+@@ -4,7 +4,7 @@ import CardContent from "@mui/material/CardContent";
+ import Typography from "@mui/material/Typography";
+ import type { Metadata } from "next";
+ import { CreateDepotButton } from "@/app/_components/depots/DepotDialogs";
+-import { DepotList } from "@/app/_components/depots/DepotList";
++import { DepotGroups } from "@/app/_components/depots/DepotList";
+ import { PageTitle } from "@/app/_components/Placeholder";
+ import { listDepots } from "@/modules/ledger";
+ 
+@@ -29,7 +29,7 @@ export default async function SettingsPage() {
+             </CardContent>
+           </Card>
+         ) : (
+-          <DepotList depots={depots} renamable />
++          <DepotGroups depots={depots} settings />
+         )}
+       </Box>
+     </>
+diff --git a/src/app/_actions/depots.test.ts b/src/app/_actions/depots.test.ts
+index 9ed16ec..a162a60 100644
+--- a/src/app/_actions/depots.test.ts
++++ b/src/app/_actions/depots.test.ts
+@@ -16,8 +16,8 @@ vi.mock("next/headers", () => ({
+ vi.mock("next/cache", () => ({ revalidatePath }));
+ 
+ import { prisma } from "@/db";
+-import { listDepots } from "@/modules/ledger";
+-import { createDepotAction, renameDepotAction } from "./depots";
++import { listDepots, recordTransaction } from "@/modules/ledger";
++import { archiveDepotAction, createDepotAction, renameDepotAction, unarchiveDepotAction } from "./depots";
+ 
+ const SECRET = "test-secret-with-at-least-32-characters";
+ const HASH = "$2b$04$Raf6EM460q2HE2THwTzIR.5Uk58FNzZG7FhlOvTFD.sbuFp.We4pO";
+@@ -30,6 +30,7 @@ beforeEach(async () => {
+   process.env.SESSION_SECRET = SECRET;
+   fakes.current.state.incoming.set(SESSION_COOKIE, await createSessionToken("tester", SECRET));
+   revalidatePath.mockClear();
++  await prisma.transaction.deleteMany();
+   await prisma.depot.deleteMany();
+ });
+ 
+@@ -53,7 +54,14 @@ describe("createDepotAction", () => {
+     const result = await createDepotAction(null, form({ name: " Hauptdepot ", broker: "COMDIRECT" }));
+     expect(result).toEqual({
+       ok: true,
+-      depot: { id: expect.any(String), name: "Hauptdepot", broker: "COMDIRECT", cashBalance: "0" },
++      depot: {
++        id: expect.any(String),
++        name: "Hauptdepot",
++        broker: "COMDIRECT",
++        cashBalance: "0",
++        archived: false,
++        archivable: true,
++      },
+     });
+     expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
+     expect((await listDepots()).map((d) => d.name)).toEqual(["Hauptdepot"]);
+@@ -141,3 +149,47 @@ describe("renameDepotAction", () => {
+     expect((await listDepots()).map((d) => d.name)).toEqual(["Hauptdepot"]);
+   });
+ });
++
++describe("archiveDepotAction / unarchiveDepotAction", () => {
++  async function createOne(name: string) {
++    const result = await createDepotAction(null, form({ name, broker: "COMDIRECT" }));
++    if (!result?.ok) throw new Error("setup failed");
++    revalidatePath.mockClear();
++    return result.depot;
++  }
++
++  it("archives a flat Depot, then reactivates it, revalidating each time", async () => {
++    const depot = await createOne("Hauptdepot");
++    expect(await archiveDepotAction(null, form({ id: depot.id }))).toEqual({
++      ok: true,
++      depot: { ...depot, archived: true },
++    });
++    expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
++    revalidatePath.mockClear();
++    expect(await unarchiveDepotAction(null, form({ id: depot.id }))).toEqual({ ok: true, depot });
++    expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
++  });
++
++  it("returns depot-not-flat for a Depot with cash and does not revalidate", async () => {
++    const depot = await createOne("Hauptdepot");
++    const deposit = await recordTransaction({ depotId: depot.id, type: "DEPOSIT", date: "2026-01-05", amount: "0.01" });
++    expect(deposit.ok).toBe(true);
++    expect(await archiveDepotAction(null, form({ id: depot.id }))).toEqual({ ok: false, reason: "depot-not-flat" });
++    expect(revalidatePath).not.toHaveBeenCalled();
++    expect((await listDepots())[0].archived).toBe(false);
++  });
++
++  it.each([archiveDepotAction, unarchiveDepotAction])("returns not-found for an unknown or missing id (%#)", async (action) => {
++    expect(await action(null, form({ id: "nope" }))).toEqual({ ok: false, reason: "not-found" });
++    expect(await action(null, form({}))).toEqual({ ok: false, reason: "not-found" });
++    expect(revalidatePath).not.toHaveBeenCalled();
++  });
++
++  it.each([archiveDepotAction, unarchiveDepotAction])("returns unauthorized without a session (%#)", async (action) => {
++    const depot = await createOne("Hauptdepot");
++    fakes.current.state.incoming.clear();
++    expect(await action(null, form({ id: depot.id }))).toEqual({ ok: false, reason: "unauthorized" });
++    expect(revalidatePath).not.toHaveBeenCalled();
++    expect((await listDepots())[0].archived).toBe(false);
++  });
++});
+diff --git a/src/app/_actions/depots.ts b/src/app/_actions/depots.ts
+index 66fbc10..d38530d 100644
+--- a/src/app/_actions/depots.ts
++++ b/src/app/_actions/depots.ts
+@@ -3,7 +3,15 @@
+ import { revalidatePath } from "next/cache";
+ import { z } from "zod";
+ import { getSession } from "@/modules/auth";
+-import { createDepot, type DepotResult, renameDepot } from "@/modules/ledger";
++import {
++  archiveDepot,
++  type ArchiveDepotResult,
++  createDepot,
++  type DepotResult,
++  renameDepot,
++  unarchiveDepot,
++  type UnarchiveDepotResult,
++} from "@/modules/ledger";
+ 
+ /** Result of a Depot server action; `null` before the first submit. */
+ export type DepotActionState = DepotResult | { ok: false; reason: "unauthorized" } | null;
+@@ -14,6 +22,11 @@ const formText = z.string().catch("");
+ const createInput = z.object({ name: formText, broker: formText });
+ const renameInput = z.object({ id: formText, name: formText });
+ 
++/** Result of the archive/unarchive server actions; `null` before the first submit. */
++export type ArchiveActionState = ArchiveDepotResult | UnarchiveDepotResult | { ok: false; reason: "unauthorized" } | null;
++
++const idInput = z.object({ id: formText });
++
+ const UNAUTHORIZED = { ok: false, reason: "unauthorized" } as const;
+ 
+ export async function createDepotAction(_previous: DepotActionState, formData: FormData): Promise<DepotActionState> {
+@@ -32,3 +45,21 @@ export async function renameDepotAction(_previous: DepotActionState, formData: F
+   if (result.ok) revalidatePath("/", "layout");
+   return result;
+ }
++
++export async function archiveDepotAction(_previous: ArchiveActionState, formData: FormData): Promise<ArchiveActionState> {
++  if (!(await getSession())) return UNAUTHORIZED;
++  const { id } = idInput.parse({ id: formData.get("id") });
++  if (!id) return { ok: false, reason: "not-found" };
++  const result = await archiveDepot(id);
++  if (result.ok) revalidatePath("/", "layout");
++  return result;
++}
++
++export async function unarchiveDepotAction(_previous: ArchiveActionState, formData: FormData): Promise<ArchiveActionState> {
++  if (!(await getSession())) return UNAUTHORIZED;
++  const { id } = idInput.parse({ id: formData.get("id") });
++  if (!id) return { ok: false, reason: "not-found" };
++  const result = await unarchiveDepot(id);
++  if (result.ok) revalidatePath("/", "layout");
++  return result;
++}
+diff --git a/src/app/_components/depots/DepotDialogs.tsx b/src/app/_components/depots/DepotDialogs.tsx
+index 02fafd3..070d1dd 100644
+--- a/src/app/_components/depots/DepotDialogs.tsx
++++ b/src/app/_components/depots/DepotDialogs.tsx
+@@ -1,11 +1,13 @@
+ "use client";
+ 
++import ArchiveOutlined from "@mui/icons-material/ArchiveOutlined";
+ import EditOutlined from "@mui/icons-material/EditOutlined";
+ import Alert from "@mui/material/Alert";
+ import Button, { type ButtonProps } from "@mui/material/Button";
+ import Dialog from "@mui/material/Dialog";
+ import DialogActions from "@mui/material/DialogActions";
+ import DialogContent from "@mui/material/DialogContent";
++import DialogContentText from "@mui/material/DialogContentText";
+ import DialogTitle from "@mui/material/DialogTitle";
+ import IconButton from "@mui/material/IconButton";
+ import MenuItem from "@mui/material/MenuItem";
+@@ -13,8 +15,15 @@ import Stack from "@mui/material/Stack";
+ import TextField from "@mui/material/TextField";
+ import { useTheme } from "@mui/material/styles";
+ import useMediaQuery from "@mui/material/useMediaQuery";
+-import { type ReactNode, useActionState, useState } from "react";
+-import { createDepotAction, type DepotActionState, renameDepotAction } from "@/app/_actions/depots";
++import { type ReactNode, type RefObject, useActionState, useRef, useState } from "react";
++import {
++  type ArchiveActionState,
++  archiveDepotAction,
++  createDepotAction,
++  type DepotActionState,
++  renameDepotAction,
++  unarchiveDepotAction,
++} from "@/app/_actions/depots";
+ import { BROKER_OPTIONS, depotErrorField, depotErrorMessage } from "./labels";
+ 
+ type DepotAction = (previous: DepotActionState, formData: FormData) => Promise<DepotActionState>;
+@@ -30,17 +39,31 @@ function DepotDialog({
+   onClose,
+   title,
+   children,
++  initialFocus,
+ }: {
+   open: boolean;
+   onClose: () => void;
+   title: string;
+   children: ReactNode;
++  /**
++   * Element to focus once the dialog has opened. MUI's focus trap moves focus to the dialog itself
++   * on open, which overrides a child's `autoFocus`.
++   */
++  initialFocus?: RefObject<HTMLElement | null>;
+ }) {
+   const theme = useTheme();
+   const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
+   const titleId = `depot-dialog-title-${title.replace(/\W+/g, "-").toLowerCase()}`;
+   return (
+-    <Dialog open={open} onClose={onClose} fullScreen={fullScreen} fullWidth maxWidth="xs" aria-labelledby={titleId}>
++    <Dialog
++      open={open}
++      onClose={onClose}
++      fullScreen={fullScreen}
++      fullWidth
++      maxWidth="xs"
++      aria-labelledby={titleId}
++      slotProps={initialFocus ? { transition: { onEntered: () => initialFocus.current?.focus() } } : undefined}
++    >
+       <DialogTitle id={titleId}>{title}</DialogTitle>
+       {children}
+     </Dialog>
+@@ -205,3 +228,99 @@ export function RenameDepotButton({ depot }: { depot: { id: string; name: string
+     </>
+   );
+ }
++
++/** Confirmation form of the "Depot archivieren" dialog; success closes it, a failure shows an Alert. */
++function ArchiveForm({
++  depot,
++  onClose,
++  cancelRef,
++}: {
++  depot: { id: string; name: string };
++  onClose: () => void;
++  cancelRef: RefObject<HTMLButtonElement | null>;
++}) {
++  const [state, formAction, pending] = useActionState<ArchiveActionState, FormData>(async (previous, formData) => {
++    const result = await archiveDepotAction(previous, formData);
++    if (result?.ok) onClose();
++    return result;
++  }, null);
++  const failure = state && !state.ok ? depotErrorMessage(state.reason) : undefined;
++  return (
++    <form action={formAction} noValidate>
++      <input type="hidden" name="id" value={depot.id} />
++      <DialogContent sx={{ pt: 1 }}>
++        <Stack spacing={2}>
++          {failure ? (
++            <Alert severity="error" role="alert">
++              {failure}
++            </Alert>
++          ) : null}
++          <DialogContentText>
++            Depot „{depot.name}“ archivieren? Es zählt dann nicht mehr zur Übersicht und kann nicht mehr bebucht werden.
++          </DialogContentText>
++        </Stack>
++      </DialogContent>
++      <DialogActions sx={{ px: 3, pb: 2 }}>
++        <Button ref={cancelRef} onClick={onClose} disabled={pending} autoFocus sx={TOUCH_TARGET}>
++          Abbrechen
++        </Button>
++        <Button type="submit" variant="contained" disabled={pending} sx={TOUCH_TARGET}>
++          Archivieren
++        </Button>
++      </DialogActions>
++    </form>
++  );
++}
++
++/**
++ * Icon button that opens the "Depot archivieren" confirmation. Disabled while the Depot is not
++ * archivable; `describedBy` points at the visible reason.
++ */
++export function ArchiveDepotButton({
++  depot,
++  describedBy,
++}: {
++  depot: { id: string; name: string; archivable: boolean };
++  describedBy?: string;
++}) {
++  const dialog = useDialog();
++  const cancelRef = useRef<HTMLButtonElement>(null);
++  const label = `„${depot.name}“ archivieren`;
++  return (
++    <>
++      <IconButton
++        size="large"
++        onClick={dialog.show}
++        disabled={!depot.archivable}
++        aria-label={label}
++        aria-describedby={depot.archivable ? undefined : describedBy}
++        title={label}
++        sx={{ minWidth: 44, minHeight: 44 }}
++      >
++        <ArchiveOutlined />
++      </IconButton>
++      <DepotDialog open={dialog.open} onClose={dialog.hide} title="Depot archivieren" initialFocus={cancelRef}>
++        <ArchiveForm key={dialog.session} depot={depot} onClose={dialog.hide} cancelRef={cancelRef} />
++      </DepotDialog>
++    </>
++  );
++}
++
++/** "Reaktivieren" button of an archived Depot; submits directly, a failure shows an inline Alert. */
++export function UnarchiveDepotButton({ depot }: { depot: { id: string; name: string } }) {
++  const [state, formAction, pending] = useActionState<ArchiveActionState, FormData>(unarchiveDepotAction, null);
++  const failure = state && !state.ok ? depotErrorMessage(state.reason) : undefined;
++  return (
++    <Stack component="form" action={formAction} noValidate spacing={1} sx={{ alignItems: "flex-end" }}>
++      <input type="hidden" name="id" value={depot.id} />
++      <Button type="submit" variant="outlined" disabled={pending} aria-label={`„${depot.name}“ reaktivieren`} sx={TOUCH_TARGET}>
++        Reaktivieren
++      </Button>
++      {failure ? (
++        <Alert severity="error" role="alert">
++          {failure}
++        </Alert>
++      ) : null}
++    </Stack>
++  );
++}
+diff --git a/src/app/_components/depots/DepotLink.tsx b/src/app/_components/depots/DepotLink.tsx
+index 7ac8a1c..9d8aa1f 100644
+--- a/src/app/_components/depots/DepotLink.tsx
++++ b/src/app/_components/depots/DepotLink.tsx
+@@ -12,3 +12,12 @@ export function DepotLink({ id, children }: { id: string; children: ReactNode })
+     </MuiLink>
+   );
+ }
++
++/** Themed client-side link to an app route, for server components (they cannot pass `NextLink` as a prop). */
++export function AppLink({ href, children }: { href: string; children: ReactNode }) {
++  return (
++    <MuiLink component={NextLink} href={href} underline="hover">
++      {children}
++    </MuiLink>
++  );
++}
+diff --git a/src/app/_components/depots/DepotList.tsx b/src/app/_components/depots/DepotList.tsx
+index 703d51e..bb6d674 100644
+--- a/src/app/_components/depots/DepotList.tsx
++++ b/src/app/_components/depots/DepotList.tsx
+@@ -1,40 +1,104 @@
++import ExpandMore from "@mui/icons-material/ExpandMore";
++import Accordion from "@mui/material/Accordion";
++import AccordionDetails from "@mui/material/AccordionDetails";
++import AccordionSummary from "@mui/material/AccordionSummary";
++import Box from "@mui/material/Box";
+ import Card from "@mui/material/Card";
+ import CardContent from "@mui/material/CardContent";
+ import Stack from "@mui/material/Stack";
+ import Typography from "@mui/material/Typography";
+ import { formatMoney } from "@/core/format";
+ import type { DepotSummary } from "@/modules/ledger";
+-import { RenameDepotButton } from "./DepotDialogs";
++import { ArchiveDepotButton, RenameDepotButton, UnarchiveDepotButton } from "./DepotDialogs";
+ import { DepotLink } from "./DepotLink";
+ import { brokerLabel } from "./labels";
+ 
+-/** Depot cards: name (link to the detail page), Broker and Cash Account balance. */
+-export function DepotList({ depots, renamable = false }: { depots: DepotSummary[]; renamable?: boolean }) {
++/** Settings mode actions: rename + archive for an active Depot, "Reaktivieren" for an archived one. */
++function SettingsActions({ depot, reasonId }: { depot: DepotSummary; reasonId: string }) {
++  if (depot.archived) {
++    return (
++      <Box sx={{ ml: "auto", flexShrink: 0 }}>
++        <UnarchiveDepotButton depot={depot} />
++      </Box>
++    );
++  }
++  return (
++    <Stack direction="row" sx={{ flexShrink: 0 }}>
++      <RenameDepotButton depot={depot} />
++      <ArchiveDepotButton depot={depot} describedBy={reasonId} />
++    </Stack>
++  );
++}
++
++/**
++ * Depot cards: name (link to the detail page), Broker and Cash Account balance. In Settings mode
++ * each card also gets its write actions (rename/archive, or reactivate when archived).
++ */
++export function DepotList({ depots, settings = false }: { depots: DepotSummary[]; settings?: boolean }) {
+   return (
+     <Stack component="ul" spacing={1.5} sx={{ listStyle: "none", p: 0, m: 0 }}>
+-      {depots.map((depot) => (
+-        <li key={depot.id}>
+-          <Card>
+-            <CardContent sx={{ display: "flex", alignItems: "center", gap: 2, "&:last-child": { pb: 2 } }}>
+-              <Stack sx={{ flexGrow: 1, minWidth: 0 }}>
+-                <Typography component="p" variant="subtitle1" sx={{ fontWeight: 600, overflowWrap: "anywhere" }}>
+-                  <DepotLink id={depot.id}>{depot.name}</DepotLink>
+-                </Typography>
+-                <Typography variant="body2" color="text.secondary">
+-                  {brokerLabel(depot.broker)}
+-                </Typography>
+-              </Stack>
+-              <Stack sx={{ alignItems: "flex-end", flexShrink: 0 }}>
+-                <Typography variant="body2" color="text.secondary">
+-                  Cash-Konto
+-                </Typography>
+-                <Typography variant="figure">{formatMoney(depot.cashBalance)}</Typography>
+-              </Stack>
+-              {renamable ? <RenameDepotButton depot={depot} /> : null}
+-            </CardContent>
+-          </Card>
+-        </li>
+-      ))}
++      {depots.map((depot) => {
++        const reasonId = `depot-archive-blocked-${depot.id}`;
++        const blocked = settings && !depot.archived && !depot.archivable;
++        // The wider "Reaktivieren" button wraps below name and balance on narrow screens.
++        const wraps = settings && depot.archived;
++        return (
++          <li key={depot.id}>
++            <Card>
++              <CardContent sx={{ "&:last-child": { pb: 2 } }}>
++                <Stack direction="row" sx={{ alignItems: "center", gap: 2, flexWrap: wraps ? "wrap" : "nowrap" }}>
++                  <Stack sx={{ flexGrow: 1, minWidth: wraps ? "8rem" : 0 }}>
++                    <Typography component="p" variant="subtitle1" sx={{ fontWeight: 600, overflowWrap: "anywhere" }}>
++                      <DepotLink id={depot.id}>{depot.name}</DepotLink>
++                    </Typography>
++                    <Typography variant="body2" color="text.secondary">
++                      {brokerLabel(depot.broker)}
++                    </Typography>
++                  </Stack>
++                  <Stack sx={{ alignItems: "flex-end", flexShrink: 0 }}>
++                    <Typography variant="body2" color="text.secondary">
++                      Cash-Konto
++                    </Typography>
++                    <Typography variant="figure">{formatMoney(depot.cashBalance)}</Typography>
++                  </Stack>
++                  {settings ? <SettingsActions depot={depot} reasonId={reasonId} /> : null}
++                </Stack>
++                {blocked ? (
++                  <Typography id={reasonId} variant="body2" color="text.secondary" sx={{ mt: 1 }}>
++                    Depot hat noch Positionen oder Guthaben.
++                  </Typography>
++                ) : null}
++              </CardContent>
++            </Card>
++          </li>
++        );
++      })}
++    </Stack>
++  );
++}
++
++/**
++ * Active Depots, then (when any exist) a collapsed "Archiviert (n)" group with the archived ones.
++ * Expects at least one Depot; the caller shows the empty state.
++ */
++export function DepotGroups({ depots, settings = false }: { depots: DepotSummary[]; settings?: boolean }) {
++  const active = depots.filter((depot) => !depot.archived);
++  const archived = depots.filter((depot) => depot.archived);
++  return (
++    <Stack spacing={2}>
++      {active.length > 0 ? <DepotList depots={active} settings={settings} /> : null}
++      {archived.length > 0 ? (
++        <Accordion disableGutters sx={{ "&::before": { display: "none" } }}>
++          <AccordionSummary expandIcon={<ExpandMore />} sx={{ minHeight: 48 }}>
++            <Typography component="span" sx={{ fontWeight: 600 }}>
++              Archiviert ({archived.length})
++            </Typography>
++          </AccordionSummary>
++          <AccordionDetails sx={{ px: { xs: 1, sm: 2 } }}>
++            <DepotList depots={archived} settings={settings} />
++          </AccordionDetails>
++        </Accordion>
++      ) : null}
+     </Stack>
+   );
+ }
+diff --git a/src/app/_components/depots/labels.test.ts b/src/app/_components/depots/labels.test.ts
+index 82c7512..0b8e2a1 100644
+--- a/src/app/_components/depots/labels.test.ts
++++ b/src/app/_components/depots/labels.test.ts
+@@ -8,6 +8,8 @@ describe("depot error labels", () => {
+     ["name-taken", "Ein Depot mit diesem Namen gibt es bereits.", "name"],
+     ["broker-invalid", "Bitte einen Broker wählen.", "broker"],
+     ["not-found", "Depot nicht gefunden.", undefined],
++    ["depot-not-flat", "Depot hat noch Positionen oder Guthaben.", undefined],
++    ["depot-archived", "Depot ist archiviert. Bitte zuerst reaktivieren.", undefined],
+     ["unauthorized", "Sitzung abgelaufen. Bitte erneut anmelden.", undefined],
+   ])("%s → %j on field %s", (reason, message, field) => {
+     expect(depotErrorMessage(reason)).toBe(message);
+diff --git a/src/app/_components/depots/labels.ts b/src/app/_components/depots/labels.ts
+index 2ed7674..1155b93 100644
+--- a/src/app/_components/depots/labels.ts
++++ b/src/app/_components/depots/labels.ts
+@@ -1,4 +1,4 @@
+-import type { Broker, DepotFailureReason } from "@/modules/ledger";
++import type { ArchiveDepotFailureReason, Broker, DepotFailureReason } from "@/modules/ledger";
+ 
+ /** German display names of the Brokers, in selection order. */
+ export const BROKER_LABELS: Record<Broker, string> = {
+@@ -16,7 +16,7 @@ export function brokerLabel(broker: Broker): string {
+   return BROKER_LABELS[broker];
+ }
+ 
+-export type DepotErrorReason = DepotFailureReason | "unauthorized";
++export type DepotErrorReason = DepotFailureReason | ArchiveDepotFailureReason | "unauthorized";
+ 
+ const DEPOT_ERROR_MESSAGES: Record<DepotErrorReason, string> = {
+   "name-empty": "Bitte einen Namen eingeben.",
+@@ -24,6 +24,8 @@ const DEPOT_ERROR_MESSAGES: Record<DepotErrorReason, string> = {
+   "name-taken": "Ein Depot mit diesem Namen gibt es bereits.",
+   "broker-invalid": "Bitte einen Broker wählen.",
+   "not-found": "Depot nicht gefunden.",
++  "depot-not-flat": "Depot hat noch Positionen oder Guthaben.",
++  "depot-archived": "Depot ist archiviert. Bitte zuerst reaktivieren.",
+   unauthorized: "Sitzung abgelaufen. Bitte erneut anmelden.",
+ };
+ 
+@@ -35,6 +37,8 @@ export function depotErrorMessage(reason: DepotErrorReason): string {
+ /** Which form field an error belongs to; others show as an Alert. */
+ export function depotErrorField(reason: DepotErrorReason): "name" | "broker" | undefined {
+   if (reason === "broker-invalid") return "broker";
+-  if (reason === "not-found" || reason === "unauthorized") return undefined;
++  if (reason === "not-found" || reason === "unauthorized" || reason === "depot-not-flat" || reason === "depot-archived") {
++    return undefined;
++  }
+   return "name";
+ }
+diff --git a/src/app/_components/transactions/TransactionList.tsx b/src/app/_components/transactions/TransactionList.tsx
+index 6e89ea7..d01c7f5 100644
+--- a/src/app/_components/transactions/TransactionList.tsx
++++ b/src/app/_components/transactions/TransactionList.tsx
+@@ -61,18 +61,21 @@ const numeric = { textAlign: "right", fontVariantNumeric: "tabular-nums", whiteS
+ 
+ /**
+  * Transactions grouped by month (newest first) as semantic tables. A row click, or its edit button
+- * (for keyboard users), opens the Transaction in the edit dialog.
++ * (for keyboard users), opens the Transaction in the edit dialog; `readOnly` (archived Depot) drops
++ * both and the dialog.
+  */
+ export function TransactionList({
+   transactions,
+   depot,
+   securities,
+   today,
++  readOnly = false,
+ }: {
+   transactions: TransactionRecord[];
+   depot: DialogDepot;
+   securities: SecuritySummary[];
+   today: string;
++  readOnly?: boolean;
+ }) {
+   const [selected, setSelected] = useState<TransactionRecord | undefined>(undefined);
+   const [open, setOpen] = useState(false);
+@@ -84,7 +87,7 @@ export function TransactionList({
+   };
+   return (
+     <Stack spacing={3}>
+-      {selected ? (
++      {selected && !readOnly ? (
+         <TransactionDialog
+           open={open}
+           onClose={() => setOpen(false)}
+@@ -112,9 +115,11 @@ export function TransactionList({
+                     <TableCell sx={numeric}>Stück</TableCell>
+                     <TableCell sx={numeric}>Betrag</TableCell>
+                     <TableCell sx={numeric}>Cash-Effekt</TableCell>
+-                    <TableCell padding="none" sx={actionCell}>
+-                      <span style={visuallyHidden}>Aktionen</span>
+-                    </TableCell>
++                    {readOnly ? null : (
++                      <TableCell padding="none" sx={actionCell}>
++                        <span style={visuallyHidden}>Aktionen</span>
++                      </TableCell>
++                    )}
+                   </TableRow>
+                 </TableHead>
+                 <TableBody>
+@@ -123,9 +128,9 @@ export function TransactionList({
+                     return (
+                       <TableRow
+                         key={transaction.id}
+-                        hover
+-                        onClick={() => edit(transaction)}
+-                        sx={{ cursor: "pointer", "& td": { py: 1 } }}
++                        hover={!readOnly}
++                        onClick={readOnly ? undefined : () => edit(transaction)}
++                        sx={{ cursor: readOnly ? undefined : "pointer", "& td": { py: 1 } }}
+                       >
+                         <TableCell>
+                           <TransactionTypeLabel type={transaction.type} />
+@@ -146,18 +151,20 @@ export function TransactionList({
+                         <TableCell sx={numeric}>
+                           <CashEffectText value={cashEffect(transaction)} />
+                         </TableCell>
+-                        <TableCell padding="none" sx={actionCell}>
+-                          <IconButton
+-                            aria-label={`Buchung vom ${formatDate(transaction.date)} bearbeiten`}
+-                            onClick={(event) => {
+-                              event.stopPropagation();
+-                              edit(transaction);
+-                            }}
+-                            sx={{ minWidth: 44, minHeight: 44 }}
+-                          >
+-                            <EditOutlined fontSize="small" />
+-                          </IconButton>
+-                        </TableCell>
++                        {readOnly ? null : (
++                          <TableCell padding="none" sx={actionCell}>
++                            <IconButton
++                              aria-label={`Buchung vom ${formatDate(transaction.date)} bearbeiten`}
++                              onClick={(event) => {
++                                event.stopPropagation();
++                                edit(transaction);
++                              }}
++                              sx={{ minWidth: 44, minHeight: 44 }}
++                            >
++                              <EditOutlined fontSize="small" />
++                            </IconButton>
++                          </TableCell>
++                        )}
+                       </TableRow>
+                     );
+                   })}
+diff --git a/src/app/_components/transactions/labels.test.ts b/src/app/_components/transactions/labels.test.ts
+index 671892f..0676cc1 100644
+--- a/src/app/_components/transactions/labels.test.ts
++++ b/src/app/_components/transactions/labels.test.ts
+@@ -23,6 +23,10 @@ describe("transaction labels", () => {
+     ]);
+   });
+ 
++  it("explains a write to an archived Depot", () => {
++    expect(transactionErrorMessage("depot-archived")).toBe("Depot ist archiviert. Bitte zuerst reaktivieren.");
++  });
++
+   it("formats the oversell message with the available quantity", () => {
+     expect(transactionErrorMessage("sell-exceeds-holding", "10")).toBe("Verkauf übersteigt Bestand (10 Stück).");
+     expect(transactionErrorMessage("sell-exceeds-holding", "1234.5")).toBe("Verkauf übersteigt Bestand (1.234,5 Stück).");
+@@ -46,6 +50,7 @@ describe("transaction labels", () => {
+     ["security-name-invalid", "securityName"],
+     ["asset-type-invalid", "assetType"],
+     ["depot-not-found", undefined],
++    ["depot-archived", undefined],
+     ["unauthorized", undefined],
+   ])("%s shows on field %s with a German message", (reason, field) => {
+     expect(transactionErrorField(reason)).toBe(field);
+diff --git a/src/app/_components/transactions/labels.ts b/src/app/_components/transactions/labels.ts
+index 29ba237..c218f9d 100644
+--- a/src/app/_components/transactions/labels.ts
++++ b/src/app/_components/transactions/labels.ts
+@@ -49,6 +49,7 @@ type MessageReason = Exclude<TransactionErrorReason, "sell-exceeds-holding" | "l
+ 
+ const MESSAGES: Record<MessageReason, string> = {
+   "depot-not-found": "Depot nicht gefunden.",
++  "depot-archived": "Depot ist archiviert. Bitte zuerst reaktivieren.",
+   "type-invalid": "Bitte eine Buchungsart wählen.",
+   "date-invalid": "Bitte ein gültiges Datum eingeben.",
+   "quantity-invalid": "Bitte eine Stückzahl größer 0 mit höchstens 8 Nachkommastellen eingeben.",
+diff --git a/src/core/archive.test.ts b/src/core/archive.test.ts
+new file mode 100644
+index 0000000..a21621a
+--- /dev/null
++++ b/src/core/archive.test.ts
+@@ -0,0 +1,106 @@
++import { describe, expect, it } from "vitest";
++import { type ArchiveRow, canArchive, heldSecurities, isFlat } from "./archive";
++
++const TODAY = "2026-10-25";
++
++let sequence = 0;
++function row(type: string, date: string, fields: Partial<ArchiveRow> = {}): ArchiveRow {
++  sequence += 1;
++  return { type, date, sequence, securityId: null, quantity: null, amount: "0", fee: "0", tax: "0", ...fields };
++}
++const deposit = (amount: string, date = "2026-01-01") => row("DEPOSIT", date, { amount });
++const withdrawal = (amount: string, date = "2026-01-01") => row("WITHDRAWAL", date, { amount });
++const buy = (securityId: string, quantity: string, amount: string, date = "2026-01-02") =>
++  row("BUY", date, { securityId, quantity, amount });
++const sell = (securityId: string, quantity: string, amount: string, date = "2026-01-03") =>
++  row("SELL", date, { securityId, quantity, amount });
++
++describe("isFlat / canArchive", () => {
++  it("allows an empty Depot", () => {
++    expect(isFlat([], TODAY)).toBe(true);
++    expect(canArchive([], TODAY)).toBe(true);
++  });
++
++  it("allows a flat Depot", () => {
++    const rows = [deposit("1000"), buy("s1", "10", "1000"), sell("s1", "10", "1000"), withdrawal("1000", "2026-01-04")];
++    expect(isFlat(rows, TODAY)).toBe(true);
++    expect(canArchive(rows, TODAY)).toBe(true);
++  });
++
++  it("blocks an open Position even with zero cash", () => {
++    const rows = [deposit("1000"), buy("s1", "10", "1000")];
++    expect(isFlat(rows, TODAY)).toBe(false);
++    expect(canArchive(rows, TODAY)).toBe(false);
++  });
++
++  it("blocks cash left over", () => {
++    expect(canArchive([deposit("0.01")], TODAY)).toBe(false);
++  });
++
++  it("compares exactly, without floats", () => {
++    const rows = [deposit("0.1"), deposit("0.2"), withdrawal("0.3"), buy("s1", "0.1", "0"), buy("s1", "0.2", "0"), sell("s1", "0.3", "0")];
++    expect(canArchive(rows, TODAY)).toBe(true);
++  });
++
++  it("blocks a future-dated buy on a Depot flat today", () => {
++    const rows = [deposit("1000"), withdrawal("1000"), deposit("100", "2099-01-01"), buy("s1", "1", "100", "2099-01-02")];
++    expect(isFlat(rows, TODAY)).toBe(true);
++    expect(canArchive(rows, TODAY)).toBe(false);
++  });
++
++  it("blocks a Depot closed only by a future sell", () => {
++    const rows = [buy("s1", "1", "0"), sell("s1", "1", "0", "2099-01-01")];
++    expect(isFlat(rows, "2099-01-01")).toBe(true);
++    expect(canArchive(rows, TODAY)).toBe(false);
++  });
++});
++
++describe("heldSecurities", () => {
++  const trade = (depotId: string, type: string, securityId: string, quantity: string, date = "2026-01-01") => ({
++    depotId,
++    type,
++    securityId,
++    quantity,
++    date,
++  });
++
++  it("counts only open Positions as of today in non-archived Depots", () => {
++    const ledger = {
++      depots: [
++        { id: "A", archived: false },
++        { id: "B", archived: true },
++      ],
++      trades: [
++        trade("A", "BUY", "s1", "5"),
++        trade("B", "BUY", "s2", "5"),
++        trade("A", "BUY", "s3", "2"),
++        trade("A", "SELL", "s3", "2", "2026-02-01"),
++        trade("A", "BUY", "s4", "1", "2099-01-01"),
++        trade("X", "BUY", "s5", "1"),
++      ],
++    };
++    expect(heldSecurities(ledger, TODAY)).toEqual(["s1"]);
++  });
++
++  it("evaluates each Depot on its own", () => {
++    const ledger = {
++      depots: [
++        { id: "A", archived: false },
++        { id: "B", archived: false },
++      ],
++      trades: [trade("A", "BUY", "s1", "5"), trade("B", "BUY", "s1", "5"), trade("B", "SELL", "s1", "5")],
++    };
++    expect(heldSecurities(ledger, TODAY)).toEqual(["s1"]);
++  });
++
++  it("never lets a negative net in one Depot cancel a holding in another, and sorts the ids", () => {
++    const ledger = {
++      depots: [
++        { id: "A", archived: false },
++        { id: "B", archived: false },
++      ],
++      trades: [trade("A", "BUY", "s9", "1"), trade("A", "BUY", "s1", "1"), trade("B", "SELL", "s1", "3"), trade("A", "BUY", "s1", "1")],
++    };
++    expect(heldSecurities(ledger, TODAY)).toEqual(["s1", "s9"]);
++  });
++});
+diff --git a/src/core/archive.ts b/src/core/archive.ts
+new file mode 100644
+index 0000000..f219d36
+--- /dev/null
++++ b/src/core/archive.ts
+@@ -0,0 +1,77 @@
++/**
++ * Archive guard and the held set (AD-17). Pure, decimal strings only; "today" is passed in.
++ */
++import { cashBalance, type CashRow } from "./cash";
++import { ExactDecimal } from "./decimal";
++
++type Decimal = InstanceType<typeof ExactDecimal>;
++
++/** A BUY/SELL-relevant ledger row: its Security and quantity (other types carry none). */
++export type QuantityRow = {
++  securityId: string | null;
++  type: string;
++  date: string;
++  quantity: string | null;
++};
++
++/** A Depot's ledger row as the archive guard needs it. */
++export type ArchiveRow = CashRow & QuantityRow;
++
++/** Net BUY − SELL quantity per Security over rows dated on or before `asOf`. */
++function netQuantities(rows: readonly QuantityRow[], asOf: string): Map<string, Decimal> {
++  const net = new Map<string, Decimal>();
++  for (const row of rows) {
++    if (row.date > asOf || row.securityId === null) continue;
++    if (row.type !== "BUY" && row.type !== "SELL") continue;
++    const quantity = new ExactDecimal(row.quantity ?? "0");
++    const current = net.get(row.securityId) ?? new ExactDecimal(0);
++    net.set(row.securityId, row.type === "BUY" ? current.plus(quantity) : current.minus(quantity));
++  }
++  return net;
++}
++
++/** True when, as of `asOf`, every Security's net quantity is zero and the cash balance is zero. */
++export function isFlat(rows: readonly ArchiveRow[], asOf: string): boolean {
++  for (const quantity of netQuantities(rows, asOf).values()) {
++    if (!quantity.isZero()) return false;
++  }
++  return new ExactDecimal(cashBalance(rows, asOf)).isZero();
++}
++
++/**
++ * A Depot may be archived when it is flat today and after its last row (a future-dated row that
++ * opens a Position or moves cash blocks archiving). No rows → true.
++ */
++export function canArchive(rows: readonly ArchiveRow[], today: string): boolean {
++  if (rows.length === 0) return true;
++  const lastDate = rows.reduce((latest, row) => (row.date > latest ? row.date : latest), rows[0].date);
++  return isFlat(rows, today) && isFlat(rows, lastDate);
++}
++
++export type HeldSecuritiesLedger = {
++  depots: readonly { id: string; archived: boolean }[];
++  trades: readonly (QuantityRow & { depotId: string })[];
++};
++
++/**
++ * The only definition of "held": sorted unique Security ids whose net BUY − SELL quantity as of
++ * `today` is > 0 within one non-archived Depot (per Depot, never summed across Depots). Rows of
++ * unknown Depots are ignored.
++ */
++export function heldSecurities(ledger: HeldSecuritiesLedger, today: string): string[] {
++  const active = new Set(ledger.depots.filter((depot) => !depot.archived).map((depot) => depot.id));
++  const byDepot = new Map<string, QuantityRow[]>();
++  for (const row of ledger.trades) {
++    if (!active.has(row.depotId)) continue;
++    const list = byDepot.get(row.depotId);
++    if (list) list.push(row);
++    else byDepot.set(row.depotId, [row]);
++  }
++  const held = new Set<string>();
++  for (const rows of byDepot.values()) {
++    for (const [securityId, quantity] of netQuantities(rows, today)) {
++      if (quantity.greaterThan(0)) held.add(securityId);
++    }
++  }
++  return [...held].sort();
++}
+diff --git a/src/modules/ledger/depots.test.ts b/src/modules/ledger/depots.test.ts
+index a6427fb..df2eedc 100644
+--- a/src/modules/ledger/depots.test.ts
++++ b/src/modules/ledger/depots.test.ts
+@@ -1,6 +1,19 @@
+ import { afterEach, beforeEach, describe, expect, it } from "vitest";
+ import { createTestDatabase, type TestDatabase } from "../../../test/helpers/test-db";
+-import { createDepot, getDepot, listDepots, recordTransaction, type RecordTransactionInput, renameDepot } from "./index";
++import {
++  archiveDepot,
++  createDepot,
++  deleteTransaction,
++  ensureSecurity,
++  getDepot,
++  listDepots,
++  listHeldSecurities,
++  recordTransaction,
++  type RecordTransactionInput,
++  renameDepot,
++  unarchiveDepot,
++  updateTransaction,
++} from "./index";
+ 
+ let testDb: TestDatabase;
+ 
+@@ -25,7 +38,14 @@ describe("createDepot", () => {
+     const result = await createDepot({ name: "  Comdirect Depot ", broker: "COMDIRECT" }, db());
+     expect(result).toEqual({
+       ok: true,
+-      depot: { id: expect.any(String), name: "Comdirect Depot", broker: "COMDIRECT", cashBalance: "0" },
++      depot: {
++        id: expect.any(String),
++        name: "Comdirect Depot",
++        broker: "COMDIRECT",
++        cashBalance: "0",
++        archived: false,
++        archivable: true,
++      },
+     });
+     expect(await listDepots(db())).toEqual([result.ok && result.depot]);
+   });
+@@ -189,3 +209,131 @@ describe("unique-constraint backstop", () => {
+     });
+   });
+ });
++
++describe("archiveDepot / unarchiveDepot", () => {
++  async function book(depotId: string, input: Omit<RecordTransactionInput, "depotId">) {
++    const result = await recordTransaction({ depotId, ...input }, db());
++    if (!result.ok) throw new Error(`setup failed: ${result.reason}`);
++    return result.transaction;
++  }
++
++  async function security(isin = "US0378331005", name = "Apple Inc.") {
++    const result = await ensureSecurity({ isin }, { name, assetType: "STOCK" }, db());
++    if (!result.ok) throw new Error("setup failed");
++    return result.security.id;
++  }
++
++  it("archives an empty Depot and lists it as archived", async () => {
++    const depot = await create("Hauptdepot");
++    expect(depot).toMatchObject({ archived: false, archivable: true });
++    expect(await archiveDepot(depot.id, db())).toEqual({ ok: true, depot: { ...depot, archived: true } });
++    expect(await listDepots(db())).toEqual([{ ...depot, archived: true }]);
++  });
++
++  it("archives a flat Depot", async () => {
++    const depot = await create("Hauptdepot");
++    const id = await security();
++    await book(depot.id, { type: "DEPOSIT", date: "2026-01-01", amount: "1000" });
++    await book(depot.id, { type: "BUY", date: "2026-01-02", quantity: "10", price: "100", security: { id } });
++    await book(depot.id, { type: "SELL", date: "2026-01-03", quantity: "10", price: "100", security: { id } });
++    await book(depot.id, { type: "WITHDRAWAL", date: "2026-01-04", amount: "1000" });
++    expect((await getDepot(depot.id, db()))?.archivable).toBe(true);
++    expect((await archiveDepot(depot.id, db())).ok).toBe(true);
++    expect((await getDepot(depot.id, db()))?.archived).toBe(true);
++  });
++
++  it.each<[string, (depotId: string, securityId: string) => Promise<void>]>([
++    [
++      "an open Position",
++      async (depotId, id) => {
++        await book(depotId, { type: "DEPOSIT", date: "2026-01-01", amount: "1000" });
++        await book(depotId, { type: "BUY", date: "2026-01-02", quantity: "10", price: "100", security: { id } });
++      },
++    ],
++    ["cash left", async (depotId) => void (await book(depotId, { type: "DEPOSIT", date: "2026-01-01", amount: "0.01" }))],
++    [
++      "a future-dated Position",
++      async (depotId, id) => {
++        await book(depotId, { type: "DEPOSIT", date: "2099-01-01", amount: "100" });
++        await book(depotId, { type: "BUY", date: "2099-01-02", quantity: "1", price: "100", security: { id } });
++      },
++    ],
++  ])("refuses a Depot with %s", async (_label, setup) => {
++    const depot = await create("Hauptdepot");
++    await setup(depot.id, await security());
++    expect((await getDepot(depot.id, db()))?.archivable).toBe(false);
++    expect(await archiveDepot(depot.id, db())).toEqual({ ok: false, reason: "depot-not-flat" });
++    expect((await getDepot(depot.id, db()))?.archived).toBe(false);
++  });
++
++  it("rejects every write to an archived Depot and writes nothing", async () => {
++    const depot = await create("Hauptdepot");
++    const row = await book(depot.id, { type: "DEPOSIT", date: "2026-01-01", amount: "100" });
++    await book(depot.id, { type: "WITHDRAWAL", date: "2026-01-02", amount: "100" });
++    expect((await archiveDepot(depot.id, db())).ok).toBe(true);
++    const before = await db().transaction.findMany({ orderBy: { id: "asc" } });
++
++    expect(await recordTransaction({ depotId: depot.id, type: "DEPOSIT", date: "2026-01-03", amount: "5" }, db())).toEqual({
++      ok: false,
++      reason: "depot-archived",
++    });
++    expect(
++      await updateTransaction(row.id, { depotId: depot.id, type: "DEPOSIT", date: "2026-01-01", amount: "200" }, db()),
++    ).toEqual({ ok: false, reason: "depot-archived" });
++    expect(await deleteTransaction(row.id, db())).toEqual({ ok: false, reason: "depot-archived" });
++    expect(await renameDepot(depot.id, { name: "Neu" }, db())).toEqual({ ok: false, reason: "depot-archived" });
++
++    expect(await db().transaction.findMany({ orderBy: { id: "asc" } })).toEqual(before);
++    expect((await getDepot(depot.id, db()))?.name).toBe("Hauptdepot");
++  });
++
++  it("still validates before the archive check", async () => {
++    const depot = await create("Hauptdepot");
++    expect((await archiveDepot(depot.id, db())).ok).toBe(true);
++    expect(await renameDepot(depot.id, { name: "  " }, db())).toEqual({ ok: false, reason: "name-empty" });
++    expect(await recordTransaction({ depotId: depot.id, type: "DEPOSIT", date: "nope", amount: "5" }, db())).toEqual({
++      ok: false,
++      reason: "date-invalid",
++    });
++  });
++
++  it("unarchives so the Depot can be booked again", async () => {
++    const depot = await create("Hauptdepot");
++    await archiveDepot(depot.id, db());
++    expect(await unarchiveDepot(depot.id, db())).toEqual({ ok: true, depot });
++    expect((await recordTransaction({ depotId: depot.id, type: "DEPOSIT", date: "2026-01-01", amount: "5" }, db())).ok).toBe(true);
++    expect(await unarchiveDepot(depot.id, db())).toMatchObject({ ok: true, depot: { archived: false } });
++  });
++
++  it("is idempotent on an already archived Depot", async () => {
++    const depot = await create("Hauptdepot");
++    await archiveDepot(depot.id, db());
++    expect(await archiveDepot(depot.id, db())).toEqual({ ok: true, depot: { ...depot, archived: true } });
++  });
++
++  it("reports an unknown id as not-found", async () => {
++    expect(await archiveDepot("nope", db())).toEqual({ ok: false, reason: "not-found" });
++    expect(await unarchiveDepot("nope", db())).toEqual({ ok: false, reason: "not-found" });
++    expect(await listDepots(db())).toEqual([]);
++  });
++
++  it("lists held Securities of non-archived Depots as of today", async () => {
++    const a = await create("A");
++    const b = await create("B");
++    const c = await create("C");
++    const s1 = await security("US0378331005", "S1");
++    const s2 = await security("DE0007164600", "S2");
++    const s3 = await security("DE0005557508", "S3");
++    const s4 = await security("DE0007100000", "S4");
++    await book(a.id, { type: "BUY", date: "2026-01-01", quantity: "5", price: "0", security: { id: s1 } });
++    await book(b.id, { type: "BUY", date: "2026-01-01", quantity: "5", price: "0", security: { id: s2 } });
++    await book(a.id, { type: "BUY", date: "2026-01-01", quantity: "2", price: "0", security: { id: s3 } });
++    await book(a.id, { type: "SELL", date: "2026-01-02", quantity: "2", price: "0", security: { id: s3 } });
++    await book(a.id, { type: "BUY", date: "2099-01-01", quantity: "1", price: "0", security: { id: s4 } });
++    await book(c.id, { type: "BUY", date: "2026-01-01", quantity: "5", price: "0", security: { id: s1 } });
++    await book(c.id, { type: "SELL", date: "2026-01-02", quantity: "5", price: "0", security: { id: s1 } });
++    // B holds s2, so it cannot be archived through the service; archive it directly for the held-set check.
++    await db().depot.update({ where: { id: b.id }, data: { archived: true } });
++    expect(await listHeldSecurities("2026-10-25", db())).toEqual([s1]);
++  });
++});
+diff --git a/src/modules/ledger/depots.ts b/src/modules/ledger/depots.ts
+index 4cf66e9..7318d1d 100644
+--- a/src/modules/ledger/depots.ts
++++ b/src/modules/ledger/depots.ts
+@@ -1,7 +1,8 @@
+ import { z } from "zod";
+ import { prisma } from "@/db";
+ import { Broker, Prisma } from "@/db/generated/prisma/client";
+-import { cashBalance, type CashRow } from "@/core/cash";
++import { type ArchiveRow, canArchive, heldSecurities } from "@/core/archive";
++import { cashBalance } from "@/core/cash";
+ import { businessDate } from "@/core/dates";
+ 
+ export type { Broker } from "@/db/generated/prisma/client";
+@@ -20,12 +21,22 @@ export type DepotSummary = {
+   broker: Broker;
+   /** Cash Account balance as a decimal string; computed on read, never stored. */
+   cashBalance: string;
++  /** Archived Depots are read-only and left out of Portfolio figures (AD-17). */
++  archived: boolean;
++  /** True when the Depot may be archived (no open Positions, zero cash); computed on read, never stored. */
++  archivable: boolean;
+ };
+ 
+-export type DepotFailureReason = "name-empty" | "name-too-long" | "name-taken" | "broker-invalid" | "not-found";
++export type DepotFailureReason = "name-empty" | "name-too-long" | "name-taken" | "broker-invalid" | "not-found" | "depot-archived";
+ 
+ export type DepotResult = { ok: true; depot: DepotSummary } | { ok: false; reason: DepotFailureReason };
+ 
++export type ArchiveDepotFailureReason = "not-found" | "depot-not-flat";
++
++export type ArchiveDepotResult = { ok: true; depot: DepotSummary } | { ok: false; reason: ArchiveDepotFailureReason };
++
++export type UnarchiveDepotResult = { ok: true; depot: DepotSummary } | { ok: false; reason: "not-found" };
++
+ export const depotNameSchema = z
+   .string({ error: "name-empty" })
+   .normalize("NFC")
+@@ -61,19 +72,46 @@ function isUniqueViolation(error: unknown): boolean {
+   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+ }
+ 
+-const CASH_SELECT = { type: true, date: true, sequence: true, amount: true, fee: true, tax: true } as const;
++const ROW_SELECT = {
++  type: true,
++  date: true,
++  sequence: true,
++  amount: true,
++  fee: true,
++  tax: true,
++  securityId: true,
++  quantity: true,
++} as const;
++
++type DepotRow = { id: string; name: string; broker: Broker; archived: boolean };
++
++/** Today's Europe/Berlin business date. */
++function today(): string {
++  return businessDate(new Date());
++}
+ 
+-/** Cash balance as of today's Europe/Berlin business date (future-dated rows excluded). */
+-function currentBalance(rows: readonly CashRow[]): string {
+-  return cashBalance(rows, businessDate(new Date()));
++/** Cash balance as of today (future-dated rows excluded) and the archive guard. */
++function toSummary(depot: DepotRow, rows: readonly ArchiveRow[]): DepotSummary {
++  const asOf = today();
++  return {
++    id: depot.id,
++    name: depot.name,
++    broker: depot.broker,
++    cashBalance: cashBalance(rows, asOf),
++    archived: depot.archived,
++    archivable: canArchive(rows, asOf),
++  };
+ }
+ 
+-function toSummary(depot: { id: string; name: string; broker: Broker }, rows: readonly CashRow[]): DepotSummary {
+-  return { id: depot.id, name: depot.name, broker: depot.broker, cashBalance: currentBalance(rows) };
++async function depotRows(db: LedgerDb, depotId: string): Promise<ArchiveRow[]> {
++  return db.transaction.findMany({ where: { depotId }, select: ROW_SELECT });
+ }
+ 
+-async function cashRows(db: LedgerDb, depotId: string): Promise<CashRow[]> {
+-  return db.transaction.findMany({ where: { depotId }, select: CASH_SELECT });
++/** Runs `write` in one DB transaction: its own, unless `db` already is one. */
++export async function inTransaction<T>(db: LedgerDb, write: (tx: LedgerDb) => Promise<T>): Promise<T> {
++  const client = db as LedgerDb & Partial<Pick<typeof prisma, "$transaction">>;
++  if (typeof client.$transaction === "function") return client.$transaction((tx) => write(tx));
++  return write(db);
+ }
+ 
+ /** Creates a Depot; the name is trimmed and must be unique (case-insensitive). */
+@@ -98,10 +136,11 @@ export async function renameDepot(id: string, input: RenameDepotInput, db: Ledge
+   if (!name.ok) return name;
+   const current = await db.depot.findUnique({ where: { id } });
+   if (!current) return { ok: false, reason: "not-found" };
++  if (current.archived) return { ok: false, reason: "depot-archived" };
+   if (await isNameTaken(db, name.value, id)) return { ok: false, reason: "name-taken" };
+   try {
+     const depot = await db.depot.update({ where: { id }, data: { name: name.value } });
+-    return { ok: true, depot: toSummary(depot, await cashRows(db, id)) };
++    return { ok: true, depot: toSummary(depot, await depotRows(db, id)) };
+   } catch (error) {
+     if (isUniqueViolation(error)) return { ok: false, reason: "name-taken" };
+     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {
+@@ -111,13 +150,56 @@ export async function renameDepot(id: string, input: RenameDepotInput, db: Ledge
+   }
+ }
+ 
+-/** All Depots sorted by name (de-DE collation). */
++/**
++ * Archives a Depot (AD-17): refused with `depot-not-flat` while it has open Positions or non-zero
++ * cash (today or after its last row). Archiving an archived Depot is a no-op. One DB transaction.
++ */
++export async function archiveDepot(id: string, db: LedgerDb = prisma): Promise<ArchiveDepotResult> {
++  return inTransaction(db, async (tx): Promise<ArchiveDepotResult> => {
++    const current = await tx.depot.findUnique({ where: { id: typeof id === "string" ? id : "" } });
++    if (!current) return { ok: false, reason: "not-found" };
++    const rows = await depotRows(tx, current.id);
++    if (current.archived) return { ok: true, depot: toSummary(current, rows) };
++    if (!canArchive(rows, today())) return { ok: false, reason: "depot-not-flat" };
++    const depot = await tx.depot.update({ where: { id: current.id }, data: { archived: true } });
++    return { ok: true, depot: toSummary(depot, rows) };
++  });
++}
++
++/** Reactivates an archived Depot; idempotent. */
++export async function unarchiveDepot(id: string, db: LedgerDb = prisma): Promise<UnarchiveDepotResult> {
++  return inTransaction(db, async (tx): Promise<UnarchiveDepotResult> => {
++    const current = await tx.depot.findUnique({ where: { id: typeof id === "string" ? id : "" } });
++    if (!current) return { ok: false, reason: "not-found" };
++    const depot = current.archived
++      ? await tx.depot.update({ where: { id: current.id }, data: { archived: false } })
++      : current;
++    return { ok: true, depot: toSummary(depot, await depotRows(tx, current.id)) };
++  });
++}
++
++/**
++ * Securities held as of `today` (open Positions in non-archived Depots, `core/archive`
++ * `heldSecurities`), as sorted Security ids. Consumed by prices, news and composition (Epics 3+).
++ */
++export async function listHeldSecurities(today: string, db: LedgerDb = prisma): Promise<string[]> {
++  const [depots, trades] = await Promise.all([
++    db.depot.findMany({ select: { id: true, archived: true } }),
++    db.transaction.findMany({
++      where: { type: { in: ["BUY", "SELL"] } },
++      select: { depotId: true, securityId: true, type: true, date: true, quantity: true },
++    }),
++  ]);
++  return heldSecurities({ depots, trades }, today);
++}
++
++/** All Depots (archived ones included) sorted by name (de-DE collation). */
+ export async function listDepots(db: LedgerDb = prisma): Promise<DepotSummary[]> {
+   const [depots, rows] = await Promise.all([
+     db.depot.findMany(),
+-    db.transaction.findMany({ select: { depotId: true, ...CASH_SELECT } }),
++    db.transaction.findMany({ select: { depotId: true, ...ROW_SELECT } }),
+   ]);
+-  const byDepot = new Map<string, CashRow[]>();
++  const byDepot = new Map<string, ArchiveRow[]>();
+   for (const row of rows) {
+     const list = byDepot.get(row.depotId);
+     if (list) list.push(row);
+@@ -131,5 +213,5 @@ export async function listDepots(db: LedgerDb = prisma): Promise<DepotSummary[]>
+ /** One Depot, or null when the id is unknown. */
+ export async function getDepot(id: string, db: LedgerDb = prisma): Promise<DepotSummary | null> {
+   const depot = await db.depot.findUnique({ where: { id } });
+-  return depot ? toSummary(depot, await cashRows(db, id)) : null;
++  return depot ? toSummary(depot, await depotRows(db, id)) : null;
+ }
+diff --git a/src/modules/ledger/index.ts b/src/modules/ledger/index.ts
+index d8a9ea2..e121311 100644
+--- a/src/modules/ledger/index.ts
++++ b/src/modules/ledger/index.ts
+@@ -1,13 +1,18 @@
+ // The ledger module is the only writer of ledger rows (Depots, Securities, Transactions).
+ export {
+   BROKERS,
++  archiveDepot,
+   createDepot,
+   DEPOT_NAME_MAX_LENGTH,
+   getDepot,
+   listDepots,
++  listHeldSecurities,
+   renameDepot,
++  unarchiveDepot,
+ } from "./depots";
+ export type {
++  ArchiveDepotFailureReason,
++  ArchiveDepotResult,
+   Broker,
+   CreateDepotInput,
+   DepotFailureReason,
+@@ -15,6 +20,7 @@ export type {
+   DepotSummary,
+   LedgerDb,
+   RenameDepotInput,
++  UnarchiveDepotResult,
+ } from "./depots";
+ export {
+   ASSET_TYPES,
+diff --git a/src/modules/ledger/transactions.ts b/src/modules/ledger/transactions.ts
+index 8f1d946..96893d9 100644
+--- a/src/modules/ledger/transactions.ts
++++ b/src/modules/ledger/transactions.ts
+@@ -4,7 +4,7 @@ import { isBusinessDate } from "@/core/dates";
+ import { canonicalDecimal, ExactDecimal, isDecimalString } from "@/core/decimal";
+ import { matchDuplicates } from "@/core/duplicates";
+ import { firstOversell, sellableAt, type TradeRow } from "@/core/holdings";
+-import type { LedgerDb } from "./depots";
++import { inTransaction, type LedgerDb } from "./depots";
+ import {
+   ensureSecurity,
+   findSecurityByKey,
+@@ -37,6 +37,7 @@ export type TransactionRecord = {
+ 
+ export type TradeFailureReason =
+   | "depot-not-found"
++  | "depot-archived"
+   | "type-invalid"
+   | "date-invalid"
+   | "quantity-invalid"
+@@ -103,7 +104,7 @@ export type UpdateTransactionResult =
+ /** On success, `transaction` is the deleted row as it was. */
+ export type DeleteTransactionResult =
+   | { ok: true; transaction: TransactionRecord }
+-  | { ok: false; reason: "transaction-not-found" }
++  | { ok: false; reason: "transaction-not-found" | "depot-archived" }
+   | LaterSellExceedsHoldingFailure;
+ 
+ export type NewSecurityInput =
+@@ -394,13 +395,20 @@ function rowData(transaction: ValidTransaction) {
+   };
+ }
+ 
++/** True when the Depot is archived (read-only, AD-17). */
++async function isArchived(depotId: string, db: LedgerDb): Promise<boolean> {
++  const depot = await db.depot.findUnique({ where: { id: depotId }, select: { archived: true } });
++  return depot?.archived === true;
++}
++
+ async function writeTransaction(
+   transaction: ValidTransaction,
+   allowDuplicate: boolean,
+   db: LedgerDb,
+ ): Promise<RecordTransactionResult> {
+-  const depot = await db.depot.findUnique({ where: { id: transaction.depotId }, select: { id: true } });
++  const depot = await db.depot.findUnique({ where: { id: transaction.depotId }, select: { id: true, archived: true } });
+   if (!depot) return { ok: false, reason: "depot-not-found" };
++  if (depot.archived) return { ok: false, reason: "depot-archived" };
+ 
+   const resolved = await resolveSecurity(transaction, db);
+   if (!resolved.ok) return resolved;
+@@ -433,18 +441,12 @@ async function writeTransaction(
+   return { ok: true, transaction: toRecord(row) };
+ }
+ 
+-/** Runs `write` in one DB transaction: its own, unless `db` already is one. */
+-async function inTransaction<T>(db: LedgerDb, write: (tx: LedgerDb) => Promise<T>): Promise<T> {
+-  const client = db as LedgerDb & Partial<Pick<typeof prisma, "$transaction">>;
+-  if (typeof client.$transaction === "function") return client.$transaction((tx) => write(tx));
+-  return write(db);
+-}
+-
+ /**
+  * Records a Transaction of any type in the AD-14 shape with the next intra-day sequence (appended at
+  * the end of its date). BUY/SELL: quantity and price required, a SELL beyond the sellable quantity is
+  * rejected. DIVIDEND: Security and amount > 0. FEE: fee > 0. TAX: tax ≠ 0 (negative = refund).
+- * DEPOSIT/WITHDRAWAL: amount > 0, no Security. Cash may go negative. After every other check, a
++ * DEPOSIT/WITHDRAWAL: amount > 0, no Security. Cash may go negative. An archived Depot is
++ * `depot-archived`. After every other check, a
+  * possible duplicate is `possible-duplicate` unless `allowDuplicate` is true. Expected failures never
+  * throw; nothing is written on failure. Runs in one DB transaction (its own unless `db` already is one).
+  */
+@@ -462,7 +464,8 @@ export async function recordTransaction(
+  * The Depot stays the row's Depot (`input.depotId` is ignored). Same date keeps the sequence; a new
+  * date appends the row after the last row of that date. Rejects an edit that makes its own SELL or a
+  * later SELL of the old or new Security exceed the held quantity, and a possible duplicate of another
+- * row unless `allowDuplicate`. Nothing is written on failure; one DB transaction.
++ * row unless `allowDuplicate`. A row of an archived Depot is `depot-archived`. Nothing is written on
++ * failure; one DB transaction.
+  */
+ export async function updateTransaction(
+   id: string,
+@@ -478,6 +481,7 @@ export async function updateTransaction(
+     const { depotId } = existing;
+     const valid = validateTransaction({ ...input, depotId });
+     if (!valid.ok) return valid;
++    if (await isArchived(depotId, tx)) return { ok: false, reason: "depot-archived" };
+     const transaction = valid.value;
+ 
+     const resolved = await resolveSecurity(transaction, tx);
+@@ -515,7 +519,8 @@ export async function updateTransaction(
+ 
+ /**
+  * Deletes Transaction `id`, unless that makes a later SELL of its Security exceed the held quantity.
+- * The Security row stays. Nothing is written on failure; one DB transaction.
++ * A row of an archived Depot is `depot-archived`. The Security row stays. Nothing is written on
++ * failure; one DB transaction.
+  */
+ export async function deleteTransaction(id: string, db: LedgerDb = prisma): Promise<DeleteTransactionResult> {
+   return inTransaction(db, async (tx): Promise<DeleteTransactionResult> => {
+@@ -524,6 +529,7 @@ export async function deleteTransaction(id: string, db: LedgerDb = prisma): Prom
+       include: TRANSACTION_INCLUDE,
+     });
+     if (!existing) return { ok: false, reason: "transaction-not-found" };
++    if (await isArchived(existing.depotId, tx)) return { ok: false, reason: "depot-archived" };
+     const holdings = await checkHoldings(
+       { depotId: existing.depotId, removedId: existing.id, added: null, securityIds: [existing.securityId] },
+       tx,

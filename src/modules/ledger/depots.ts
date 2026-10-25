@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { prisma } from "@/db";
 import { Broker, Prisma } from "@/db/generated/prisma/client";
-import { cashBalance, type CashRow } from "@/core/cash";
+import { type ArchiveRow, canArchive, heldSecurities } from "@/core/archive";
+import { cashBalance } from "@/core/cash";
 import { businessDate } from "@/core/dates";
 
 export type { Broker } from "@/db/generated/prisma/client";
@@ -20,11 +21,21 @@ export type DepotSummary = {
   broker: Broker;
   /** Cash Account balance as a decimal string; computed on read, never stored. */
   cashBalance: string;
+  /** Archived Depots are read-only and left out of Portfolio figures (AD-17). */
+  archived: boolean;
+  /** True when the Depot may be archived (no open Positions, cash rounds to 0,00 €); computed on read, never stored. */
+  archivable: boolean;
 };
 
-export type DepotFailureReason = "name-empty" | "name-too-long" | "name-taken" | "broker-invalid" | "not-found";
+export type DepotFailureReason = "name-empty" | "name-too-long" | "name-taken" | "broker-invalid" | "not-found" | "depot-archived";
 
 export type DepotResult = { ok: true; depot: DepotSummary } | { ok: false; reason: DepotFailureReason };
+
+export type ArchiveDepotFailureReason = "not-found" | "depot-not-flat";
+
+export type ArchiveDepotResult = { ok: true; depot: DepotSummary } | { ok: false; reason: ArchiveDepotFailureReason };
+
+export type UnarchiveDepotResult = { ok: true; depot: DepotSummary } | { ok: false; reason: "not-found" };
 
 export const depotNameSchema = z
   .string({ error: "name-empty" })
@@ -61,19 +72,46 @@ function isUniqueViolation(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
 }
 
-const CASH_SELECT = { type: true, date: true, sequence: true, amount: true, fee: true, tax: true } as const;
+const ROW_SELECT = {
+  type: true,
+  date: true,
+  sequence: true,
+  amount: true,
+  fee: true,
+  tax: true,
+  securityId: true,
+  quantity: true,
+} as const;
 
-/** Cash balance as of today's Europe/Berlin business date (future-dated rows excluded). */
-function currentBalance(rows: readonly CashRow[]): string {
-  return cashBalance(rows, businessDate(new Date()));
+type DepotRow = { id: string; name: string; broker: Broker; archived: boolean };
+
+/** Today's Europe/Berlin business date. */
+function today(): string {
+  return businessDate(new Date());
 }
 
-function toSummary(depot: { id: string; name: string; broker: Broker }, rows: readonly CashRow[]): DepotSummary {
-  return { id: depot.id, name: depot.name, broker: depot.broker, cashBalance: currentBalance(rows) };
+/** Cash balance as of today (future-dated rows excluded) and the archive guard. */
+function toSummary(depot: DepotRow, rows: readonly ArchiveRow[]): DepotSummary {
+  const asOf = today();
+  return {
+    id: depot.id,
+    name: depot.name,
+    broker: depot.broker,
+    cashBalance: cashBalance(rows, asOf),
+    archived: depot.archived,
+    archivable: canArchive(rows, asOf),
+  };
 }
 
-async function cashRows(db: LedgerDb, depotId: string): Promise<CashRow[]> {
-  return db.transaction.findMany({ where: { depotId }, select: CASH_SELECT });
+async function depotRows(db: LedgerDb, depotId: string): Promise<ArchiveRow[]> {
+  return db.transaction.findMany({ where: { depotId }, select: ROW_SELECT });
+}
+
+/** Runs `write` in one DB transaction: its own, unless `db` already is one. */
+export async function inTransaction<T>(db: LedgerDb, write: (tx: LedgerDb) => Promise<T>): Promise<T> {
+  const client = db as LedgerDb & Partial<Pick<typeof prisma, "$transaction">>;
+  if (typeof client.$transaction === "function") return client.$transaction((tx) => write(tx));
+  return write(db);
 }
 
 /** Creates a Depot; the name is trimmed and must be unique (case-insensitive). */
@@ -98,10 +136,11 @@ export async function renameDepot(id: string, input: RenameDepotInput, db: Ledge
   if (!name.ok) return name;
   const current = await db.depot.findUnique({ where: { id } });
   if (!current) return { ok: false, reason: "not-found" };
+  if (current.archived) return { ok: false, reason: "depot-archived" };
   if (await isNameTaken(db, name.value, id)) return { ok: false, reason: "name-taken" };
   try {
     const depot = await db.depot.update({ where: { id }, data: { name: name.value } });
-    return { ok: true, depot: toSummary(depot, await cashRows(db, id)) };
+    return { ok: true, depot: toSummary(depot, await depotRows(db, id)) };
   } catch (error) {
     if (isUniqueViolation(error)) return { ok: false, reason: "name-taken" };
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {
@@ -111,13 +150,56 @@ export async function renameDepot(id: string, input: RenameDepotInput, db: Ledge
   }
 }
 
-/** All Depots sorted by name (de-DE collation). */
+/**
+ * Archives a Depot (AD-17): refused with `depot-not-flat` while it has open Positions or non-zero
+ * cash (today or after its last row). Archiving an archived Depot is a no-op. One DB transaction.
+ */
+export async function archiveDepot(id: string, db: LedgerDb = prisma): Promise<ArchiveDepotResult> {
+  return inTransaction(db, async (tx): Promise<ArchiveDepotResult> => {
+    const current = await tx.depot.findUnique({ where: { id } });
+    if (!current) return { ok: false, reason: "not-found" };
+    const rows = await depotRows(tx, current.id);
+    if (current.archived) return { ok: true, depot: toSummary(current, rows) };
+    if (!canArchive(rows, today())) return { ok: false, reason: "depot-not-flat" };
+    const depot = await tx.depot.update({ where: { id: current.id }, data: { archived: true } });
+    return { ok: true, depot: toSummary(depot, rows) };
+  });
+}
+
+/** Reactivates an archived Depot; idempotent. */
+export async function unarchiveDepot(id: string, db: LedgerDb = prisma): Promise<UnarchiveDepotResult> {
+  return inTransaction(db, async (tx): Promise<UnarchiveDepotResult> => {
+    const current = await tx.depot.findUnique({ where: { id } });
+    if (!current) return { ok: false, reason: "not-found" };
+    const depot = current.archived
+      ? await tx.depot.update({ where: { id: current.id }, data: { archived: false } })
+      : current;
+    return { ok: true, depot: toSummary(depot, await depotRows(tx, current.id)) };
+  });
+}
+
+/**
+ * Securities held as of `asOf` (open Positions in non-archived Depots, `core/archive`
+ * `heldSecurities`), as sorted Security ids. Consumed by prices, news and composition (Epics 3+).
+ */
+export async function listHeldSecurities(asOf: string, db: LedgerDb = prisma): Promise<string[]> {
+  const [depots, trades] = await Promise.all([
+    db.depot.findMany({ select: { id: true, archived: true } }),
+    db.transaction.findMany({
+      where: { type: { in: ["BUY", "SELL"] } },
+      select: { depotId: true, securityId: true, type: true, date: true, quantity: true },
+    }),
+  ]);
+  return heldSecurities({ depots, trades }, asOf);
+}
+
+/** All Depots (archived ones included) sorted by name (de-DE collation). */
 export async function listDepots(db: LedgerDb = prisma): Promise<DepotSummary[]> {
   const [depots, rows] = await Promise.all([
     db.depot.findMany(),
-    db.transaction.findMany({ select: { depotId: true, ...CASH_SELECT } }),
+    db.transaction.findMany({ select: { depotId: true, ...ROW_SELECT } }),
   ]);
-  const byDepot = new Map<string, CashRow[]>();
+  const byDepot = new Map<string, ArchiveRow[]>();
   for (const row of rows) {
     const list = byDepot.get(row.depotId);
     if (list) list.push(row);
@@ -131,5 +213,5 @@ export async function listDepots(db: LedgerDb = prisma): Promise<DepotSummary[]>
 /** One Depot, or null when the id is unknown. */
 export async function getDepot(id: string, db: LedgerDb = prisma): Promise<DepotSummary | null> {
   const depot = await db.depot.findUnique({ where: { id } });
-  return depot ? toSummary(depot, await cashRows(db, id)) : null;
+  return depot ? toSummary(depot, await depotRows(db, id)) : null;
 }

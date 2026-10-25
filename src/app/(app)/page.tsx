@@ -5,6 +5,7 @@ import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import type { Metadata } from "next";
 import { CreateDepotButton } from "@/app/_components/depots/DepotDialogs";
+import { AppLink } from "@/app/_components/depots/DepotLink";
 import { DepotList } from "@/app/_components/depots/DepotList";
 import { PageTitle } from "@/app/_components/Placeholder";
 import { listDepots } from "@/modules/ledger";
@@ -12,8 +13,8 @@ import { listDepots } from "@/modules/ledger";
 export const metadata: Metadata = { title: "Übersicht" };
 
 export default async function OverviewPage() {
-  const depots = await listDepots();
-  if (depots.length === 0) {
+  const all = await listDepots();
+  if (all.length === 0) {
     return (
       <>
         <PageTitle>Übersicht</PageTitle>
@@ -27,6 +28,21 @@ export default async function OverviewPage() {
                 Aus Parqet übernehmen
               </Button>
             </Stack>
+          </CardContent>
+        </Card>
+      </>
+    );
+  }
+  // Archived Depots are left out of the Overview (AD-17).
+  const depots = all.filter((depot) => !depot.archived);
+  if (depots.length === 0) {
+    return (
+      <>
+        <PageTitle>Übersicht</PageTitle>
+        <Card>
+          <CardContent>
+            <Typography sx={{ mb: 1 }}>Alle Depots sind archiviert.</Typography>
+            <AppLink href="/depots">Zu den Depots</AppLink>
           </CardContent>
         </Card>
       </>

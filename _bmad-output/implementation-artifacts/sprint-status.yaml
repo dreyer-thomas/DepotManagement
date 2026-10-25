@@ -43,7 +43,7 @@ development_status:
   1-5-positions-with-fifo-cost-basis: done
   1-6-cash-account-and-non-trade-transactions: done
   1-7-edit-and-delete-transactions-with-duplicate-warning: done
-  1-8-archive-depots: backlog
+  1-8-archive-depots: done
   epic-1-retrospective: optional
 
   epic-2: backlog

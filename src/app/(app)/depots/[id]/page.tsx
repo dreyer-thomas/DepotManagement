@@ -1,12 +1,15 @@
+import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Card from "@mui/material/Card";
 import CardContent from "@mui/material/CardContent";
+import Chip from "@mui/material/Chip";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
 import { type DepotTab, depotTab, depotTabId, depotTabPanelId } from "@/app/_components/depots/depot-tabs";
+import { AppLink } from "@/app/_components/depots/DepotLink";
 import { DepotTabs } from "@/app/_components/depots/DepotTabs";
 import { brokerLabel } from "@/app/_components/depots/labels";
 import { PageTitle } from "@/app/_components/Placeholder";
@@ -56,7 +59,11 @@ export default async function DepotDetailPage({ params, searchParams }: Props) {
     tab === "cash" ? listCashBookings(depot.id) : Promise.resolve([]),
   ]);
   const dialogDepot = { id: depot.id, name: depot.name };
-  const newTransaction = <NewTransactionButton depot={dialogDepot} securities={securities} today={today} />;
+  // An archived Depot is read-only (AD-17): no write action anywhere on the page.
+  const readOnly = depot.archived;
+  const newTransaction = readOnly ? null : (
+    <NewTransactionButton depot={dialogDepot} securities={securities} today={today} />
+  );
   // An empty Depot shows its only "Neue Buchung" button inside the empty state of every tab.
   const emptyState = transactions.length === 0;
 
@@ -64,12 +71,20 @@ export default async function DepotDetailPage({ params, searchParams }: Props) {
   if (emptyState) {
     content = (
       <Message>
-        <Typography sx={{ mb: 2 }}>Noch keine Buchungen.</Typography>
+        <Typography sx={readOnly ? undefined : { mb: 2 }}>Noch keine Buchungen.</Typography>
         {newTransaction}
       </Message>
     );
   } else if (tab === "transactions") {
-    content = <TransactionList transactions={transactions} depot={dialogDepot} securities={securities} today={today} />;
+    content = (
+      <TransactionList
+        transactions={transactions}
+        depot={dialogDepot}
+        securities={securities}
+        today={today}
+        readOnly={readOnly}
+      />
+    );
   } else if (tab === "positions") {
     content = <PositionsTable positions={positions} cashBalance={depot.cashBalance} />;
   } else {
@@ -81,11 +96,17 @@ export default async function DepotDetailPage({ params, searchParams }: Props) {
       <PageTitle>{depot.name}</PageTitle>
       <Stack direction="row" spacing={3} sx={{ mb: 2, flexWrap: "wrap", alignItems: "center", rowGap: 1 }}>
         <Typography color="text.secondary">{brokerLabel(depot.broker)}</Typography>
+        {readOnly ? <Chip label="Archiviert" size="small" /> : null}
         <Typography>
           Cash-Konto <Typography component="span" variant="figure">{formatMoney(depot.cashBalance)}</Typography>
         </Typography>
-        {emptyState ? null : <Box sx={{ ml: "auto !important" }}>{newTransaction}</Box>}
+        {emptyState || !newTransaction ? null : <Box sx={{ ml: "auto !important" }}>{newTransaction}</Box>}
       </Stack>
+      {readOnly ? (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Archiviertes Depot – nur lesbar. Reaktivieren unter <AppLink href="/settings">Einstellungen</AppLink>.
+        </Alert>
+      ) : null}
       <DepotTabs depotId={depot.id} value={tab} />
       <TabPanel tab={tab}>{content}</TabPanel>
     </>

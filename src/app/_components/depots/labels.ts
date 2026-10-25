@@ -1,4 +1,4 @@
-import type { Broker, DepotFailureReason } from "@/modules/ledger";
+import type { ArchiveDepotFailureReason, Broker, DepotFailureReason } from "@/modules/ledger";
 
 /** German display names of the Brokers, in selection order. */
 export const BROKER_LABELS: Record<Broker, string> = {
@@ -16,7 +16,7 @@ export function brokerLabel(broker: Broker): string {
   return BROKER_LABELS[broker];
 }
 
-export type DepotErrorReason = DepotFailureReason | "unauthorized";
+export type DepotErrorReason = DepotFailureReason | ArchiveDepotFailureReason | "unauthorized";
 
 const DEPOT_ERROR_MESSAGES: Record<DepotErrorReason, string> = {
   "name-empty": "Bitte einen Namen eingeben.",
@@ -24,6 +24,8 @@ const DEPOT_ERROR_MESSAGES: Record<DepotErrorReason, string> = {
   "name-taken": "Ein Depot mit diesem Namen gibt es bereits.",
   "broker-invalid": "Bitte einen Broker wählen.",
   "not-found": "Depot nicht gefunden.",
+  "depot-not-flat": "Depot hat noch Positionen oder Guthaben.",
+  "depot-archived": "Depot ist archiviert. Bitte zuerst reaktivieren.",
   unauthorized: "Sitzung abgelaufen. Bitte erneut anmelden.",
 };
 
@@ -35,6 +37,8 @@ export function depotErrorMessage(reason: DepotErrorReason): string {
 /** Which form field an error belongs to; others show as an Alert. */
 export function depotErrorField(reason: DepotErrorReason): "name" | "broker" | undefined {
   if (reason === "broker-invalid") return "broker";
-  if (reason === "not-found" || reason === "unauthorized") return undefined;
+  if (reason === "not-found" || reason === "unauthorized" || reason === "depot-not-flat" || reason === "depot-archived") {
+    return undefined;
+  }
   return "name";
 }

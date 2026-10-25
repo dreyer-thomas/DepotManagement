@@ -4,7 +4,7 @@ import CardContent from "@mui/material/CardContent";
 import Typography from "@mui/material/Typography";
 import type { Metadata } from "next";
 import { CreateDepotButton } from "@/app/_components/depots/DepotDialogs";
-import { DepotList } from "@/app/_components/depots/DepotList";
+import { DepotGroups } from "@/app/_components/depots/DepotList";
 import { PageTitle } from "@/app/_components/Placeholder";
 import { listDepots } from "@/modules/ledger";
 
@@ -29,7 +29,7 @@ export default async function SettingsPage() {
             </CardContent>
           </Card>
         ) : (
-          <DepotList depots={depots} renamable />
+          <DepotGroups depots={depots} settings />
         )}
       </Box>
     </>

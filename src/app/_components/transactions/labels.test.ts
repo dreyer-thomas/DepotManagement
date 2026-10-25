@@ -23,6 +23,10 @@ describe("transaction labels", () => {
     ]);
   });
 
+  it("explains a write to an archived Depot", () => {
+    expect(transactionErrorMessage("depot-archived")).toBe("Depot ist archiviert. Bitte zuerst reaktivieren.");
+  });
+
   it("formats the oversell message with the available quantity", () => {
     expect(transactionErrorMessage("sell-exceeds-holding", "10")).toBe("Verkauf übersteigt Bestand (10 Stück).");
     expect(transactionErrorMessage("sell-exceeds-holding", "1234.5")).toBe("Verkauf übersteigt Bestand (1.234,5 Stück).");
@@ -46,6 +50,7 @@ describe("transaction labels", () => {
     ["security-name-invalid", "securityName"],
     ["asset-type-invalid", "assetType"],
     ["depot-not-found", undefined],
+    ["depot-archived", undefined],
     ["unauthorized", undefined],
   ])("%s shows on field %s with a German message", (reason, field) => {
     expect(transactionErrorField(reason)).toBe(field);

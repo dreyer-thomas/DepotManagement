@@ -16,8 +16,8 @@ vi.mock("next/headers", () => ({
 vi.mock("next/cache", () => ({ revalidatePath }));
 
 import { prisma } from "@/db";
-import { listDepots } from "@/modules/ledger";
-import { createDepotAction, renameDepotAction } from "./depots";
+import { listDepots, recordTransaction } from "@/modules/ledger";
+import { archiveDepotAction, createDepotAction, renameDepotAction, unarchiveDepotAction } from "./depots";
 
 const SECRET = "test-secret-with-at-least-32-characters";
 const HASH = "$2b$04$Raf6EM460q2HE2THwTzIR.5Uk58FNzZG7FhlOvTFD.sbuFp.We4pO";
@@ -30,6 +30,7 @@ beforeEach(async () => {
   process.env.SESSION_SECRET = SECRET;
   fakes.current.state.incoming.set(SESSION_COOKIE, await createSessionToken("tester", SECRET));
   revalidatePath.mockClear();
+  await prisma.transaction.deleteMany();
   await prisma.depot.deleteMany();
 });
 
@@ -53,7 +54,14 @@ describe("createDepotAction", () => {
     const result = await createDepotAction(null, form({ name: " Hauptdepot ", broker: "COMDIRECT" }));
     expect(result).toEqual({
       ok: true,
-      depot: { id: expect.any(String), name: "Hauptdepot", broker: "COMDIRECT", cashBalance: "0" },
+      depot: {
+        id: expect.any(String),
+        name: "Hauptdepot",
+        broker: "COMDIRECT",
+        cashBalance: "0",
+        archived: false,
+        archivable: true,
+      },
     });
     expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
     expect((await listDepots()).map((d) => d.name)).toEqual(["Hauptdepot"]);
@@ -139,5 +147,49 @@ describe("renameDepotAction", () => {
     });
     expect(revalidatePath).not.toHaveBeenCalled();
     expect((await listDepots()).map((d) => d.name)).toEqual(["Hauptdepot"]);
+  });
+});
+
+describe("archiveDepotAction / unarchiveDepotAction", () => {
+  async function createOne(name: string) {
+    const result = await createDepotAction(null, form({ name, broker: "COMDIRECT" }));
+    if (!result?.ok) throw new Error("setup failed");
+    revalidatePath.mockClear();
+    return result.depot;
+  }
+
+  it("archives a flat Depot, then reactivates it, revalidating each time", async () => {
+    const depot = await createOne("Hauptdepot");
+    expect(await archiveDepotAction(null, form({ id: depot.id }))).toEqual({
+      ok: true,
+      depot: { ...depot, archived: true },
+    });
+    expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
+    revalidatePath.mockClear();
+    expect(await unarchiveDepotAction(null, form({ id: depot.id }))).toEqual({ ok: true, depot });
+    expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
+  });
+
+  it("returns depot-not-flat for a Depot with cash and does not revalidate", async () => {
+    const depot = await createOne("Hauptdepot");
+    const deposit = await recordTransaction({ depotId: depot.id, type: "DEPOSIT", date: "2026-01-05", amount: "0.01" });
+    expect(deposit.ok).toBe(true);
+    expect(await archiveDepotAction(null, form({ id: depot.id }))).toEqual({ ok: false, reason: "depot-not-flat" });
+    expect(revalidatePath).not.toHaveBeenCalled();
+    expect((await listDepots())[0].archived).toBe(false);
+  });
+
+  it.each([archiveDepotAction, unarchiveDepotAction])("returns not-found for an unknown or missing id (%#)", async (action) => {
+    expect(await action(null, form({ id: "nope" }))).toEqual({ ok: false, reason: "not-found" });
+    expect(await action(null, form({}))).toEqual({ ok: false, reason: "not-found" });
+    expect(revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it.each([archiveDepotAction, unarchiveDepotAction])("returns unauthorized without a session (%#)", async (action) => {
+    const depot = await createOne("Hauptdepot");
+    fakes.current.state.incoming.clear();
+    expect(await action(null, form({ id: depot.id }))).toEqual({ ok: false, reason: "unauthorized" });
+    expect(revalidatePath).not.toHaveBeenCalled();
+    expect((await listDepots())[0].archived).toBe(false);
   });
 });

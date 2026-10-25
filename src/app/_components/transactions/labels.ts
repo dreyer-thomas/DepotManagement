@@ -49,6 +49,7 @@ type MessageReason = Exclude<TransactionErrorReason, "sell-exceeds-holding" | "l
 
 const MESSAGES: Record<MessageReason, string> = {
   "depot-not-found": "Depot nicht gefunden.",
+  "depot-archived": "Depot ist archiviert. Bitte zuerst reaktivieren.",
   "type-invalid": "Bitte eine Buchungsart wählen.",
   "date-invalid": "Bitte ein gültiges Datum eingeben.",
   "quantity-invalid": "Bitte eine Stückzahl größer 0 mit höchstens 8 Nachkommastellen eingeben.",

@@ -12,3 +12,12 @@ export function DepotLink({ id, children }: { id: string; children: ReactNode })
     </MuiLink>
   );
 }
+
+/** Themed client-side link to an app route, for server components (they cannot pass `NextLink` as a prop). */
+export function AppLink({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <MuiLink component={NextLink} href={href} underline="hover">
+      {children}
+    </MuiLink>
+  );
+}

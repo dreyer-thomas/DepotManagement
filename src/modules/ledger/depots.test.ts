@@ -1,6 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createTestDatabase, type TestDatabase } from "../../../test/helpers/test-db";
-import { createDepot, getDepot, listDepots, recordTransaction, type RecordTransactionInput, renameDepot } from "./index";
+import {
+  archiveDepot,
+  createDepot,
+  deleteTransaction,
+  ensureSecurity,
+  getDepot,
+  listDepots,
+  listHeldSecurities,
+  recordTransaction,
+  type RecordTransactionInput,
+  renameDepot,
+  unarchiveDepot,
+  updateTransaction,
+} from "./index";
 
 let testDb: TestDatabase;
 
@@ -25,7 +38,14 @@ describe("createDepot", () => {
     const result = await createDepot({ name: "  Comdirect Depot ", broker: "COMDIRECT" }, db());
     expect(result).toEqual({
       ok: true,
-      depot: { id: expect.any(String), name: "Comdirect Depot", broker: "COMDIRECT", cashBalance: "0" },
+      depot: {
+        id: expect.any(String),
+        name: "Comdirect Depot",
+        broker: "COMDIRECT",
+        cashBalance: "0",
+        archived: false,
+        archivable: true,
+      },
     });
     expect(await listDepots(db())).toEqual([result.ok && result.depot]);
   });
@@ -187,5 +207,170 @@ describe("unique-constraint backstop", () => {
       ok: false,
       reason: "name-taken",
     });
+  });
+});
+
+describe("archiveDepot / unarchiveDepot", () => {
+  async function book(depotId: string, input: Omit<RecordTransactionInput, "depotId">) {
+    const result = await recordTransaction({ depotId, ...input }, db());
+    if (!result.ok) throw new Error(`setup failed: ${result.reason}`);
+    return result.transaction;
+  }
+
+  async function security(isin = "US0378331005", name = "Apple Inc.") {
+    const result = await ensureSecurity({ isin }, { name, assetType: "STOCK" }, db());
+    if (!result.ok) throw new Error("setup failed");
+    return result.security.id;
+  }
+
+  it("archives an empty Depot and lists it as archived", async () => {
+    const depot = await create("Hauptdepot");
+    expect(depot).toMatchObject({ archived: false, archivable: true });
+    expect(await archiveDepot(depot.id, db())).toEqual({ ok: true, depot: { ...depot, archived: true } });
+    expect(await listDepots(db())).toEqual([{ ...depot, archived: true }]);
+  });
+
+  it("archives a flat Depot", async () => {
+    const depot = await create("Hauptdepot");
+    const id = await security();
+    await book(depot.id, { type: "DEPOSIT", date: "2026-01-01", amount: "1000" });
+    await book(depot.id, { type: "BUY", date: "2026-01-02", quantity: "10", price: "100", security: { id } });
+    await book(depot.id, { type: "SELL", date: "2026-01-03", quantity: "10", price: "100", security: { id } });
+    await book(depot.id, { type: "WITHDRAWAL", date: "2026-01-04", amount: "1000" });
+    expect((await getDepot(depot.id, db()))?.archivable).toBe(true);
+    expect((await archiveDepot(depot.id, db())).ok).toBe(true);
+    expect((await getDepot(depot.id, db()))?.archived).toBe(true);
+  });
+
+  it.each<[string, string, (depotId: string, securityId: string) => Promise<void>]>([
+    [
+      "a sub-cent residual from unrounded trade amounts",
+      "0.0043",
+      async (depotId, id) => {
+        await book(depotId, { type: "DEPOSIT", date: "2026-01-01", amount: "200" });
+        await book(depotId, { type: "BUY", date: "2026-01-02", quantity: "3.412871", price: "43.95", security: { id } });
+        await book(depotId, { type: "SELL", date: "2026-01-03", quantity: "3.412871", price: "43.95", security: { id } });
+        await book(depotId, { type: "WITHDRAWAL", date: "2026-01-04", amount: "199.9957" });
+      },
+    ],
+    [
+      "a negative sub-cent residual",
+      "-0.0043",
+      async (depotId) => {
+        await book(depotId, { type: "DEPOSIT", date: "2026-01-01", amount: "1" });
+        await book(depotId, { type: "WITHDRAWAL", date: "2026-01-02", amount: "1.0043" });
+      },
+    ],
+  ])("archives a Depot with %s and keeps the remainder", async (_label, residual, setup) => {
+    const depot = await create("Hauptdepot");
+    await setup(depot.id, await security());
+    const before = await db().transaction.findMany({ orderBy: { id: "asc" } });
+    expect(await getDepot(depot.id, db())).toMatchObject({ cashBalance: residual, archivable: true });
+    expect(await archiveDepot(depot.id, db())).toMatchObject({ ok: true, depot: { archived: true, cashBalance: residual } });
+    expect(await db().transaction.findMany({ orderBy: { id: "asc" } })).toEqual(before);
+  });
+
+  it.each<[string, (depotId: string, securityId: string) => Promise<void>]>([
+    [
+      "an open Position",
+      async (depotId, id) => {
+        await book(depotId, { type: "DEPOSIT", date: "2026-01-01", amount: "1000" });
+        await book(depotId, { type: "BUY", date: "2026-01-02", quantity: "10", price: "100", security: { id } });
+      },
+    ],
+    ["cash left", async (depotId) => void (await book(depotId, { type: "DEPOSIT", date: "2026-01-01", amount: "0.01" }))],
+    ["half a cent of cash", async (depotId) => void (await book(depotId, { type: "DEPOSIT", date: "2026-01-01", amount: "0.005" }))],
+    ["minus half a cent of cash", async (depotId) => void (await book(depotId, { type: "WITHDRAWAL", date: "2026-01-01", amount: "0.005" }))],
+    [
+      "a sub-unit quantity left",
+      async (depotId, id) => {
+        await book(depotId, { type: "BUY", date: "2026-01-02", quantity: "1", price: "0", security: { id } });
+        await book(depotId, { type: "SELL", date: "2026-01-03", quantity: "0.99999999", price: "0", security: { id } });
+      },
+    ],
+    [
+      "a future-dated Position",
+      async (depotId, id) => {
+        await book(depotId, { type: "DEPOSIT", date: "2099-01-01", amount: "100" });
+        await book(depotId, { type: "BUY", date: "2099-01-02", quantity: "1", price: "100", security: { id } });
+      },
+    ],
+  ])("refuses a Depot with %s", async (_label, setup) => {
+    const depot = await create("Hauptdepot");
+    await setup(depot.id, await security());
+    expect((await getDepot(depot.id, db()))?.archivable).toBe(false);
+    expect(await archiveDepot(depot.id, db())).toEqual({ ok: false, reason: "depot-not-flat" });
+    expect((await getDepot(depot.id, db()))?.archived).toBe(false);
+  });
+
+  it("rejects every write to an archived Depot and writes nothing", async () => {
+    const depot = await create("Hauptdepot");
+    const row = await book(depot.id, { type: "DEPOSIT", date: "2026-01-01", amount: "100" });
+    await book(depot.id, { type: "WITHDRAWAL", date: "2026-01-02", amount: "100" });
+    expect((await archiveDepot(depot.id, db())).ok).toBe(true);
+    const before = await db().transaction.findMany({ orderBy: { id: "asc" } });
+
+    expect(await recordTransaction({ depotId: depot.id, type: "DEPOSIT", date: "2026-01-03", amount: "5" }, db())).toEqual({
+      ok: false,
+      reason: "depot-archived",
+    });
+    expect(
+      await updateTransaction(row.id, { depotId: depot.id, type: "DEPOSIT", date: "2026-01-01", amount: "200" }, db()),
+    ).toEqual({ ok: false, reason: "depot-archived" });
+    expect(await deleteTransaction(row.id, db())).toEqual({ ok: false, reason: "depot-archived" });
+    expect(await renameDepot(depot.id, { name: "Neu" }, db())).toEqual({ ok: false, reason: "depot-archived" });
+
+    expect(await db().transaction.findMany({ orderBy: { id: "asc" } })).toEqual(before);
+    expect((await getDepot(depot.id, db()))?.name).toBe("Hauptdepot");
+  });
+
+  it("still validates before the archive check", async () => {
+    const depot = await create("Hauptdepot");
+    expect((await archiveDepot(depot.id, db())).ok).toBe(true);
+    expect(await renameDepot(depot.id, { name: "  " }, db())).toEqual({ ok: false, reason: "name-empty" });
+    expect(await recordTransaction({ depotId: depot.id, type: "DEPOSIT", date: "nope", amount: "5" }, db())).toEqual({
+      ok: false,
+      reason: "date-invalid",
+    });
+  });
+
+  it("unarchives so the Depot can be booked again", async () => {
+    const depot = await create("Hauptdepot");
+    await archiveDepot(depot.id, db());
+    expect(await unarchiveDepot(depot.id, db())).toEqual({ ok: true, depot });
+    expect((await recordTransaction({ depotId: depot.id, type: "DEPOSIT", date: "2026-01-01", amount: "5" }, db())).ok).toBe(true);
+    expect(await unarchiveDepot(depot.id, db())).toMatchObject({ ok: true, depot: { archived: false } });
+  });
+
+  it("is idempotent on an already archived Depot", async () => {
+    const depot = await create("Hauptdepot");
+    await archiveDepot(depot.id, db());
+    expect(await archiveDepot(depot.id, db())).toEqual({ ok: true, depot: { ...depot, archived: true } });
+  });
+
+  it("reports an unknown id as not-found", async () => {
+    expect(await archiveDepot("nope", db())).toEqual({ ok: false, reason: "not-found" });
+    expect(await unarchiveDepot("nope", db())).toEqual({ ok: false, reason: "not-found" });
+    expect(await listDepots(db())).toEqual([]);
+  });
+
+  it("lists held Securities of non-archived Depots as of today", async () => {
+    const a = await create("A");
+    const b = await create("B");
+    const c = await create("C");
+    const s1 = await security("US0378331005", "S1");
+    const s2 = await security("DE0007164600", "S2");
+    const s3 = await security("DE0005557508", "S3");
+    const s4 = await security("DE0007100000", "S4");
+    await book(a.id, { type: "BUY", date: "2026-01-01", quantity: "5", price: "0", security: { id: s1 } });
+    await book(b.id, { type: "BUY", date: "2026-01-01", quantity: "5", price: "0", security: { id: s2 } });
+    await book(a.id, { type: "BUY", date: "2026-01-01", quantity: "2", price: "0", security: { id: s3 } });
+    await book(a.id, { type: "SELL", date: "2026-01-02", quantity: "2", price: "0", security: { id: s3 } });
+    await book(a.id, { type: "BUY", date: "2099-01-01", quantity: "1", price: "0", security: { id: s4 } });
+    await book(c.id, { type: "BUY", date: "2026-01-01", quantity: "5", price: "0", security: { id: s1 } });
+    await book(c.id, { type: "SELL", date: "2026-01-02", quantity: "5", price: "0", security: { id: s1 } });
+    // B holds s2, so it cannot be archived through the service; archive it directly for the held-set check.
+    await db().depot.update({ where: { id: b.id }, data: { archived: true } });
+    expect(await listHeldSecurities("2026-10-25", db())).toEqual([s1]);
   });
 });
