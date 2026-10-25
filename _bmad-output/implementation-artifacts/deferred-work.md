@@ -58,7 +58,9 @@ location: src/modules/migration/parqet-reader.ts (phase 2 grouping)
 source_spec: `spec-2-7-robust-cash-pairing-and-rounding-tolerance-in-the-parqet-mig.md`
 severity: medium
 reason: parqet-reader.ts phase 2 adds every unused cash row of the instant to the group (as the AC's "remaining trades and cash rows of the group are reconciled together" prescribes). Date-only events carry synthetic times (00:00Z/06:00Z), so a mismatching dividend and a deposit on the same day can share an instant. Cash balance still matches; the inflow is classified as tax refund (affects TTWROR/XIRR and tax totals). Visible before booking via the "Kontodifferenzen … (Summe …)" note. Separating them needs an intent decision (heuristic); settle with the operator's real-data migration (story 2.4).
-status: open
+status: done 2026-10-25
+resolution: closed by human decision: Operator confirmed the real migration (756b381) without reported misclassification; the migration is one-off.
+decision: 2026-10-25 Close as moot after real-data migration — Operator confirmed the real migration (756b381) without reported misclassification; the migration is one-off.
 
 ### DW-9: A trade with no cash row at its instant in a file that has Cash rows gets no difference TAX, so the Cash Account would not follow Parqet's cash rows there.
 origin: spec-deferred 5deaeedd1fe9
