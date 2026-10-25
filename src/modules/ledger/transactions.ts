@@ -4,6 +4,7 @@ import { isBusinessDate } from "@/core/dates";
 import { canonicalDecimal, ExactDecimal, isDecimalString } from "@/core/decimal";
 import { matchDuplicates } from "@/core/duplicates";
 import { firstOversell, sellableAt, type TradeRow } from "@/core/holdings";
+import { loadSplits } from "./corporate-actions";
 import { inTransaction, type LedgerDb } from "./depots";
 import {
   ensureSecurity,
@@ -313,7 +314,8 @@ type HoldingChange = {
 /**
  * Holding guard per affected Security over the Depot's BUY/SELL rows with the change applied: a
  * written SELL beyond `sellableAt` its position is `sell-exceeds-holding`; otherwise a SELL that the
- * change makes oversell (and that did not before) is `later-sell-exceeds-holding`.
+ * change makes oversell (and that did not before) is `later-sell-exceeds-holding`. Quantities are
+ * compared split-adjusted (the Security's recorded splits); `available` is in the SELL's own units.
  */
 async function checkHoldings(
   change: HoldingChange,
@@ -330,16 +332,17 @@ async function checkHoldings(
       where: { depotId: change.depotId, securityId, type: { in: ["BUY", "SELL"] } },
       select: TRADE_SELECT,
     });
+    const splits = await loadSplits(db, [securityId]);
     const others = before.filter((row) => row.id !== change.removedId);
     if (added?.type === "SELL" && added.securityId === securityId) {
-      const available = sellableAt(others, securityId, added);
+      const available = sellableAt(others, securityId, added, splits);
       if (new ExactDecimal(added.quantity as string).greaterThan(available)) {
         return { ok: false, reason: "sell-exceeds-holding", available };
       }
     }
     const after: TradeRow[] = added && added.securityId === securityId ? [...others, added] : others;
-    const oversell = firstOversell(after, securityId);
-    if (oversell && !firstOversell(before, securityId)) {
+    const oversell = firstOversell(after, securityId, splits);
+    if (oversell && !firstOversell(before, securityId, splits)) {
       return { ok: false, reason: "later-sell-exceeds-holding", date: oversell.date };
     }
   }

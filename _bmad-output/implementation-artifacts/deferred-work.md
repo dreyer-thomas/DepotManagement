@@ -19,3 +19,11 @@ source_spec: `spec-1-8-archive-depots.md`
 severity: low
 reason: vitest runs in the node environment with renderToStaticMarkup only; no jsdom/happy-dom/testing-library/playwright in the repo, so no test mounts ArchiveDepotButton/UnarchiveDepotButton. Inverting `if (result?.ok) onClose()`, dropping the failure Alert or removing the onEntered focus hook would pass npm test. The existing Create/Rename dialogs share the gap. Verified manually in a headless browser on 2026-10-25.
 status: open
+
+### DW-4: SplitDialog (and the split list it filters per Security) has no interaction test; only static server rendering, server actions and labels are tested.
+origin: spec-deferred 0dab824ad297
+location: src/app/_components/corporate-actions/SplitDialog.tsx
+source_spec: `spec-2-1-record-stock-splits.md`
+severity: low
+reason: No jsdom/happy-dom/testing-library in the repo (same tooling gap as DW-3). Passing splits={[]} or inverting the `own` filter in SplitDialog.tsx would pass npm test and make split edit/delete unreachable in the UI. Settle by adding DOM test tooling or extracting the list rendering into a server-renderable, testable piece.
+status: open

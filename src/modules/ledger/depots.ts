@@ -3,7 +3,9 @@ import { prisma } from "@/db";
 import { Broker, Prisma } from "@/db/generated/prisma/client";
 import { type ArchiveRow, canArchive, heldSecurities } from "@/core/archive";
 import { cashBalance } from "@/core/cash";
+import type { Split } from "@/core/corporate-actions";
 import { businessDate } from "@/core/dates";
+import { loadSplits } from "./corporate-actions";
 
 export type { Broker } from "@/db/generated/prisma/client";
 
@@ -91,7 +93,7 @@ function today(): string {
 }
 
 /** Cash balance as of today (future-dated rows excluded) and the archive guard. */
-function toSummary(depot: DepotRow, rows: readonly ArchiveRow[]): DepotSummary {
+function toSummary(depot: DepotRow, rows: readonly ArchiveRow[], splits: readonly Split[]): DepotSummary {
   const asOf = today();
   return {
     id: depot.id,
@@ -99,7 +101,7 @@ function toSummary(depot: DepotRow, rows: readonly ArchiveRow[]): DepotSummary {
     broker: depot.broker,
     cashBalance: cashBalance(rows, asOf),
     archived: depot.archived,
-    archivable: canArchive(rows, asOf),
+    archivable: canArchive(rows, asOf, splits),
   };
 }
 
@@ -123,7 +125,7 @@ export async function createDepot(input: CreateDepotInput, db: LedgerDb = prisma
   if (await isNameTaken(db, name.value)) return { ok: false, reason: "name-taken" };
   try {
     const depot = await db.depot.create({ data: { name: name.value, broker: broker.value } });
-    return { ok: true, depot: toSummary(depot, []) };
+    return { ok: true, depot: toSummary(depot, [], []) };
   } catch (error) {
     if (isUniqueViolation(error)) return { ok: false, reason: "name-taken" };
     throw error;
@@ -140,7 +142,7 @@ export async function renameDepot(id: string, input: RenameDepotInput, db: Ledge
   if (await isNameTaken(db, name.value, id)) return { ok: false, reason: "name-taken" };
   try {
     const depot = await db.depot.update({ where: { id }, data: { name: name.value } });
-    return { ok: true, depot: toSummary(depot, await depotRows(db, id)) };
+    return { ok: true, depot: toSummary(depot, await depotRows(db, id), await loadSplits(db)) };
   } catch (error) {
     if (isUniqueViolation(error)) return { ok: false, reason: "name-taken" };
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {
@@ -159,10 +161,11 @@ export async function archiveDepot(id: string, db: LedgerDb = prisma): Promise<A
     const current = await tx.depot.findUnique({ where: { id } });
     if (!current) return { ok: false, reason: "not-found" };
     const rows = await depotRows(tx, current.id);
-    if (current.archived) return { ok: true, depot: toSummary(current, rows) };
-    if (!canArchive(rows, today())) return { ok: false, reason: "depot-not-flat" };
+    const splits = await loadSplits(tx);
+    if (current.archived) return { ok: true, depot: toSummary(current, rows, splits) };
+    if (!canArchive(rows, today(), splits)) return { ok: false, reason: "depot-not-flat" };
     const depot = await tx.depot.update({ where: { id: current.id }, data: { archived: true } });
-    return { ok: true, depot: toSummary(depot, rows) };
+    return { ok: true, depot: toSummary(depot, rows, splits) };
   });
 }
 
@@ -174,7 +177,7 @@ export async function unarchiveDepot(id: string, db: LedgerDb = prisma): Promise
     const depot = current.archived
       ? await tx.depot.update({ where: { id: current.id }, data: { archived: false } })
       : current;
-    return { ok: true, depot: toSummary(depot, await depotRows(tx, current.id)) };
+    return { ok: true, depot: toSummary(depot, await depotRows(tx, current.id), await loadSplits(tx)) };
   });
 }
 
@@ -183,21 +186,23 @@ export async function unarchiveDepot(id: string, db: LedgerDb = prisma): Promise
  * `heldSecurities`), as sorted Security ids. Consumed by prices, news and composition (Epics 3+).
  */
 export async function listHeldSecurities(asOf: string, db: LedgerDb = prisma): Promise<string[]> {
-  const [depots, trades] = await Promise.all([
+  const [depots, trades, splits] = await Promise.all([
     db.depot.findMany({ select: { id: true, archived: true } }),
     db.transaction.findMany({
       where: { type: { in: ["BUY", "SELL"] } },
       select: { depotId: true, securityId: true, type: true, date: true, quantity: true },
     }),
+    loadSplits(db),
   ]);
-  return heldSecurities({ depots, trades }, asOf);
+  return heldSecurities({ depots, trades }, asOf, splits);
 }
 
 /** All Depots (archived ones included) sorted by name (de-DE collation). */
 export async function listDepots(db: LedgerDb = prisma): Promise<DepotSummary[]> {
-  const [depots, rows] = await Promise.all([
+  const [depots, rows, splits] = await Promise.all([
     db.depot.findMany(),
     db.transaction.findMany({ select: { depotId: true, ...ROW_SELECT } }),
+    loadSplits(db),
   ]);
   const byDepot = new Map<string, ArchiveRow[]>();
   for (const row of rows) {
@@ -206,12 +211,12 @@ export async function listDepots(db: LedgerDb = prisma): Promise<DepotSummary[]>
     else byDepot.set(row.depotId, [row]);
   }
   return depots
-    .map((depot) => toSummary(depot, byDepot.get(depot.id) ?? []))
+    .map((depot) => toSummary(depot, byDepot.get(depot.id) ?? [], splits))
     .sort((a, b) => a.name.localeCompare(b.name, "de-DE"));
 }
 
 /** One Depot, or null when the id is unknown. */
 export async function getDepot(id: string, db: LedgerDb = prisma): Promise<DepotSummary | null> {
   const depot = await db.depot.findUnique({ where: { id } });
-  return depot ? toSummary(depot, await depotRows(db, id)) : null;
+  return depot ? toSummary(depot, await depotRows(db, id), await loadSplits(db)) : null;
 }

@@ -3,9 +3,11 @@
 import AccountBalanceWalletOutlined from "@mui/icons-material/AccountBalanceWalletOutlined";
 import ArrowDownward from "@mui/icons-material/ArrowDownward";
 import ArrowUpward from "@mui/icons-material/ArrowUpward";
+import MoreVert from "@mui/icons-material/MoreVert";
 import Box from "@mui/material/Box";
 import Card from "@mui/material/Card";
 import IconButton from "@mui/material/IconButton";
+import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
 import Stack from "@mui/material/Stack";
 import Table from "@mui/material/Table";
@@ -18,7 +20,8 @@ import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import { useState } from "react";
 import { formatMoney, formatQuantity } from "@/core/format";
-import type { PositionRecord } from "@/modules/ledger";
+import type { PositionRecord, SecuritySummary, SplitRecord } from "@/modules/ledger";
+import { SplitDialog } from "../corporate-actions/SplitDialog";
 import { SecurityLogo } from "../securities/SecurityLogo";
 import { GainLossPill } from "./GainLossPill";
 import {
@@ -55,6 +58,53 @@ function SecurityName({ name }: { name: string }) {
 
 type Sort = PositionSort;
 
+/** Opens the corporate-action dialog of a Security; `null` when the table is read-only. */
+type OnSplit = ((security: SecuritySummary) => void) | null;
+
+/** Kebab button with the Position's row menu ("Corporate Action → Split"). */
+function RowActions({ security, onSplit }: { security: SecuritySummary; onSplit: (security: SecuritySummary) => void }) {
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  const menuId = `position-actions-${security.id}`;
+  return (
+    <>
+      <IconButton
+        aria-label={`Aktionen für ${security.name}`}
+        aria-haspopup="menu"
+        aria-controls={anchor ? menuId : undefined}
+        aria-expanded={anchor ? "true" : undefined}
+        onClick={(event) => setAnchor(event.currentTarget)}
+        sx={{ width: 44, height: 44 }}
+      >
+        <MoreVert aria-hidden />
+      </IconButton>
+      <Menu id={menuId} anchorEl={anchor} open={Boolean(anchor)} onClose={() => setAnchor(null)}>
+        <MenuItem
+          sx={{ minHeight: 44 }}
+          onClick={() => {
+            setAnchor(null);
+            onSplit(security);
+          }}
+        >
+          Corporate Action → Split
+        </MenuItem>
+      </Menu>
+    </>
+  );
+}
+
+/** Hidden from sight, still read by screen readers. */
+const visuallyHidden = {
+  border: 0,
+  clip: "rect(0 0 0 0)",
+  height: 1,
+  margin: -1,
+  overflow: "hidden",
+  padding: 0,
+  position: "absolute",
+  whiteSpace: "nowrap",
+  width: 1,
+} as const;
+
 const CASH_LABEL = "Cash-Konto";
 const NO_POSITIONS = "Keine offenen Positionen.";
 /** Pinned Cash row: neutral cash left border and a soft cash tint (DESIGN.md: cash is deliberately neutral). */
@@ -84,12 +134,15 @@ function DesktopTable({
   cashBalance,
   sort,
   onSort,
+  onSplit,
 }: {
   rows: PositionRecord[];
   cashBalance: string;
   sort: Sort;
   onSort: (key: PositionSortKey) => void;
+  onSplit: OnSplit;
 }) {
+  const columns = POSITION_SORT_KEYS.length + (onSplit ? 1 : 0);
   return (
     <Card sx={{ overflowX: "auto", display: { xs: "none", md: "block" } }}>
       <Table size="small" aria-label="Positionen">
@@ -114,6 +167,11 @@ function DesktopTable({
                 </TableCell>
               );
             })}
+            {onSplit ? (
+              <TableCell padding="none">
+                <span style={visuallyHidden}>Aktionen</span>
+              </TableCell>
+            ) : null}
           </TableRow>
         </TableHead>
         <TableBody>
@@ -130,11 +188,16 @@ function DesktopTable({
               <TableCell sx={numeric}>
                 <GainLoss position={position} />
               </TableCell>
+              {onSplit ? (
+                <TableCell padding="none">
+                  <RowActions security={position.security} onSplit={onSplit} />
+                </TableCell>
+              ) : null}
             </TableRow>
           ))}
           {rows.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={POSITION_SORT_KEYS.length}>{NO_POSITIONS}</TableCell>
+              <TableCell colSpan={columns}>{NO_POSITIONS}</TableCell>
             </TableRow>
           ) : null}
           <TableRow sx={{ ...cashRowSx, "& td": { py: 1 } }} data-cash-row="">
@@ -143,6 +206,7 @@ function DesktopTable({
                 {key === "name" ? <CashName /> : key === "value" ? formatMoney(cashBalance) : null}
               </TableCell>
             ))}
+            {onSplit ? <TableCell padding="none" /> : null}
           </TableRow>
         </TableBody>
       </Table>
@@ -155,11 +219,13 @@ function PhoneList({
   cashBalance,
   sort,
   onChange,
+  onSplit,
 }: {
   rows: PositionRecord[];
   cashBalance: string;
   sort: Sort;
   onChange: (sort: Sort) => void;
+  onSplit: OnSplit;
 }) {
   const ascending = sort.direction === "asc";
   return (
@@ -219,6 +285,7 @@ function PhoneList({
                 </Typography>
                 <GainLoss position={position} />
               </Stack>
+              {onSplit ? <RowActions security={position.security} onSplit={onSplit} /> : null}
             </Box>
           ))}
           {rows.length === 0 ? (
@@ -246,25 +313,51 @@ function PhoneList({
 
 /**
  * Open Positions: sortable table from `md`, stacked rows below; both share one sort state. The Cash
- * Account row is pinned below the sorted rows and never sorted.
+ * Account row is pinned below the sorted rows and never sorted. Each Position has a row menu
+ * ("Corporate Action → Split" opens the split dialog of its Security) unless `readOnly`.
  */
 export function PositionsTable({
   positions,
   cashBalance,
+  splits = [],
+  readOnly = false,
   initialSort = DEFAULT_POSITION_SORT,
 }: {
   positions: PositionRecord[];
   cashBalance: string;
+  /** Recorded splits (any Security), listed in the split dialog. */
+  splits?: SplitRecord[];
+  /** Archived Depot: no row menu. */
+  readOnly?: boolean;
   /** Sort on first render (value descending by default). */
   initialSort?: Sort;
 }) {
   const [sort, setSort] = useState<Sort>(initialSort);
+  const [splitSecurity, setSplitSecurity] = useState<SecuritySummary | null>(null);
+  const [splitOpen, setSplitOpen] = useState(false);
+  const [session, setSession] = useState(0);
   const rows = sortPositions(positions, sort.key, sort.direction);
   const onSort = (key: PositionSortKey) => setSort((current) => nextSort(current, key));
+  const onSplit: OnSplit = readOnly
+    ? null
+    : (security) => {
+        setSplitSecurity(security);
+        setSession((value) => value + 1);
+        setSplitOpen(true);
+      };
   return (
     <>
-      <DesktopTable rows={rows} cashBalance={cashBalance} sort={sort} onSort={onSort} />
-      <PhoneList rows={rows} cashBalance={cashBalance} sort={sort} onChange={setSort} />
+      <DesktopTable rows={rows} cashBalance={cashBalance} sort={sort} onSort={onSort} onSplit={onSplit} />
+      <PhoneList rows={rows} cashBalance={cashBalance} sort={sort} onChange={setSort} onSplit={onSplit} />
+      {splitSecurity && !readOnly ? (
+        <SplitDialog
+          key={session}
+          open={splitOpen}
+          onClose={() => setSplitOpen(false)}
+          security={splitSecurity}
+          splits={splits}
+        />
+      ) : null}
     </>
   );
 }

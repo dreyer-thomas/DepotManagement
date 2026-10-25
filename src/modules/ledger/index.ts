@@ -1,4 +1,14 @@
-// The ledger module is the only writer of ledger rows (Depots, Securities, Transactions).
+// The ledger module is the only writer of ledger rows (Depots, Securities, Transactions, CorporateActions).
+export { deleteSplit, listSplits, recordSplit, updateSplit } from "./corporate-actions";
+export type {
+  DeleteSplitResult,
+  RecordSplitInput,
+  SplitFailureReason,
+  SplitLaterSellFailure,
+  SplitRecord,
+  SplitResult,
+  UpdateSplitInput,
+} from "./corporate-actions";
 export {
   BROKERS,
   archiveDepot,

@@ -52,8 +52,9 @@ model Security {
   isin         String?       @unique
   cryptoSymbol String?       @unique
   name         String
-  assetType    AssetType
-  transactions Transaction[]
+  assetType        AssetType
+  transactions     Transaction[]
+  corporateActions CorporateAction[]
 }
 
 // Canonical Transaction shape (AD-14). Decimal values are TEXT strings; ordered by (date, sequence).
@@ -74,5 +75,25 @@ model Transaction {
   tax        String
 
   @@unique([depotId, date, sequence])
+  @@index([securityId])
+}
+
+enum CorporateActionType {
+  SPLIT
+}
+
+// Owned by the ledger module (AD-7). Security-scoped: applies in every Depot. Stored Transactions and
+// Prices are never modified; core applies split adjustment on read. Ratio is old:new as TEXT integers.
+model CorporateAction {
+  id         String              @id @default(cuid())
+  securityId String
+  security   Security            @relation(fields: [securityId], references: [id], onDelete: Restrict)
+  type       CorporateActionType
+  /// Business date YYYY-MM-DD (Europe/Berlin); applies before every Transaction of that date (AD-8).
+  date       String
+  ratioOld   String
+  ratioNew   String
+
+  @@unique([securityId, type, date])
   @@index([securityId])
 }

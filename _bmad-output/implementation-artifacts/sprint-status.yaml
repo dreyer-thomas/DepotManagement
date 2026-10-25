@@ -47,7 +47,7 @@ development_status:
   epic-1-retrospective: optional
 
   epic-2: backlog
-  2-1-record-stock-splits: backlog
+  2-1-record-stock-splits: done
   2-2-record-isin-changes: backlog
   2-3-parqet-export-preview: backlog
   2-4-confirm-migration-and-reconcile-with-parqet: backlog

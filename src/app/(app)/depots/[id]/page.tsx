@@ -19,7 +19,14 @@ import { PositionsTable } from "@/app/_components/positions/PositionsTable";
 import { TransactionList } from "@/app/_components/transactions/TransactionList";
 import { businessDate } from "@/core/dates";
 import { formatMoney } from "@/core/format";
-import { getDepot, listCashBookings, listPositions, listSecurities, listTransactions } from "@/modules/ledger";
+import {
+  getDepot,
+  listCashBookings,
+  listPositions,
+  listSecurities,
+  listSplits,
+  listTransactions,
+} from "@/modules/ledger";
 
 type Props = {
   params: Promise<{ id: string }>;
@@ -52,9 +59,10 @@ export default async function DepotDetailPage({ params, searchParams }: Props) {
   if (!depot) notFound();
   const tab = depotTab((await searchParams)?.tab);
   const today = businessDate(new Date());
-  const [transactions, securities, positions, cashBookings] = await Promise.all([
+  const [transactions, securities, splits, positions, cashBookings] = await Promise.all([
     listTransactions(depot.id),
     listSecurities(),
+    tab === "cash" ? Promise.resolve([]) : listSplits(),
     tab === "positions" ? listPositions(depot.id, today) : Promise.resolve([]),
     tab === "cash" ? listCashBookings(depot.id) : Promise.resolve([]),
   ]);
@@ -82,11 +90,14 @@ export default async function DepotDetailPage({ params, searchParams }: Props) {
         depot={dialogDepot}
         securities={securities}
         today={today}
+        splits={splits}
         readOnly={readOnly}
       />
     );
   } else if (tab === "positions") {
-    content = <PositionsTable positions={positions} cashBalance={depot.cashBalance} />;
+    content = (
+      <PositionsTable positions={positions} cashBalance={depot.cashBalance} splits={splits} readOnly={readOnly} />
+    );
   } else {
     content = <CashBookings balance={depot.cashBalance} bookings={cashBookings} />;
   }

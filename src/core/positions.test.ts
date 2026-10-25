@@ -24,7 +24,7 @@ describe("computePositions", () => {
       trade("BUY", "2026-02-10", 1, "5", "120", "2"),
       trade("SELL", "2026-03-10", 1, "12", "130", "3"),
     ];
-    const [position] = computePositions(trades, observationsOf(trades), TODAY);
+    const [position] = computePositions(trades, observationsOf(trades), TODAY, []);
     expect(position).toMatchObject({
       securityId: "s1",
       quantity: "3",
@@ -40,13 +40,13 @@ describe("computePositions", () => {
 
   it("handles fractional quantities", () => {
     const trades = [trade("BUY", "2026-01-10", 1, "0.00012345", "50000", "0.5")];
-    const [position] = computePositions(trades, observationsOf(trades), TODAY);
+    const [position] = computePositions(trades, observationsOf(trades), TODAY, []);
     expect(position).toMatchObject({ quantity: "0.00012345", costBasis: "6.6725", value: "6.1725", gain: "-0.5" });
   });
 
   it("drops fully sold Securities, including a same-day buy then sell in reversed input", () => {
     const trades = [trade("SELL", "2026-05-05", 2, "1", "110"), trade("BUY", "2026-05-05", 1, "1", "100")];
-    expect(computePositions(trades, observationsOf(trades), TODAY)).toEqual([]);
+    expect(computePositions(trades, observationsOf(trades), TODAY, [])).toEqual([]);
   });
 
   it("uses a price from another Depot and ignores future-dated rows", () => {
@@ -57,19 +57,43 @@ describe("computePositions", () => {
       trade("BUY", "2026-10-21", 1, "1", "77", "0", "s2"),
     ];
     const ownFuture = trade("BUY", "2026-10-30", 1, "5", "500");
-    const [position] = computePositions([...own, ownFuture], observationsOf([...own, ...other, ownFuture]), TODAY);
+    const [position] = computePositions([...own, ownFuture], observationsOf([...own, ...other, ownFuture]), TODAY, []);
     expect(position).toMatchObject({ quantity: "2", costBasis: "200", price: "150", priceDate: "2026-10-20", value: "300", gain: "100", gainRatio: "0.5" });
   });
 
   it("leaves price fields null without a price on or before today", () => {
     const trades = [trade("BUY", "2026-10-01", 1, "2", "100")];
-    const [position] = computePositions(trades, [], TODAY);
+    const [position] = computePositions(trades, [], TODAY, []);
     expect(position).toMatchObject({ quantity: "2", costBasis: "200", averagePrice: "100", price: null, priceDate: null, value: null, gain: null, gainRatio: null });
   });
 
   it("has a null ratio for a zero Cost Basis", () => {
     const trades = [trade("BUY", "2026-10-01", 1, "2", "0")];
-    const [position] = computePositions(trades, observationsOf(trades), TODAY);
+    const [position] = computePositions(trades, observationsOf(trades), TODAY, []);
     expect(position).toMatchObject({ costBasis: "0", averagePrice: "0", value: "0", gain: "0", gainRatio: null });
+  });
+});
+
+describe("computePositions with splits", () => {
+  const split = { securityId: "s1", date: "2024-03-01", ratioOld: "1", ratioNew: "4" };
+
+  it("shows quantity × 4, average price ÷ 4, unchanged Cost Basis and a split-adjusted price", () => {
+    const trades = [trade("BUY", "2024-01-02", 1, "10", "400")];
+    const [position] = computePositions(trades, observationsOf(trades), "2024-06-01", [split]);
+    expect(position).toMatchObject({
+      quantity: "40",
+      costBasis: "4000",
+      averagePrice: "100",
+      price: "100",
+      priceDate: "2024-01-02",
+      value: "4000",
+      gain: "0",
+    });
+  });
+
+  it("ignores a split dated after today", () => {
+    const trades = [trade("BUY", "2024-01-02", 1, "10", "400")];
+    const [position] = computePositions(trades, observationsOf(trades), "2024-02-01", [split]);
+    expect(position).toMatchObject({ quantity: "10", averagePrice: "400", price: "400" });
   });
 });

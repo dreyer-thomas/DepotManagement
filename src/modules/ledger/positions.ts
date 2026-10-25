@@ -1,6 +1,7 @@
 import { prisma } from "@/db";
 import { computePositions, type Position } from "@/core/positions";
 import type { PriceObservation } from "@/core/prices";
+import { loadSplits } from "./corporate-actions";
 import type { LedgerDb } from "./depots";
 import type { SecuritySummary } from "./securities";
 
@@ -11,7 +12,8 @@ const SECURITY_SELECT = { id: true, name: true, isin: true, cryptoSymbol: true, 
 
 /**
  * Open Positions of a Depot as of `today` (`YYYY-MM-DD`). Prices come from the latest BUY/SELL of
- * each Security in any Depot dated on or before `today`. Read-only.
+ * each Security in any Depot dated on or before `today`. Quantities and prices are split-adjusted as of
+ * `today` (recorded splits of the Security). Read-only.
  */
 export async function listPositions(depotId: string, today: string, db: LedgerDb = prisma): Promise<PositionRecord[]> {
   const rows = await db.transaction.findMany({
@@ -33,7 +35,8 @@ export async function listPositions(depotId: string, today: string, db: LedgerDb
     price: row.price as string,
   }));
 
-  const positions = computePositions(rows, observations, today);
+  const splits = await loadSplits(db, securityIds);
+  const positions = computePositions(rows, observations, today, splits);
   if (positions.length === 0) return [];
   const securities = await db.security.findMany({
     where: { id: { in: positions.map((position) => position.securityId) } },

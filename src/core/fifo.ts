@@ -2,6 +2,7 @@
  * FIFO lots and realized Gain/Loss per Security (AD-5, AD-10). Pure, decimal strings only.
  * Gross figures: a lot's cost is `amount + fee`; a sale's proceeds are `amount − fee`; tax is excluded.
  */
+import { scaleTrades, type Split, splitDivisor } from "./corporate-actions";
 import { canonicalDecimal, ExactDecimal } from "./decimal";
 import { compareLedgerOrder } from "./ledger-order";
 
@@ -38,19 +39,23 @@ type OpenLot = { date: string; sequence: number; quantity: Decimal; costBasis: D
  * FIFO per Security over BUY/SELL rows dated on or before `asOf`, ordered by `(date, sequence)`.
  * A SELL consumes the earliest lots first; a partially consumed lot gives up `cost × taken / quantity`,
  * a fully consumed lot all its remaining cost. Units sold beyond the open lots carry zero cost.
- * Results keep the order in which each Security first appears in the ledger.
+ * Results keep the order in which each Security first appears in the ledger. Quantities are
+ * split-adjusted as of `asOf` (`core/corporate-actions`): lots are consumed in the exact scaled basis
+ * and divided once on output; costs and proceeds are unaffected.
  */
-export function fifo(rows: readonly FifoRow[], asOf: string): FifoResult[] {
-  const trades = rows
-    .filter((row) => row.securityId !== null && (row.type === "BUY" || row.type === "SELL") && row.date <= asOf)
-    .sort(compareLedgerOrder);
+export function fifo(rows: readonly FifoRow[], asOf: string, splits: readonly Split[]): FifoResult[] {
+  const trades = scaleTrades(
+    rows.filter((row) => row.securityId !== null && (row.type === "BUY" || row.type === "SELL") && row.date <= asOf),
+    splits,
+    asOf,
+  ).sort(compareLedgerOrder);
 
-  const bySecurity = new Map<string, { lots: OpenLot[]; sales: FifoSale[] }>();
+  const bySecurity = new Map<string, { lots: OpenLot[]; sales: FifoSale[]; divisor: Decimal }>();
   for (const row of trades) {
     const securityId = row.securityId as string;
     let state = bySecurity.get(securityId);
     if (!state) {
-      state = { lots: [], sales: [] };
+      state = { lots: [], sales: [], divisor: splitDivisor(securityId, splits, asOf) };
       bySecurity.set(securityId, state);
     }
     const quantity = new ExactDecimal(row.quantity ?? "0");
@@ -84,7 +89,7 @@ export function fifo(rows: readonly FifoRow[], asOf: string): FifoResult[] {
     state.sales.push({
       date: row.date,
       sequence: row.sequence,
-      quantity: canonicalDecimal(quantity),
+      quantity: canonicalDecimal(quantity.dividedBy(state.divisor)),
       proceeds: canonicalDecimal(proceeds),
       costBasis: canonicalDecimal(costBasis),
       gain: canonicalDecimal(proceeds.minus(costBasis)),
@@ -96,7 +101,7 @@ export function fifo(rows: readonly FifoRow[], asOf: string): FifoResult[] {
     lots: state.lots.map((lot) => ({
       date: lot.date,
       sequence: lot.sequence,
-      quantity: canonicalDecimal(lot.quantity),
+      quantity: canonicalDecimal(lot.quantity.dividedBy(state.divisor)),
       costBasis: canonicalDecimal(lot.costBasis),
     })),
     sales: state.sales,

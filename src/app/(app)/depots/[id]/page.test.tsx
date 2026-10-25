@@ -15,10 +15,11 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { prisma } from "@/db";
-import { archiveDepot, createDepot, recordTrade, recordTransaction, type RecordTransactionInput, updateTransaction } from "@/modules/ledger";
+import { archiveDepot, createDepot, recordSplit, recordTrade, recordTransaction, type RecordTransactionInput, updateTransaction } from "@/modules/ledger";
 import DepotDetailPage, { generateMetadata } from "./page";
 
 beforeEach(async () => {
+  await prisma.corporateAction.deleteMany();
   await prisma.transaction.deleteMany();
   await prisma.security.deleteMany();
   await prisma.depot.deleteMany();
@@ -373,5 +374,46 @@ describe("Depot detail page", () => {
     const text = renderText(await DepotDetailPage(props(id)));
     expect(text).not.toContain("Archiviert");
     expect(text).not.toContain("nur lesbar");
+  });
+
+  it("shows split-adjusted Positions with a row menu and split-adjusted quantities on Buchungen", async () => {
+    const { id } = await depot();
+    const buy = await recordTrade({
+      depotId: id,
+      type: "BUY",
+      date: "2024-01-02",
+      quantity: "10",
+      price: "400",
+      security: { new: { isin: "US0378331005", name: "Apple Inc.", assetType: "STOCK" } },
+    });
+    if (!buy.ok) throw new Error("setup failed");
+    const split = await recordSplit({ securityId: buy.transaction.security!.id, date: "2024-03-01", ratio: "1:4" });
+    if (!split.ok) throw new Error("setup failed");
+
+    const positions = await DepotDetailPage(props(id));
+    expect(renderText(positions)).toContain("AI Apple Inc. 40 4.000,00\u00a0€ 100,00\u00a0€ 100,00\u00a0€ 4.000,00\u00a0€");
+    expect(renderHtml(positions).match(/aria-label="Aktionen für Apple Inc\."/g)).toHaveLength(2);
+
+    const transactions = renderText(await DepotDetailPage(props(id, "transactions")));
+    expect(transactions).toContain("40 Stück split-bereinigt (gebucht: 10 Stück)");
+  });
+
+  it("leaves Buchungen unadjusted for a split dated after today", async () => {
+    const { id } = await depot();
+    const buy = await recordTrade({
+      depotId: id,
+      type: "BUY",
+      date: "2024-01-02",
+      quantity: "10",
+      price: "400",
+      security: { new: { isin: "US0378331005", name: "Apple Inc.", assetType: "STOCK" } },
+    });
+    if (!buy.ok) throw new Error("setup failed");
+    const split = await recordSplit({ securityId: buy.transaction.security!.id, date: "2099-01-01", ratio: "1:4" });
+    if (!split.ok) throw new Error("setup failed");
+
+    const transactions = renderText(await DepotDetailPage(props(id, "transactions")));
+    expect(transactions).toContain("10 Stück");
+    expect(transactions).not.toContain("split-bereinigt");
   });
 });

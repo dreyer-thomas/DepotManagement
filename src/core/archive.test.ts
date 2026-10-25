@@ -17,29 +17,29 @@ const sell = (securityId: string, quantity: string, amount: string, date = "2026
 
 describe("isFlat / canArchive", () => {
   it("allows an empty Depot", () => {
-    expect(isFlat([], TODAY)).toBe(true);
-    expect(canArchive([], TODAY)).toBe(true);
+    expect(isFlat([], TODAY, [])).toBe(true);
+    expect(canArchive([], TODAY, [])).toBe(true);
   });
 
   it("allows a flat Depot", () => {
     const rows = [deposit("1000"), buy("s1", "10", "1000"), sell("s1", "10", "1000"), withdrawal("1000", "2026-01-04")];
-    expect(isFlat(rows, TODAY)).toBe(true);
-    expect(canArchive(rows, TODAY)).toBe(true);
+    expect(isFlat(rows, TODAY, [])).toBe(true);
+    expect(canArchive(rows, TODAY, [])).toBe(true);
   });
 
   it("blocks an open Position even with zero cash", () => {
     const rows = [deposit("1000"), buy("s1", "10", "1000")];
-    expect(isFlat(rows, TODAY)).toBe(false);
-    expect(canArchive(rows, TODAY)).toBe(false);
+    expect(isFlat(rows, TODAY, [])).toBe(false);
+    expect(canArchive(rows, TODAY, [])).toBe(false);
   });
 
   it("blocks cash left over", () => {
-    expect(canArchive([deposit("0.01")], TODAY)).toBe(false);
+    expect(canArchive([deposit("0.01")], TODAY, [])).toBe(false);
   });
 
   it("blocks half a cent of cash, which rounds to 0,01 € / -0,01 €", () => {
-    expect(canArchive([deposit("0.005")], TODAY)).toBe(false);
-    expect(canArchive([withdrawal("0.005")], TODAY)).toBe(false);
+    expect(canArchive([deposit("0.005")], TODAY, [])).toBe(false);
+    expect(canArchive([withdrawal("0.005")], TODAY, [])).toBe(false);
   });
 
   it("allows a sub-cent residual from unrounded BUY/SELL amounts", () => {
@@ -49,31 +49,31 @@ describe("isFlat / canArchive", () => {
       sell("s1", "3.412871", "149.99568045"),
       withdrawal("199.9957", "2026-01-04"),
     ];
-    expect(isFlat(rows, TODAY)).toBe(true);
-    expect(canArchive(rows, TODAY)).toBe(true);
-    expect(canArchive([deposit("1"), withdrawal("1.0043")], TODAY)).toBe(true);
+    expect(isFlat(rows, TODAY, [])).toBe(true);
+    expect(canArchive(rows, TODAY, [])).toBe(true);
+    expect(canArchive([deposit("1"), withdrawal("1.0043")], TODAY, [])).toBe(true);
   });
 
   it("blocks a sub-unit quantity left over (quantities are exact)", () => {
     const rows = [buy("s1", "1", "0"), sell("s1", "0.99999999", "0")];
-    expect(canArchive(rows, TODAY)).toBe(false);
+    expect(canArchive(rows, TODAY, [])).toBe(false);
   });
 
   it("compares exactly, without floats", () => {
     const rows = [deposit("0.1"), deposit("0.2"), withdrawal("0.3"), buy("s1", "0.1", "0"), buy("s1", "0.2", "0"), sell("s1", "0.3", "0")];
-    expect(canArchive(rows, TODAY)).toBe(true);
+    expect(canArchive(rows, TODAY, [])).toBe(true);
   });
 
   it("blocks a future-dated buy on a Depot flat today", () => {
     const rows = [deposit("1000"), withdrawal("1000"), deposit("100", "2099-01-01"), buy("s1", "1", "100", "2099-01-02")];
-    expect(isFlat(rows, TODAY)).toBe(true);
-    expect(canArchive(rows, TODAY)).toBe(false);
+    expect(isFlat(rows, TODAY, [])).toBe(true);
+    expect(canArchive(rows, TODAY, [])).toBe(false);
   });
 
   it("blocks a Depot closed only by a future sell", () => {
     const rows = [buy("s1", "1", "0"), sell("s1", "1", "0", "2099-01-01")];
-    expect(isFlat(rows, "2099-01-01")).toBe(true);
-    expect(canArchive(rows, TODAY)).toBe(false);
+    expect(isFlat(rows, "2099-01-01", [])).toBe(true);
+    expect(canArchive(rows, TODAY, [])).toBe(false);
   });
 });
 
@@ -101,7 +101,7 @@ describe("heldSecurities", () => {
         trade("X", "BUY", "s5", "1"),
       ],
     };
-    expect(heldSecurities(ledger, TODAY)).toEqual(["s1"]);
+    expect(heldSecurities(ledger, TODAY, [])).toEqual(["s1"]);
   });
 
   it("evaluates each Depot on its own", () => {
@@ -112,7 +112,7 @@ describe("heldSecurities", () => {
       ],
       trades: [trade("A", "BUY", "s1", "5"), trade("B", "BUY", "s1", "5"), trade("B", "SELL", "s1", "5")],
     };
-    expect(heldSecurities(ledger, TODAY)).toEqual(["s1"]);
+    expect(heldSecurities(ledger, TODAY, [])).toEqual(["s1"]);
   });
 
   it("never lets a negative net in one Depot cancel a holding in another, and sorts the ids", () => {
@@ -123,6 +123,34 @@ describe("heldSecurities", () => {
       ],
       trades: [trade("A", "BUY", "s9", "1"), trade("A", "BUY", "s1", "1"), trade("B", "SELL", "s1", "3"), trade("A", "BUY", "s1", "1")],
     };
-    expect(heldSecurities(ledger, TODAY)).toEqual(["s1", "s9"]);
+    expect(heldSecurities(ledger, TODAY, [])).toEqual(["s1", "s9"]);
+  });
+});
+
+describe("archive and held with splits", () => {
+  const split = { securityId: "s1", date: "2024-03-01", ratioOld: "1", ratioNew: "2" };
+
+  it("treats BUY 10, split 1:2, SELL 20 as flat and not held", () => {
+    const rows = [buy("s1", "10", "100", "2024-01-02"), sell("s1", "20", "100", "2024-05-01")];
+    expect(isFlat(rows, TODAY, [split])).toBe(true);
+    expect(canArchive(rows, TODAY, [split])).toBe(true);
+    expect(isFlat(rows, TODAY, [])).toBe(false);
+    const ledger = {
+      depots: [{ id: "A", archived: false }],
+      trades: rows.map((r) => ({ ...r, depotId: "A" })),
+    };
+    expect(heldSecurities(ledger, TODAY, [split])).toEqual([]);
+  });
+});
+
+describe("archive with a non-terminating reverse split", () => {
+  it("is flat after selling 10/3 + 2/3 = 4 units", () => {
+    const split = { securityId: "s1", date: "2024-03-01", ratioOld: "3", ratioNew: "1" };
+    const rows = [
+      buy("s1", "10", "100", "2024-01-02"),
+      buy("s1", "2", "20", "2024-01-03"),
+      sell("s1", "4", "120", "2024-05-01"),
+    ];
+    expect(isFlat(rows, TODAY, [split])).toBe(true);
   });
 });

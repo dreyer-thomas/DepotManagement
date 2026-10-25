@@ -51,17 +51,27 @@ describe("PositionsTable", () => {
     expect(text).toMatch(/Cash-Konto -731,10\u00a0€$/);
     const html = renderHtml(tree);
     expect(html.match(/data-cash-row/g)).toHaveLength(2);
-    expect(html).toMatch(/<tr[^>]*data-cash-row[^>]*>(?:<td[^>]*>(?:(?!<\/td>).)*<\/td>){5}<td[^>]*>-731,10\u00a0€<\/td><td[^>]*><\/td><\/tr><\/tbody>/);
+    expect(html).toMatch(/<tr[^>]*data-cash-row[^>]*>(?:<td[^>]*>(?:(?!<\/td>).)*<\/td>){5}<td[^>]*>-731,10\u00a0€<\/td>(?:<td[^>]*><\/td>){2}<\/tr><\/tbody>/);
     expect(html).toMatch(/<svg[^>]*aria-hidden="true"[^>]*data-testid="AccountBalanceWalletOutlinedIcon"/);
   });
 
   it("shows Keine offenen Positionen. above the pinned Cash row in both layouts without Positions", () => {
     const tree = <PositionsTable positions={[]} cashBalance="2000" />;
     const text = renderText(tree);
-    expect(text).toMatch(/G\/V Keine offenen Positionen\. Cash-Konto 2\.000,00\u00a0€ Sortieren nach/);
+    expect(text).toMatch(/G\/V Aktionen Keine offenen Positionen\. Cash-Konto 2\.000,00\u00a0€ Sortieren nach/);
     expect(text).toMatch(/Keine offenen Positionen\. Cash-Konto 2\.000,00\u00a0€$/);
     const html = renderHtml(tree);
-    expect(html).toMatch(/<td[^>]*colSpan="7"[^>]*>Keine offenen Positionen\.<\/td>/i);
+    expect(html).toMatch(/<td[^>]*colSpan="8"[^>]*>Keine offenen Positionen\.<\/td>/i);
     expect(html.match(/data-cash-row/g)).toHaveLength(2);
+  });
+
+  it("offers a row menu per Position in both layouts, none when read-only", () => {
+    const rows = [position("Alpha", {})];
+    const html = renderHtml(<PositionsTable positions={rows} cashBalance="0" />);
+    expect(html.match(/aria-label="Aktionen für Alpha"/g)).toHaveLength(2);
+    expect(html).toMatch(/aria-haspopup="menu"/);
+    const readOnly = renderHtml(<PositionsTable positions={rows} cashBalance="0" readOnly />);
+    expect(readOnly).not.toContain("Aktionen");
+    expect(readOnly).toMatch(/<tr[^>]*data-cash-row[^>]*>(?:<td[^>]*>(?:(?!<\/td>).)*<\/td>){5}<td[^>]*>0,00\u00a0€<\/td><td[^>]*><\/td><\/tr>/);
   });
 });

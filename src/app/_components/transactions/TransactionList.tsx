@@ -13,8 +13,9 @@ import Typography from "@mui/material/Typography";
 import type { Theme } from "@mui/material/styles";
 import { useState } from "react";
 import { cashEffect } from "@/core/cash";
+import { type Split, splitAdjustment } from "@/core/corporate-actions";
 import { formatDate, formatMoney, formatMonth, formatQuantity } from "@/core/format";
-import type { SecuritySummary, TransactionRecord } from "@/modules/ledger";
+import type { SecuritySummary, SplitRecord, TransactionRecord } from "@/modules/ledger";
 import { SecurityLogo } from "../securities/SecurityLogo";
 import { type DialogDepot, TransactionDialog } from "./TransactionDialog";
 import { eventValue } from "./transaction-form";
@@ -60,23 +61,53 @@ const actionCell = {
 const numeric = { textAlign: "right", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" } as const;
 
 /**
+ * The "Stück" cell: a BUY/SELL quantity split-adjusted as of `today`, with the booked quantity as a
+ * caption when a split applies. The stored row (and the edit dialog) keep the booked value.
+ */
+function QuantityText({ transaction, splits, today }: { transaction: TransactionRecord; splits: Split[]; today: string }) {
+  if (!transaction.quantity) return null;
+  const adjusted =
+    transaction.security && (transaction.type === "BUY" || transaction.type === "SELL")
+      ? splitAdjustment(transaction.security.id, transaction.date, transaction.quantity, splits, today)
+      : null;
+  if (adjusted === null) return <>{formatQuantity(transaction.quantity)} Stück</>;
+  return (
+    <>
+      {formatQuantity(adjusted)} Stück
+      <Typography component="span" variant="caption" color="text.secondary" sx={{ display: "block" }}>
+        split-bereinigt (gebucht: {formatQuantity(transaction.quantity)} Stück)
+      </Typography>
+    </>
+  );
+}
+
+/**
  * Transactions grouped by month (newest first) as semantic tables. A row click, or its edit button
  * (for keyboard users), opens the Transaction in the edit dialog; `readOnly` (archived Depot) drops
- * both and the dialog.
+ * both and the dialog. BUY/SELL quantities before a recorded split show split-adjusted as of `today`.
  */
 export function TransactionList({
   transactions,
   depot,
   securities,
   today,
+  splits = [],
   readOnly = false,
 }: {
   transactions: TransactionRecord[];
   depot: DialogDepot;
   securities: SecuritySummary[];
   today: string;
+  /** Recorded splits (any Security). */
+  splits?: SplitRecord[];
   readOnly?: boolean;
 }) {
+  const coreSplits: Split[] = splits.map((split) => ({
+    securityId: split.security.id,
+    date: split.date,
+    ratioOld: split.ratioOld,
+    ratioNew: split.ratioNew,
+  }));
   const [selected, setSelected] = useState<TransactionRecord | undefined>(undefined);
   const [open, setOpen] = useState(false);
   const [session, setSession] = useState(0);
@@ -145,7 +176,7 @@ export function TransactionList({
                         </TableCell>
                         <TableCell sx={{ whiteSpace: "nowrap" }}>{formatDate(transaction.date)}</TableCell>
                         <TableCell sx={numeric}>
-                          {transaction.quantity ? `${formatQuantity(transaction.quantity)} Stück` : ""}
+                          <QuantityText transaction={transaction} splits={coreSplits} today={today} />
                         </TableCell>
                         <TableCell sx={numeric}>{formatMoney(eventValue(transaction))}</TableCell>
                         <TableCell sx={numeric}>
