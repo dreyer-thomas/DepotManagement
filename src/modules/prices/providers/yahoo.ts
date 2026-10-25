@@ -1,7 +1,10 @@
-// Yahoo Finance search by ISIN: fallback for Securities without a Xetra listing on OpenFIGI.
-// Only the ISIN leaves the server (AD-13).
+// Yahoo Finance: search by ISIN (fallback for Securities without a Xetra listing on OpenFIGI) and daily
+// prices via `chart()` (AD-9). Only the ISIN, resp. the provider symbol and date range, leave the server (AD-13).
 import { z } from "zod";
+import { unadjustSplitPrice } from "@/core/corporate-actions";
+import { addDays, businessDate } from "@/core/dates";
 import { ERROR, type Lookup, NOT_FOUND, PROVIDER_TIMEOUT_MS } from "./shared";
+import type { DailyClose, PriceAdapter, PriceFetch, PriceFetchContext, PriceFetchFailure } from "./types";
 
 /** Runs a Yahoo search for the query and returns the raw (unvalidated) response. */
 export type YahooSearch = (query: string) => Promise<unknown>;
@@ -61,4 +64,81 @@ export async function findGermanListing(isin: string, { search = yahooSearch }: 
     .filter((symbol): symbol is string => Boolean(symbol && SYMBOL.test(symbol)));
   const symbol = symbols.find((s) => s.endsWith(".DE")) ?? symbols.find((s) => s.endsWith(".F"));
   return symbol ? { status: "found", value: symbol } : NOT_FOUND;
+}
+
+/** Query of a daily `chart()` request: `period1` inclusive, `period2` exclusive (`YYYY-MM-DD`, UTC midnight). */
+export type YahooChartQuery = { period1: string; period2: string; interval: "1d" };
+export type YahooChartOptions = { validateResult: false; fetchOptions: { signal: AbortSignal } };
+
+/** Runs a Yahoo `chart()` request and returns the raw (unvalidated) array-form result. */
+export type YahooChart = (symbol: string, query: YahooChartQuery, options: YahooChartOptions) => Promise<unknown>;
+
+/** The real chart: `yahoo-finance2` (loaded on first use); the result is validated by our own schema. */
+export const yahooChart: YahooChart = async (symbol, query, options) => {
+  const yahoo = await yahooClient();
+  return yahoo.chart(symbol, query, options);
+};
+
+const chartSchema = z
+  .object({
+    meta: z.object({ currency: z.string() }).loose(),
+    quotes: z.array(z.object({ date: z.coerce.date(), close: z.number().nullable().optional() }).loose()),
+  })
+  .loose();
+
+/** A thrown `chart()` error: Yahoo's "no data" answers (unknown / delisted symbol, empty range) are `not-found`. */
+function thrownReason(error: unknown): PriceFetchFailure {
+  if (!(error instanceof Error)) return "unexpected";
+  if (error.name === "BadRequestError" || /no data found|doesn't exist/i.test(error.message)) return "not-found";
+  if (error.name === "InvalidOptionsError" || error.name === "NoEnvironmentError") return "unexpected";
+  return "network";
+}
+
+/**
+ * Yahoo price adapter. Yahoo closes are split-adjusted (not dividend-adjusted); every close is restored
+ * to the as-traded close with the Security's recorded splits (`unadjustSplitPrice`, 4 dp). Only EUR
+ * listings are accepted (no conversion). Bars are dated by their Europe/Berlin business date (the last
+ * bar of a date wins) and limited to the requested range; null closes are dropped.
+ */
+export function yahooPrices({ chart = yahooChart, now = () => new Date() }: { chart?: YahooChart; now?: () => Date } = {}): PriceAdapter {
+  async function fetchHistory(symbol: string, from: string, to: string, ctx: PriceFetchContext): Promise<PriceFetch<DailyClose[]>> {
+    let raw: unknown;
+    try {
+      raw = await chart(
+        symbol,
+        { period1: from, period2: addDays(to, 1), interval: "1d" },
+        { validateResult: false, fetchOptions: { signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS) } },
+      );
+    } catch (error) {
+      return { ok: false, reason: thrownReason(error) };
+    }
+    const parsed = chartSchema.safeParse(raw);
+    if (!parsed.success) return { ok: false, reason: "schema" };
+    if (parsed.data.meta.currency !== "EUR") return { ok: false, reason: "currency" };
+    try {
+      const byDate = new Map<string, number>();
+      for (const quote of parsed.data.quotes) {
+        if (quote.close === null || quote.close === undefined || !(quote.close > 0)) continue;
+        const date = businessDate(quote.date);
+        if (date < from || date > to) continue;
+        byDate.set(date, quote.close);
+      }
+      if (byDate.size === 0) return { ok: false, reason: "not-found" };
+      const closes = [...byDate.entries()]
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+        .map(([date, close]) => ({ date, close: unadjustSplitPrice(ctx.securityId, date, String(close), ctx.splits) }));
+      return { ok: true, value: closes };
+    } catch {
+      return { ok: false, reason: "unexpected" };
+    }
+  }
+
+  return {
+    fetchHistory,
+    async fetchLatest(symbol, ctx) {
+      const today = businessDate(now());
+      const history = await fetchHistory(symbol, addDays(today, -7), today, ctx);
+      return history.ok ? { ok: true, value: history.value[history.value.length - 1] } : history;
+    },
+  };
 }

@@ -12,6 +12,7 @@ import {
   setMapping,
   type SetMappingResult,
 } from "@/modules/prices";
+import { schedulePriceBackfill } from "./price-refresh";
 
 const UNAUTHORIZED = { ok: false, reason: "unauthorized" } as const;
 type Unauthorized = typeof UNAUTHORIZED;
@@ -39,6 +40,7 @@ export async function resolveMissingMappingsAction(): Promise<ResolveMissingActi
   if (!(await getSession())) return UNAUTHORIZED;
   const result = await resolveMissingMappings();
   if (result.mapped > 0 || result.notFound > 0) revalidatePath("/securities");
+  if (result.mapped > 0) schedulePriceBackfill();
   return { ok: true, ...result };
 }
 
@@ -51,6 +53,7 @@ export async function resolveMappingAction(
   const result = await resolveMappingFor(securityId);
   // `already-mapped`: a mapping was saved meanwhile; refresh so the stale marker disappears.
   if (result.ok || result.reason === "already-mapped") revalidatePath("/securities");
+  if (result.ok) schedulePriceBackfill();
   return result;
 }
 
@@ -64,7 +67,10 @@ export async function setMappingAction(_previous: SetMappingActionState, formDat
     symbol: formData.get("symbol"),
   });
   const result = await setMapping(securityId, { provider, symbol });
-  if (result.ok) revalidatePath("/securities");
+  if (result.ok) {
+    revalidatePath("/securities");
+    schedulePriceBackfill();
+  }
   return result;
 }
 

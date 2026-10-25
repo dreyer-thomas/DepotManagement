@@ -28,6 +28,7 @@ import {
   listSplits,
   listTransactions,
 } from "@/modules/ledger";
+import { latestStoredPrices } from "@/modules/prices";
 
 type Props = {
   params: Promise<{ id: string }>;
@@ -65,7 +66,8 @@ export default async function DepotDetailPage({ params, searchParams }: Props) {
     listSecurities(),
     tab === "cash" ? Promise.resolve([]) : listSplits(),
     tab === "positions" ? listIsinChanges() : Promise.resolve([]),
-    tab === "positions" ? listPositions(depot.id, today) : Promise.resolve([]),
+    // Stored manual / provider Prices win over Transaction prices (resolver); no provider call here.
+    tab === "positions" ? listPositions(depot.id, today, undefined, { storedPrices: latestStoredPrices }) : Promise.resolve([]),
     tab === "cash" ? listCashBookings(depot.id) : Promise.resolve([]),
   ]);
   const dialogDepot = { id: depot.id, name: depot.name };

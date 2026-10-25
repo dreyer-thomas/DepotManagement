@@ -6,6 +6,8 @@ import { createSessionToken, SESSION_COOKIE } from "@/modules/auth";
 
 const fakes = vi.hoisted(() => ({}) as { current: ReturnType<typeof createRequestFakes> });
 const revalidatePath = vi.hoisted(() => vi.fn());
+/** `after()` from next/server: callbacks are captured, never run (no provider call in tests). */
+const after = vi.hoisted(() => vi.fn());
 const dbFile = await vi.hoisted(async () => {
   const { useMigratedDatabaseForSingleton } = await import("../../../test/helpers/migrated-db-file");
   return useMigratedDatabaseForSingleton();
@@ -16,6 +18,7 @@ vi.mock("next/headers", () => ({
   headers: async () => fakes.current.state.headers,
 }));
 vi.mock("next/cache", () => ({ revalidatePath }));
+vi.mock("next/server", () => ({ after }));
 
 import { prisma } from "@/db";
 import { archiveDepot, createDepot, listTransactions, recordTransaction } from "@/modules/ledger";
@@ -45,6 +48,7 @@ beforeEach(async () => {
   await prisma.security.deleteMany();
   await prisma.depot.deleteMany();
   revalidatePath.mockClear();
+  after.mockClear();
 });
 
 afterEach(() => {
@@ -146,6 +150,7 @@ describe("confirmParqetAction", () => {
     expect(rows).toHaveLength(12);
     expect(rows.find((row) => row.security?.isin === "US0378331005")?.security?.assetType).toBe("FUND");
     expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
+    expect(after).toHaveBeenCalledTimes(1);
   });
 
   it("returns decisions-open with the fresh preview, without revalidating", async () => {
@@ -155,6 +160,7 @@ describe("confirmParqetAction", () => {
     expect(result).toMatchObject({ ok: false, reason: "decisions-open", open: [{ kind: "duplicate", key: "24" }] });
     expect(await prisma.transaction.count()).toBe(1);
     expect(revalidatePath).not.toHaveBeenCalled();
+    expect(after).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -197,19 +203,23 @@ describe("openingBalanceAction", () => {
     const decisions = JSON.stringify({ classifications: { IE00B4L5Y983: "ETF" }, flags: {}, duplicates: {} });
     expect((await confirmParqetAction(form({ depotId: id, file: csvFile(NO_CASH), decisions }))).ok).toBe(true);
     revalidatePath.mockClear();
+    after.mockClear();
 
     // Funded buy: the ledger holds the 300 from the sale at the export date.
     const result = await openingBalanceAction(form({ depotId: id, date: "2024-05-02", asOf: "2024-05-02", balance: "1.300,00" }));
     expect(result).toMatchObject({ ok: true, transaction: { type: "DEPOSIT", date: "2024-05-02", amount: "1000" }, balance: "1300" });
     expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
+    expect(after).toHaveBeenCalledTimes(1);
 
     revalidatePath.mockClear();
+    after.mockClear();
     expect(await openingBalanceAction(form({ depotId: id, date: "2024-05-02", asOf: "2024-05-02", balance: "1300" }))).toEqual({
       ok: true,
       transaction: null,
       balance: "1300",
     });
     expect(revalidatePath).not.toHaveBeenCalled();
+    expect(after).not.toHaveBeenCalled();
   });
 
   it("rejects an unparseable balance and a missing session", async () => {

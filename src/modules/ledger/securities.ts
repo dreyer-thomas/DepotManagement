@@ -199,3 +199,29 @@ export async function changeSecurityType(
   });
   return { ok: true, security: updated };
 }
+
+/**
+ * Per Security of `securityIds`: its first activity date — the earliest date of any of its Transactions
+ * (any Depot) or of an ISIN change whose new Security it is. Securities without activity are absent.
+ */
+export async function firstActivityDates(securityIds: readonly string[], db: LedgerDb = prisma): Promise<Map<string, string>> {
+  const result = new Map<string, string>();
+  if (securityIds.length === 0) return result;
+  const ids = [...securityIds];
+  const [transactions, isinChanges] = await Promise.all([
+    db.transaction.groupBy({ by: ["securityId"], where: { securityId: { in: ids } }, _min: { date: true } }),
+    db.corporateAction.groupBy({
+      by: ["newSecurityId"],
+      where: { type: "ISIN_CHANGE", newSecurityId: { in: ids } },
+      _min: { date: true },
+    }),
+  ]);
+  const keep = (securityId: string | null, date: string | null) => {
+    if (!securityId || !date) return;
+    const current = result.get(securityId);
+    if (!current || date < current) result.set(securityId, date);
+  };
+  for (const row of transactions) keep(row.securityId, row._min.date);
+  for (const row of isinChanges) keep(row.newSecurityId, row._min.date);
+  return result;
+}

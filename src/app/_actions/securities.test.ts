@@ -5,6 +5,8 @@ import { createSessionToken, SESSION_COOKIE } from "@/modules/auth";
 
 const fakes = vi.hoisted(() => ({}) as { current: ReturnType<typeof createRequestFakes> });
 const revalidatePath = vi.hoisted(() => vi.fn());
+/** `after()` from next/server: callbacks are captured, never run (no provider call in tests). */
+const after = vi.hoisted(() => vi.fn());
 const yahooSearch = vi.hoisted(() => vi.fn());
 const dbFile = await vi.hoisted(async () => {
   const { useMigratedDatabaseForSingleton } = await import("../../../test/helpers/migrated-db-file");
@@ -16,6 +18,7 @@ vi.mock("next/headers", () => ({
   headers: async () => fakes.current.state.headers,
 }));
 vi.mock("next/cache", () => ({ revalidatePath }));
+vi.mock("next/server", () => ({ after }));
 // The real Yahoo client never runs in tests; its search answers with recorded responses.
 vi.mock("yahoo-finance2", () => ({
   default: class {
@@ -51,6 +54,7 @@ beforeEach(async () => {
   process.env.COINGECKO_API_KEY = "";
   fakes.current.state.incoming.set(SESSION_COOKIE, await createSessionToken("tester", SECRET));
   revalidatePath.mockClear();
+  after.mockClear();
   network = fakeFetch((call) =>
     call.url.includes("openfigi")
       ? json(JSON.parse(call.body!).map((job: { idValue: string }) => (recorded("openfigi-mapping-sap-msci-world-apple") as unknown[])[job.idValue === SAP ? 0 : 1]))
@@ -99,6 +103,7 @@ describe("resolveMissingMappingsAction", () => {
 
     expect(await resolveMissingMappingsAction()).toEqual({ ok: true, mapped: 2, notFound: 1, failed: [] });
     expect(revalidatePath).toHaveBeenCalledWith("/securities");
+    expect(after).toHaveBeenCalledTimes(1);
     expect((await listSecuritiesWithMappings()).map((s) => [s.name, s.mapping?.provider ?? null, s.mapping?.symbol ?? null])).toEqual([
       ["Bitcoin", "COINGECKO", "bitcoin"],
       ["iShares Core MSCI World", null, null],
@@ -115,10 +120,12 @@ describe("resolveMissingMappingsAction", () => {
     network.calls.length = 0;
     yahooSearch.mockClear();
     revalidatePath.mockClear();
+    after.mockClear();
     expect(await resolveMissingMappingsAction()).toEqual({ ok: true, mapped: 0, notFound: 0, failed: [] });
     expect(network.calls).toEqual([]);
     expect(yahooSearch).not.toHaveBeenCalled();
     expect(revalidatePath).not.toHaveBeenCalled();
+    expect(after).not.toHaveBeenCalled();
   });
 
   it("reads the API keys from the environment", async () => {
@@ -133,6 +140,7 @@ describe("resolveMissingMappingsAction", () => {
     signOut();
     expect(await resolveMissingMappingsAction()).toEqual({ ok: false, reason: "unauthorized" });
     expect(network.calls).toEqual([]);
+    expect(after).not.toHaveBeenCalled();
     expect((await listSecuritiesWithMappings())[0].mapping).toBeNull();
   });
 });
@@ -142,16 +150,20 @@ describe("resolveMappingAction", () => {
     const msci = await security({ isin: MSCI_WORLD }, "iShares Core MSCI World", "ETF");
     await resolveMissingMappingsAction();
     revalidatePath.mockClear();
+    after.mockClear();
     yahooSearch.mockResolvedValue(recorded("yahoo-search-xtrackers-msci-world"));
     expect(await resolveMappingAction(null, form({ securityId: msci.id }))).toEqual({ ok: true, status: "mapped" });
     expect(revalidatePath).toHaveBeenCalledWith("/securities");
+    expect(after).toHaveBeenCalledTimes(1);
   });
 
   it("revalidates when a mapping was saved meanwhile (already-mapped)", async () => {
     const msci = await security({ isin: MSCI_WORLD }, "iShares Core MSCI World", "ETF");
     await setMappingAction(null, form({ securityId: msci.id, provider: "YAHOO", symbol: "EUNL.DE" }));
     revalidatePath.mockClear();
+    after.mockClear();
     expect(await resolveMappingAction(null, form({ securityId: msci.id }))).toEqual({ ok: false, reason: "already-mapped" });
+    expect(after).not.toHaveBeenCalled();
     expect(revalidatePath).toHaveBeenCalledWith("/securities");
   });
 
@@ -161,6 +173,7 @@ describe("resolveMappingAction", () => {
     vi.stubGlobal("fetch", fakeFetch(new TypeError("fetch failed")).fetch);
     expect(await resolveMappingAction(null, form({ securityId: msci.id }))).toEqual({ ok: false, reason: "provider-failed" });
     expect(revalidatePath).not.toHaveBeenCalled();
+    expect(after).not.toHaveBeenCalled();
     expect(await prisma.providerMapping.count()).toBe(0);
   });
 
@@ -169,6 +182,7 @@ describe("resolveMappingAction", () => {
     signOut();
     expect(await resolveMappingAction(null, form({ securityId: msci.id }))).toEqual({ ok: false, reason: "unauthorized" });
     expect(await prisma.providerMapping.count()).toBe(0);
+    expect(after).not.toHaveBeenCalled();
   });
 });
 
@@ -180,6 +194,7 @@ describe("setMappingAction", () => {
       mapping: { provider: "YAHOO", symbol: "EUNL.DE", origin: "MANUAL" },
     });
     expect(revalidatePath).toHaveBeenCalledWith("/securities");
+    expect(after).toHaveBeenCalledTimes(1);
     expect(await prisma.providerMapping.count()).toBe(1);
   });
 
@@ -191,6 +206,7 @@ describe("setMappingAction", () => {
     const msci = await security({ isin: MSCI_WORLD }, "iShares Core MSCI World", "ETF");
     expect(await setMappingAction(null, form({ securityId: msci.id, ...fields }))).toEqual({ ok: false, reason });
     expect(revalidatePath).not.toHaveBeenCalled();
+    expect(after).not.toHaveBeenCalled();
   });
 
   it("returns not-found for a missing id", async () => {

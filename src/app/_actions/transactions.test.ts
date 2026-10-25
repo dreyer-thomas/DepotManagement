@@ -4,6 +4,8 @@ import { createSessionToken, SESSION_COOKIE } from "@/modules/auth";
 
 const fakes = vi.hoisted(() => ({}) as { current: ReturnType<typeof createRequestFakes> });
 const revalidatePath = vi.hoisted(() => vi.fn());
+/** `after()` from next/server: callbacks are captured, never run (no provider call in tests). */
+const after = vi.hoisted(() => vi.fn());
 const dbFile = await vi.hoisted(async () => {
   const { useMigratedDatabaseForSingleton } = await import("../../../test/helpers/migrated-db-file");
   return useMigratedDatabaseForSingleton();
@@ -14,6 +16,7 @@ vi.mock("next/headers", () => ({
   headers: async () => fakes.current.state.headers,
 }));
 vi.mock("next/cache", () => ({ revalidatePath }));
+vi.mock("next/server", () => ({ after }));
 
 import { prisma } from "@/db";
 import { archiveDepot, createDepot, listCashBookings, listPositions, listSecurities, listTransactions, recordTransaction } from "@/modules/ledger";
@@ -38,6 +41,7 @@ beforeEach(async () => {
   if (!depot.ok) throw new Error("setup failed");
   depotId = depot.depot.id;
   revalidatePath.mockClear();
+  after.mockClear();
 });
 
 afterEach(() => {
@@ -67,9 +71,24 @@ describe("saveTransactionAction", () => {
     expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
     const [security] = await listSecurities();
     expect(security).toMatchObject({ isin: "US0378331005", name: "Apple Inc.", assetType: "STOCK" });
+    // A price backfill for the new held Security runs after the response.
+    expect(after).toHaveBeenCalledTimes(1);
+    expect(after).toHaveBeenCalledWith(expect.any(Function));
 
     const again = await saveTransactionAction(null, form({ securityId: security.id, quantity: "1.234", price: "1.234,5" }));
     expect(again).toMatchObject({ ok: true, transaction: { quantity: "1234", price: "1234.5", sequence: 2 } });
+  });
+
+  it("keeps the booking result when scheduling the price backfill fails", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    after.mockImplementationOnce(() => {
+      throw new Error("outside a request scope");
+    });
+    const result = await saveTransactionAction(null, form({ ...newApple, quantity: "10", price: "100" }));
+    expect(result).toMatchObject({ ok: true, transaction: { type: "BUY" } });
+    expect(await listTransactions(depotId)).toHaveLength(1);
+    expect(error).toHaveBeenCalledWith("Prices: scheduling backfill failed (Error)");
+    error.mockRestore();
   });
 
   it("books crypto from the shared identifier field", async () => {
@@ -94,6 +113,7 @@ describe("saveTransactionAction", () => {
   ])("returns the field error for %j without writing", async (fields, reason) => {
     expect(await saveTransactionAction(null, form(fields))).toEqual({ ok: false, reason });
     expect(revalidatePath).not.toHaveBeenCalled();
+    expect(after).not.toHaveBeenCalled();
     expect(await listTransactions(depotId)).toEqual([]);
     expect(await listSecurities()).toEqual([]);
   });
@@ -179,6 +199,7 @@ describe("saveTransactionAction (edit) and deleteTransactionAction", () => {
     const result = await saveTransactionAction(null, form({ ...newApple, quantity: "10", price: "100", fee: "5" }));
     if (!result?.ok) throw new Error("setup failed");
     revalidatePath.mockClear();
+    after.mockClear();
     return result.transaction;
   }
 
@@ -190,6 +211,7 @@ describe("saveTransactionAction (edit) and deleteTransactionAction", () => {
     );
     expect(result).toMatchObject({ ok: true, transaction: { id: buy.id, depotId, price: "90", amount: "900", sequence: 1 } });
     expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
+    expect(after).toHaveBeenCalledTimes(1);
     expect(await listTransactions(depotId)).toHaveLength(1);
     expect((await listPositions(depotId, "2026-10-25"))[0].costBasis).toBe("905");
     expect((await listCashBookings(depotId))[0].cashEffect).toBe("-905");
@@ -215,12 +237,14 @@ describe("saveTransactionAction (edit) and deleteTransactionAction", () => {
     });
     expect(await deleteTransactionAction("nope")).toEqual({ ok: false, reason: "transaction-not-found" });
     expect(revalidatePath).not.toHaveBeenCalled();
+    expect(after).not.toHaveBeenCalled();
   });
 
   it("deletes a Transaction and revalidates", async () => {
     const buy = await bookBuy();
     expect(await deleteTransactionAction(buy.id)).toMatchObject({ ok: true, transaction: { id: buy.id } });
     expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
+    expect(after).toHaveBeenCalledTimes(1);
     expect(await listTransactions(depotId)).toEqual([]);
   });
 

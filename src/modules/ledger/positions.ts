@@ -13,11 +13,26 @@ export type PositionRecord = Omit<Position, "securityId"> & { security: Security
 const SECURITY_SELECT = { id: true, name: true, isin: true, cryptoSymbol: true, assetType: true } as const;
 
 /**
- * Open Positions of a Depot as of `today` (`YYYY-MM-DD`). Prices come from the latest BUY/SELL of
- * each Security in any Depot dated on or before `today`. Quantities and prices follow the recorded
- * corporate actions as of `today` (splits; ISIN changes move lots and prices to the new Security). Read-only.
+ * Loads stored Prices (manual / provider) of `securityIds` dated on or before `asOf` as observations.
+ * Injected by callers (e.g. `prices.latestStoredPrices`); the ledger never imports `prices`.
  */
-export async function listPositions(depotId: string, today: string, db: LedgerDb = prisma): Promise<PositionRecord[]> {
+export type StoredPriceLoader = (securityIds: string[], asOf: string) => Promise<PriceObservation[]>;
+
+export type ListPositionsOptions = { storedPrices?: StoredPriceLoader };
+
+/**
+ * Open Positions of a Depot as of `today` (`YYYY-MM-DD`). Prices come from the core resolver over the
+ * BUY/SELL prices of each Security in any Depot dated on or before `today` and, when `storedPrices` is
+ * given, the stored manual and provider Prices it loads (manual > provider > Transaction, carried
+ * forward). Quantities and prices follow the recorded corporate actions as of `today` (splits; ISIN
+ * changes move lots and prices to the new Security). Read-only.
+ */
+export async function listPositions(
+  depotId: string,
+  today: string,
+  db: LedgerDb = prisma,
+  { storedPrices }: ListPositionsOptions = {},
+): Promise<PositionRecord[]> {
   const rows = await db.transaction.findMany({
     where: { depotId },
     select: { securityId: true, type: true, date: true, sequence: true, quantity: true, amount: true, fee: true },
@@ -48,7 +63,14 @@ export async function listPositions(depotId: string, today: string, db: LedgerDb
     date: row.date,
     sequence: row.sequence,
     price: row.price as string,
+    source: "transaction",
   }));
+  if (storedPrices) {
+    const ids = new Set(securityIds);
+    for (const observation of await storedPrices(securityIds, today)) {
+      if (ids.has(observation.securityId) && observation.date <= today) observations.push(observation);
+    }
+  }
 
   const positions = computePositions(rows, observations, today, actions);
   if (positions.length === 0) return [];

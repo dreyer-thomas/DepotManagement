@@ -14,7 +14,7 @@ function trade(type: "BUY" | "SELL", date: string, sequence: number, quantity: s
 }
 
 const observationsOf = (trades: Trade[]): PriceObservation[] =>
-  trades.map(({ id, securityId, date, sequence, price }) => ({ id, securityId: securityId!, date, sequence, price }));
+  trades.map(({ id, securityId, date, sequence, price }) => ({ id, securityId: securityId!, date, sequence, price, source: "transaction" }));
 
 const TODAY = "2026-10-25";
 

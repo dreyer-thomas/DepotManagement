@@ -59,6 +59,7 @@ model Security {
   /// ISIN changes whose new Security this is.
   isinChangeSources CorporateAction[] @relation("IsinChangeTarget")
   providerMapping   ProviderMapping?
+  prices            Price[]
 }
 
 // Canonical Transaction shape (AD-14). Decimal values are TEXT strings; ordered by (date, sequence).
@@ -131,4 +132,32 @@ model ProviderMapping {
   origin     MappingOrigin
   /// UTC ISO timestamp of the last write.
   updatedAt  String
+  /// Business date the stored provider history starts at (first activity date of the last full
+  /// backfill); null until a full backfill succeeded. Reset when the mapping changes.
+  historyFrom String?
+  /// UTC ISO timestamp of the last successful price fetch.
+  fetchedAt   String?
+  /// Reason of the last failed price fetch (`network`, `not-found`, `currency`, `schema`, `unexpected`); null after a success.
+  fetchError  String?
+}
+
+enum PriceSource {
+  MANUAL
+  PROVIDER
+}
+
+// Owned by the prices module (AD-9). Unadjusted as-traded close per business date; `price` is a TEXT
+// decimal string. Provider rows are replaced by fetches; MANUAL rows are never written by provider code.
+model Price {
+  id         String      @id @default(cuid())
+  securityId String
+  security   Security    @relation(fields: [securityId], references: [id], onDelete: Cascade)
+  /// Business date YYYY-MM-DD (Europe/Berlin).
+  date       String
+  source     PriceSource
+  price      String
+  /// UTC ISO timestamp of the fetch (or entry).
+  fetchedAt  String
+
+  @@unique([securityId, date, source])
 }

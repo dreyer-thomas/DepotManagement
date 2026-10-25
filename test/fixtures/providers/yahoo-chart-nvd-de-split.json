@@ -1,0 +1,172 @@
+{
+  "meta": {
+    "currency": "EUR",
+    "symbol": "NVD.DE",
+    "exchangeName": "GER",
+    "fullExchangeName": "XETRA",
+    "instrumentType": "EQUITY",
+    "firstTradeDate": "2007-12-13T08:00:00.000Z",
+    "regularMarketTime": "2026-10-23T15:35:51.000Z",
+    "hasPrePostMarketData": false,
+    "gmtoffset": 3600,
+    "timezone": "CET",
+    "exchangeTimezoneName": "Europe/Berlin",
+    "regularMarketPrice": 190.08,
+    "regularMarketChangePercent": -0.21,
+    "fulldayPrice": 190.08,
+    "fulldayChange": -0.4,
+    "fulldayChangePercent": -0.21,
+    "fiftyTwoWeekHigh": 216.25,
+    "fiftyTwoWeekLow": 144.54,
+    "regularMarketDayHigh": 192.24,
+    "regularMarketDayLow": 187.78,
+    "regularMarketVolume": 71256,
+    "longName": "NVIDIA Corporation",
+    "shortName": "NVIDIA CORP.                  R",
+    "chartPreviousClose": 100.62,
+    "priceHint": 2,
+    "currentTradingPeriod": {
+      "pre": {
+        "timezone": "CET",
+        "start": "2026-10-26T06:00:00.000Z",
+        "end": "2026-10-26T08:00:00.000Z",
+        "gmtoffset": 3600
+      },
+      "regular": {
+        "timezone": "CET",
+        "start": "2026-10-26T08:00:00.000Z",
+        "end": "2026-10-26T16:30:00.000Z",
+        "gmtoffset": 3600
+      },
+      "post": {
+        "timezone": "CET",
+        "start": "2026-10-26T16:30:00.000Z",
+        "end": "2026-10-26T19:30:00.000Z",
+        "gmtoffset": 3600
+      }
+    },
+    "dataGranularity": "1d",
+    "range": "",
+    "validRanges": [
+      "1d",
+      "5d",
+      "1mo",
+      "3mo",
+      "6mo",
+      "1y",
+      "2y",
+      "5y",
+      "10y",
+      "ytd",
+      "max"
+    ]
+  },
+  "quotes": [
+    {
+      "date": "2024-06-03T07:00:00.000Z",
+      "high": 105.37999725341797,
+      "volume": 688510,
+      "open": 103.4800033569336,
+      "low": 103.0199966430664,
+      "close": 104.27999877929688,
+      "adjclose": 103.93901824951172
+    },
+    {
+      "date": "2024-06-04T07:00:00.000Z",
+      "high": 106.80000305175781,
+      "volume": 575680,
+      "open": 106.0999984741211,
+      "low": 104,
+      "close": 105.05999755859375,
+      "adjclose": 104.71646118164062
+    },
+    {
+      "date": "2024-06-05T07:00:00.000Z",
+      "high": 110.45999908447266,
+      "volume": 638180,
+      "open": 107.04000091552734,
+      "low": 106.80000305175781,
+      "close": 110.36000061035156,
+      "adjclose": 109.9991455078125
+    },
+    {
+      "date": "2024-06-06T07:00:00.000Z",
+      "high": 115.4800033569336,
+      "volume": 1657260,
+      "open": 114.05999755859375,
+      "low": 108.83999633789062,
+      "close": 110.83999633789062,
+      "adjclose": 110.47757720947266
+    },
+    {
+      "date": "2024-06-07T07:00:00.000Z",
+      "high": 112,
+      "volume": 641930,
+      "open": 111.66000366210938,
+      "low": 108.80000305175781,
+      "close": 110.44000244140625,
+      "adjclose": 110.07888793945312
+    },
+    {
+      "date": "2024-06-10T07:00:00.000Z",
+      "high": 114.55999755859375,
+      "volume": 1280810,
+      "open": 114.0999984741211,
+      "low": 109.04000091552734,
+      "close": 114.22000122070312,
+      "adjclose": 113.84652709960938
+    },
+    {
+      "date": "2024-06-11T07:00:00.000Z",
+      "high": 114.55999755859375,
+      "volume": 474627,
+      "open": 113.80000305175781,
+      "low": 111.86000061035156,
+      "close": 112,
+      "adjclose": 111.6435546875
+    },
+    {
+      "date": "2024-06-12T07:00:00.000Z",
+      "high": 117,
+      "volume": 438847,
+      "open": 112.69999694824219,
+      "low": 112.5999984741211,
+      "close": 115.76000213623047,
+      "adjclose": 115.39158630371094
+    },
+    {
+      "date": "2024-06-13T07:00:00.000Z",
+      "high": 120.19999694824219,
+      "volume": 627232,
+      "open": 117.95999908447266,
+      "low": 117.69999694824219,
+      "close": 119.45999908447266,
+      "adjclose": 119.07981872558594
+    },
+    {
+      "date": "2024-06-14T07:00:00.000Z",
+      "high": 124.36000061035156,
+      "volume": 884514,
+      "open": 122.69999694824219,
+      "low": 120.19999694824219,
+      "close": 121.9800033569336,
+      "adjclose": 121.591796875
+    }
+  ],
+  "events": {
+    "dividends": [
+      {
+        "amount": 0.008919,
+        "date": "2024-06-11T07:00:00.000Z"
+      }
+    ],
+    "splits": [
+      {
+        "date": "2024-06-10T07:00:00.000Z",
+        "numerator": 10,
+        "denominator": 1,
+        "splitRatio": "10:1"
+      }
+    ]
+  }
+}

@@ -103,6 +103,13 @@ function rowData(resolution: Exclude<MappingResolution, { status: "error" }>) {
     : { provider: null, symbol: null };
 }
 
+/** Runs `write` in a DB transaction, or directly inside the caller's transaction client. */
+export async function inTransaction<T>(db: PricesDb, write: (tx: PricesDb) => Promise<T>): Promise<T> {
+  const client = db as PricesDb & Partial<Pick<typeof prisma, "$transaction">>;
+  if (typeof client.$transaction === "function") return client.$transaction((tx) => write(tx));
+  return write(db);
+}
+
 function isUniqueViolation(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
 }
@@ -206,7 +213,10 @@ const symbolSchema = z
   .max(MAPPING_SYMBOL_MAX_LENGTH, { error: "symbol-invalid" })
   .regex(/^[A-Za-z0-9.^=_-]+$/, { error: "symbol-invalid" });
 
-/** Saves a manual mapping (origin MANUAL), replacing any existing row of the Security. */
+/**
+ * Saves a manual mapping (origin MANUAL), replacing any existing row of the Security. In the same DB
+ * transaction the Security's PROVIDER Prices are deleted and its fetch state is reset.
+ */
 export async function setMapping(
   securityId: unknown,
   input: { provider: unknown; symbol: unknown },
@@ -218,12 +228,25 @@ export async function setMapping(
   if (!symbol.success) return { ok: false, reason: "symbol-invalid" };
   const security = typeof securityId === "string" && securityId ? await getSecurity(securityId, db) : null;
   if (!security) return { ok: false, reason: "not-found" };
-  const data = { provider: provider.data, symbol: symbol.data, origin: "MANUAL" as const, updatedAt: new Date().toISOString() };
-  const mapping = await db.providerMapping.upsert({
-    where: { securityId: security.id },
-    create: { securityId: security.id, ...data },
-    update: data,
-    select: { provider: true, symbol: true, origin: true },
+  // The fetch state is reset: the next backfill fetches the new symbol's full history.
+  const data = {
+    provider: provider.data,
+    symbol: symbol.data,
+    origin: "MANUAL" as const,
+    updatedAt: new Date().toISOString(),
+    historyFrom: null,
+    fetchedAt: null,
+    fetchError: null,
+  };
+  const mapping = await inTransaction(db, async (tx) => {
+    // Provider Prices of the old symbol go with it; MANUAL Prices stay.
+    await tx.price.deleteMany({ where: { securityId: security.id, source: "PROVIDER" } });
+    return tx.providerMapping.upsert({
+      where: { securityId: security.id },
+      create: { securityId: security.id, ...data },
+      update: data,
+      select: { provider: true, symbol: true, origin: true },
+    });
   });
   return { ok: true, mapping };
 }

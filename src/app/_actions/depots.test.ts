@@ -4,6 +4,8 @@ import { createSessionToken, SESSION_COOKIE } from "@/modules/auth";
 
 const fakes = vi.hoisted(() => ({}) as { current: ReturnType<typeof createRequestFakes> });
 const revalidatePath = vi.hoisted(() => vi.fn());
+/** `after()` from next/server: callbacks are captured, never run (no provider call in tests). */
+const after = vi.hoisted(() => vi.fn());
 const dbFile = await vi.hoisted(async () => {
   const { useMigratedDatabaseForSingleton } = await import("../../../test/helpers/migrated-db-file");
   return useMigratedDatabaseForSingleton();
@@ -14,6 +16,7 @@ vi.mock("next/headers", () => ({
   headers: async () => fakes.current.state.headers,
 }));
 vi.mock("next/cache", () => ({ revalidatePath }));
+vi.mock("next/server", () => ({ after }));
 
 import { prisma } from "@/db";
 import { readFileSync } from "node:fs";
@@ -35,6 +38,7 @@ beforeEach(async () => {
   process.env.SESSION_SECRET = SECRET;
   fakes.current.state.incoming.set(SESSION_COOKIE, await createSessionToken("tester", SECRET));
   revalidatePath.mockClear();
+  after.mockClear();
   await prisma.transaction.deleteMany();
   await prisma.corporateAction.deleteMany();
   await prisma.security.deleteMany();
@@ -173,9 +177,11 @@ describe("archiveDepotAction / unarchiveDepotAction", () => {
       depot: { ...depot, archived: true },
     });
     expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
+    expect(after).not.toHaveBeenCalled();
     revalidatePath.mockClear();
     expect(await unarchiveDepotAction(null, form({ id: depot.id }))).toEqual({ ok: true, depot });
     expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
+    expect(after).toHaveBeenCalledTimes(1);
   });
 
   it("returns depot-not-flat for a Depot with cash and does not revalidate", async () => {
@@ -191,6 +197,7 @@ describe("archiveDepotAction / unarchiveDepotAction", () => {
     expect(await action(null, form({ id: "nope" }))).toEqual({ ok: false, reason: "not-found" });
     expect(await action(null, form({}))).toEqual({ ok: false, reason: "not-found" });
     expect(revalidatePath).not.toHaveBeenCalled();
+    expect(after).not.toHaveBeenCalled();
   });
 
   it.each([archiveDepotAction, unarchiveDepotAction])("returns unauthorized without a session (%#)", async (action) => {
@@ -198,6 +205,7 @@ describe("archiveDepotAction / unarchiveDepotAction", () => {
     fakes.current.state.incoming.clear();
     expect(await action(null, form({ id: depot.id }))).toEqual({ ok: false, reason: "unauthorized" });
     expect(revalidatePath).not.toHaveBeenCalled();
+    expect(after).not.toHaveBeenCalled();
     expect((await listDepots())[0].archived).toBe(false);
   });
 });

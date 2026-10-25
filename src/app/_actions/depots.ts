@@ -15,6 +15,7 @@ import {
   unarchiveDepot,
   type UnarchiveDepotResult,
 } from "@/modules/ledger";
+import { schedulePriceBackfill } from "./price-refresh";
 
 /** Result of a Depot server action; `null` before the first submit. */
 export type DepotActionState = DepotResult | { ok: false; reason: "unauthorized" } | null;
@@ -71,7 +72,11 @@ export async function unarchiveDepotAction(_previous: ArchiveActionState, formDa
   const { id } = idInput.parse({ id: formData.get("id") });
   if (!id) return { ok: false, reason: "not-found" };
   const result = await unarchiveDepot(id);
-  if (result.ok) revalidatePath("/", "layout");
+  if (result.ok) {
+    revalidatePath("/", "layout");
+    // Its Securities may be held again; they were not backfilled while archived.
+    schedulePriceBackfill();
+  }
   return result;
 }
 

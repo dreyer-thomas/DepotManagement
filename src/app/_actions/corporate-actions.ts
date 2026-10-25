@@ -18,6 +18,7 @@ import {
 } from "@/modules/ledger";
 import { ISIN_CHANGE_FIELDS, NEW_SECURITY_MARKER } from "@/app/_components/corporate-actions/form-fields";
 import { newSecurityInput } from "./new-security-input";
+import { schedulePriceBackfill, schedulePriceRefetch } from "./price-refresh";
 
 type Unauthorized = { ok: false; reason: "unauthorized" };
 
@@ -42,7 +43,7 @@ const UNAUTHORIZED = { ok: false, reason: "unauthorized" } as const;
 
 /**
  * Records a split of `securityId` through the ledger, or edits split `splitId` when given (date and
- * ratio only). Revalidates on success only.
+ * ratio only). Revalidates and schedules a price history refetch of the Security on success only.
  */
 export async function saveSplitAction(_previous: SplitActionState, formData: FormData): Promise<SplitActionState> {
   if (!(await getSession())) return UNAUTHORIZED;
@@ -55,15 +56,21 @@ export async function saveSplitAction(_previous: SplitActionState, formData: For
   const result = form.splitId
     ? await updateSplit(form.splitId, { date: form.date, ratio: form.ratio })
     : await recordSplit({ securityId: form.securityId, date: form.date, ratio: form.ratio });
-  if (result.ok) revalidatePath("/", "layout");
+  if (result.ok) {
+    revalidatePath("/", "layout");
+    schedulePriceRefetch(result.split.security.id);
+  }
   return result;
 }
 
-/** Deletes split `id` through the ledger. Revalidates on success only. */
+/** Deletes split `id` through the ledger. Revalidates and schedules a price history refetch on success only. */
 export async function deleteSplitAction(id: string): Promise<DeleteSplitActionState> {
   if (!(await getSession())) return UNAUTHORIZED;
   const result = await deleteSplit(typeof id === "string" ? id : "");
-  if (result.ok) revalidatePath("/", "layout");
+  if (result.ok) {
+    revalidatePath("/", "layout");
+    schedulePriceRefetch(result.split.security.id);
+  }
   return result;
 }
 
@@ -83,7 +90,8 @@ const isinChangeForm = z.object({
 /**
  * Records an ISIN change of `oldSecurityId` through the ledger (new Security selected by id, or
  * created from the "Neue Security anlegen" fields), or edits ISIN change `isinChangeId` when given
- * (date and quantities only). Quantities are German decimals. Revalidates on success only.
+ * (date and quantities only). Quantities are German decimals. Revalidates and schedules a price backfill
+ * on success only.
  */
 export async function saveIsinChangeAction(
   _previous: IsinChangeActionState,
@@ -108,14 +116,20 @@ export async function saveIsinChangeAction(
             ? newSecurityInput(form.securityIdentifier, form.securityName, form.assetType)
             : { id: form.newSecurityId },
       });
-  if (result.ok) revalidatePath("/", "layout");
+  if (result.ok) {
+    revalidatePath("/", "layout");
+    schedulePriceBackfill();
+  }
   return result;
 }
 
-/** Deletes ISIN change `id` through the ledger. Revalidates on success only. */
+/** Deletes ISIN change `id` through the ledger. Revalidates and schedules a price backfill on success only. */
 export async function deleteIsinChangeAction(id: string): Promise<DeleteIsinChangeActionState> {
   if (!(await getSession())) return UNAUTHORIZED;
   const result = await deleteIsinChange(typeof id === "string" ? id : "");
-  if (result.ok) revalidatePath("/", "layout");
+  if (result.ok) {
+    revalidatePath("/", "layout");
+    schedulePriceBackfill();
+  }
   return result;
 }

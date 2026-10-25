@@ -364,6 +364,35 @@ describe("setMapping", () => {
     expect(await rows()).toEqual([]);
   });
 
+  it("deletes the Security's PROVIDER Prices (MANUAL ones stay) and resets the fetch state", async () => {
+    const msci = await security({ isin: MSCI_WORLD }, "iShares Core MSCI World", "ETF");
+    await db().providerMapping.create({
+      data: {
+        securityId: msci.id,
+        provider: "YAHOO",
+        symbol: "EUNL.DE",
+        origin: "AUTO",
+        updatedAt: NOW.toISOString(),
+        historyFrom: "2024-01-02",
+        fetchedAt: NOW.toISOString(),
+        fetchError: "network",
+      },
+    });
+    const price = (date: string, source: "MANUAL" | "PROVIDER") =>
+      db().price.create({ data: { securityId: msci.id, date, source, price: "100", fetchedAt: NOW.toISOString() } });
+    await price("2026-10-20", "PROVIDER");
+    await price("2026-10-21", "PROVIDER");
+    await price("2026-10-20", "MANUAL");
+    expect((await setMapping(msci.id, { provider: "YAHOO", symbol: "IWDA.DE" }, db())).ok).toBe(true);
+    expect(await db().price.findMany({ select: { date: true, source: true } })).toEqual([{ date: "2026-10-20", source: "MANUAL" }]);
+    expect(await db().providerMapping.findUnique({ where: { securityId: msci.id } })).toMatchObject({
+      symbol: "IWDA.DE",
+      historyFrom: null,
+      fetchedAt: null,
+      fetchError: null,
+    });
+  });
+
   it("accepts 40-character symbols and CoinGecko ids", async () => {
     const btc = await security({ cryptoSymbol: "BTC" }, "Bitcoin", "CRYPTO");
     expect((await setMapping(btc.id, { provider: "COINGECKO", symbol: "bitcoin" }, db())).ok).toBe(true);

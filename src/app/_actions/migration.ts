@@ -14,6 +14,7 @@ import {
   type PreviewResult,
   recordOpeningBalance,
 } from "@/modules/migration";
+import { schedulePriceBackfill } from "./price-refresh";
 
 type Unauthorized = { ok: false; reason: "unauthorized" };
 type FileFailure = { ok: false; reason: "file-missing" | "file-too-large" };
@@ -74,7 +75,8 @@ function parseDecisions(value: FormDataEntryValue | null) {
 
 /**
  * Books the uploaded Parqet CSV into the chosen Depot with the user's `decisions` (JSON). The server
- * re-reads the file and re-checks it against the current ledger. Revalidates after a booking.
+ * re-reads the file and re-checks it against the current ledger. Revalidates and schedules a price
+ * backfill after a booking.
  */
 export async function confirmParqetAction(formData: FormData): Promise<ConfirmParqetActionResult> {
   if (!(await getSession())) return UNAUTHORIZED;
@@ -83,7 +85,10 @@ export async function confirmParqetAction(formData: FormData): Promise<ConfirmPa
   const decisions = parseDecisions(formData.get("decisions"));
   if (!decisions) return { ok: false, reason: "decisions-invalid" };
   const result = await confirmParqetMigration(read.depotId, read.text, decisions);
-  if (result.ok) revalidatePath("/", "layout");
+  if (result.ok) {
+    revalidatePath("/", "layout");
+    schedulePriceBackfill();
+  }
   return result;
 }
 
@@ -96,7 +101,8 @@ const openingForm = z.object({
 
 /**
  * Books the opening cash difference for a migrated file without Cash rows: `balance` is the broker's
- * balance at `asOf` (German decimal input), booked on `date`. Revalidates when something was booked.
+ * balance at `asOf` (German decimal input), booked on `date`. Revalidates and schedules a price backfill
+ * when something was booked.
  */
 export async function openingBalanceAction(formData: FormData): Promise<OpeningBalanceActionResult> {
   if (!(await getSession())) return UNAUTHORIZED;
@@ -104,6 +110,9 @@ export async function openingBalanceAction(formData: FormData): Promise<OpeningB
   const balance = parseDecimalInput(form.balance);
   if (!balance.ok || balance.value === "") return { ok: false, reason: "balance-invalid" };
   const result = await recordOpeningBalance({ depotId: form.depotId, date: form.date, asOf: form.asOf, balance: balance.value });
-  if (result.ok && result.transaction) revalidatePath("/", "layout");
+  if (result.ok && result.transaction) {
+    revalidatePath("/", "layout");
+    schedulePriceBackfill();
+  }
   return result;
 }

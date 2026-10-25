@@ -235,6 +235,27 @@ describe("Depot detail page", () => {
     expect((html.match(/<button[^>]*>Neue Buchung/g) ?? []).length).toBe(1);
   });
 
+  it("values Positions with stored Prices: manual over provider over the Transaction price", async () => {
+    const { id } = await depot();
+    const buy = await recordTrade({
+      depotId: id,
+      type: "BUY",
+      date: "2026-01-10",
+      quantity: "10",
+      price: "100",
+      security: { new: { isin: "US0378331005", name: "Apple Inc.", assetType: "STOCK" } },
+    });
+    if (!buy.ok) throw new Error("setup failed");
+    const securityId = buy.transaction.security!.id;
+    const price = (date: string, source: "MANUAL" | "PROVIDER", value: string) =>
+      prisma.price.create({ data: { securityId, date, source, price: value, fetchedAt: "2026-01-12T18:00:00.000Z" } });
+
+    await price("2026-01-12", "PROVIDER", "110");
+    expect(renderText(await DepotDetailPage(props(id)))).toContain("110,00\u00a0€ 1.100,00\u00a0€ +100,00\u00a0€");
+    await price("2026-01-12", "MANUAL", "115");
+    expect(renderText(await DepotDetailPage(props(id)))).toContain("115,00\u00a0€ 1.150,00\u00a0€ +150,00\u00a0€");
+  });
+
   it("orders Positions by value descending and leaves out future-dated buys", async () => {
     const { id } = await depot();
     await recordTrade({

@@ -1,6 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createTestDatabase, type TestDatabase } from "../../../test/helpers/test-db";
-import { allowedAssetTypes, changeSecurityType, ensureSecurity, listSecurities } from "./index";
+import {
+  allowedAssetTypes,
+  changeSecurityType,
+  createDepot,
+  ensureSecurity,
+  firstActivityDates,
+  listSecurities,
+  recordIsinChange,
+  recordTrade,
+} from "./index";
 import { hasValidIsinCheckDigit } from "./securities";
 
 let testDb: TestDatabase;
@@ -143,5 +152,36 @@ describe("allowedAssetTypes", () => {
   it("offers the ISIN types for an ISIN Security and CRYPTO for a crypto Security, never UNCLASSIFIED", () => {
     expect(allowedAssetTypes({ isin: "IE00B4L5Y983", cryptoSymbol: null })).toEqual(["STOCK", "ETF", "FUND", "CERTIFICATE"]);
     expect(allowedAssetTypes({ isin: null, cryptoSymbol: "BTC" })).toEqual(["CRYPTO"]);
+  });
+});
+
+describe("firstActivityDates", () => {
+  it("is the earliest Transaction date (any Depot) or ISIN change date into the Security", async () => {
+    const depot = await createDepot({ name: "A", broker: "COMDIRECT" }, db());
+    const other = await createDepot({ name: "B", broker: "COMDIRECT" }, db());
+    const apple = await ensureSecurity({ isin: "US0378331005" }, { name: "Apple", assetType: "STOCK" }, db());
+    const idle = await ensureSecurity({ isin: "DE0007164600" }, { name: "SAP", assetType: "STOCK" }, db());
+    if (!depot.ok || !other.ok || !apple.ok || !idle.ok) throw new Error("setup failed");
+    const appleId = apple.security.id;
+    const buy = (depotId: string, date: string) =>
+      recordTrade({ depotId, type: "BUY", date, quantity: "2", price: "10", security: { id: appleId } }, db());
+    expect((await buy(depot.depot.id, "2024-05-02")).ok).toBe(true);
+    expect((await buy(other.depot.id, "2024-03-04")).ok).toBe(true);
+    const changed = await recordIsinChange(
+      {
+        oldSecurityId: appleId,
+        newSecurity: { new: { isin: "DE000SYN0013", name: "Neu", assetType: "STOCK" } },
+        date: "2024-06-03",
+        oldQuantity: "1",
+        newQuantity: "1",
+      },
+      db(),
+    );
+    if (!changed.ok) throw new Error(changed.reason);
+    const newId = changed.isinChange.newSecurity.id;
+
+    const dates = await firstActivityDates([appleId, newId, idle.security.id], db());
+    expect(Object.fromEntries(dates)).toEqual({ [appleId]: "2024-03-04", [newId]: "2024-06-03" });
+    expect(await firstActivityDates([], db())).toEqual(new Map());
   });
 });

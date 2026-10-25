@@ -1,0 +1,75 @@
+{
+  "meta": {
+    "currency": "EUR",
+    "symbol": "SAP.DE",
+    "exchangeName": "GER",
+    "fullExchangeName": "XETRA",
+    "instrumentType": "EQUITY",
+    "firstTradeDate": "1998-04-09T07:00:00.000Z",
+    "regularMarketTime": "2026-10-23T15:35:26.000Z",
+    "hasPrePostMarketData": false,
+    "gmtoffset": 3600,
+    "timezone": "CET",
+    "exchangeTimezoneName": "Europe/Berlin",
+    "regularMarketPrice": 214.4,
+    "regularMarketChangePercent": -0.441,
+    "fulldayPrice": 214.4,
+    "fulldayChange": -0.95,
+    "fulldayChangePercent": -0.441,
+    "fiftyTwoWeekHigh": 235.8,
+    "fiftyTwoWeekLow": 127.5,
+    "regularMarketDayHigh": 215.85,
+    "regularMarketDayLow": 210.05,
+    "regularMarketVolume": 2056249,
+    "longName": "SAP SE",
+    "shortName": "SAP SE                        I",
+    "chartPreviousClose": 214.4,
+    "priceHint": 2,
+    "currentTradingPeriod": {
+      "pre": {
+        "timezone": "CET",
+        "end": "2026-10-26T08:00:00.000Z",
+        "start": "2026-10-26T06:00:00.000Z",
+        "gmtoffset": 3600
+      },
+      "regular": {
+        "timezone": "CET",
+        "end": "2026-10-26T16:30:00.000Z",
+        "start": "2026-10-26T08:00:00.000Z",
+        "gmtoffset": 3600
+      },
+      "post": {
+        "timezone": "CET",
+        "end": "2026-10-26T19:30:00.000Z",
+        "start": "2026-10-26T16:30:00.000Z",
+        "gmtoffset": 3600
+      }
+    },
+    "dataGranularity": "1d",
+    "range": "",
+    "validRanges": [
+      "1d",
+      "5d",
+      "1mo",
+      "3mo",
+      "6mo",
+      "1y",
+      "2y",
+      "5y",
+      "10y",
+      "ytd",
+      "max"
+    ]
+  },
+  "quotes": [
+    {
+      "date": "2026-10-23T15:35:26.000Z",
+      "high": 215.85000610351562,
+      "volume": 2056249,
+      "open": 213.5500030517578,
+      "low": 210.0500030517578,
+      "close": 214.39999389648438,
+      "adjclose": 214.39999389648438
+    }
+  ]
+}

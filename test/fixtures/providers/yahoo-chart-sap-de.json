@@ -1,0 +1,147 @@
+{
+  "meta": {
+    "currency": "EUR",
+    "symbol": "SAP.DE",
+    "exchangeName": "GER",
+    "fullExchangeName": "XETRA",
+    "instrumentType": "EQUITY",
+    "firstTradeDate": "1998-04-09T07:00:00.000Z",
+    "regularMarketTime": "2026-10-23T15:35:26.000Z",
+    "hasPrePostMarketData": false,
+    "gmtoffset": 3600,
+    "timezone": "CET",
+    "exchangeTimezoneName": "Europe/Berlin",
+    "regularMarketPrice": 214.4,
+    "regularMarketChangePercent": -0.441,
+    "fulldayPrice": 214.4,
+    "fulldayChange": -0.95,
+    "fulldayChangePercent": -0.441,
+    "fiftyTwoWeekHigh": 235.8,
+    "fiftyTwoWeekLow": 127.5,
+    "regularMarketDayHigh": 215.85,
+    "regularMarketDayLow": 210.05,
+    "regularMarketVolume": 2056249,
+    "longName": "SAP SE",
+    "shortName": "SAP SE                        I",
+    "chartPreviousClose": 194.46,
+    "priceHint": 2,
+    "currentTradingPeriod": {
+      "pre": {
+        "timezone": "CET",
+        "start": "2026-10-26T06:00:00.000Z",
+        "end": "2026-10-26T08:00:00.000Z",
+        "gmtoffset": 3600
+      },
+      "regular": {
+        "timezone": "CET",
+        "start": "2026-10-26T08:00:00.000Z",
+        "end": "2026-10-26T16:30:00.000Z",
+        "gmtoffset": 3600
+      },
+      "post": {
+        "timezone": "CET",
+        "start": "2026-10-26T16:30:00.000Z",
+        "end": "2026-10-26T19:30:00.000Z",
+        "gmtoffset": 3600
+      }
+    },
+    "dataGranularity": "1d",
+    "range": "",
+    "validRanges": [
+      "1d",
+      "5d",
+      "1mo",
+      "3mo",
+      "6mo",
+      "1y",
+      "2y",
+      "5y",
+      "10y",
+      "ytd",
+      "max"
+    ]
+  },
+  "quotes": [
+    {
+      "date": "2026-10-13T07:00:00.000Z",
+      "high": 198.17999267578125,
+      "volume": 1961267,
+      "open": 196,
+      "low": 194.02000427246094,
+      "close": 197.27999877929688,
+      "adjclose": 197.27999877929688
+    },
+    {
+      "date": "2026-10-14T07:00:00.000Z",
+      "high": 199.36000061035156,
+      "volume": 1900721,
+      "open": 196.60000610351562,
+      "low": 195.25999450683594,
+      "close": 196.94000244140625,
+      "adjclose": 196.94000244140625
+    },
+    {
+      "date": "2026-10-15T07:00:00.000Z",
+      "high": 203,
+      "volume": 2846911,
+      "open": 199.47999572753906,
+      "low": 196.97999572753906,
+      "close": 201.25,
+      "adjclose": 201.25
+    },
+    {
+      "date": "2026-10-16T07:00:00.000Z",
+      "high": 204.1999969482422,
+      "volume": 2546811,
+      "open": 200.60000610351562,
+      "low": 198.67999267578125,
+      "close": 199.22000122070312,
+      "adjclose": 199.22000122070312
+    },
+    {
+      "date": "2026-10-19T07:00:00.000Z",
+      "high": 200.8000030517578,
+      "volume": 1749869,
+      "open": 199.55999755859375,
+      "low": 197.32000732421875,
+      "close": 199.83999633789062,
+      "adjclose": 199.83999633789062
+    },
+    {
+      "date": "2026-10-20T07:00:00.000Z",
+      "high": 203.4499969482422,
+      "volume": 1673840,
+      "open": 201.3000030517578,
+      "low": 199.4600067138672,
+      "close": 201.5500030517578,
+      "adjclose": 201.5500030517578
+    },
+    {
+      "date": "2026-10-21T07:00:00.000Z",
+      "high": 208.64999389648438,
+      "volume": 2738671,
+      "open": 201.8000030517578,
+      "low": 200,
+      "close": 208.64999389648438,
+      "adjclose": 208.64999389648438
+    },
+    {
+      "date": "2026-10-22T07:00:00.000Z",
+      "high": 216.64999389648438,
+      "volume": 3403741,
+      "open": 207.75,
+      "low": 205.10000610351562,
+      "close": 215.35000610351562,
+      "adjclose": 215.35000610351562
+    },
+    {
+      "date": "2026-10-23T07:00:00.000Z",
+      "high": 215.85000610351562,
+      "volume": 2056249,
+      "open": 213.5500030517578,
+      "low": 210.0500030517578,
+      "close": 214.39999389648438,
+      "adjclose": 214.39999389648438
+    }
+  ]
+}

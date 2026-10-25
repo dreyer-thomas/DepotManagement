@@ -1,0 +1,111 @@
+{
+  "meta": {
+    "currency": "USD",
+    "symbol": "AAPL",
+    "exchangeName": "NMS",
+    "fullExchangeName": "NasdaqGS",
+    "instrumentType": "EQUITY",
+    "firstTradeDate": "1980-12-12T14:30:00.000Z",
+    "regularMarketTime": "2026-10-23T20:00:01.000Z",
+    "hasPrePostMarketData": true,
+    "gmtoffset": -14400,
+    "timezone": "EDT",
+    "exchangeTimezoneName": "America/New_York",
+    "regularMarketPrice": 347.725,
+    "regularMarketChangePercent": -0.142,
+    "fulldayPrice": 347.725,
+    "fulldayChange": -0.61,
+    "fulldayChangePercent": -0.175,
+    "fiftyTwoWeekHigh": 351.73,
+    "fiftyTwoWeekLow": 243.42,
+    "regularMarketDayHigh": 351.73,
+    "regularMarketDayLow": 345.75,
+    "regularMarketVolume": 39539690,
+    "longName": "Apple Inc.",
+    "shortName": "Apple Inc.",
+    "chartPreviousClose": 343.46,
+    "priceHint": 2,
+    "currentTradingPeriod": {
+      "pre": {
+        "timezone": "EDT",
+        "end": "2026-10-23T13:30:00.000Z",
+        "start": "2026-10-23T08:00:00.000Z",
+        "gmtoffset": -14400
+      },
+      "regular": {
+        "timezone": "EDT",
+        "end": "2026-10-23T20:00:00.000Z",
+        "start": "2026-10-23T13:30:00.000Z",
+        "gmtoffset": -14400
+      },
+      "post": {
+        "timezone": "EDT",
+        "end": "2026-10-24T00:00:00.000Z",
+        "start": "2026-10-23T20:00:00.000Z",
+        "gmtoffset": -14400
+      }
+    },
+    "dataGranularity": "1d",
+    "range": "",
+    "validRanges": [
+      "1d",
+      "5d",
+      "1mo",
+      "3mo",
+      "6mo",
+      "1y",
+      "2y",
+      "5y",
+      "10y",
+      "ytd",
+      "max"
+    ]
+  },
+  "quotes": [
+    {
+      "date": "2026-10-19T13:30:00.000Z",
+      "high": 346,
+      "volume": 34573200,
+      "open": 340.7799987792969,
+      "low": 340.1199951171875,
+      "close": 342.94000244140625,
+      "adjclose": 342.94000244140625
+    },
+    {
+      "date": "2026-10-20T13:30:00.000Z",
+      "high": 343.05999755859375,
+      "volume": 35851400,
+      "open": 339.8599853515625,
+      "low": 338.70001220703125,
+      "close": 339.5,
+      "adjclose": 339.5
+    },
+    {
+      "date": "2026-10-21T13:30:00.000Z",
+      "high": 345.25,
+      "volume": 35614100,
+      "open": 339.3599853515625,
+      "low": 338.8299865722656,
+      "close": 343.989990234375,
+      "adjclose": 343.989990234375
+    },
+    {
+      "date": "2026-10-22T13:30:00.000Z",
+      "high": 348.3599853515625,
+      "volume": 46898900,
+      "open": 344.94000244140625,
+      "low": 342.2799987792969,
+      "close": 348.2200012207031,
+      "adjclose": 348.2200012207031
+    },
+    {
+      "date": "2026-10-23T13:30:00.000Z",
+      "high": 351.7300109863281,
+      "volume": 39496500,
+      "open": 349.1199951171875,
+      "low": 345.75,
+      "close": 347.7300109863281,
+      "adjclose": 347.7300109863281
+    }
+  ]
+}

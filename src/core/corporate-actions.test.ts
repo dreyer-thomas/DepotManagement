@@ -9,6 +9,7 @@ import {
   replayEvents,
   type Split,
   splitAdjustment,
+  unadjustSplitPrice,
 } from "./corporate-actions";
 import { ExactDecimal } from "./decimal";
 
@@ -119,5 +120,30 @@ describe("adjustedPrice", () => {
       isinChanges: [change("2024-03-01", "10", "5"), change("2024-05-01", "2", "1", "B", "C")],
     };
     expect(adjustedPrice("A", "2024-01-01", "100", chain, ALL_ACTIONS)).toEqual({ securityId: "C", price: "400" });
+  });
+});
+
+describe("unadjustSplitPrice", () => {
+  const split = (date: string, ratioOld: string, ratioNew: string, securityId = "s1"): Split => ({ securityId, date, ratioOld, ratioNew });
+
+  it("multiplies a close before a 1:10 split by 10; the split date itself is as traded", () => {
+    const splits = [split("2024-06-10", "1", "10")];
+    expect(unadjustSplitPrice("s1", "2024-06-07", "110.44000244140625", splits)).toBe("1104.4");
+    expect(unadjustSplitPrice("s1", "2024-06-10", "114.22000122070312", splits)).toBe("114.22");
+  });
+
+  it("combines every later split, ignores other Securities, and handles reverse splits", () => {
+    const splits = [split("2024-01-10", "1", "4"), split("2024-06-10", "1", "2"), split("2024-03-01", "1", "100", "other")];
+    expect(unadjustSplitPrice("s1", "2024-01-09", "10", splits)).toBe("80");
+    expect(unadjustSplitPrice("s1", "2024-02-01", "10", splits)).toBe("20");
+    expect(unadjustSplitPrice("s1", "2024-07-01", "10", splits)).toBe("10");
+    expect(unadjustSplitPrice("s1", "2024-01-09", "30", [split("2024-01-10", "10", "1")])).toBe("3");
+    expect(unadjustSplitPrice("s1", "2024-01-09", "10", [split("2024-01-10", "3", "1")])).toBe("3.3333");
+  });
+
+  it("rounds half-up to 4 decimals also without a split", () => {
+    expect(unadjustSplitPrice("s1", "2024-01-09", "197.27999877929688", [])).toBe("197.28");
+    expect(unadjustSplitPrice("s1", "2024-01-09", "1.00005", [])).toBe("1.0001");
+    expect(unadjustSplitPrice("s1", "2024-01-09", "1.00004999", [])).toBe("1");
   });
 });

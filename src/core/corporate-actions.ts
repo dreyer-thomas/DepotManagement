@@ -299,3 +299,20 @@ export function adjustedPrice(
   }
   return { securityId: current, price: changed ? canonicalDecimal(num.dividedBy(den)) : price };
 }
+
+/** Decimal places of a stored (unadjusted) provider Price. */
+export const STORED_PRICE_DECIMALS = 4;
+
+/**
+ * Undoes provider split adjustment (AD-9): a split-adjusted close of `securityId` on `date` back to the
+ * as-traded close — × `new/old` of every recorded split of that Security dated after `date` — rounded
+ * half-up to 4 decimal places (always, also without a split).
+ */
+export function unadjustSplitPrice(securityId: string, date: string, price: string, splits: readonly Split[]): string {
+  let value = new ExactDecimal(price);
+  for (const split of splits) {
+    if (split.securityId !== securityId || !(date < split.date)) continue;
+    value = value.times(split.ratioNew).dividedBy(split.ratioOld);
+  }
+  return canonicalDecimal(value.toDecimalPlaces(STORED_PRICE_DECIMALS, ExactDecimal.ROUND_HALF_UP));
+}

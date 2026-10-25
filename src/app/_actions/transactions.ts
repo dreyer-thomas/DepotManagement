@@ -19,6 +19,7 @@ import {
   type UpdateTransactionResult,
 } from "@/modules/ledger";
 import { newSecurityInput } from "./new-security-input";
+import { schedulePriceBackfill } from "./price-refresh";
 
 type Unauthorized = { ok: false; reason: "unauthorized" };
 
@@ -85,7 +86,7 @@ function figures(type: string, values: Partial<Record<DecimalField, string>>): P
 
 /**
  * Books the submitted Transaction through the ledger: a new one without `transactionId`, else an edit
- * of that Transaction. `allowDuplicate` = "1" confirms a possible duplicate. Revalidates on success only.
+ * of that Transaction. `allowDuplicate` = "1" confirms a possible duplicate. Revalidates and schedules a price backfill on success only.
  */
 export async function saveTransactionAction(
   _previous: TransactionActionState,
@@ -117,14 +118,20 @@ export async function saveTransactionAction(
   const result = form.transactionId
     ? await updateTransaction(form.transactionId, input)
     : await recordTransaction(input);
-  if (result.ok) revalidatePath("/", "layout");
+  if (result.ok) {
+    revalidatePath("/", "layout");
+    schedulePriceBackfill();
+  }
   return result;
 }
 
-/** Deletes Transaction `id` through the ledger. Revalidates on success only. */
+/** Deletes Transaction `id` through the ledger. Revalidates and schedules a price backfill on success only. */
 export async function deleteTransactionAction(id: string): Promise<DeleteTransactionActionState> {
   if (!(await getSession())) return UNAUTHORIZED;
   const result = await deleteTransaction(typeof id === "string" ? id : "");
-  if (result.ok) revalidatePath("/", "layout");
+  if (result.ok) {
+    revalidatePath("/", "layout");
+    schedulePriceBackfill();
+  }
   return result;
 }

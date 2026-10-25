@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { businessDate, isBusinessDate } from "./dates";
+import { addDays, businessDate, isBusinessDate } from "./dates";
 
 describe("isBusinessDate", () => {
   it.each(["2026-10-25", "2024-02-29", "2000-02-29", "2026-12-31"])("accepts %s", (value) => {
@@ -24,5 +24,24 @@ describe("businessDate", () => {
     expect(businessDate(at("2026-10-25T23:30:00Z"))).toBe("2026-10-26");
     expect(businessDate(at("2026-07-01T22:00:00Z"))).toBe("2026-07-02");
     expect(businessDate(at("2026-07-01T21:59:00Z"))).toBe("2026-07-01");
+  });
+});
+
+describe("addDays", () => {
+  it("adds and subtracts calendar days across month, year and leap boundaries", () => {
+    expect(addDays("2026-10-31", 1)).toBe("2026-11-01");
+    expect(addDays("2026-10-20", -7)).toBe("2026-10-13");
+    expect(addDays("2024-02-28", 1)).toBe("2024-02-29");
+    expect(addDays("2025-12-31", 1)).toBe("2026-01-01");
+    expect(addDays("2026-03-01", -1)).toBe("2026-02-28");
+    expect(addDays("2026-10-25", 0)).toBe("2026-10-25");
+    expect(addDays("2000-02-28", 1)).toBe("2000-02-29");
+    expect(addDays("1900-02-28", 1)).toBe("1900-03-01");
+    expect(addDays("1970-01-01", -1)).toBe("1969-12-31");
+    expect(addDays("2024-03-04", 965)).toBe("2026-10-25");
+  });
+
+  it("rejects a non-business date", () => {
+    expect(() => addDays("2026-02-30", 1)).toThrow(RangeError);
   });
 });

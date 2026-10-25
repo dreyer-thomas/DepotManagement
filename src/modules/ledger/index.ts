@@ -57,6 +57,7 @@ export {
   changeSecurityType,
   cryptoSymbolSchema,
   ensureSecurity,
+  firstActivityDates,
   getSecurity,
   ISIN_ASSET_TYPES,
   isinSchema,
@@ -73,7 +74,7 @@ export type {
   SecuritySummary,
 } from "./securities";
 export { listPositions, listRealizedSales } from "./positions";
-export type { PositionRecord, RealizedSaleRecord } from "./positions";
+export type { ListPositionsOptions, PositionRecord, RealizedSaleRecord, StoredPriceLoader } from "./positions";
 export { BATCH_TIMEOUT_MS, recordBatch } from "./batch";
 export type {
   BatchEntry,

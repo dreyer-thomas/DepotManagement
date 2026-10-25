@@ -1,4 +1,4 @@
-// The prices module owns ProviderMapping (and, from story 3.2, Prices). Other code uses only this entry point.
+// The prices module owns ProviderMapping and Price. Other code uses only this entry point.
 export {
   listSecuritiesWithMappings,
   MAPPING_SYMBOL_MAX_LENGTH,
@@ -22,3 +22,9 @@ export type {
   SetMappingFailureReason,
   SetMappingResult,
 } from "./mappings";
+export { backfillHeldPrices, latestStoredPrices, REFRESH_OVERLAP_DAYS, refetchPriceHistory, refreshPrices } from "./prices";
+export type { PriceDeps, PriceRunFailure, PriceRunResult } from "./prices";
+export { PRICE_FETCH_FAILURES } from "./providers/types";
+export type { DailyClose, PriceAdapter, PriceFetch, PriceFetchContext, PriceFetchFailure } from "./providers/types";
+export { yahooPrices } from "./providers/yahoo";
+export type { YahooChart } from "./providers/yahoo";

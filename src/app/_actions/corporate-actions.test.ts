@@ -4,6 +4,8 @@ import { createSessionToken, SESSION_COOKIE } from "@/modules/auth";
 
 const fakes = vi.hoisted(() => ({}) as { current: ReturnType<typeof createRequestFakes> });
 const revalidatePath = vi.hoisted(() => vi.fn());
+/** Background price jobs: recorded, never run (no provider call in tests). */
+const priceJobs = vi.hoisted(() => ({ schedulePriceBackfill: vi.fn(), schedulePriceRefetch: vi.fn() }));
 const dbFile = await vi.hoisted(async () => {
   const { useMigratedDatabaseForSingleton } = await import("../../../test/helpers/migrated-db-file");
   return useMigratedDatabaseForSingleton();
@@ -14,6 +16,7 @@ vi.mock("next/headers", () => ({
   headers: async () => fakes.current.state.headers,
 }));
 vi.mock("next/cache", () => ({ revalidatePath }));
+vi.mock("./price-refresh", () => priceJobs);
 
 import { prisma } from "@/db";
 import { createDepot, ensureSecurity, listIsinChanges, listSplits, recordTransaction } from "@/modules/ledger";
@@ -41,6 +44,8 @@ beforeEach(async () => {
   depotId = depot.depot.id;
   securityId = security.security.id;
   revalidatePath.mockClear();
+  priceJobs.schedulePriceBackfill.mockClear();
+  priceJobs.schedulePriceRefetch.mockClear();
 });
 
 afterEach(() => {
@@ -63,6 +68,8 @@ describe("saveSplitAction", () => {
     const result = await saveSplitAction(null, form({}));
     expect(result).toMatchObject({ ok: true, split: { date: "2024-03-01", ratioOld: "1", ratioNew: "4" } });
     expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
+    expect(priceJobs.schedulePriceRefetch).toHaveBeenCalledExactlyOnceWith(securityId);
+    expect(priceJobs.schedulePriceBackfill).not.toHaveBeenCalled();
     expect(await listSplits()).toHaveLength(1);
   });
 
@@ -71,12 +78,15 @@ describe("saveSplitAction", () => {
     if (!created?.ok) throw new Error("setup failed");
     const result = await saveSplitAction(null, form({ splitId: created.split.id, date: "2024-04-01", ratio: "1 : 2" }));
     expect(result).toMatchObject({ ok: true, split: { id: created.split.id, date: "2024-04-01", ratioNew: "2" } });
+    expect(priceJobs.schedulePriceRefetch).toHaveBeenCalledTimes(2);
+    expect(priceJobs.schedulePriceRefetch).toHaveBeenLastCalledWith(securityId);
   });
 
   it("returns the ledger reason without revalidating", async () => {
     expect(await saveSplitAction(null, form({ ratio: "abc" }))).toEqual({ ok: false, reason: "ratio-invalid" });
     expect(await saveSplitAction(null, form({ securityId: "" }))).toEqual({ ok: false, reason: "security-not-found" });
     expect(revalidatePath).not.toHaveBeenCalled();
+    expect(priceJobs.schedulePriceRefetch).not.toHaveBeenCalled();
   });
 
   it("returns unauthorized without a session and writes nothing", async () => {
@@ -96,6 +106,7 @@ describe("deleteSplitAction", () => {
     await recordTransaction({ ...base, type: "BUY", date: "2024-01-02", quantity: "10" });
     await recordTransaction({ ...base, type: "SELL", date: "2024-05-01", quantity: "40" });
     revalidatePath.mockClear();
+    priceJobs.schedulePriceRefetch.mockClear();
     expect(await deleteSplitAction(created.split.id)).toEqual({
       ok: false,
       reason: "later-sell-exceeds-holding",
@@ -103,8 +114,10 @@ describe("deleteSplitAction", () => {
     });
     expect(revalidatePath).not.toHaveBeenCalled();
     await prisma.transaction.deleteMany();
+    expect(priceJobs.schedulePriceRefetch).not.toHaveBeenCalled();
     expect(await deleteSplitAction(created.split.id)).toMatchObject({ ok: true });
     expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
+    expect(priceJobs.schedulePriceRefetch).toHaveBeenCalledExactlyOnceWith(securityId);
     expect(await listSplits()).toEqual([]);
   });
 });
@@ -133,6 +146,7 @@ describe("saveIsinChangeAction", () => {
       isinChange: { date: "2024-03-01", oldQuantity: "10", newQuantity: "2.5", newSecurity: { isin: "US5949181045" } },
     });
     expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
+    expect(priceJobs.schedulePriceBackfill).toHaveBeenCalledTimes(1);
     expect(await listIsinChanges()).toHaveLength(1);
   });
 
@@ -142,11 +156,13 @@ describe("saveIsinChangeAction", () => {
     const created = await saveIsinChangeAction(null, isinForm({ newSecurity: "", newSecurityId: other.security.id }));
     if (!created?.ok) throw new Error("setup failed");
     expect(created.isinChange.newSecurity.id).toBe(other.security.id);
+    priceJobs.schedulePriceBackfill.mockClear();
     const edited = await saveIsinChangeAction(
       null,
       isinForm({ isinChangeId: created.isinChange.id, date: "2024-04-01", oldQuantity: "1", newQuantity: "1.000,5" }),
     );
     expect(edited).toMatchObject({ ok: true, isinChange: { id: created.isinChange.id, date: "2024-04-01", newQuantity: "1000.5" } });
+    expect(priceJobs.schedulePriceBackfill).toHaveBeenCalledTimes(1);
   });
 
   it("maps unparseable quantities and returns ledger reasons without revalidating", async () => {
@@ -159,6 +175,7 @@ describe("saveIsinChangeAction", () => {
       reason: "security-not-found",
     });
     expect(revalidatePath).not.toHaveBeenCalled();
+    expect(priceJobs.schedulePriceBackfill).not.toHaveBeenCalled();
   });
 
   it("returns unauthorized without a session and writes nothing", async () => {
@@ -183,6 +200,7 @@ describe("deleteIsinChangeAction", () => {
       quantity: "10",
     });
     revalidatePath.mockClear();
+    priceJobs.schedulePriceBackfill.mockClear();
     expect(await deleteIsinChangeAction(created.isinChange.id)).toEqual({
       ok: false,
       reason: "later-sell-exceeds-holding",
@@ -190,8 +208,10 @@ describe("deleteIsinChangeAction", () => {
     });
     expect(revalidatePath).not.toHaveBeenCalled();
     await prisma.transaction.deleteMany();
+    expect(priceJobs.schedulePriceBackfill).not.toHaveBeenCalled();
     expect(await deleteIsinChangeAction(created.isinChange.id)).toMatchObject({ ok: true });
     expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
+    expect(priceJobs.schedulePriceBackfill).toHaveBeenCalledTimes(1);
     expect(await listIsinChanges()).toEqual([]);
   });
 });
