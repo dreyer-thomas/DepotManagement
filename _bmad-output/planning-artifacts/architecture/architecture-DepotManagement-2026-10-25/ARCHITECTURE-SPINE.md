@@ -8,7 +8,7 @@ scope: 'DepotManagement v1 — the whole product as defined by the PRD (FR-1..FR
 status: final
 created: '2026-10-25'
 updated: '2026-10-25'
-change_log: ['2026-10-25 sprint change: AD-7, AD-16 amended (hands-off Parqet migration, FUND type)']
+change_log: ['2026-10-25 sprint change: AD-7, AD-16 amended (hands-off Parqet migration, FUND type)', '2026-10-25 sprint change: AD-6 amended (funding for cash-less exports)']
 binds: [FR-1, FR-2, FR-3, FR-4, FR-5, FR-6, FR-7, FR-8, FR-9, FR-10, FR-11, FR-12, FR-13, FR-14, FR-15, FR-16, FR-17, FR-18]
 sources:
   - _bmad-output/planning-artifacts/prds/prd-DepotManagement-2026-10-25/prd.md
@@ -89,7 +89,7 @@ graph TD
 
 - **Binds:** FR-2, FR-15, FR-17, FR-18
 - **Prevents:** a trade and its cash movement diverging or being edited separately.
-- **Rule:** The Cash Account is identified by its Depot (1:1, no own table). Every Transaction is one row; `core/cash` derives its cash booking with one fixed formula per type (AD-14). Only Deposit and Withdrawal exist as cash-only Transactions. Parqet trade + cash pairs are collapsed into one row by migration; where the pair differs by rounding, migration adjusts `amount` so the derived cash booking equals the Parqet cash row and the Cash Account balance matches Parqet.
+- **Rule:** The Cash Account is identified by its Depot (1:1, no own table). A Parqet export without any `Cash` rows gets minimal funding: before any migrated row whose cash effect would take the running balance below zero, the migration inserts a same-day DEPOSIT for exactly the shortfall (one pure core function). Every Transaction is one row; `core/cash` derives its cash booking with one fixed formula per type (AD-14). Only Deposit and Withdrawal exist as cash-only Transactions. Parqet trade + cash pairs are collapsed into one row by migration; where the pair differs by rounding, migration adjusts `amount` so the derived cash booking equals the Parqet cash row and the Cash Account balance matches Parqet.
 
 ### AD-7 — Corporate actions are Security-scoped events; history is never rewritten `[ADOPTED]`
 

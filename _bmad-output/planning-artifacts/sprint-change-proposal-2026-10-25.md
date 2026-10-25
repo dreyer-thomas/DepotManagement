@@ -138,3 +138,11 @@ NEW: ... by asset type (ETF, Fonds, Aktie, Zertifikat, Krypto, Guthaben, Unklass
 | Tommy | After 2.5: export each Parqet portfolio, run the migration per Depot, check the summary, then `bmad-loop confirm 2-4-confirm-migration-and-reconcile-with-parqet` |
 
 **Success criteria.** On the real export: no mandatory decisions; the 2020-01-09 deliveries booked as Positions with Parqet's cost; Positions, invested capital and Cash Account match Parqet at export date; types correctable later.
+
+## Addendum A — Cash-less Exports and Depot Deletion (approved 2026-10-25)
+
+**Trigger.** After Story 2.5, the real cominvest migration left the Cash Account at about −26.000 €. The Cash Account tab shows only buys and sells: the Parqet portfolio was filled by comdirect/cominvest autosync and the export contains no `Cash` rows, so every buy debits cash and no deposit ever funds it. A Depot with Transactions can neither be archived nor deleted, so the migration cannot be redone.
+
+**Change.** New Story 2.6 "Funding for Exports without Cash Rows and Depot Deletion": minimal same-day funding deposits for cash-less exports (cash never negative, deposits are external inflows), and "Depot löschen" with typed confirmation through the ledger. Amended: AD-6 (spine), PRD FR-15 consequences, SPEC CAP-15, EXPERIENCE.md Settings and Flow 4 note, epics FR15 inventory and coverage map. Sprint status gains `2-6-...: backlog`.
+
+**Handoff.** bmad-loop builds 2.6; then Tommy deletes the cominvest Depot, recreates it, re-runs the migration and aligns the final balance with the broker value.

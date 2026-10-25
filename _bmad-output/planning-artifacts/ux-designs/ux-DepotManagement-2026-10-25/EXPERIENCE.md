@@ -27,7 +27,7 @@ Single-surface responsive web app, MUI 9 on Next.js (App Router), one user (Tomm
 | Import | Depot detail action "Dokumente importieren", nav | Upload PDFs → review batch → confirm | CAP-4..6 |
 | News | Nav | Headlines last 14 days, filter by Security | CAP-14 |
 | Securities | Nav "Mehr" | All Securities: classify `UNCLASSIFIED`, edit provider mapping, enter manual Prices, trigger price refresh, replace or upload a logo | CAP-7, 9 |
-| Settings | Nav "Mehr" | Depots (create, rename, archive), Parqet migration, export/restore, appearance | CAP-1, 15, 16 |
+| Settings | Nav "Mehr" | Depots (create, rename, archive, delete with typed name confirmation), Parqet migration, export/restore, appearance | CAP-1, 15, 16 |
 | Parqet migration | Settings | One-time wizard per Depot: file → target Depot → preview/review → confirm | CAP-15 |
 
 One global **Period selector** (1M · YTD · 1J · 3J · Max · Benutzerdefiniert) lives in the page header of Overview, Depot detail and Position detail; the choice persists across those surfaces and sessions. `[ASSUMPTION: 3J added between 1J and Max]` Archived Depots appear only in a collapsed "Archiviert" group on the Depots list and are read-only.
@@ -147,7 +147,7 @@ Failure: the ISIN is unknown → "Neue Security anlegen" creates it; type is ask
 
 1. Before cancelling Parqet, Tommy exports one CSV per portfolio.
 2. Settings → "Aus Parqet übernehmen": he uploads the first file and selects the target Depot.
-3. Preview shows counts per type, detected splits, ISIN changes and deliveries, the estimated asset type per Security (optionally changeable), a collapsed "Nicht übernommen (n)" list, and the resulting Positions and cash balance as of the export date.
+3. Preview shows counts per type, detected splits, ISIN changes and deliveries, the estimated asset type per Security (optionally changeable), a collapsed "Nicht übernommen (n)" list, a note "Export ohne Kontobewegungen: N Einzahlungen werden ergänzt" when the export has no cash rows, and the resulting Positions and cash balance as of the export date.
 4. He clicks "Übernehmen" — no per-row decisions.
 5. **Climax:** After confirming, the Depot shows the same Positions, invested capital and cash balance Parqet showed on export day; the summary lists the comparison against Parqet's `realizedgains`.
 

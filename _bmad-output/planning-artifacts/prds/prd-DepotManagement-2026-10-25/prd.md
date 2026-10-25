@@ -159,6 +159,8 @@ Tommy can bring his existing Transaction history for all Depots into DepotManage
 - The migration needs no per-row decisions; asset types are estimated from Security names and stay editable later.
 - Cash Account movements in the export become Deposits, Withdrawals, and the cash side of Transactions (FR-17).
 - After migration, each Cash Account balance matches Parqet as of the export date.
+- An export without cash movements (autosync portfolios) gets a deposit for each funding shortfall at the time of the buy, so the Cash Account never goes negative and returns treat that money as external inflow.
+- A Depot can be deleted with all its Transactions, so a migration can be redone.
 
 **Notes:** Parqet offers a CSV export of all activities per Parqet portfolio (Activities overview → "Export as CSV"), only on paid tiers (Plus/Investor) (https://parqet.com/en/blog/export). **The export must be taken before the Parqet subscription is cancelled.** A real export has been analyzed; format and quirks are in `addendum.md` §A1. `[ASSUMPTION: the comdirect/cominvest and ROBIN exports share the observed format — verify before cancelling Parqet]` Depends on FR-3 and FR-17; sequence those first.
 

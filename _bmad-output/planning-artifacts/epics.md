@@ -37,7 +37,7 @@ FR11: Tommy can see a chart of value and invested capital over a selectable Peri
 FR12: Tommy can see Gain/Loss for a selectable Period split into realized and unrealized with dividends and fees; TTWROR and XIRR side by side for Portfolio and each Depot; realized Gain/Loss uses FIFO and matches Parqet's `realizedgains` per sale after migration; shown gross with taxes paid in the Period as a separate figure.
 FR13: Tommy can see the Portfolio or a Depot broken down by Position, by asset type (stock, ETF, fund, certificate, crypto, cash) and by Depot; no ETF look-through.
 FR14: Tommy can see news headlines of the last 14 days for held Securities, overall and per Security, each linking to the original article.
-FR15: Tommy can import his full Transaction history once from Parqet CSV exports, one file per Depot with target Depot selected; Positions, invested capital and Cash Account balance match Parqet at export date; same-timestamp Security transfers paired by ISIN → split, single out/in of different ISINs → ISIN change, unpaired TransferIn → delivery (BUY + equal DEPOSIT), only unpaired TransferOut flagged; no per-row decisions, asset types estimated from names; Cash movements become Deposits, Withdrawals and cash sides; later imported documents for migrated Transactions are detected as duplicates. Depends on FR3 and FR17.
+FR15: Tommy can import his full Transaction history once from Parqet CSV exports, one file per Depot with target Depot selected; Positions, invested capital and Cash Account balance match Parqet at export date; same-timestamp Security transfers paired by ISIN → split, single out/in of different ISINs → ISIN change, unpaired TransferIn → delivery (BUY + equal DEPOSIT), only unpaired TransferOut flagged; no per-row decisions, asset types estimated from names; exports without cash rows get minimal funding deposits so cash never goes negative; Cash movements become Deposits, Withdrawals and cash sides; later imported documents for migrated Transactions are detected as duplicates. Depends on FR3 and FR17.
 FR16: Tommy can export all Depots and Transactions to an open file format and restore from it; export → restore into an empty instance reproduces identical Depots, Cash Accounts, Transactions, manual Prices and evaluations; restore replaces, never merges.
 FR17: Tommy can see balance and booking history of each Depot's Cash Account; buy, sell, dividend, fee and tax book their cash side automatically; Deposits and Withdrawals are entered manually and change only the Cash Account.
 FR18: Portfolio and Depot overviews and charts include Cash Account balances in total value, shown separately from Positions; Deposits and Withdrawals are external cash flows in both return metrics.
@@ -123,7 +123,7 @@ FR11: Epic 4 - Value development chart
 FR12: Epic 4 - Gain/Loss, TTWROR, XIRR
 FR13: Epic 4 - Composition
 FR14: Epic 3 - News on holdings
-FR15: Epic 2 - One-time Parqet migration (Stories 2.3, 2.4; hands-off rework in 2.5)
+FR15: Epic 2 - One-time Parqet migration (Stories 2.3, 2.4; hands-off rework in 2.5; cash-less exports and Depot deletion in 2.6)
 FR16: Epic 6 - Export and restore
 FR17: Epic 1 - Cash Account balance and history
 FR18: Epic 4 - Cash in overviews and return metrics
@@ -164,6 +164,29 @@ So that moving away from Parqet takes minutes, not an afternoon of decisions.
 **Given** the synthetic fixture extended with a five-row `TransferIn` group, a same-ISIN out/in split pair and fund/ETC names
 **When** it is previewed into an empty Depot
 **Then** there are zero open decisions, "Übernehmen" is enabled immediately, and the resulting Positions, invested capital and Cash Account balance match the fixture's expected values
+
+### Story 2.6: Funding for Exports without Cash Rows and Depot Deletion
+
+As Tommy,
+I want a Parqet export without cash movements to produce a sensible Cash Account, and a way to delete a Depot completely,
+So that my cominvest history imports without a fake −26.000 € balance and I can redo a failed migration.
+
+**Acceptance Criteria:**
+
+**Given** a Parqet export that contains no `Cash` rows at all (e.g. a Parqet portfolio filled by comdirect/cominvest autosync)
+**When** the preview is built
+**Then** the preview states "Export ohne Kontobewegungen: N Einzahlungen werden ergänzt"
+**And** proposals are walked in `(date, sequence)` order with the running balance from `core/cash`; whenever a proposal's cash effect would take the balance below zero, a DEPOSIT for exactly the shortfall is inserted on the same date, sequenced directly before it (AD-6, AD-14)
+**And** proceeds from sells and dividends stay in the Cash Account and fund later buys, so only the minimal external funding is added
+**And** the Cash Account therefore never goes negative in the migrated history, and the inserted deposits count as external inflows in TTWROR and XIRR (AD-10)
+**And** exports that contain `Cash` rows are processed exactly as before
+**And** after booking, the existing balance alignment from Story 2.4 can set the final Cash Account balance to the broker's value at export date
+**And** a pure core function computes the funding deposits and is unit-tested with a synthetic cash-less fixture (buys, sells, a dividend, fees): never negative, deposits sum to the minimal funding
+**Given** a Depot in Settings → Depots
+**When** I choose "Depot löschen" and type the Depot's name to confirm
+**Then** the Depot, all its Transactions, its import staging and any caches are deleted through the `ledger` service in one DB transaction (AD-3); Securities and Prices shared with other Depots stay
+**And** the confirm dialog states how many Transactions will be deleted and that this cannot be undone
+**And** after deletion the same Parqet export can be migrated again into a newly created Depot
 
 ## Epic 3: Market Data — Prices, Logos, News
 Tommy gets current and historical Prices automatically, sees stale Prices flagged, can enter manual Prices and fix provider mappings, sees logos at every Security, and reads the last 14 days of news on his holdings.
