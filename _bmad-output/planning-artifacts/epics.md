@@ -1,5 +1,5 @@
 ---
-status: draft
+status: final
 stepsCompleted: [1, 2, 3, 4]
 inputDocuments:
   - _bmad-output/planning-artifacts/prds/prd-DepotManagement-2026-10-25/prd.md
