@@ -3,7 +3,7 @@ title: 'Confirm Migration and Reconcile with Parqet (story 2-4)'
 type: 'feature'
 created: '2026-10-25'
 baseline_revision: '1e645359e13175c00c8b071a1154ec72cb230b5a'
-status: 'awaiting-operator'
+status: done
 review_loop_iteration: 0
 followup_review_recommended: false
 operator_actions:
@@ -183,3 +183,14 @@ Status: awaiting-operator
 **Operator actions owed:** see frontmatter `operator_actions` — reconcile real Parqet exports locally (never in the repo), confirm the `realizedgains` tax semantics, and set opening cash balances for exports without Cash rows.
 
 **Residual risks:** Parqet's `realizedgains` may include tax (the fixture assumes it does not), so every taxed sale would show "Abweichung"; the holding guard re-reads the Depot per booked row (O(n²), long transaction for very large files); a corrected flag re-booked on a re-run is not duplicate-checked; ambiguous skipped SELLs are not compared; the wizard's client flow has no interaction test.
+
+## Operator Confirmation
+
+Confirmed 2026-10-25: the external actions this story owed were carried out.
+
+- Export every Parqet portfolio as CSV (Activities → Export as CSV) before cancelling the Parqet subscription, and keep the files outside the repository.
+- Run Settings → "Aus Parqet übernehmen" with each real export into its target Depot and check the summary: Positions, invested capital, Verrechnungskonto and every sale must show no "Abweichung" (cent-level drift across many lots is acceptable).
+- Check whether Parqet's realizedgains includes taxes or fees: if sales with tax show a difference equal to their tax (the synthetic fixture assumes gross gains excluding tax), report it so the per-sale comparison can be adjusted.
+- For a Depot whose export has no Cash rows, enter the broker's Verrechnungskonto balance at the export date in "Eröffnungsbuchung" and confirm the Depot's cash balance then matches the broker.
+
+_Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._
