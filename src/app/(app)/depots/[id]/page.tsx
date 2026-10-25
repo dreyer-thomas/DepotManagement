@@ -22,6 +22,7 @@ import { formatMoney } from "@/core/format";
 import {
   getDepot,
   listCashBookings,
+  listIsinChanges,
   listPositions,
   listSecurities,
   listSplits,
@@ -59,10 +60,11 @@ export default async function DepotDetailPage({ params, searchParams }: Props) {
   if (!depot) notFound();
   const tab = depotTab((await searchParams)?.tab);
   const today = businessDate(new Date());
-  const [transactions, securities, splits, positions, cashBookings] = await Promise.all([
+  const [transactions, securities, splits, isinChanges, positions, cashBookings] = await Promise.all([
     listTransactions(depot.id),
     listSecurities(),
     tab === "cash" ? Promise.resolve([]) : listSplits(),
+    tab === "positions" ? listIsinChanges() : Promise.resolve([]),
     tab === "positions" ? listPositions(depot.id, today) : Promise.resolve([]),
     tab === "cash" ? listCashBookings(depot.id) : Promise.resolve([]),
   ]);
@@ -96,7 +98,14 @@ export default async function DepotDetailPage({ params, searchParams }: Props) {
     );
   } else if (tab === "positions") {
     content = (
-      <PositionsTable positions={positions} cashBalance={depot.cashBalance} splits={splits} readOnly={readOnly} />
+      <PositionsTable
+        positions={positions}
+        cashBalance={depot.cashBalance}
+        splits={splits}
+        isinChanges={isinChanges}
+        securities={securities}
+        readOnly={readOnly}
+      />
     );
   } else {
     content = <CashBookings balance={depot.cashBalance} bookings={cashBookings} />;

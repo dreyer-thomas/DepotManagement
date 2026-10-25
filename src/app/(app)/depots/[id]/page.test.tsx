@@ -15,7 +15,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { prisma } from "@/db";
-import { archiveDepot, createDepot, recordSplit, recordTrade, recordTransaction, type RecordTransactionInput, updateTransaction } from "@/modules/ledger";
+import { archiveDepot, createDepot, recordIsinChange, recordSplit, recordTrade, recordTransaction, type RecordTransactionInput, updateTransaction } from "@/modules/ledger";
 import DepotDetailPage, { generateMetadata } from "./page";
 
 beforeEach(async () => {
@@ -415,5 +415,36 @@ describe("Depot detail page", () => {
     const transactions = renderText(await DepotDetailPage(props(id, "transactions")));
     expect(transactions).toContain("10 Stück");
     expect(transactions).not.toContain("split-bereinigt");
+  });
+
+  it("shows the new Security's Position after an ISIN change while Buchungen keep the old Security", async () => {
+    const { id } = await depot();
+    const buy = await recordTrade({
+      depotId: id,
+      type: "BUY",
+      date: "2024-01-02",
+      quantity: "10",
+      price: "100",
+      security: { new: { isin: "US0378331005", name: "Alt AG", assetType: "STOCK" } },
+    });
+    if (!buy.ok) throw new Error("setup failed");
+    const change = await recordIsinChange({
+      oldSecurityId: buy.transaction.security!.id,
+      newSecurity: { new: { isin: "US5949181045", name: "Neu AG", assetType: "STOCK" } },
+      date: "2024-03-01",
+      oldQuantity: "10",
+      newQuantity: "5",
+    });
+    if (!change.ok) throw new Error("setup failed");
+
+    const positions = await DepotDetailPage(props(id));
+    const text = renderText(positions);
+    expect(text).toContain("NA Neu AG 5 1.000,00\u00a0€ 200,00\u00a0€ 200,00\u00a0€ 1.000,00\u00a0€");
+    expect(text).not.toContain("Alt AG");
+    expect(renderHtml(positions).match(/aria-label="Aktionen für Neu AG"/g)).toHaveLength(2);
+
+    const transactions = renderText(await DepotDetailPage(props(id, "transactions")));
+    expect(transactions).toContain("Alt AG");
+    expect(transactions).not.toContain("Neu AG");
   });
 });

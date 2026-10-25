@@ -4,7 +4,7 @@ import { isBusinessDate } from "@/core/dates";
 import { canonicalDecimal, ExactDecimal, isDecimalString } from "@/core/decimal";
 import { matchDuplicates } from "@/core/duplicates";
 import { firstOversell, sellableAt, type TradeRow } from "@/core/holdings";
-import { loadSplits } from "./corporate-actions";
+import { loadCorporateActions } from "./corporate-actions";
 import { inTransaction, type LedgerDb } from "./depots";
 import {
   ensureSecurity,
@@ -307,15 +307,13 @@ type HoldingChange = {
   removedId: string | null;
   /** The row being written at its final position; `securityId` null for a not-yet-existing new Security. */
   added: TradeRow | null;
-  /** Securities whose holdings the change touches. */
-  securityIds: (string | null)[];
 };
 
 /**
- * Holding guard per affected Security over the Depot's BUY/SELL rows with the change applied: a
- * written SELL beyond `sellableAt` its position is `sell-exceeds-holding`; otherwise a SELL that the
- * change makes oversell (and that did not before) is `later-sell-exceeds-holding`. Quantities are
- * compared split-adjusted (the Security's recorded splits); `available` is in the SELL's own units.
+ * Holding guard over the Depot's BUY/SELL rows (every Security) with the change applied, replayed with
+ * every corporate action (splits and ISIN-change lineages): a written SELL beyond `sellableAt` its
+ * position is `sell-exceeds-holding`; otherwise a SELL that the change makes oversell (and that did
+ * not before) is `later-sell-exceeds-holding`. `available` is in the SELL's own units.
  */
 async function checkHoldings(
   change: HoldingChange,
@@ -326,32 +324,30 @@ async function checkHoldings(
     // A Security that does not exist yet is not held anywhere.
     return { ok: false, reason: "sell-exceeds-holding", available: "0" };
   }
-  const ids = [...new Set(change.securityIds.filter((id): id is string => id !== null))];
-  for (const securityId of ids) {
-    const before: TradeRowWithId[] = await db.transaction.findMany({
-      where: { depotId: change.depotId, securityId, type: { in: ["BUY", "SELL"] } },
-      select: TRADE_SELECT,
-    });
-    const splits = await loadSplits(db, [securityId]);
-    const others = before.filter((row) => row.id !== change.removedId);
-    if (added?.type === "SELL" && added.securityId === securityId) {
-      const available = sellableAt(others, securityId, added, splits);
-      if (new ExactDecimal(added.quantity as string).greaterThan(available)) {
-        return { ok: false, reason: "sell-exceeds-holding", available };
-      }
+  const before: TradeRowWithId[] = await db.transaction.findMany({
+    where: { depotId: change.depotId, type: { in: ["BUY", "SELL"] } },
+    select: TRADE_SELECT,
+  });
+  const actions = await loadCorporateActions(db);
+  const others = before.filter((row) => row.id !== change.removedId);
+  if (added?.type === "SELL" && added.securityId !== null) {
+    const available = sellableAt(others, added.securityId, added, actions);
+    if (new ExactDecimal(added.quantity as string).greaterThan(available)) {
+      return { ok: false, reason: "sell-exceeds-holding", available };
     }
-    const after: TradeRow[] = added && added.securityId === securityId ? [...others, added] : others;
-    const oversell = firstOversell(after, securityId, splits);
-    if (oversell && !firstOversell(before, securityId, splits)) {
-      return { ok: false, reason: "later-sell-exceeds-holding", date: oversell.date };
-    }
+  }
+  const after: TradeRow[] = added && added.securityId !== null ? [...others, added] : others;
+  const oversell = firstOversell(after, actions);
+  if (oversell && !firstOversell(before, actions)) {
+    return { ok: false, reason: "later-sell-exceeds-holding", date: oversell.date };
   }
   return { ok: true };
 }
 
 /**
  * Advisory duplicate check (AD-15, manual policy): the Depot's rows matching the candidate, the
- * edited row excluded. A not-yet-existing new Security is unique by definition.
+ * edited row excluded; Securities are compared through recorded ISIN changes. A not-yet-existing new
+ * Security is unique by definition.
  */
 async function checkDuplicates(
   transaction: ValidTransaction,
@@ -365,9 +361,11 @@ async function checkDuplicates(
     orderBy: [{ date: "asc" }, { sequence: "asc" }],
     include: TRANSACTION_INCLUDE,
   });
+  const { isinChanges } = await loadCorporateActions(db);
   const result = matchDuplicates(
     { ...(excludeId ? { id: excludeId } : {}), ...transaction, securityId },
     rows,
+    isinChanges,
   );
   if (result.status === "unique") return { ok: true };
   return { ok: false, reason: "possible-duplicate", status: result.status, matches: result.matches.map(toRecord) };
@@ -422,7 +420,6 @@ async function writeTransaction(
       depotId: transaction.depotId,
       removedId: null,
       added: { ...transaction, securityId: resolved.securityId, sequence },
-      securityIds: [resolved.securityId],
     },
     db,
   );
@@ -497,7 +494,6 @@ export async function updateTransaction(
         depotId,
         removedId: existing.id,
         added: { ...transaction, securityId: resolved.securityId, sequence },
-        securityIds: [resolved.securityId, existing.securityId],
       },
       tx,
     );
@@ -534,7 +530,7 @@ export async function deleteTransaction(id: string, db: LedgerDb = prisma): Prom
     if (!existing) return { ok: false, reason: "transaction-not-found" };
     if (await isArchived(existing.depotId, tx)) return { ok: false, reason: "depot-archived" };
     const holdings = await checkHoldings(
-      { depotId: existing.depotId, removedId: existing.id, added: null, securityIds: [existing.securityId] },
+      { depotId: existing.depotId, removedId: existing.id, added: null },
       tx,
     );
     // Without an added row only a later SELL can break.

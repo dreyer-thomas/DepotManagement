@@ -1,12 +1,20 @@
 /**
- * Held quantities from BUY/SELL rows, ordered by (date, sequence). Pure, decimal strings only.
- * Quantities are compared in the exact scaled "all splits" basis (`ALL_SPLITS`, see
- * `core/corporate-actions`), so pre- and post-split units never mix; results are converted back to
- * the units of the queried position.
+ * Held quantities from BUY/SELL rows of one Depot, replayed with every corporate action
+ * (`core/corporate-actions`, `ALL_ACTIONS`): splits scale holdings, ISIN changes move them to the new
+ * Security. Pure, decimal strings only. Quantities are compared exactly (scaled basis, divided once on
+ * output); results are in the units of the queried position.
  */
-import { ALL_SPLITS, scaleTrades, type Split, splitScale } from "./corporate-actions";
+import {
+  ALL_ACTIONS,
+  type CorporateActions,
+  LotBook,
+  type ReplayEvent,
+  replayEvents,
+} from "./corporate-actions";
 import { canonicalDecimal, ExactDecimal } from "./decimal";
 import { compareLedgerOrder, type LedgerOrdered } from "./ledger-order";
+
+type Decimal = InstanceType<typeof ExactDecimal>;
 
 export type TradeRow = {
   securityId: string | null;
@@ -16,78 +24,95 @@ export type TradeRow = {
   quantity: string | null;
 };
 
+function applyEvent(book: LotBook, event: ReplayEvent<TradeRow>): void {
+  if (event.kind !== "trade") {
+    book.apply(event);
+    return;
+  }
+  const { row } = event;
+  const quantity = row.quantity ?? "0";
+  if (row.type === "BUY") book.buy(row.securityId as string, row.date, row.sequence, quantity, new ExactDecimal(0));
+  else book.sell(row.securityId as string, quantity);
+}
+
+/** True when `event` lies before `position` (actions dated on or before its date come first). */
+function isBefore(event: ReplayEvent<TradeRow>, position: LedgerOrdered): boolean {
+  if (event.kind === "trade") return compareLedgerOrder(event.row, position) < 0;
+  const date = event.kind === "split" ? event.split.date : event.change.date;
+  return date <= position.date;
+}
+
 /**
  * Quantity of `securityId` a SELL appended at the end of `date` may take: the minimum running held
  * quantity from that insertion point through the end of the ledger, so no later SELL goes negative.
- * BUY adds, SELL subtracts; other types are ignored. Never below zero. In the units of `date`.
+ * Never below zero. In the units of `date`.
  */
 export function sellableQuantity(
   trades: readonly TradeRow[],
   securityId: string,
   date: string,
-  splits: readonly Split[],
+  actions: CorporateActions,
 ): string {
-  return sellableAt(trades, securityId, { date, sequence: Number.POSITIVE_INFINITY }, splits);
-}
-
-/** The Security's BUY/SELL rows in ledger order, quantities in the scaled "all splits" basis. */
-function tradesOf<T extends TradeRow>(trades: readonly T[], securityId: string, splits: readonly Split[]): T[] {
-  return scaleTrades(
-    trades.filter((row) => row.securityId === securityId && (row.type === "BUY" || row.type === "SELL")),
-    splits,
-    ALL_SPLITS,
-  ).sort(compareLedgerOrder);
+  return sellableAt(trades, securityId, { date, sequence: Number.POSITIVE_INFINITY }, actions);
 }
 
 /**
- * Quantity of `securityId` a SELL placed at `position` may take: the minimum running held quantity
- * from just before `position` through the end of the ledger (rows at or after `position` count as
- * later). Pass the ledger without the SELL itself. Never below zero. The result is in the units of a
- * row dated `position.date` (split-adjusted back from the "all splits" basis).
+ * Quantity of `securityId` a SELL placed at `position` may take: the minimum held quantity of its
+ * lineage from just before `position` through the end of the ledger (rows at or after `position`
+ * count as later). The lineage follows the Security through later splits (units × new/old) and ISIN
+ * changes (to the new Security, units × n/o); each held quantity is converted back to the SELL's units.
+ * Pass the ledger without the SELL itself. Never below zero. In the units of a row dated `position.date`.
  */
 export function sellableAt(
   trades: readonly TradeRow[],
   securityId: string,
   position: LedgerOrdered,
-  splits: readonly Split[],
+  actions: CorporateActions,
 ): string {
-  const rows = tradesOf(trades, securityId, splits);
-  let held = new ExactDecimal(0);
+  const events = replayEvents(trades, actions, ALL_ACTIONS);
+  const book = new LotBook();
   let index = 0;
-  for (; index < rows.length && compareLedgerOrder(rows[index], position) < 0; index++) {
-    held = apply(held, rows[index]);
+  for (; index < events.length && isBefore(events[index], position); index++) applyEvent(book, events[index]);
+
+  let lineage = securityId;
+  // Units of the lineage per unit of the SELL: gNum / gDen.
+  let gNum: Decimal = new ExactDecimal(1);
+  let gDen: Decimal = new ExactDecimal(1);
+  // held / g = scaled × gDen / (divisor × gNum)
+  const ratio = () => {
+    const { scaled, divisor } = book.net(lineage);
+    return { num: scaled.times(gDen), den: divisor.times(gNum) };
+  };
+  let minimum = ratio();
+  for (; index < events.length; index++) {
+    const event = events[index];
+    applyEvent(book, event);
+    if (event.kind === "split" && event.split.securityId === lineage) {
+      gNum = gNum.times(event.split.ratioNew);
+      gDen = gDen.times(event.split.ratioOld);
+    } else if (event.kind === "isin-change" && event.change.oldSecurityId === lineage) {
+      lineage = event.change.newSecurityId;
+      gNum = gNum.times(event.change.newQuantity);
+      gDen = gDen.times(event.change.oldQuantity);
+    }
+    const current = ratio();
+    if (current.num.times(minimum.den).lessThan(minimum.num.times(current.den))) minimum = current;
   }
-  let minimum = held;
-  for (; index < rows.length; index++) {
-    held = apply(held, rows[index]);
-    if (held.lessThan(minimum)) minimum = held;
-  }
-  const available = ExactDecimal.max(minimum, 0).dividedBy(splitScale(securityId, position.date, splits, ALL_SPLITS));
-  return canonicalDecimal(available);
+  if (!minimum.num.greaterThan(0)) return "0";
+  return canonicalDecimal(minimum.num.dividedBy(minimum.den));
 }
 
 /**
- * The first SELL of `securityId`, in ledger order, after which the running (split-scaled) held
- * quantity is negative; else `null`. Returns the row as passed in (unadjusted).
+ * The first SELL (any Security), in replay order with every corporate action, after which its
+ * Security's net held quantity is negative; else `null`. Returns the row as passed in.
  */
-export function firstOversell<T extends TradeRow>(
-  trades: readonly T[],
-  securityId: string,
-  splits: readonly Split[],
-): T | null {
-  const original = new Map<TradeRow, T>();
-  const relevant = trades.filter((row) => row.securityId === securityId);
-  const adjusted = scaleTrades(relevant, splits, ALL_SPLITS);
-  adjusted.forEach((row, index) => original.set(row, relevant[index]));
-  let held = new ExactDecimal(0);
-  for (const row of tradesOf(adjusted, securityId, [])) {
-    held = apply(held, row);
-    if (row.type === "SELL" && held.isNegative()) return original.get(row) ?? row;
+export function firstOversell<T extends TradeRow>(trades: readonly T[], actions: CorporateActions): T | null {
+  const book = new LotBook();
+  for (const event of replayEvents(trades, actions, ALL_ACTIONS)) {
+    applyEvent(book, event);
+    if (event.kind === "trade" && event.row.type === "SELL" && book.net(event.row.securityId as string).scaled.isNegative()) {
+      return event.row;
+    }
   }
   return null;
-}
-
-function apply(held: InstanceType<typeof ExactDecimal>, row: TradeRow) {
-  const quantity = new ExactDecimal(row.quantity ?? "0");
-  return row.type === "BUY" ? held.plus(quantity) : held.minus(quantity);
 }

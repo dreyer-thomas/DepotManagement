@@ -3,9 +3,9 @@ import { prisma } from "@/db";
 import { Broker, Prisma } from "@/db/generated/prisma/client";
 import { type ArchiveRow, canArchive, heldSecurities } from "@/core/archive";
 import { cashBalance } from "@/core/cash";
-import type { Split } from "@/core/corporate-actions";
+import { type CorporateActions, NO_CORPORATE_ACTIONS } from "@/core/corporate-actions";
 import { businessDate } from "@/core/dates";
-import { loadSplits } from "./corporate-actions";
+import { loadCorporateActions } from "./corporate-actions";
 
 export type { Broker } from "@/db/generated/prisma/client";
 
@@ -93,7 +93,7 @@ function today(): string {
 }
 
 /** Cash balance as of today (future-dated rows excluded) and the archive guard. */
-function toSummary(depot: DepotRow, rows: readonly ArchiveRow[], splits: readonly Split[]): DepotSummary {
+function toSummary(depot: DepotRow, rows: readonly ArchiveRow[], actions: CorporateActions): DepotSummary {
   const asOf = today();
   return {
     id: depot.id,
@@ -101,7 +101,7 @@ function toSummary(depot: DepotRow, rows: readonly ArchiveRow[], splits: readonl
     broker: depot.broker,
     cashBalance: cashBalance(rows, asOf),
     archived: depot.archived,
-    archivable: canArchive(rows, asOf, splits),
+    archivable: canArchive(rows, asOf, actions),
   };
 }
 
@@ -125,7 +125,7 @@ export async function createDepot(input: CreateDepotInput, db: LedgerDb = prisma
   if (await isNameTaken(db, name.value)) return { ok: false, reason: "name-taken" };
   try {
     const depot = await db.depot.create({ data: { name: name.value, broker: broker.value } });
-    return { ok: true, depot: toSummary(depot, [], []) };
+    return { ok: true, depot: toSummary(depot, [], NO_CORPORATE_ACTIONS) };
   } catch (error) {
     if (isUniqueViolation(error)) return { ok: false, reason: "name-taken" };
     throw error;
@@ -142,7 +142,7 @@ export async function renameDepot(id: string, input: RenameDepotInput, db: Ledge
   if (await isNameTaken(db, name.value, id)) return { ok: false, reason: "name-taken" };
   try {
     const depot = await db.depot.update({ where: { id }, data: { name: name.value } });
-    return { ok: true, depot: toSummary(depot, await depotRows(db, id), await loadSplits(db)) };
+    return { ok: true, depot: toSummary(depot, await depotRows(db, id), await loadCorporateActions(db)) };
   } catch (error) {
     if (isUniqueViolation(error)) return { ok: false, reason: "name-taken" };
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {
@@ -161,11 +161,11 @@ export async function archiveDepot(id: string, db: LedgerDb = prisma): Promise<A
     const current = await tx.depot.findUnique({ where: { id } });
     if (!current) return { ok: false, reason: "not-found" };
     const rows = await depotRows(tx, current.id);
-    const splits = await loadSplits(tx);
-    if (current.archived) return { ok: true, depot: toSummary(current, rows, splits) };
-    if (!canArchive(rows, today(), splits)) return { ok: false, reason: "depot-not-flat" };
+    const actions = await loadCorporateActions(tx);
+    if (current.archived) return { ok: true, depot: toSummary(current, rows, actions) };
+    if (!canArchive(rows, today(), actions)) return { ok: false, reason: "depot-not-flat" };
     const depot = await tx.depot.update({ where: { id: current.id }, data: { archived: true } });
-    return { ok: true, depot: toSummary(depot, rows, splits) };
+    return { ok: true, depot: toSummary(depot, rows, actions) };
   });
 }
 
@@ -177,7 +177,7 @@ export async function unarchiveDepot(id: string, db: LedgerDb = prisma): Promise
     const depot = current.archived
       ? await tx.depot.update({ where: { id: current.id }, data: { archived: false } })
       : current;
-    return { ok: true, depot: toSummary(depot, await depotRows(tx, current.id), await loadSplits(tx)) };
+    return { ok: true, depot: toSummary(depot, await depotRows(tx, current.id), await loadCorporateActions(tx)) };
   });
 }
 
@@ -186,23 +186,23 @@ export async function unarchiveDepot(id: string, db: LedgerDb = prisma): Promise
  * `heldSecurities`), as sorted Security ids. Consumed by prices, news and composition (Epics 3+).
  */
 export async function listHeldSecurities(asOf: string, db: LedgerDb = prisma): Promise<string[]> {
-  const [depots, trades, splits] = await Promise.all([
+  const [depots, trades, actions] = await Promise.all([
     db.depot.findMany({ select: { id: true, archived: true } }),
     db.transaction.findMany({
       where: { type: { in: ["BUY", "SELL"] } },
       select: { depotId: true, securityId: true, type: true, date: true, quantity: true },
     }),
-    loadSplits(db),
+    loadCorporateActions(db),
   ]);
-  return heldSecurities({ depots, trades }, asOf, splits);
+  return heldSecurities({ depots, trades }, asOf, actions);
 }
 
 /** All Depots (archived ones included) sorted by name (de-DE collation). */
 export async function listDepots(db: LedgerDb = prisma): Promise<DepotSummary[]> {
-  const [depots, rows, splits] = await Promise.all([
+  const [depots, rows, actions] = await Promise.all([
     db.depot.findMany(),
     db.transaction.findMany({ select: { depotId: true, ...ROW_SELECT } }),
-    loadSplits(db),
+    loadCorporateActions(db),
   ]);
   const byDepot = new Map<string, ArchiveRow[]>();
   for (const row of rows) {
@@ -211,12 +211,12 @@ export async function listDepots(db: LedgerDb = prisma): Promise<DepotSummary[]>
     else byDepot.set(row.depotId, [row]);
   }
   return depots
-    .map((depot) => toSummary(depot, byDepot.get(depot.id) ?? [], splits))
+    .map((depot) => toSummary(depot, byDepot.get(depot.id) ?? [], actions))
     .sort((a, b) => a.name.localeCompare(b.name, "de-DE"));
 }
 
 /** One Depot, or null when the id is unknown. */
 export async function getDepot(id: string, db: LedgerDb = prisma): Promise<DepotSummary | null> {
   const depot = await db.depot.findUnique({ where: { id } });
-  return depot ? toSummary(depot, await depotRows(db, id), await loadSplits(db)) : null;
+  return depot ? toSummary(depot, await depotRows(db, id), await loadCorporateActions(db)) : null;
 }

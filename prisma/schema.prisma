@@ -54,7 +54,9 @@ model Security {
   name         String
   assetType        AssetType
   transactions     Transaction[]
-  corporateActions CorporateAction[]
+  corporateActions CorporateAction[] @relation("CorporateActionSecurity")
+  /// ISIN changes whose new Security this is.
+  isinChangeSources CorporateAction[] @relation("IsinChangeTarget")
 }
 
 // Canonical Transaction shape (AD-14). Decimal values are TEXT strings; ordered by (date, sequence).
@@ -80,20 +82,27 @@ model Transaction {
 
 enum CorporateActionType {
   SPLIT
+  ISIN_CHANGE
 }
 
 // Owned by the ledger module (AD-7). Security-scoped: applies in every Depot. Stored Transactions and
-// Prices are never modified; core applies split adjustment on read. Ratio is old:new as TEXT integers.
+// Prices are never modified; core applies corporate actions on read.
+// SPLIT: ratioOld:ratioNew as TEXT integers; newSecurityId is null.
+// ISIN_CHANGE: securityId is the old Security, newSecurityId the new one; ratioOld / ratioNew hold the
+// canonical old / new quantity as TEXT decimals (ratioOld units of the old became ratioNew of the new).
 model CorporateAction {
-  id         String              @id @default(cuid())
-  securityId String
-  security   Security            @relation(fields: [securityId], references: [id], onDelete: Restrict)
-  type       CorporateActionType
+  id            String              @id @default(cuid())
+  securityId    String
+  security      Security            @relation("CorporateActionSecurity", fields: [securityId], references: [id], onDelete: Restrict)
+  newSecurityId String?
+  newSecurity   Security?           @relation("IsinChangeTarget", fields: [newSecurityId], references: [id], onDelete: Restrict)
+  type          CorporateActionType
   /// Business date YYYY-MM-DD (Europe/Berlin); applies before every Transaction of that date (AD-8).
-  date       String
-  ratioOld   String
-  ratioNew   String
+  date          String
+  ratioOld      String
+  ratioNew      String
 
   @@unique([securityId, type, date])
   @@index([securityId])
+  @@index([newSecurityId])
 }

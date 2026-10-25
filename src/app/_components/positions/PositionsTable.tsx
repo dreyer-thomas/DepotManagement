@@ -20,7 +20,8 @@ import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import { useState } from "react";
 import { formatMoney, formatQuantity } from "@/core/format";
-import type { PositionRecord, SecuritySummary, SplitRecord } from "@/modules/ledger";
+import type { IsinChangeRecord, PositionRecord, SecuritySummary, SplitRecord } from "@/modules/ledger";
+import { IsinChangeDialog } from "../corporate-actions/IsinChangeDialog";
 import { SplitDialog } from "../corporate-actions/SplitDialog";
 import { SecurityLogo } from "../securities/SecurityLogo";
 import { GainLossPill } from "./GainLossPill";
@@ -59,10 +60,18 @@ function SecurityName({ name }: { name: string }) {
 type Sort = PositionSort;
 
 /** Opens the corporate-action dialog of a Security; `null` when the table is read-only. */
-type OnSplit = ((security: SecuritySummary) => void) | null;
+type CorporateActionKind = "split" | "isin-change";
+
+type OnAction = ((action: CorporateActionKind, security: SecuritySummary) => void) | null;
 
 /** Kebab button with the Position's row menu ("Corporate Action → Split"). */
-function RowActions({ security, onSplit }: { security: SecuritySummary; onSplit: (security: SecuritySummary) => void }) {
+function RowActions({
+  security,
+  onAction,
+}: {
+  security: SecuritySummary;
+  onAction: (action: CorporateActionKind, security: SecuritySummary) => void;
+}) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const menuId = `position-actions-${security.id}`;
   return (
@@ -82,10 +91,19 @@ function RowActions({ security, onSplit }: { security: SecuritySummary; onSplit:
           sx={{ minHeight: 44 }}
           onClick={() => {
             setAnchor(null);
-            onSplit(security);
+            onAction("split", security);
           }}
         >
           Corporate Action → Split
+        </MenuItem>
+        <MenuItem
+          sx={{ minHeight: 44 }}
+          onClick={() => {
+            setAnchor(null);
+            onAction("isin-change", security);
+          }}
+        >
+          Corporate Action → ISIN-Wechsel
         </MenuItem>
       </Menu>
     </>
@@ -134,15 +152,15 @@ function DesktopTable({
   cashBalance,
   sort,
   onSort,
-  onSplit,
+  onAction,
 }: {
   rows: PositionRecord[];
   cashBalance: string;
   sort: Sort;
   onSort: (key: PositionSortKey) => void;
-  onSplit: OnSplit;
+  onAction: OnAction;
 }) {
-  const columns = POSITION_SORT_KEYS.length + (onSplit ? 1 : 0);
+  const columns = POSITION_SORT_KEYS.length + (onAction ? 1 : 0);
   return (
     <Card sx={{ overflowX: "auto", display: { xs: "none", md: "block" } }}>
       <Table size="small" aria-label="Positionen">
@@ -167,7 +185,7 @@ function DesktopTable({
                 </TableCell>
               );
             })}
-            {onSplit ? (
+            {onAction ? (
               <TableCell padding="none">
                 <span style={visuallyHidden}>Aktionen</span>
               </TableCell>
@@ -188,9 +206,9 @@ function DesktopTable({
               <TableCell sx={numeric}>
                 <GainLoss position={position} />
               </TableCell>
-              {onSplit ? (
+              {onAction ? (
                 <TableCell padding="none">
-                  <RowActions security={position.security} onSplit={onSplit} />
+                  <RowActions security={position.security} onAction={onAction} />
                 </TableCell>
               ) : null}
             </TableRow>
@@ -206,7 +224,7 @@ function DesktopTable({
                 {key === "name" ? <CashName /> : key === "value" ? formatMoney(cashBalance) : null}
               </TableCell>
             ))}
-            {onSplit ? <TableCell padding="none" /> : null}
+            {onAction ? <TableCell padding="none" /> : null}
           </TableRow>
         </TableBody>
       </Table>
@@ -219,13 +237,13 @@ function PhoneList({
   cashBalance,
   sort,
   onChange,
-  onSplit,
+  onAction,
 }: {
   rows: PositionRecord[];
   cashBalance: string;
   sort: Sort;
   onChange: (sort: Sort) => void;
-  onSplit: OnSplit;
+  onAction: OnAction;
 }) {
   const ascending = sort.direction === "asc";
   return (
@@ -285,7 +303,7 @@ function PhoneList({
                 </Typography>
                 <GainLoss position={position} />
               </Stack>
-              {onSplit ? <RowActions security={position.security} onSplit={onSplit} /> : null}
+              {onAction ? <RowActions security={position.security} onAction={onAction} /> : null}
             </Box>
           ))}
           {rows.length === 0 ? (
@@ -314,12 +332,15 @@ function PhoneList({
 /**
  * Open Positions: sortable table from `md`, stacked rows below; both share one sort state. The Cash
  * Account row is pinned below the sorted rows and never sorted. Each Position has a row menu
- * ("Corporate Action → Split" opens the split dialog of its Security) unless `readOnly`.
+ * ("Corporate Action → Split" / "→ ISIN-Wechsel" open the split or ISIN-change dialog of its
+ * Security) unless `readOnly`.
  */
 export function PositionsTable({
   positions,
   cashBalance,
   splits = [],
+  isinChanges = [],
+  securities = [],
   readOnly = false,
   initialSort = DEFAULT_POSITION_SORT,
 }: {
@@ -327,35 +348,49 @@ export function PositionsTable({
   cashBalance: string;
   /** Recorded splits (any Security), listed in the split dialog. */
   splits?: SplitRecord[];
+  /** Recorded ISIN changes (any Security), listed in the ISIN-change dialog. */
+  isinChanges?: IsinChangeRecord[];
+  /** Every Security, offered as the new Security of an ISIN change. */
+  securities?: SecuritySummary[];
   /** Archived Depot: no row menu. */
   readOnly?: boolean;
   /** Sort on first render (value descending by default). */
   initialSort?: Sort;
 }) {
   const [sort, setSort] = useState<Sort>(initialSort);
-  const [splitSecurity, setSplitSecurity] = useState<SecuritySummary | null>(null);
-  const [splitOpen, setSplitOpen] = useState(false);
+  const [dialog, setDialog] = useState<{ action: CorporateActionKind; security: SecuritySummary } | null>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
   const [session, setSession] = useState(0);
   const rows = sortPositions(positions, sort.key, sort.direction);
   const onSort = (key: PositionSortKey) => setSort((current) => nextSort(current, key));
-  const onSplit: OnSplit = readOnly
+  const onAction: OnAction = readOnly
     ? null
-    : (security) => {
-        setSplitSecurity(security);
+    : (action, security) => {
+        setDialog({ action, security });
         setSession((value) => value + 1);
-        setSplitOpen(true);
+        setDialogOpen(true);
       };
   return (
     <>
-      <DesktopTable rows={rows} cashBalance={cashBalance} sort={sort} onSort={onSort} onSplit={onSplit} />
-      <PhoneList rows={rows} cashBalance={cashBalance} sort={sort} onChange={setSort} onSplit={onSplit} />
-      {splitSecurity && !readOnly ? (
+      <DesktopTable rows={rows} cashBalance={cashBalance} sort={sort} onSort={onSort} onAction={onAction} />
+      <PhoneList rows={rows} cashBalance={cashBalance} sort={sort} onChange={setSort} onAction={onAction} />
+      {dialog?.action === "split" && !readOnly ? (
         <SplitDialog
           key={session}
-          open={splitOpen}
-          onClose={() => setSplitOpen(false)}
-          security={splitSecurity}
+          open={dialogOpen}
+          onClose={() => setDialogOpen(false)}
+          security={dialog.security}
           splits={splits}
+        />
+      ) : null}
+      {dialog?.action === "isin-change" && !readOnly ? (
+        <IsinChangeDialog
+          key={session}
+          open={dialogOpen}
+          onClose={() => setDialogOpen(false)}
+          security={dialog.security}
+          isinChanges={isinChanges}
+          securities={securities}
         />
       ) : null}
     </>

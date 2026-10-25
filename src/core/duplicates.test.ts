@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type DuplicateCandidate, matchDuplicates } from "./duplicates";
+import { currentSecurity, type DuplicateCandidate, matchDuplicates } from "./duplicates";
 
 const buy = (overrides: Partial<DuplicateCandidate> = {}): DuplicateCandidate => ({
   depotId: "d1",
@@ -72,5 +72,41 @@ describe("matchDuplicates", () => {
   it("never matches the candidate's own row", () => {
     expect(matchDuplicates({ ...buy(), id: "t1" }, [row("t1")])).toEqual({ status: "unique", matches: [] });
     expect(matchDuplicates({ ...buy(), id: "t1" }, [row("t1"), row("t2")]).status).toBe("duplicate");
+  });
+});
+
+describe("matchDuplicates across ISIN changes", () => {
+  const changes = [
+    { oldSecurityId: "A", newSecurityId: "B", date: "2024-03-01", oldQuantity: "1", newQuantity: "1" },
+    { oldSecurityId: "B", newSecurityId: "C", date: "2024-06-01", oldQuantity: "1", newQuantity: "1" },
+  ];
+  const dividend = (securityId: string, id?: string): DuplicateCandidate => ({
+    ...(id ? { id } : {}),
+    depotId: "d1",
+    date: "2024-05-01",
+    type: "DIVIDEND",
+    securityId,
+    quantity: null,
+    amount: "50",
+    fee: "0",
+    tax: "0",
+  });
+
+  it("resolves an old ISIN to its current Security", () => {
+    const ledger = [dividend("B", "x1")];
+    expect(matchDuplicates(dividend("A"), ledger, changes).status).toBe("duplicate");
+    expect(matchDuplicates(dividend("A"), ledger).status).toBe("unique");
+  });
+
+  it("follows chains in date order, each change after the previous one", () => {
+    expect(currentSecurity("A", changes)).toBe("C");
+    expect(currentSecurity("B", changes)).toBe("C");
+    expect(currentSecurity("Z", changes)).toBe("Z");
+    expect(currentSecurity(null, changes)).toBeNull();
+    const backwards = [
+      { oldSecurityId: "B", newSecurityId: "C", date: "2024-01-01", oldQuantity: "1", newQuantity: "1" },
+      { oldSecurityId: "A", newSecurityId: "B", date: "2024-03-01", oldQuantity: "1", newQuantity: "1" },
+    ];
+    expect(currentSecurity("A", backwards)).toBe("B");
   });
 });

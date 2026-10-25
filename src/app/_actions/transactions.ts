@@ -18,6 +18,7 @@ import {
   updateTransaction,
   type UpdateTransactionResult,
 } from "@/modules/ledger";
+import { newSecurityInput } from "./new-security-input";
 
 type Unauthorized = { ok: false; reason: "unauthorized" };
 
@@ -49,18 +50,6 @@ const tradeForm = z.object({
 } satisfies Record<TradeFieldName, typeof formText>);
 
 const UNAUTHORIZED = { ok: false, reason: "unauthorized" } as const;
-
-const ISIN_SHAPE = /^[A-Z]{2}[A-Z0-9]{9}[0-9]$/i;
-
-/**
- * The form has one "ISIN oder Krypto-Symbol" field: an ISIN-shaped value, or any value for a
- * non-crypto asset type, is an ISIN; otherwise it is a crypto symbol. The ledger validates both.
- */
-function newSecurityInput(identifier: string, name: string, assetType: string): RecordTransactionInput["security"] {
-  const trimmed = identifier.trim();
-  const isIsin = ISIN_SHAPE.test(trimmed) || (assetType !== "CRYPTO" && assetType !== "");
-  return { new: isIsin ? { isin: trimmed, name, assetType } : { cryptoSymbol: trimmed, name, assetType } };
-}
 
 type DecimalField = "quantity" | "price" | "fee" | "tax" | "amount";
 

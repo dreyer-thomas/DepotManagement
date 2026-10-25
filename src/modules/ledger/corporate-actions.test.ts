@@ -3,16 +3,22 @@ import { createTestDatabase, type TestDatabase } from "../../../test/helpers/tes
 import {
   archiveDepot,
   createDepot,
+  deleteIsinChange,
   deleteSplit,
   ensureSecurity,
   getDepot,
   listDepots,
   listHeldSecurities,
+  listIsinChanges,
   listPositions,
   listSplits,
+  listTransactions,
+  recordIsinChange,
   recordSplit,
   recordTrade,
+  recordTransaction,
   type RecordTradeInput,
+  updateIsinChange,
   updateSplit,
   updateTransaction,
 } from "./index";
@@ -212,5 +218,235 @@ describe("archive and held set with splits", () => {
     expect((await getDepot(depotId, db()))?.archivable).toBe(true);
     expect((await listDepots(db())).find((depot) => depot.id === depotId)?.archivable).toBe(true);
     expect(await archiveDepot(depotId, db())).toMatchObject({ ok: true });
+  });
+});
+
+describe("ISIN changes", () => {
+  let sapId: string;
+
+  beforeEach(async () => {
+    const sap = await ensureSecurity({ isin: "DE0007164600" }, { name: "SAP SE", assetType: "STOCK" }, db());
+    if (!sap.ok) throw new Error("setup failed");
+    sapId = sap.security.id;
+  });
+
+  async function change(overrides: Partial<Parameters<typeof recordIsinChange>[0]> = {}) {
+    const result = await recordIsinChange(
+      { oldSecurityId: appleId, newSecurity: { id: sapId }, date: "2024-03-01", oldQuantity: "1", newQuantity: "1", ...overrides },
+      db(),
+    );
+    if (!result.ok) throw new Error(`setup failed: ${result.reason}`);
+    return result.isinChange;
+  }
+
+  it("records a change to a new Security created via ensureSecurity and moves the Position", async () => {
+    const buy = await trade({ price: "100" });
+    const result = await recordIsinChange(
+      {
+        oldSecurityId: appleId,
+        newSecurity: { new: { isin: " us5949181045 ", name: "Neu AG", assetType: "STOCK" } },
+        date: "2024-03-01",
+        oldQuantity: "10",
+        newQuantity: "5",
+      },
+      db(),
+    );
+    expect(result).toEqual({
+      ok: true,
+      isinChange: {
+        id: expect.any(String),
+        oldSecurity: expect.objectContaining({ id: appleId }),
+        newSecurity: expect.objectContaining({ isin: "US5949181045", name: "Neu AG" }),
+        date: "2024-03-01",
+        oldQuantity: "10",
+        newQuantity: "5",
+      },
+    });
+    expect(await db().corporateAction.count()).toBe(1);
+    expect(await db().transaction.findUnique({ where: { id: buy.id } })).toMatchObject({ securityId: appleId, quantity: "10" });
+    const positions = await listPositions(depotId, "2024-06-01", db());
+    expect(positions).toEqual([
+      expect.objectContaining({
+        security: expect.objectContaining({ isin: "US5949181045" }),
+        quantity: "5",
+        costBasis: "1000",
+        price: "200",
+        value: "1000",
+      }),
+    ]);
+    // History stays visible as the old Security.
+    const [row] = await listTransactions(depotId, db());
+    expect(row.security?.id).toBe(appleId);
+  });
+
+  it("prices the new Security with its own later Transactions in other Depots", async () => {
+    await trade({ price: "100" });
+    await change();
+    await trade({ depotId: otherDepotId, date: "2024-04-01", quantity: "1", price: "150", security: { id: sapId } });
+    expect(await listPositions(depotId, "2024-06-01", db())).toEqual([
+      expect.objectContaining({
+        security: expect.objectContaining({ id: sapId }),
+        quantity: "10",
+        price: "150",
+        priceDate: "2024-04-01",
+        value: "1500",
+      }),
+    ]);
+  });
+
+  it("sells the new Security against carried-over lots and refuses selling the old one after the change", async () => {
+    await trade({ price: "100" });
+    await trade({ date: "2024-02-01", price: "120" });
+    await change();
+    const sold = await recordTrade(
+      { depotId, type: "SELL", date: "2024-04-01", quantity: "15", price: "130", security: { id: sapId } },
+      db(),
+    );
+    expect(sold.ok).toBe(true);
+    const [position] = await listPositions(depotId, "2024-06-01", db());
+    expect(position).toMatchObject({ security: expect.objectContaining({ id: sapId }), quantity: "5", costBasis: "600" });
+    expect(
+      await recordTrade({ depotId, type: "SELL", date: "2024-04-01", quantity: "1", price: "130", security: { id: appleId } }, db()),
+    ).toEqual({ ok: false, reason: "sell-exceeds-holding", available: "0" });
+  });
+
+  it("refuses a change that would oversell a SELL of the old Security after its date", async () => {
+    await trade();
+    await trade({ type: "SELL", date: "2024-05-01", quantity: "5", price: "1" });
+    expect(
+      await recordIsinChange({ oldSecurityId: appleId, newSecurity: { id: sapId }, date: "2024-03-01", oldQuantity: "1", newQuantity: "1" }, db()),
+    ).toEqual({ ok: false, reason: "later-sell-exceeds-holding", date: "2024-05-01" });
+    expect(
+      await recordIsinChange(
+        {
+          oldSecurityId: appleId,
+          newSecurity: { new: { isin: "US5949181045", name: "Neu AG", assetType: "STOCK" } },
+          date: "2024-03-01",
+          oldQuantity: "1",
+          newQuantity: "1",
+        },
+        db(),
+      ),
+    ).toMatchObject({ ok: false, reason: "later-sell-exceeds-holding" });
+    expect(await db().corporateAction.count()).toBe(0);
+    expect(await db().security.count()).toBe(2);
+  });
+
+  it("refuses deleting or shrinking a change a later SELL of the new Security depends on", async () => {
+    await trade();
+    const recorded = await change();
+    await trade({ type: "SELL", date: "2024-05-01", quantity: "10", price: "1", security: { id: sapId } });
+    expect(await deleteIsinChange(recorded.id, db())).toEqual({ ok: false, reason: "later-sell-exceeds-holding", date: "2024-05-01" });
+    expect(await updateIsinChange(recorded.id, { date: "2024-03-01", oldQuantity: "2", newQuantity: "1" }, db())).toEqual({
+      ok: false,
+      reason: "later-sell-exceeds-holding",
+      date: "2024-05-01",
+    });
+    expect(await listIsinChanges(db())).toHaveLength(1);
+  });
+
+  it("refuses a Transaction edit that breaks a SELL of the new Security (lineage guard)", async () => {
+    const buy = await trade();
+    await change();
+    await trade({ type: "SELL", date: "2024-05-01", quantity: "10", price: "1", security: { id: sapId } });
+    expect(
+      await updateTransaction(buy.id, { depotId, type: "BUY", date: "2024-01-02", quantity: "9", price: "400", security: { id: appleId } }, db()),
+    ).toEqual({ ok: false, reason: "later-sell-exceeds-holding", date: "2024-05-01" });
+  });
+
+  it("edits and deletes a change, reflected on the next read", async () => {
+    await trade({ price: "100" });
+    const recorded = await change();
+    const updated = await updateIsinChange(recorded.id, { date: "2024-04-01", oldQuantity: "1", newQuantity: "2.5" }, db());
+    expect(updated).toMatchObject({ ok: true, isinChange: { id: recorded.id, date: "2024-04-01", oldQuantity: "1", newQuantity: "2.5" } });
+    expect(await listPositions(depotId, "2024-06-01", db())).toEqual([
+      expect.objectContaining({ security: expect.objectContaining({ id: sapId }), quantity: "25" }),
+    ]);
+    expect(await deleteIsinChange(recorded.id, db())).toMatchObject({ ok: true, isinChange: { id: recorded.id } });
+    expect(await listPositions(depotId, "2024-06-01", db())).toEqual([
+      expect.objectContaining({ security: expect.objectContaining({ id: appleId }), quantity: "10" }),
+    ]);
+  });
+
+  it.each([
+    [{ newSecurity: { id: "" } }, "security-not-found"],
+    [{ oldSecurityId: "nope" }, "security-not-found"],
+    [{ newSecurity: { id: "nope" } }, "security-not-found"],
+    [{ date: "2024-02-30" }, "date-invalid"],
+    [{ oldQuantity: "0" }, "old-quantity-invalid"],
+    [{ oldQuantity: "-1" }, "old-quantity-invalid"],
+    [{ oldQuantity: "abc" }, "old-quantity-invalid"],
+    [{ oldQuantity: "1.123456789" }, "old-quantity-invalid"],
+    [{ newQuantity: "0" }, "new-quantity-invalid"],
+    [{ newQuantity: "1,5" }, "new-quantity-invalid"],
+    [{ newSecurity: { new: { isin: "US0000000000", name: "X", assetType: "STOCK" } } }, "isin-invalid"],
+  ])("rejects %j with %s", async (overrides, reason) => {
+    const result = await recordIsinChange(
+      { oldSecurityId: appleId, newSecurity: { id: sapId }, date: "2024-03-01", oldQuantity: "1", newQuantity: "1", ...overrides },
+      db(),
+    );
+    expect(result).toEqual({ ok: false, reason });
+    expect(await db().corporateAction.count()).toBe(0);
+  });
+
+  it("rejects the same Security, a second change of the old Security on one date and unknown ids", async () => {
+    expect(
+      await recordIsinChange({ oldSecurityId: appleId, newSecurity: { id: appleId }, date: "2024-03-01", oldQuantity: "1", newQuantity: "1" }, db()),
+    ).toEqual({ ok: false, reason: "same-security" });
+    expect(
+      await recordIsinChange(
+        {
+          oldSecurityId: appleId,
+          newSecurity: { new: { isin: "US0378331005", name: "Apple", assetType: "STOCK" } },
+          date: "2024-03-01",
+          oldQuantity: "1",
+          newQuantity: "1",
+        },
+        db(),
+      ),
+    ).toEqual({ ok: false, reason: "same-security" });
+    await change();
+    expect(
+      await recordIsinChange({ oldSecurityId: appleId, newSecurity: { id: sapId }, date: "2024-03-01", oldQuantity: "1", newQuantity: "2" }, db()),
+    ).toEqual({ ok: false, reason: "isin-change-exists" });
+    expect(await updateIsinChange("nope", { date: "2024-03-01", oldQuantity: "1", newQuantity: "1" }, db())).toEqual({
+      ok: false,
+      reason: "isin-change-not-found",
+    });
+    expect(await deleteIsinChange("nope", db())).toEqual({ ok: false, reason: "isin-change-not-found" });
+  });
+
+  it("keeps splits and ISIN changes apart", async () => {
+    const recordedSplit = await split();
+    const recordedChange = await change();
+    expect(await updateSplit(recordedChange.id, { date: "2024-03-01", ratio: "1:2" }, db())).toEqual({ ok: false, reason: "split-not-found" });
+    expect(await deleteSplit(recordedChange.id, db())).toEqual({ ok: false, reason: "split-not-found" });
+    expect(await deleteIsinChange(recordedSplit.id, db())).toEqual({ ok: false, reason: "isin-change-not-found" });
+    expect(await listSplits(db())).toHaveLength(1);
+    expect(await listIsinChanges(db())).toHaveLength(1);
+  });
+
+  it("archives a Depot whose old Security was sold as the new one", async () => {
+    await trade({ price: "10" });
+    await change();
+    await trade({ type: "SELL", date: "2024-05-01", quantity: "10", price: "10", security: { id: sapId } });
+    expect(await listHeldSecurities("2024-06-01", db())).toEqual([]);
+    expect(await listHeldSecurities("2024-04-01", db())).toEqual([sapId]);
+    expect((await listDepots(db())).find((depot) => depot.id === depotId)?.archivable).toBe(true);
+    expect(await archiveDepot(depotId, db())).toMatchObject({ ok: true });
+  });
+
+  it("warns about a duplicate DIVIDEND entered with the old Security", async () => {
+    await change();
+    const first = await recordTransaction(
+      { depotId, type: "DIVIDEND", date: "2024-05-01", amount: "50", security: { id: sapId } },
+      db(),
+    );
+    expect(first.ok).toBe(true);
+    const repeat = await recordTransaction(
+      { depotId, type: "DIVIDEND", date: "2024-05-01", amount: "50", security: { id: appleId } },
+      db(),
+    );
+    expect(repeat).toMatchObject({ ok: false, reason: "possible-duplicate", status: "duplicate" });
   });
 });

@@ -1,15 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
-  adjustTrades,
-  ALL_SPLITS,
+  adjustedPrice,
+  ALL_ACTIONS,
+  type CorporateActions,
+  type IsinChange,
+  LotBook,
   parseSplitRatio,
+  replayEvents,
   type Split,
-  splitAdjustedPrice,
   splitAdjustment,
-  splitDivisor,
-  splitScale,
-  scaleTrades,
 } from "./corporate-actions";
+import { ExactDecimal } from "./decimal";
 
 const split = (date: string, ratioOld: string, ratioNew: string, securityId = "s1"): Split => ({
   securityId,
@@ -36,54 +37,87 @@ describe("parseSplitRatio", () => {
   );
 });
 
-describe("adjustTrades", () => {
-  const buy = (date: string, quantity: string, price: string | null = null, securityId = "s1") => ({
-    securityId,
-    type: "BUY",
-    date,
-    quantity,
-    price,
-    amount: "1000",
-  });
-
-  it("adjusts quantity and price of rows dated before the split, not on or after it", () => {
-    const rows = [buy("2024-01-02", "10", "100"), buy("2024-03-01", "5", "30"), buy("2024-04-01", "5", "30")];
-    const adjusted = adjustTrades(rows, [split("2024-03-01", "1", "4")], "2024-06-01");
-    expect(adjusted.map((row) => [row.quantity, row.price, row.amount])).toEqual([
-      ["40", "25", "1000"],
-      ["5", "30", "1000"],
-      ["5", "30", "1000"],
-    ]);
-    expect(adjusted[1]).toBe(rows[1]);
-    expect(rows[0].quantity).toBe("10");
-  });
-
-  it("ignores splits after asOf, of other Securities and non-trade rows", () => {
-    const rows = [buy("2024-01-02", "10"), buy("2024-01-02", "10", null, "s2"), { ...buy("2024-01-02", "10"), type: "DIVIDEND" }];
-    const adjusted = adjustTrades(rows, [split("2024-03-01", "1", "4")], "2024-02-28");
-    expect(adjusted.map((row) => row.quantity)).toEqual(["10", "10", "10"]);
-    expect(adjustTrades(rows, [split("2024-03-01", "1", "4")], ALL_SPLITS).map((row) => row.quantity)).toEqual(["40", "10", "10"]);
-  });
-
+describe("splitAdjustment", () => {
   it("multiplies several splits (1:2 then 1:3 → factor 6) and handles reverse splits", () => {
     const splits = [split("2024-02-01", "1", "2"), split("2024-03-01", "1", "3")];
-    expect(splitAdjustment("s1", "2024-01-01", "10", splits, ALL_SPLITS)).toBe("60");
-    expect(splitAdjustment("s1", "2024-02-15", "10", splits, ALL_SPLITS)).toBe("30");
-    expect(splitAdjustment("s1", "2024-03-01", "10", splits, ALL_SPLITS)).toBeNull();
-    expect(splitAdjustment("s1", "2024-01-01", "15", [split("2024-02-01", "10", "1")], ALL_SPLITS)).toBe("1.5");
-    expect(splitAdjustedPrice("s1", "2024-01-01", "600", splits, ALL_SPLITS)).toBe("100");
+    expect(splitAdjustment("s1", "2024-01-01", "10", splits, ALL_ACTIONS)).toBe("60");
+    expect(splitAdjustment("s1", "2024-02-15", "10", splits, ALL_ACTIONS)).toBe("30");
+    expect(splitAdjustment("s1", "2024-03-01", "10", splits, ALL_ACTIONS)).toBeNull();
+    expect(splitAdjustment("s1", "2024-01-01", "10", splits, "2024-02-15")).toBe("20");
+    expect(splitAdjustment("s1", "2024-01-01", "15", [split("2024-02-01", "10", "1")], ALL_ACTIONS)).toBe("1.5");
+    expect(splitAdjustment("s2", "2024-01-01", "10", splits, ALL_ACTIONS)).toBeNull();
+  });
+});
+
+const change = (date: string, oldQuantity: string, newQuantity: string, oldSecurityId = "A", newSecurityId = "B"): IsinChange => ({
+  oldSecurityId,
+  newSecurityId,
+  date,
+  oldQuantity,
+  newQuantity,
+});
+
+describe("replayEvents", () => {
+  it("orders by date, then splits, ISIN changes (given order), Transactions (sequence); drops rows after asOf", () => {
+    const rows = [
+      { securityId: "A", type: "BUY", date: "2024-03-01", sequence: 2, quantity: "1" },
+      { securityId: "A", type: "BUY", date: "2024-03-01", sequence: 1, quantity: "1" },
+      { securityId: "A", type: "DIVIDEND", date: "2024-01-01", sequence: 1, quantity: null },
+      { securityId: "A", type: "BUY", date: "2024-09-01", sequence: 1, quantity: "1" },
+    ];
+    const first = change("2024-03-01", "1", "1", "A", "B");
+    const second = change("2024-03-01", "1", "1", "B", "C");
+    const events = replayEvents(rows, { splits: [split("2024-03-01", "1", "2", "A")], isinChanges: [first, second] }, "2024-06-01");
+    expect(events.map((event) => (event.kind === "trade" ? `trade${event.row.sequence}` : event.kind))).toEqual([
+      "split",
+      "isin-change",
+      "isin-change",
+      "trade1",
+      "trade2",
+    ]);
+    expect(events[1]).toEqual({ kind: "isin-change", change: first });
+  });
+});
+
+describe("LotBook", () => {
+  it("moves lots into a Security that already holds lots, merged by (date, sequence), exactly", () => {
+    const book = new LotBook();
+    book.buy("B", "2023-06-01", 1, "4", new ExactDecimal(40));
+    book.buy("A", "2022-01-03", 1, "10", new ExactDecimal(100));
+    book.split({ securityId: "B", date: "2023-07-01", ratioOld: "3", ratioNew: "1" });
+    book.isinChange(change("2024-03-01", "3", "1"));
+    const divisor = book.divisor("B");
+    expect(book.lots("B").map((lot) => [lot.date, lot.quantity.dividedBy(divisor).toFixed(5), lot.costBasis.toFixed()])).toEqual([
+      ["2022-01-03", "3.33333", "100"],
+      ["2023-06-01", "1.33333", "40"],
+    ]);
+    expect(book.lots("A")).toEqual([]);
+    expect(book.net("A").scaled.isZero()).toBe(true);
+    // 10/3 + 4/3 = 14/3 is held exactly (scaled ÷ divisor, no rounding)
+    const net = book.net("B");
+    expect(net.scaled.times(3).equals(net.divisor.times(14))).toBe(true);
+  });
+});
+
+describe("adjustedPrice", () => {
+  const actions: CorporateActions = {
+    splits: [split("2024-02-01", "1", "2", "A"), split("2024-05-01", "1", "4", "B")],
+    isinChanges: [change("2024-03-01", "10", "5")],
+  };
+
+  it("follows splits and ISIN changes after the observation up to asOf", () => {
+    expect(adjustedPrice("A", "2024-01-01", "100", actions, ALL_ACTIONS)).toEqual({ securityId: "B", price: "25" });
+    expect(adjustedPrice("A", "2024-01-01", "100", actions, "2024-04-01")).toEqual({ securityId: "B", price: "100" });
+    expect(adjustedPrice("A", "2024-01-01", "100", actions, "2024-02-15")).toEqual({ securityId: "A", price: "50" });
+    expect(adjustedPrice("A", "2024-03-01", "100", actions, "2024-04-01")).toEqual({ securityId: "A", price: "100" });
+    expect(adjustedPrice("C", "2024-01-01", "7", actions, ALL_ACTIONS)).toEqual({ securityId: "C", price: "7" });
   });
 
-  it("scales quantities exactly by multiplication; scaled ÷ divisor is the adjusted quantity", () => {
-    const splits = [split("2024-03-01", "3", "1"), split("2024-05-01", "1", "2")];
-    expect(splitScale("s1", "2024-01-01", splits, ALL_SPLITS).toFixed()).toBe("2");
-    expect(splitScale("s1", "2024-04-01", splits, ALL_SPLITS).toFixed()).toBe("6");
-    expect(splitScale("s1", "2024-01-01", splits, "2024-04-01").toFixed()).toBe("1");
-    expect(splitDivisor("s1", splits, ALL_SPLITS).toFixed()).toBe("3");
-    const rows = [
-      { securityId: "s1", type: "BUY", date: "2024-01-01", quantity: "10" },
-      { securityId: "s1", type: "SELL", date: "2024-06-01", quantity: "4" },
-    ];
-    expect(scaleTrades(rows, splits, ALL_SPLITS).map((row) => row.quantity)).toEqual(["20", "12"]);
+  it("follows a chain A → B (10 → 5) → C (2 → 1): price × o1/n1 × o2/n2", () => {
+    const chain: CorporateActions = {
+      splits: [],
+      isinChanges: [change("2024-03-01", "10", "5"), change("2024-05-01", "2", "1", "B", "C")],
+    };
+    expect(adjustedPrice("A", "2024-01-01", "100", chain, ALL_ACTIONS)).toEqual({ securityId: "C", price: "400" });
   });
 });

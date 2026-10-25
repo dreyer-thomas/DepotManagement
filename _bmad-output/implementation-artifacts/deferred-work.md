@@ -27,3 +27,11 @@ source_spec: `spec-2-1-record-stock-splits.md`
 severity: low
 reason: No jsdom/happy-dom/testing-library in the repo (same tooling gap as DW-3). Passing splits={[]} or inverting the `own` filter in SplitDialog.tsx would pass npm test and make split edit/delete unreachable in the UI. Settle by adding DOM test tooling or extracting the list rendering into a server-renderable, testable piece.
 status: open
+
+### DW-5: IsinChangeDialog and the "Corporate Action → ISIN-Wechsel" menu item have no interaction test; only labels, the listing filter, server actions, ledger and static page rendering are tested.
+origin: spec-deferred d60c8cad56a3
+location: src/app/_components/corporate-actions/IsinChangeDialog.tsx
+source_spec: `spec-2-2-record-isin-changes.md`
+severity: low
+reason: No jsdom/happy-dom/testing-library in the repo (same tooling gap as DW-3/DW-4). PositionsTable.test.tsx only counts the "Aktionen für …" buttons; the closed MUI Menu items and the dialog (record/edit/delete, error-to-field mapping) are never rendered in tests. Settle by adding DOM test tooling.
+status: open

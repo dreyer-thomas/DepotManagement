@@ -1,7 +1,7 @@
 "use client";
 
 import Alert from "@mui/material/Alert";
-import Autocomplete, { createFilterOptions } from "@mui/material/Autocomplete";
+import Autocomplete from "@mui/material/Autocomplete";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Dialog from "@mui/material/Dialog";
@@ -26,6 +26,12 @@ import {
   saveTransactionAction,
   type TransactionActionState,
 } from "@/app/_actions/transactions";
+import {
+  filterSecurityOptions,
+  NEW_OPTION,
+  optionLabel,
+  type SecurityOption,
+} from "@/app/_components/securities/security-options";
 import type { SecuritySummary, TransactionRecord, TransactionType } from "@/modules/ledger";
 import { cashPreview } from "./cash-preview";
 import { ALLOW_DUPLICATE_MARKER, NEW_SECURITY_MARKER, TRADE_FIELDS } from "./form-fields";
@@ -55,31 +61,6 @@ import {
 } from "./labels";
 
 const TOUCH_TARGET = { minHeight: 44 };
-
-type SecurityOption = { kind: "security"; security: SecuritySummary } | { kind: "new" };
-
-const NEW_OPTION: SecurityOption = { kind: "new" };
-const NEW_LABEL = "Neue Security anlegen";
-
-function optionLabel(option: SecurityOption): string {
-  if (option.kind === "new") return NEW_LABEL;
-  const { name, isin, cryptoSymbol } = option.security;
-  return `${name} (${isin ?? cryptoSymbol ?? ""})`;
-}
-
-const baseFilter = createFilterOptions<SecurityOption>({
-  // Case-insensitive substring match over ISIN, crypto symbol and name.
-  stringify: (option) =>
-    option.kind === "new"
-      ? ""
-      : [option.security.isin, option.security.cryptoSymbol, option.security.name].filter(Boolean).join(" "),
-});
-
-/** Matching Securities, then always "Neue Security anlegen" as the last option. */
-function filterSecurityOptions(options: SecurityOption[], state: Parameters<typeof baseFilter>[1]): SecurityOption[] {
-  const securities = options.filter((option) => option.kind === "security");
-  return [...baseFilter(securities, state), NEW_OPTION];
-}
 
 const decimalInput = { htmlInput: { inputMode: "decimal" as const, autoComplete: "off" } };
 

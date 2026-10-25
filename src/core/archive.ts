@@ -2,7 +2,7 @@
  * Archive guard and the held set (AD-17). Pure, decimal strings only; "today" is passed in.
  */
 import { cashBalance, type CashRow } from "./cash";
-import { scaleTrades, type Split } from "./corporate-actions";
+import { type CorporateActions, LotBook, replayEvents } from "./corporate-actions";
 import { ExactDecimal } from "./decimal";
 
 type Decimal = InstanceType<typeof ExactDecimal>;
@@ -19,19 +19,24 @@ export type QuantityRow = {
 export type ArchiveRow = CashRow & QuantityRow;
 
 /**
- * Net BUY − SELL quantity per Security over rows dated on or before `asOf`, in the exact split-scaled
- * basis as of `asOf` (a positive multiple of the adjusted quantity: only sign and zero are used).
+ * Net held quantity (open lots − oversold units) per Security as of `asOf`, replayed with the corporate
+ * actions dated on or before `asOf`, as an exact scaled value (a positive multiple of the quantity:
+ * only sign and zero are used). Securities moved away by an ISIN change are zero.
  */
-function netQuantities(rows: readonly QuantityRow[], asOf: string, splits: readonly Split[]): Map<string, Decimal> {
-  const net = new Map<string, Decimal>();
-  for (const row of scaleTrades(rows, splits, asOf)) {
-    if (row.date > asOf || row.securityId === null) continue;
-    if (row.type !== "BUY" && row.type !== "SELL") continue;
-    const quantity = new ExactDecimal(row.quantity ?? "0");
-    const current = net.get(row.securityId) ?? new ExactDecimal(0);
-    net.set(row.securityId, row.type === "BUY" ? current.plus(quantity) : current.minus(quantity));
+function netQuantities(rows: readonly QuantityRow[], asOf: string, actions: CorporateActions): Map<string, Decimal> {
+  const book = new LotBook();
+  // Within a date the order of BUY/SELL rows does not change a net quantity; input order stands in.
+  const sequenced = rows.map((row, index) => ({ ...row, sequence: index }));
+  for (const event of replayEvents(sequenced, actions, asOf)) {
+    if (event.kind !== "trade") {
+      book.apply(event);
+      continue;
+    }
+    const { row } = event;
+    if (row.type === "BUY") book.buy(row.securityId as string, row.date, row.sequence, row.quantity ?? "0", new ExactDecimal(0));
+    else book.sell(row.securityId as string, row.quantity ?? "0");
   }
-  return net;
+  return new Map(book.securityIds().map((securityId) => [securityId, book.net(securityId).scaled]));
 }
 
 /** Cash counts as zero below half a cent: it rounds (ROUND_HALF_UP, 2 places) to 0,00 €. */
@@ -43,8 +48,8 @@ const HALF_CENT = new ExactDecimal("0.005");
  * amounts are stored unrounded (quantity × price), so a closed fractional-share Depot can keep a
  * sub-cent remainder that displays as "0,00 €"; quantities stay exact.
  */
-export function isFlat(rows: readonly ArchiveRow[], asOf: string, splits: readonly Split[]): boolean {
-  for (const quantity of netQuantities(rows, asOf, splits).values()) {
+export function isFlat(rows: readonly ArchiveRow[], asOf: string, actions: CorporateActions): boolean {
+  for (const quantity of netQuantities(rows, asOf, actions).values()) {
     if (!quantity.isZero()) return false;
   }
   return new ExactDecimal(cashBalance(rows, asOf)).abs().lessThan(HALF_CENT);
@@ -54,10 +59,10 @@ export function isFlat(rows: readonly ArchiveRow[], asOf: string, splits: readon
  * A Depot may be archived when it is flat today and after its last row (a future-dated row that
  * opens a Position or moves cash blocks archiving). No rows → true.
  */
-export function canArchive(rows: readonly ArchiveRow[], today: string, splits: readonly Split[]): boolean {
+export function canArchive(rows: readonly ArchiveRow[], today: string, actions: CorporateActions): boolean {
   if (rows.length === 0) return true;
   const lastDate = rows.reduce((latest, row) => (row.date > latest ? row.date : latest), rows[0].date);
-  return isFlat(rows, today, splits) && isFlat(rows, lastDate, splits);
+  return isFlat(rows, today, actions) && isFlat(rows, lastDate, actions);
 }
 
 export type HeldSecuritiesLedger = {
@@ -70,7 +75,7 @@ export type HeldSecuritiesLedger = {
  * `today` is > 0 within one non-archived Depot (per Depot, never summed across Depots). Rows of
  * unknown Depots are ignored.
  */
-export function heldSecurities(ledger: HeldSecuritiesLedger, today: string, splits: readonly Split[]): string[] {
+export function heldSecurities(ledger: HeldSecuritiesLedger, today: string, actions: CorporateActions): string[] {
   const active = new Set(ledger.depots.filter((depot) => !depot.archived).map((depot) => depot.id));
   const byDepot = new Map<string, QuantityRow[]>();
   for (const row of ledger.trades) {
@@ -81,7 +86,7 @@ export function heldSecurities(ledger: HeldSecuritiesLedger, today: string, spli
   }
   const held = new Set<string>();
   for (const rows of byDepot.values()) {
-    for (const [securityId, quantity] of netQuantities(rows, today, splits)) {
+    for (const [securityId, quantity] of netQuantities(rows, today, actions)) {
       if (quantity.greaterThan(0)) held.add(securityId);
     }
   }

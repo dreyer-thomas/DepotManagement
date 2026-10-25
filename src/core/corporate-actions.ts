@@ -1,18 +1,40 @@
 /**
- * Split adjustment on read (AD-7, AD-8). Pure, decimal strings only. Stored Transactions and Prices
- * are never modified; every quantity/price consumer in core adjusts through this file.
+ * Corporate actions on read (AD-7, AD-8). Pure, decimal strings only. Stored Transactions and Prices
+ * are never modified; every quantity/price consumer in core goes through this file.
  *
- * A split `old:new` dated D applies before every Transaction dated D: a row dated `d` is adjusted by
- * a split of its Security iff `d < D <= asOf`. Several splits multiply; all `new` and all `old` terms
- * are multiplied first and divided once (`quantity × Πnew / Πold`, `price × Πold / Πnew`).
+ * - A split `old:new` of a Security dated D scales every quantity of that Security held before D by
+ *   `new/old` (and per-unit prices by `old/new`).
+ * - An ISIN change A→B dated D (old quantity `o`, new quantity `n`) moves A's open FIFO lots into B,
+ *   keeping their original `(date, sequence)` and Cost Basis, quantities × `n/o`; A then holds nothing.
+ *
+ * An action dated D affects only rows dated before D. On one date, splits apply first, then ISIN
+ * changes (in the order given), then Transactions by sequence. Quantities stay exact: the replay works
+ * on scaled quantities (multiplication only) with one divisor per Security, divided once on output.
  */
 import { canonicalDecimal, ExactDecimal } from "./decimal";
+import { compareLedgerOrder, type LedgerOrdered } from "./ledger-order";
+
+type Decimal = InstanceType<typeof ExactDecimal>;
 
 /** A stock split of one Security; ratio terms are positive integer strings (`old:new`, e.g. `1:4`). */
 export type Split = { securityId: string; date: string; ratioOld: string; ratioNew: string };
 
-/** "All splits": the asOf that includes every recorded split (used by holding guards). */
-export const ALL_SPLITS = "9999-12-31";
+/** An ISIN change: `oldQuantity` units of the old Security became `newQuantity` units of the new one. */
+export type IsinChange = {
+  oldSecurityId: string;
+  newSecurityId: string;
+  date: string;
+  oldQuantity: string;
+  newQuantity: string;
+};
+
+/** Every recorded corporate action; ISIN changes ordered by `(date, id)` (same-date order matters). */
+export type CorporateActions = { splits: readonly Split[]; isinChanges: readonly IsinChange[] };
+
+export const NO_CORPORATE_ACTIONS: CorporateActions = { splits: [], isinChanges: [] };
+
+/** "All actions": the asOf that includes every recorded corporate action (used by holding guards). */
+export const ALL_ACTIONS = "9999-12-31";
 
 const RATIO_TERM = "([1-9]\\d{0,5})";
 const RATIO = new RegExp(`^\\s*${RATIO_TERM}\\s*:\\s*${RATIO_TERM}\\s*$`);
@@ -28,11 +50,13 @@ export function parseSplitRatio(text: unknown): { ratioOld: string; ratioNew: st
   return { ratioOld: match[1], ratioNew: match[2] };
 }
 
-type Decimal = InstanceType<typeof ExactDecimal>;
-type Factor = { num: Decimal; den: Decimal };
-
 /** `Πnew` / `Πold` of the splits that adjust a row of `securityId` dated `date` as of `asOf`; `null` when none. */
-function splitFactor(securityId: string, date: string, splits: readonly Split[], asOf: string): Factor | null {
+function splitFactor(
+  securityId: string,
+  date: string,
+  splits: readonly Split[],
+  asOf: string,
+): { num: Decimal; den: Decimal } | null {
   let num = new ExactDecimal(1);
   let den = new ExactDecimal(1);
   let applies = false;
@@ -45,50 +69,9 @@ function splitFactor(securityId: string, date: string, splits: readonly Split[],
   return applies ? { num, den } : null;
 }
 
-function scaleQuantity(quantity: string, factor: Factor): string {
-  return canonicalDecimal(new ExactDecimal(quantity).times(factor.num).dividedBy(factor.den));
-}
-
-function scalePrice(price: string, factor: Factor): string {
-  return canonicalDecimal(new ExactDecimal(price).times(factor.den).dividedBy(factor.num));
-}
-
-/** A row that may carry a split-adjustable quantity and per-unit price. */
-type AdjustableRow = { securityId: string | null; type: string; date: string; quantity: string | null; price?: string | null };
-
 /**
- * Rows with BUY/SELL quantities (× Πnew/Πold) and per-unit prices (× Πold/Πnew, when present)
- * split-adjusted as of `asOf`. Other rows, other fields and unaffected rows are returned unchanged
- * (same object). Amount, fee and tax never change, so Cost Basis and cash are unaffected.
- */
-export function adjustTrades<T extends AdjustableRow>(rows: readonly T[], splits: readonly Split[], asOf: string): T[] {
-  if (splits.length === 0) return [...rows];
-  return rows.map((row) => {
-    if (row.securityId === null || (row.type !== "BUY" && row.type !== "SELL")) return row;
-    const factor = splitFactor(row.securityId, row.date, splits, asOf);
-    if (!factor) return row;
-    const adjusted: AdjustableRow = { ...row };
-    if (row.quantity !== null) adjusted.quantity = scaleQuantity(row.quantity, factor);
-    if (row.price !== undefined && row.price !== null) adjusted.price = scalePrice(row.price, factor);
-    return adjusted as T;
-  });
-}
-
-/** A per-unit price of `securityId` observed on `date`, split-adjusted as of `asOf`. */
-export function splitAdjustedPrice(
-  securityId: string,
-  date: string,
-  price: string,
-  splits: readonly Split[],
-  asOf: string,
-): string {
-  const factor = splitFactor(securityId, date, splits, asOf);
-  return factor ? scalePrice(price, factor) : price;
-}
-
-/**
- * A quantity of `securityId` booked on `date`, split-adjusted as of `asOf` (for display); `null` when
- * no split applies.
+ * A quantity of `securityId` booked on `date`, split-adjusted as of `asOf` (splits only; for display
+ * and sale quantities); `null` when no split applies.
  */
 export function splitAdjustment(
   securityId: string,
@@ -98,48 +81,221 @@ export function splitAdjustment(
   asOf: string,
 ): string | null {
   const factor = splitFactor(securityId, date, splits, asOf);
-  return factor ? scaleQuantity(quantity, factor) : null;
+  return factor ? canonicalDecimal(new ExactDecimal(quantity).times(factor.num).dividedBy(factor.den)) : null;
 }
 
-/*
- * Exact scaled basis. Dividing by `Πold` can give non-terminating decimals (e.g. `3:1` on 10 units),
- * whose rounded sums may miss zero by 1e-999. Holding guards, FIFO and the flat check therefore work
- * on quantities scaled by multiplication only: `scaled = quantity × scale(row)`, where `scale(row)` is
- * the product, over the Security's splits dated `<= asOf`, of `new` when the split is after the row
- * and `old` otherwise. Since `scale(row) = factor(row) × Πold`, a scaled quantity divided by
- * `splitDivisor` (`Πold`) is the split-adjusted quantity as of `asOf`.
- */
+/** An action event in replay order. */
+export type ActionEvent = { kind: "split"; split: Split } | { kind: "isin-change"; change: IsinChange };
 
-/** The exact multiplier of a `securityId` row dated `date` in the scaled basis as of `asOf`. */
-export function splitScale(securityId: string, date: string, splits: readonly Split[], asOf: string): Decimal {
-  let scale = new ExactDecimal(1);
-  for (const split of splits) {
-    if (split.securityId !== securityId || split.date > asOf) continue;
-    scale = scale.times(date < split.date ? split.ratioNew : split.ratioOld);
-  }
-  return scale;
+/** A row the replay consumes: BUY/SELL with a Security take part, everything else is skipped. */
+export type ReplayRow = LedgerOrdered & { securityId: string | null; type: string; quantity: string | null };
+
+export type ReplayEvent<T extends ReplayRow> = ActionEvent | { kind: "trade"; row: T };
+
+function eventDate(event: ReplayEvent<ReplayRow>): string {
+  if (event.kind === "split") return event.split.date;
+  if (event.kind === "isin-change") return event.change.date;
+  return event.row.date;
 }
 
-/** `Πold` of the Security's splits dated `<= asOf`: scaled quantity ÷ divisor = adjusted quantity. */
-export function splitDivisor(securityId: string, splits: readonly Split[], asOf: string): Decimal {
-  let divisor = new ExactDecimal(1);
-  for (const split of splits) {
-    if (split.securityId === securityId && split.date <= asOf) divisor = divisor.times(split.ratioOld);
-  }
-  return divisor;
+const KIND_RANK = { split: 0, "isin-change": 1, trade: 2 } as const;
+
+/** Actions dated on or before `asOf` in replay order: by date, splits before ISIN changes, then given order. */
+export function actionEvents(actions: CorporateActions, asOf: string): ActionEvent[] {
+  const events: ActionEvent[] = [
+    ...actions.splits.filter((split) => split.date <= asOf).map((split) => ({ kind: "split" as const, split })),
+    ...actions.isinChanges
+      .filter((change) => change.date <= asOf)
+      .map((change) => ({ kind: "isin-change" as const, change })),
+  ];
+  return stableSort(events, (a, b) => compareEvents(a, b));
+}
+
+function compareEvents(a: ReplayEvent<ReplayRow>, b: ReplayEvent<ReplayRow>): number {
+  const dateA = eventDate(a);
+  const dateB = eventDate(b);
+  if (dateA !== dateB) return dateA < dateB ? -1 : 1;
+  if (a.kind !== b.kind) return KIND_RANK[a.kind] - KIND_RANK[b.kind];
+  if (a.kind === "trade" && b.kind === "trade") return a.row.sequence - b.row.sequence;
+  return 0;
+}
+
+function stableSort<T>(items: readonly T[], compare: (a: T, b: T) => number): T[] {
+  return items
+    .map((item, index) => ({ item, index }))
+    .sort((a, b) => compare(a.item, b.item) || a.index - b.index)
+    .map(({ item }) => item);
 }
 
 /**
- * BUY/SELL rows with quantities in the exact scaled basis as of `asOf` (see above); other rows and
- * rows of Securities without splits are returned unchanged (same object).
+ * The chronological event stream of one Depot: actions and BUY/SELL rows with a Security, both dated
+ * on or before `asOf`, ordered by date, then splits, ISIN changes, Transactions (by sequence).
  */
-export function scaleTrades<T extends AdjustableRow>(rows: readonly T[], splits: readonly Split[], asOf: string): T[] {
-  if (splits.length === 0) return [...rows];
-  return rows.map((row) => {
-    if (row.securityId === null || row.quantity === null || (row.type !== "BUY" && row.type !== "SELL")) return row;
-    const securityId = row.securityId;
-    if (!splits.some((split) => split.securityId === securityId && split.date <= asOf)) return row;
-    const scaled: AdjustableRow = { ...row, quantity: canonicalDecimal(new ExactDecimal(row.quantity).times(splitScale(securityId, row.date, splits, asOf))) };
-    return scaled as T;
-  });
+export function replayEvents<T extends ReplayRow>(
+  rows: readonly T[],
+  actions: CorporateActions,
+  asOf: string,
+): ReplayEvent<T>[] {
+  const trades = rows
+    .filter((row) => row.securityId !== null && (row.type === "BUY" || row.type === "SELL") && row.date <= asOf)
+    .map((row) => ({ kind: "trade" as const, row }));
+  return stableSort<ReplayEvent<T>>([...actionEvents(actions, asOf), ...trades], compareEvents);
+}
+
+/** An open lot in the book; `quantity` is scaled (actual quantity = quantity ÷ the Security's divisor). */
+export type BookLot = { date: string; sequence: number; quantity: Decimal; costBasis: Decimal };
+
+type SecurityBook = {
+  /** Actual quantity = scaled ÷ divisor. */
+  divisor: Decimal;
+  lots: BookLot[];
+  /** Scaled units sold beyond the open lots (never filled by later BUYs; counts against net holding). */
+  short: Decimal;
+};
+
+/**
+ * FIFO lot book over a replay: per Security an ordered lot queue in an exact scaled basis. Apply events
+ * in replay order; read lots, net holdings and the divisor between events.
+ */
+export class LotBook {
+  private readonly books = new Map<string, SecurityBook>();
+
+  private book(securityId: string): SecurityBook {
+    let book = this.books.get(securityId);
+    if (!book) {
+      book = { divisor: new ExactDecimal(1), lots: [], short: new ExactDecimal(0) };
+      this.books.set(securityId, book);
+    }
+    return book;
+  }
+
+  /** Security ids in the order they first appeared in the book. */
+  securityIds(): string[] {
+    return [...this.books.keys()];
+  }
+
+  /** The scaled-basis divisor of `securityId` (scaled ÷ divisor = actual quantity). */
+  divisor(securityId: string): Decimal {
+    return this.books.get(securityId)?.divisor ?? new ExactDecimal(1);
+  }
+
+  /** Open lots of `securityId` (scaled quantities), FIFO order. */
+  lots(securityId: string): readonly BookLot[] {
+    return this.books.get(securityId)?.lots ?? [];
+  }
+
+  /** Net held quantity (open lots − oversold units) of `securityId` as `scaled / divisor`. */
+  net(securityId: string): { scaled: Decimal; divisor: Decimal } {
+    const book = this.books.get(securityId);
+    if (!book) return { scaled: new ExactDecimal(0), divisor: new ExactDecimal(1) };
+    const total = book.lots.reduce((sum, lot) => sum.plus(lot.quantity), new ExactDecimal(0));
+    return { scaled: total.minus(book.short), divisor: book.divisor };
+  }
+
+  /** Applies a split: quantities × new, divisor × old (exact). */
+  split(split: Split): void {
+    const book = this.books.get(split.securityId);
+    if (!book) return;
+    for (const lot of book.lots) lot.quantity = lot.quantity.times(split.ratioNew);
+    book.short = book.short.times(split.ratioNew);
+    book.divisor = book.divisor.times(split.ratioOld);
+  }
+
+  /** Moves the old Security's lots (and oversold units) into the new Security, quantities × n/o. */
+  isinChange(change: IsinChange): void {
+    const source = this.books.get(change.oldSecurityId);
+    if (!source || (source.lots.length === 0 && source.short.isZero())) return;
+    if (change.oldSecurityId === change.newSecurityId) return;
+    const target = this.book(change.newSecurityId);
+    // moved actual = scaled_A / D_A × n / o
+    const sourceDivisor = source.divisor.times(change.oldQuantity);
+    if (target.lots.length === 0 && target.short.isZero()) {
+      target.divisor = sourceDivisor;
+      target.lots = source.lots.map((lot) => ({ ...lot, quantity: lot.quantity.times(change.newQuantity) }));
+      target.short = source.short.times(change.newQuantity);
+    } else {
+      const sourceScale = target.divisor.times(change.newQuantity);
+      const targetScale = sourceDivisor;
+      const moved = source.lots.map((lot) => ({ ...lot, quantity: lot.quantity.times(sourceScale) }));
+      for (const lot of target.lots) lot.quantity = lot.quantity.times(targetScale);
+      target.lots = stableSort([...target.lots, ...moved], compareLedgerOrder);
+      target.short = target.short.times(targetScale).plus(source.short.times(sourceScale));
+      target.divisor = target.divisor.times(targetScale);
+    }
+    source.lots = [];
+    source.short = new ExactDecimal(0);
+    source.divisor = new ExactDecimal(1);
+  }
+
+  /** Adds a lot of `quantity` (actual units as of now) costing `costBasis`. */
+  buy(securityId: string, date: string, sequence: number, quantity: string, costBasis: Decimal): void {
+    const book = this.book(securityId);
+    const scaled = new ExactDecimal(quantity).times(book.divisor);
+    if (scaled.greaterThan(0)) book.lots.push({ date, sequence, quantity: scaled, costBasis });
+  }
+
+  /**
+   * Consumes `quantity` (actual units as of now) from the earliest lots; returns the consumed Cost Basis.
+   * A partially consumed lot gives up `cost × taken / quantity`; units beyond the open lots cost zero.
+   */
+  sell(securityId: string, quantity: string): Decimal {
+    const book = this.book(securityId);
+    let remaining = new ExactDecimal(quantity).times(book.divisor);
+    let costBasis = new ExactDecimal(0);
+    while (remaining.greaterThan(0) && book.lots.length > 0) {
+      const lot = book.lots[0];
+      if (remaining.greaterThanOrEqualTo(lot.quantity)) {
+        costBasis = costBasis.plus(lot.costBasis);
+        remaining = remaining.minus(lot.quantity);
+        book.lots.shift();
+      } else {
+        const taken = lot.costBasis.times(remaining).dividedBy(lot.quantity);
+        costBasis = costBasis.plus(taken);
+        lot.costBasis = lot.costBasis.minus(taken);
+        lot.quantity = lot.quantity.minus(remaining);
+        remaining = new ExactDecimal(0);
+      }
+    }
+    if (remaining.greaterThan(0)) book.short = book.short.plus(remaining);
+    return costBasis;
+  }
+
+  /** Applies an action event. */
+  apply(event: ActionEvent): void {
+    if (event.kind === "split") this.split(event.split);
+    else this.isinChange(event.change);
+  }
+}
+
+/**
+ * A per-unit price of `securityId` observed on `date`, carried to the Security and units it maps to as
+ * of `asOf`: each later split of the current Security × old/new; each later ISIN change of it moves to
+ * the new Security, × o/n.
+ */
+export function adjustedPrice(
+  securityId: string,
+  date: string,
+  price: string,
+  actions: CorporateActions,
+  asOf: string,
+): { securityId: string; price: string } {
+  let current = securityId;
+  let num = new ExactDecimal(price);
+  let den = new ExactDecimal(1);
+  let changed = false;
+  for (const event of actionEvents(actions, asOf)) {
+    if (event.kind === "split") {
+      if (event.split.securityId !== current || !(date < event.split.date)) continue;
+      num = num.times(event.split.ratioOld);
+      den = den.times(event.split.ratioNew);
+      changed = true;
+    } else {
+      if (event.change.oldSecurityId !== current || !(date < event.change.date)) continue;
+      current = event.change.newSecurityId;
+      num = num.times(event.change.oldQuantity);
+      den = den.times(event.change.newQuantity);
+      changed = true;
+    }
+  }
+  return { securityId: current, price: changed ? canonicalDecimal(num.dividedBy(den)) : price };
 }

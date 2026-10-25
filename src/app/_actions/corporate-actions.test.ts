@@ -16,8 +16,8 @@ vi.mock("next/headers", () => ({
 vi.mock("next/cache", () => ({ revalidatePath }));
 
 import { prisma } from "@/db";
-import { createDepot, ensureSecurity, listSplits, recordTransaction } from "@/modules/ledger";
-import { deleteSplitAction, saveSplitAction } from "./corporate-actions";
+import { createDepot, ensureSecurity, listIsinChanges, listSplits, recordTransaction } from "@/modules/ledger";
+import { deleteIsinChangeAction, deleteSplitAction, saveIsinChangeAction, saveSplitAction } from "./corporate-actions";
 
 const SECRET = "test-secret-with-at-least-32-characters";
 const HASH = "$2b$04$Raf6EM460q2HE2THwTzIR.5Uk58FNzZG7FhlOvTFD.sbuFp.We4pO";
@@ -106,5 +106,92 @@ describe("deleteSplitAction", () => {
     expect(await deleteSplitAction(created.split.id)).toMatchObject({ ok: true });
     expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
     expect(await listSplits()).toEqual([]);
+  });
+});
+
+function isinForm(fields: Record<string, string>) {
+  const data = new FormData();
+  const defaults = {
+    oldSecurityId: securityId,
+    newSecurity: "1",
+    securityIdentifier: "US5949181045",
+    securityName: "Neu AG",
+    assetType: "STOCK",
+    date: "2024-03-01",
+    oldQuantity: "10",
+    newQuantity: "2,5",
+  };
+  for (const [key, value] of Object.entries({ ...defaults, ...fields })) data.set(key, value);
+  return data;
+}
+
+describe("saveIsinChangeAction", () => {
+  it("records a change to a new Security (German decimals) and revalidates the layout", async () => {
+    const result = await saveIsinChangeAction(null, isinForm({}));
+    expect(result).toMatchObject({
+      ok: true,
+      isinChange: { date: "2024-03-01", oldQuantity: "10", newQuantity: "2.5", newSecurity: { isin: "US5949181045" } },
+    });
+    expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
+    expect(await listIsinChanges()).toHaveLength(1);
+  });
+
+  it("records a change to an existing Security and edits it when isinChangeId is given", async () => {
+    const other = await ensureSecurity({ isin: "DE0007164600" }, { name: "SAP SE", assetType: "STOCK" });
+    if (!other.ok) throw new Error("setup failed");
+    const created = await saveIsinChangeAction(null, isinForm({ newSecurity: "", newSecurityId: other.security.id }));
+    if (!created?.ok) throw new Error("setup failed");
+    expect(created.isinChange.newSecurity.id).toBe(other.security.id);
+    const edited = await saveIsinChangeAction(
+      null,
+      isinForm({ isinChangeId: created.isinChange.id, date: "2024-04-01", oldQuantity: "1", newQuantity: "1.000,5" }),
+    );
+    expect(edited).toMatchObject({ ok: true, isinChange: { id: created.isinChange.id, date: "2024-04-01", newQuantity: "1000.5" } });
+  });
+
+  it("maps unparseable quantities and returns ledger reasons without revalidating", async () => {
+    expect(await saveIsinChangeAction(null, isinForm({ oldQuantity: "1,2,3" }))).toEqual({ ok: false, reason: "old-quantity-invalid" });
+    expect(await saveIsinChangeAction(null, isinForm({ newQuantity: "abc" }))).toEqual({ ok: false, reason: "new-quantity-invalid" });
+    expect(await saveIsinChangeAction(null, isinForm({ newQuantity: "" }))).toEqual({ ok: false, reason: "new-quantity-invalid" });
+    expect(await saveIsinChangeAction(null, isinForm({ securityIdentifier: "XX" }))).toEqual({ ok: false, reason: "isin-invalid" });
+    expect(await saveIsinChangeAction(null, isinForm({ newSecurity: "", newSecurityId: "" }))).toEqual({
+      ok: false,
+      reason: "security-not-found",
+    });
+    expect(revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("returns unauthorized without a session and writes nothing", async () => {
+    fakes.current.state.incoming.clear();
+    expect(await saveIsinChangeAction(null, isinForm({}))).toEqual({ ok: false, reason: "unauthorized" });
+    expect(await deleteIsinChangeAction("x")).toEqual({ ok: false, reason: "unauthorized" });
+    expect(await listIsinChanges()).toEqual([]);
+  });
+});
+
+describe("deleteIsinChangeAction", () => {
+  it("deletes a change, or refuses when a later SELL of the new Security depends on it", async () => {
+    const created = await saveIsinChangeAction(null, isinForm({ oldQuantity: "1", newQuantity: "1" }));
+    if (!created?.ok) throw new Error("setup failed");
+    await recordTransaction({ depotId, security: { id: securityId }, price: "1", type: "BUY", date: "2024-01-02", quantity: "10" });
+    await recordTransaction({
+      depotId,
+      security: { id: created.isinChange.newSecurity.id },
+      price: "1",
+      type: "SELL",
+      date: "2024-05-01",
+      quantity: "10",
+    });
+    revalidatePath.mockClear();
+    expect(await deleteIsinChangeAction(created.isinChange.id)).toEqual({
+      ok: false,
+      reason: "later-sell-exceeds-holding",
+      date: "2024-05-01",
+    });
+    expect(revalidatePath).not.toHaveBeenCalled();
+    await prisma.transaction.deleteMany();
+    expect(await deleteIsinChangeAction(created.isinChange.id)).toMatchObject({ ok: true });
+    expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
+    expect(await listIsinChanges()).toEqual([]);
   });
 });
