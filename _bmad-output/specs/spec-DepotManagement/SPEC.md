@@ -5,6 +5,8 @@ companions:
   - glossary.md
   - parqet-export-format.md
   - data-sources.md
+  - ../../planning-artifacts/ux-designs/ux-DepotManagement-2026-10-25/DESIGN.md
+  - ../../planning-artifacts/ux-designs/ux-DepotManagement-2026-10-25/EXPERIENCE.md
 sources:
   - ../../planning-artifacts/prds/prd-DepotManagement-2026-10-25/prd.md
   - ../../planning-artifacts/prds/prd-DepotManagement-2026-10-25/addendum.md
@@ -17,7 +19,7 @@ sources:
 
 ## Why
 
-**Pain + vision.** Tommy, a single private investor, pays a monthly subscription for Parqet to track several securities Depots (mostly stocks and ETFs, a small share of certificates and crypto), and its comdirect autosync regularly produces errors that need manual cleanup. DepotManagement replaces Parqet for his own use: self-hosted, no subscription, numbers he can trust, matching exactly the Parqet features he uses today (combined and per-Depot overviews, value development, Gain/Loss, composition, news). Owning the code is the second payoff: after parity, he adds the features he wants himself. Terms: `glossary.md`. Architecture invariants AD-1..AD-18: `ARCHITECTURE-SPINE.md`.
+**Pain + vision.** Tommy, a single private investor, pays a monthly subscription for Parqet to track several securities Depots (mostly stocks and ETFs, a small share of certificates and crypto), and its comdirect autosync regularly produces errors that need manual cleanup. DepotManagement replaces Parqet for his own use: self-hosted, no subscription, numbers he can trust, matching exactly the Parqet features he uses today (combined and per-Depot overviews, value development, Gain/Loss, composition, news). Owning the code is the second payoff: after parity, he adds the features he wants himself. Terms: `glossary.md`. Architecture invariants AD-1..AD-19: `ARCHITECTURE-SPINE.md`. Look and behavior: `DESIGN.md`, `EXPERIENCE.md`.
 
 ## Capabilities
 

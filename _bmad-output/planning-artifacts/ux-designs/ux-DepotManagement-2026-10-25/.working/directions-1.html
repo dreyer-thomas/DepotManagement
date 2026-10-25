@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stilrichtungen – Übersicht</title>
+<style>
+/* Four visual directions, same Overview content. Logos are placeholder initials (real logos replace them).
+   A Minze:   primary #0FA68A, accent #FFB547, bg #F3FBF8, gain #12A150, loss #E5484D, radius 16
+   B Violett: primary #6E56CF, accent #FF7AB6, bg #F6F4FE, gain #1FA463, loss #E5484D, radius 18, gradient hero
+   C Koralle: primary #FF6B4A, secondary #1E3A5F, bg #FFF8F5, gain #18A058, loss #D93F3F, radius 14
+   D Ozean:   primary #2563EB -> #06B6D4 gradient, bg #F2F7FF, gain #16A34A, loss #DC2626, radius 20, glassy hero */
+*{box-sizing:border-box}
+body{margin:0;font-family:Roboto,system-ui,-apple-system,"Segoe UI",sans-serif;background:#e6e8ec;color:#1d2129;padding:24px}
+h1.page{font-weight:400;font-size:22px;margin:0 0 4px}.lead{color:#5f6670;margin:0 0 20px;font-size:14px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(560px,1fr));gap:24px}
+.dir{border-radius:14px;overflow:hidden;box-shadow:0 6px 24px rgba(0,0,0,.12)}
+.label{background:#1d2129;color:#fff;padding:10px 16px;font-size:14px}.label b{font-weight:500}.label span{color:#b8bec7;margin-left:8px}
+.screen{background:var(--bg);padding:18px}
+.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+.top h2{margin:0;font-size:20px;font-weight:600;color:var(--ink)}
+.per{display:flex;gap:4px}.per span{font-size:12px;padding:5px 10px;border-radius:999px;color:var(--ink);background:transparent}.per .on{background:var(--primary);color:#fff;font-weight:500}
+.hero{border-radius:var(--r);padding:18px;color:var(--heroInk);background:var(--heroBg);box-shadow:var(--shadow);margin-bottom:14px}
+.hero .lbl{font-size:12px;opacity:.85}.hero .val{font-size:34px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.hero .pill{display:inline-block;margin-top:6px;font-size:13px;font-weight:600;padding:4px 10px;border-radius:999px;background:var(--pillBg);color:var(--pillInk);font-variant-numeric:tabular-nums}
+.hero .meta{font-size:12px;opacity:.85;margin-left:8px}
+.hero svg{display:block;margin-top:10px}
+.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px}
+.k{background:#fff;border-radius:var(--r);padding:12px;box-shadow:var(--shadow);border-top:4px solid var(--kc)}
+.k .lbl{font-size:11px;color:#6b7280}.k .v{font-size:17px;font-weight:600;margin-top:3px;font-variant-numeric:tabular-nums}
+.g{color:var(--gain)}.l{color:var(--loss)}
+.two{display:grid;grid-template-columns:1.4fr 1fr;gap:10px}
+.box{background:#fff;border-radius:var(--r);padding:12px;box-shadow:var(--shadow)}
+.box h3{margin:0 0 8px;font-size:13px;font-weight:600;color:var(--ink)}
+.pos{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid #f0f1f3;font-size:13px}.pos:last-child{border:0}
+.logo{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:12px;flex:none}
+.pos .nm{flex:1;line-height:1.2}.pos .nm small{display:block;color:#8a919b;font-size:11px}
+.pos .rt{text-align:right;font-variant-numeric:tabular-nums;line-height:1.2}.pos .rt small{display:block;font-size:11px;font-weight:600}
+.donut{display:flex;align-items:center;gap:12px}.legend div{font-size:12px;margin:4px 0;display:flex;align-items:center;gap:6px}.legend i{width:10px;height:10px;border-radius:3px;display:inline-block}
+.stale{display:inline-block;font-size:10px;padding:1px 6px;border-radius:999px;background:var(--staleBg);color:var(--staleInk);margin-left:4px;font-weight:600}
+/* Direction tokens */
+.A{--bg:#F3FBF8;--ink:#0B3B33;--primary:#0FA68A;--gain:#12A150;--loss:#E5484D;--r:16px;--heroBg:#fff;--heroInk:#0B3B33;--pillBg:#DDF6EC;--pillInk:#0B7A4B;--shadow:0 2px 10px rgba(15,166,138,.10);--staleBg:#FFF1D6;--staleInk:#A15C00}
+.B{--bg:#F6F4FE;--ink:#2B1F66;--primary:#6E56CF;--gain:#1FA463;--loss:#E5484D;--r:18px;--heroBg:linear-gradient(135deg,#6E56CF 0%,#9B6BFF 55%,#FF7AB6 100%);--heroInk:#fff;--pillBg:rgba(255,255,255,.22);--pillInk:#fff;--shadow:0 4px 16px rgba(110,86,207,.14);--staleBg:#FFE7F1;--staleInk:#B4235F}
+.C{--bg:#FFF8F5;--ink:#1E3A5F;--primary:#FF6B4A;--gain:#18A058;--loss:#D93F3F;--r:14px;--heroBg:#1E3A5F;--heroInk:#fff;--pillBg:#FF6B4A;--pillInk:#fff;--shadow:0 2px 8px rgba(30,58,95,.10);--staleBg:#FFE3DA;--staleInk:#B2381D}
+.D{--bg:#F2F7FF;--ink:#0F2A5C;--primary:#2563EB;--gain:#16A34A;--loss:#DC2626;--r:20px;--heroBg:linear-gradient(120deg,#2563EB 0%,#06B6D4 100%);--heroInk:#fff;--pillBg:rgba(255,255,255,.25);--pillInk:#fff;--shadow:0 6px 20px rgba(37,99,235,.12);--staleBg:#FEF3C7;--staleInk:#92400E}
+</style>
+</head>
+<body>
+<h1 class="page">Stilrichtungen für die Übersicht</h1>
+<p class="lead">Gleicher Inhalt, vier Persönlichkeiten. Logos sind Platzhalter (Initialen), echte Firmenlogos ersetzen sie. Mischen ist erlaubt, z. B. „B, aber mit dem Chart von D“.</p>
+<div class="grid">
+
+<!-- A -->
+<section class="dir A">
+  <div class="label"><b>A · Minze</b><span>frisch, hell, freundlich – Farbe über Akzente und Chartfläche</span></div>
+  <div class="screen">
+    <div class="top"><h2>Übersicht</h2><div class="per"><span>1M</span><span>YTD</span><span class="on">1J</span><span>3J</span><span>Max</span></div></div>
+    <div class="hero">
+      <div class="lbl">Gesamtwert</div><div class="val">148.312,40 €</div>
+      <span class="pill">▲ +14.238,55 € · +11,42 %</span><span class="meta">TTWROR · XIRR +10,87 %</span>
+      <svg viewBox="0 0 500 110" width="100%" height="110"><defs><linearGradient id="ga" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0FA68A" stop-opacity=".35"/><stop offset="1" stop-color="#0FA68A" stop-opacity="0"/></linearGradient></defs>
+        <path d="M0,70 L40,74 80,60 120,66 160,52 200,58 240,42 280,48 320,32 360,38 400,22 440,28 500,10 L500,110 L0,110Z" fill="url(#ga)"/>
+        <polyline fill="none" stroke="#0FA68A" stroke-width="3" stroke-linejoin="round" points="0,70 40,74 80,60 120,66 160,52 200,58 240,42 280,48 320,32 360,38 400,22 440,28 500,10"/>
+        <polyline fill="none" stroke="#9BB8B0" stroke-width="2" stroke-dasharray="6 5" points="0,92 500,72"/></svg>
+    </div>
+    <div class="kpis">
+      <div class="k" style="--kc:#0FA68A"><div class="lbl">Investiert</div><div class="v">121.870,00 €</div></div>
+      <div class="k" style="--kc:#FFB547"><div class="lbl">Dividenden 1J</div><div class="v">1.380,22 €</div></div>
+      <div class="k" style="--kc:#8B9BA8"><div class="lbl">Guthaben</div><div class="v">6.204,11 €</div></div>
+    </div>
+    <div class="two">
+      <div class="box"><h3>Top-Positionen</h3>
+        <div class="pos"><span class="logo" style="background:#111">iS</span><span class="nm">iShares Core MSCI World<small>ETF · 310 Stück</small></span><span class="rt">34.861,10 €<small class="g">▲ +26,35 %</small></span></div>
+        <div class="pos"><span class="logo" style="background:#0070F2">SAP</span><span class="nm">SAP SE<small>Aktie · 45 Stück</small></span><span class="rt">10.296,00 €<small class="g">▲ +41,80 %</small></span></div>
+        <div class="pos"><span class="logo" style="background:#F7931A">₿</span><span class="nm">Bitcoin<small>Krypto · 0,06512 BTC</small></span><span class="rt">3.856,30 €<small class="l">▼ −4,12 %</small></span></div>
+      </div>
+      <div class="box"><h3>Zusammensetzung</h3>
+        <div class="donut"><svg viewBox="0 0 42 42" width="96" height="96"><circle cx="21" cy="21" r="15.9" fill="none" stroke="#0FA68A" stroke-width="7" stroke-dasharray="61.8 38.2" stroke-dashoffset="25"/><circle cx="21" cy="21" r="15.9" fill="none" stroke="#5BC8F5" stroke-width="7" stroke-dasharray="29.1 70.9" stroke-dashoffset="-36.8"/><circle cx="21" cy="21" r="15.9" fill="none" stroke="#FFB547" stroke-width="7" stroke-dasharray="4.9 95.1" stroke-dashoffset="-65.9"/><circle cx="21" cy="21" r="15.9" fill="none" stroke="#B9C4CC" stroke-width="7" stroke-dasharray="4.2 95.8" stroke-dashoffset="-70.8"/></svg>
+        <div class="legend"><div><i style="background:#0FA68A"></i>ETF 61,8 %</div><div><i style="background:#5BC8F5"></i>Aktie 29,1 %</div><div><i style="background:#FFB547"></i>Zert. + Krypto 4,9 %</div><div><i style="background:#B9C4CC"></i>Guthaben 4,2 %</div></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- B -->
+<section class="dir B">
+  <div class="label"><b>B · Violett</b><span>verspielt, lebendig – Verlaufs-Karte als Herzstück</span></div>
+  <div class="screen">
+    <div class="top"><h2>Übersicht</h2><div class="per"><span>1M</span><span>YTD</span><span class="on">1J</span><span>3J</span><span>Max</span></div></div>
+    <div class="hero">
+      <div class="lbl">Gesamtwert</div><div class="val">148.312,40 €</div>
+      <span class="pill">▲ +14.238,55 € · +11,42 %</span><span class="meta">XIRR +10,87 %</span>
+      <svg viewBox="0 0 500 110" width="100%" height="110"><defs><linearGradient id="gb" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".45"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient></defs>
+        <path d="M0,70 C30,72 50,60 80,62 S130,64 160,52 S220,56 240,42 S300,46 320,32 S380,36 400,22 S460,26 500,10 L500,110 L0,110Z" fill="url(#gb)"/>
+        <path d="M0,70 C30,72 50,60 80,62 S130,64 160,52 S220,56 240,42 S300,46 320,32 S380,36 400,22 S460,26 500,10" fill="none" stroke="#fff" stroke-width="3"/>
+        <polyline fill="none" stroke="rgba(255,255,255,.6)" stroke-width="2" stroke-dasharray="6 5" points="0,92 500,72"/></svg>
+    </div>
+    <div class="kpis">
+      <div class="k" style="--kc:#6E56CF"><div class="lbl">Investiert</div><div class="v">121.870,00 €</div></div>
+      <div class="k" style="--kc:#FF7AB6"><div class="lbl">Dividenden 1J</div><div class="v">1.380,22 €</div></div>
+      <div class="k" style="--kc:#38BDF8"><div class="lbl">Guthaben</div><div class="v">6.204,11 €</div></div>
+    </div>
+    <div class="two">
+      <div class="box"><h3>Top-Positionen</h3>
+        <div class="pos"><span class="logo" style="background:#111">iS</span><span class="nm">iShares Core MSCI World<small>ETF · 310 Stück</small></span><span class="rt">34.861,10 €<small class="g">▲ +26,35 %</small></span></div>
+        <div class="pos"><span class="logo" style="background:#0070F2">SAP</span><span class="nm">SAP SE<small>Aktie · 45 Stück</small></span><span class="rt">10.296,00 €<small class="g">▲ +41,80 %</small></span></div>
+        <div class="pos"><span class="logo" style="background:#00A0DF">HC</span><span class="nm">Turbo Long SAP<span class="stale">veraltet</span><small>Zertifikat · 200 Stück</small></span><span class="rt">964,00 €<small class="g">▲ +23,29 %</small></span></div>
+      </div>
+      <div class="box"><h3>Zusammensetzung</h3>
+        <div class="donut"><svg viewBox="0 0 42 42" width="96" height="96"><circle cx="21" cy="21" r="15.9" fill="none" stroke="#6E56CF" stroke-width="7" stroke-dasharray="61.8 38.2" stroke-dashoffset="25"/><circle cx="21" cy="21" r="15.9" fill="none" stroke="#FF7AB6" stroke-width="7" stroke-dasharray="29.1 70.9" stroke-dashoffset="-36.8"/><circle cx="21" cy="21" r="15.9" fill="none" stroke="#FFC857" stroke-width="7" stroke-dasharray="4.9 95.1" stroke-dashoffset="-65.9"/><circle cx="21" cy="21" r="15.9" fill="none" stroke="#C9C3E6" stroke-width="7" stroke-dasharray="4.2 95.8" stroke-dashoffset="-70.8"/></svg>
+        <div class="legend"><div><i style="background:#6E56CF"></i>ETF 61,8 %</div><div><i style="background:#FF7AB6"></i>Aktie 29,1 %</div><div><i style="background:#FFC857"></i>Zert. + Krypto 4,9 %</div><div><i style="background:#C9C3E6"></i>Guthaben 4,2 %</div></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- C -->
+<section class="dir C">
+  <div class="label"><b>C · Koralle &amp; Navy</b><span>warm und selbstbewusst – dunkle Hero-Karte, korallige Akzente</span></div>
+  <div class="screen">
+    <div class="top"><h2>Übersicht</h2><div class="per"><span>1M</span><span>YTD</span><span class="on">1J</span><span>3J</span><span>Max</span></div></div>
+    <div class="hero">
+      <div class="lbl">Gesamtwert</div><div class="val">148.312,40 €</div>
+      <span class="pill">▲ +14.238,55 € · +11,42 %</span><span class="meta">XIRR +10,87 %</span>
+      <svg viewBox="0 0 500 110" width="100%" height="110"><defs><linearGradient id="gc" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FF6B4A" stop-opacity=".5"/><stop offset="1" stop-color="#FF6B4A" stop-opacity="0"/></linearGradient></defs>
+        <path d="M0,70 L40,74 80,60 120,66 160,52 200,58 240,42 280,48 320,32 360,38 400,22 440,28 500,10 L500,110 L0,110Z" fill="url(#gc)"/>
+        <polyline fill="none" stroke="#FF8A6E" stroke-width="3" stroke-linejoin="round" points="0,70 40,74 80,60 120,66 160,52 200,58 240,42 280,48 320,32 360,38 400,22 440,28 500,10"/>
+        <polyline fill="none" stroke="rgba(255,255,255,.45)" stroke-width="2" stroke-dasharray="6 5" points="0,92 500,72"/></svg>
+    </div>
+    <div class="kpis">
+      <div class="k" style="--kc:#1E3A5F"><div class="lbl">Investiert</div><div class="v">121.870,00 €</div></div>
+      <div class="k" style="--kc:#FF6B4A"><div class="lbl">Dividenden 1J</div><div class="v">1.380,22 €</div></div>
+      <div class="k" style="--kc:#F2B544"><div class="lbl">Guthaben</div><div class="v">6.204,11 €</div></div>
+    </div>
+    <div class="two">
+      <div class="box"><h3>Top-Positionen</h3>
+        <div class="pos"><span class="logo" style="background:#111">iS</span><span class="nm">iShares Core MSCI World<small>ETF · 310 Stück</small></span><span class="rt">34.861,10 €<small class="g">▲ +26,35 %</small></span></div>
+        <div class="pos"><span class="logo" style="background:#0070F2">SAP</span><span class="nm">SAP SE<small>Aktie · 45 Stück</small></span><span class="rt">10.296,00 €<small class="g">▲ +41,80 %</small></span></div>
+        <div class="pos"><span class="logo" style="background:#F7931A">₿</span><span class="nm">Bitcoin<small>Krypto · 0,06512 BTC</small></span><span class="rt">3.856,30 €<small class="l">▼ −4,12 %</small></span></div>
+      </div>
+      <div class="box"><h3>Zusammensetzung</h3>
+        <div class="donut"><svg viewBox="0 0 42 42" width="96" height="96"><circle cx="21" cy="21" r="15.9" fill="none" stroke="#1E3A5F" stroke-width="7" stroke-dasharray="61.8 38.2" stroke-dashoffset="25"/><circle cx="21" cy="21" r="15.9" fill="none" stroke="#FF6B4A" stroke-width="7" stroke-dasharray="29.1 70.9" stroke-dashoffset="-36.8"/><circle cx="21" cy="21" r="15.9" fill="none" stroke="#F2B544" stroke-width="7" stroke-dasharray="4.9 95.1" stroke-dashoffset="-65.9"/><circle cx="21" cy="21" r="15.9" fill="none" stroke="#C8D0DA" stroke-width="7" stroke-dasharray="4.2 95.8" stroke-dashoffset="-70.8"/></svg>
+        <div class="legend"><div><i style="background:#1E3A5F"></i>ETF 61,8 %</div><div><i style="background:#FF6B4A"></i>Aktie 29,1 %</div><div><i style="background:#F2B544"></i>Zert. + Krypto 4,9 %</div><div><i style="background:#C8D0DA"></i>Guthaben 4,2 %</div></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- D -->
+<section class="dir D">
+  <div class="label"><b>D · Ozean</b><span>modern, luftig – Blau-Türkis-Verlauf, große Rundungen</span></div>
+  <div class="screen">
+    <div class="top"><h2>Übersicht</h2><div class="per"><span>1M</span><span>YTD</span><span class="on">1J</span><span>3J</span><span>Max</span></div></div>
+    <div class="hero">
+      <div class="lbl">Gesamtwert</div><div class="val">148.312,40 €</div>
+      <span class="pill">▲ +14.238,55 € · +11,42 %</span><span class="meta">XIRR +10,87 %</span>
+      <svg viewBox="0 0 500 110" width="100%" height="110"><defs><linearGradient id="gd" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".4"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient></defs>
+        <path d="M0,70 C30,72 50,60 80,62 S130,64 160,52 S220,56 240,42 S300,46 320,32 S380,36 400,22 S460,26 500,10 L500,110 L0,110Z" fill="url(#gd)"/>
+        <path d="M0,70 C30,72 50,60 80,62 S130,64 160,52 S220,56 240,42 S300,46 320,32 S380,36 400,22 S460,26 500,10" fill="none" stroke="#fff" stroke-width="3"/>
+        <polyline fill="none" stroke="rgba(255,255,255,.55)" stroke-width="2" stroke-dasharray="6 5" points="0,92 500,72"/></svg>
+    </div>
+    <div class="kpis">
+      <div class="k" style="--kc:#2563EB"><div class="lbl">Investiert</div><div class="v">121.870,00 €</div></div>
+      <div class="k" style="--kc:#06B6D4"><div class="lbl">Dividenden 1J</div><div class="v">1.380,22 €</div></div>
+      <div class="k" style="--kc:#A78BFA"><div class="lbl">Guthaben</div><div class="v">6.204,11 €</div></div>
+    </div>
+    <div class="two">
+      <div class="box"><h3>Top-Positionen</h3>
+        <div class="pos"><span class="logo" style="background:#111">iS</span><span class="nm">iShares Core MSCI World<small>ETF · 310 Stück</small></span><span class="rt">34.861,10 €<small class="g">▲ +26,35 %</small></span></div>
+        <div class="pos"><span class="logo" style="background:#0070F2">SAP</span><span class="nm">SAP SE<small>Aktie · 45 Stück</small></span><span class="rt">10.296,00 €<small class="g">▲ +41,80 %</small></span></div>
+        <div class="pos"><span class="logo" style="background:#F7931A">₿</span><span class="nm">Bitcoin<small>Krypto · 0,06512 BTC</small></span><span class="rt">3.856,30 €<small class="l">▼ −4,12 %</small></span></div>
+      </div>
+      <div class="box"><h3>Zusammensetzung</h3>
+        <div class="donut"><svg viewBox="0 0 42 42" width="96" height="96"><circle cx="21" cy="21" r="15.9" fill="none" stroke="#2563EB" stroke-width="7" stroke-dasharray="61.8 38.2" stroke-dashoffset="25"/><circle cx="21" cy="21" r="15.9" fill="none" stroke="#06B6D4" stroke-width="7" stroke-dasharray="29.1 70.9" stroke-dashoffset="-36.8"/><circle cx="21" cy="21" r="15.9" fill="none" stroke="#A78BFA" stroke-width="7" stroke-dasharray="4.9 95.1" stroke-dashoffset="-65.9"/><circle cx="21" cy="21" r="15.9" fill="none" stroke="#CBD5E1" stroke-width="7" stroke-dasharray="4.2 95.8" stroke-dashoffset="-70.8"/></svg>
+        <div class="legend"><div><i style="background:#2563EB"></i>ETF 61,8 %</div><div><i style="background:#06B6D4"></i>Aktie 29,1 %</div><div><i style="background:#A78BFA"></i>Zert. + Krypto 4,9 %</div><div><i style="background:#CBD5E1"></i>Guthaben 4,2 %</div></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+</div>
+</body>
+</html>

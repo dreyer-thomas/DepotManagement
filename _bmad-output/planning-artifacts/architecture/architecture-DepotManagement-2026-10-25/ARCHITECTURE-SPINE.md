@@ -13,7 +13,9 @@ sources:
   - _bmad-output/planning-artifacts/prds/prd-DepotManagement-2026-10-25/prd.md
   - _bmad-output/planning-artifacts/prds/prd-DepotManagement-2026-10-25/addendum.md
   - _bmad-output/planning-artifacts/prds/prd-DepotManagement-2026-10-25/research-landscape.md
-companions: []
+companions:
+  - _bmad-output/planning-artifacts/ux-designs/ux-DepotManagement-2026-10-25/DESIGN.md
+  - _bmad-output/planning-artifacts/ux-designs/ux-DepotManagement-2026-10-25/EXPERIENCE.md
 ---
 
 # Architecture Spine — DepotManagement
@@ -35,6 +37,7 @@ graph TD
     migration["migration — Parqet CSV"]
     prices["prices — providers, mappings, Prices, scheduler"]
     news["news — providers, cache"]
+    logos["logos — providers, logo cache, manual logos"]
     backup["backup — export / restore / DB backup"]
     auth["auth — single-user session"]
   end
@@ -44,6 +47,7 @@ graph TD
   backup --> prices
   prices --> ledger
   news --> ledger
+  logos --> ledger
   modules --> core["src/core — pure functions"]
   modules --> db[("src/db — Prisma client / SQLite")]
 ```
@@ -60,7 +64,7 @@ graph TD
 
 - **Binds:** all
 - **Prevents:** financial logic leaking into routes or modules; modules coupling via each other's tables.
-- **Rule:** `app → modules → core`, `modules → db`. `src/core` imports nothing from the project except its own files and `decimal.js`. A module reads or writes only the Prisma models it owns and reaches another module only through that module's exported service functions (`src/modules/<name>/index.ts`). Every writing service accepts an optional Prisma transaction client so callers can compose one DB transaction across modules. Ownership: `ledger` — Depot, Security, Transaction, CorporateAction; `prices` — ProviderMapping, Price; `import` — ImportBatch, ImportItem; `news` — news cache; `auth` — session.
+- **Rule:** `app → modules → core`, `modules → db`. `src/core` imports nothing from the project except its own files and `decimal.js`. A module reads or writes only the Prisma models it owns and reaches another module only through that module's exported service functions (`src/modules/<name>/index.ts`). Every writing service accepts an optional Prisma transaction client so callers can compose one DB transaction across modules. Ownership: `ledger` — Depot, Security, Transaction, CorporateAction; `prices` — ProviderMapping, Price; `import` — ImportBatch, ImportItem; `news` — news cache; `logos` — SecurityLogo and logo files; `auth` — session.
 
 ### AD-3 — One write path into the ledger `[ADOPTED]`
 
@@ -120,7 +124,7 @@ graph TD
 
 - **Binds:** FR-16
 - **Prevents:** a restore that depends on vanished price sources; partial or merged restores; old exports becoming unreadable.
-- **Rule:** Export is one JSON file with a `schemaVersion`, containing Depots, Securities, ProviderMappings, Transactions, CorporateActions and all stored Prices. Caches, staging and news are excluded. Restore validates the file, upgrades older `schemaVersion`s through pure upgrade functions, takes an automatic export of the current data, then in one DB transaction clears staging and caches and calls `ledger.replaceAll` and `prices.replaceAll`. It never merges.
+- **Rule:** Export is one JSON file with a `schemaVersion`, containing Depots, Securities, ProviderMappings, Transactions, CorporateActions, all stored Prices and manually uploaded logos (base64). Caches, staging, news and fetched logos are excluded. Restore validates the file, upgrades older `schemaVersion`s through pure upgrade functions, takes an automatic export of the current data, then in one DB transaction clears staging and caches and calls `ledger.replaceAll` and `prices.replaceAll`. It never merges.
 
 ### AD-13 — Single instance, single user, nothing leaves except symbols `[ADOPTED]`
 
@@ -156,7 +160,13 @@ graph TD
 
 - **Binds:** NFR deployment, public repository, FR-16
 - **Prevents:** config drift between modules; schema changes applied at random times; corrupt DB copies.
-- **Rule:** All configuration comes from environment variables / an untracked `.env` with fixed names: `DATABASE_URL`, `SESSION_SECRET`, `AUTH_USERNAME`, `AUTH_PASSWORD_HASH`, `BACKUP_DIR`, `BACKUP_KEEP`, `COINGECKO_API_KEY`, `OPENFIGI_API_KEY`; `.env.example` lists them without values. The SQLite file and backups live outside the source tree. SQLite runs in WAL mode with a busy timeout. `prisma migrate deploy` runs in the deploy/start script before the app starts; the app never migrates itself; committed migrations are immutable. The daily DB backup uses better-sqlite3 `backup()` to dated files in `BACKUP_DIR`, keeping `BACKUP_KEEP`. Moving data between local and production uses JSON export/restore (AD-12).
+- **Rule:** All configuration comes from environment variables / an untracked `.env` with fixed names: `DATABASE_URL`, `SESSION_SECRET`, `AUTH_USERNAME`, `AUTH_PASSWORD_HASH`, `BACKUP_DIR`, `BACKUP_KEEP`, `COINGECKO_API_KEY`, `OPENFIGI_API_KEY`, `LOGO_DEV_API_KEY`, `DATA_DIR` (logo files); `.env.example` lists them without values. The SQLite file and backups live outside the source tree. SQLite runs in WAL mode with a busy timeout. `prisma migrate deploy` runs in the deploy/start script before the app starts; the app never migrates itself; committed migrations are immutable. The daily DB backup uses better-sqlite3 `backup()` to dated files in `BACKUP_DIR`, keeping `BACKUP_KEEP`. Moving data between local and production uses JSON export/restore (AD-12).
+
+### AD-19 — Security logos are fetched once, served locally
+
+- **Binds:** UX Security logo (every Security mention), FR-2, FR-13, FR-14
+- **Prevents:** the browser hotlinking third-party logo services (privacy, AD-13); each screen fetching or falling back differently; fetched logos overwriting a manual one.
+- **Rule:** The `logos` module owns logo resolution and storage. Logo providers follow the AD-9 provider pattern, queried by ISIN, ticker or crypto symbol only: logo.dev (secret-key API) primary, Elbstream fallback; certificates resolve to the issuer or underlying logo, else none; crypto falls back to the CoinGecko image. A logo is fetched once in the background when a Security is created or first held, stored as a file under `DATA_DIR` with source and `fetchedAt`, and served by the app from its own route — the browser never calls a logo provider. A manually uploaded logo (`source = manual`) always wins and is never overwritten. Missing logo → the UI renders initials; a logo fetch never blocks a ledger write.
 
 ## Consistency Conventions
 
@@ -202,6 +212,7 @@ src/
     migration/    # Parqet CSV -> AD-14 proposals
     prices/       # providers/<name>.ts, mappings, manual prices, scheduler jobs
     news/         # providers/<name>.ts, cache
+    logos/        # providers/<name>.ts, logo files under DATA_DIR, manual upload
     backup/       # JSON export/restore, schema upgrades, DB file backup
     auth/         # login, session
   db/             # Prisma client singleton (WAL, busy timeout)
@@ -236,6 +247,7 @@ graph LR
   app --> crypto["CoinGecko / Binance"]
   app --> gnews["Google News RSS"]
   app --> figi["OpenFIGI"]
+  app --> logo["logo.dev / Elbstream"]
 ```
 
 ## Capability → Architecture Map
@@ -249,6 +261,7 @@ graph LR
 | FR-7..FR-9 Prices | `modules/prices`, `core/prices` | AD-9, AD-13, AD-17 |
 | FR-10..FR-13 Overview, chart, Gain/Loss, composition | `core/valuation`, `core/returns`, `core/composition`, `app` | AD-1, AD-5, AD-9, AD-10, AD-17 |
 | FR-14 News | `modules/news` | AD-11, AD-17 |
+| UX Security logos | `modules/logos` | AD-13, AD-19 |
 | FR-15 Parqet migration | `modules/migration` | AD-3, AD-6, AD-7, AD-8, AD-14, AD-15, AD-16 |
 | FR-16 Export / restore | `modules/backup` | AD-3, AD-12 |
 | FR-17, FR-18 Cash Account | `core/cash`, `modules/ledger` | AD-6, AD-10, AD-14 |

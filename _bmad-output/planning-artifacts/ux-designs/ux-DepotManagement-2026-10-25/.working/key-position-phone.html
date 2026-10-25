@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Position – Handy</title>
+<style>
+/* Governs: EXPERIENCE.md IA (Position detail), Key Flow 1 climax, Component Patterns (Hero card, Area chart, Security logo, Stale badge), State Patterns (Stale Prices, No news), Responsive (< md bottom nav). DESIGN.md direction "Minze". Two states: current price / stale price. Sample data only. */
+:root{--primary:#0FA68A;--accent:#FFB547;--bg:#F3FBF8;--surface:#fff;--ink:#0B3B33;--muted:#5E7A73;--gain:#12A150;--gainS:#DDF6EC;--stale:#A15C00;--staleS:#FFF1D6;--inv:#9BB8B0;--sh:0 2px 10px rgba(15,166,138,.10)}
+*{box-sizing:border-box}body{margin:0;font-family:Roboto,system-ui,-apple-system,"Segoe UI",sans-serif;background:#d7dedb;color:var(--ink);padding:24px;display:flex;gap:40px;justify-content:center;flex-wrap:wrap}
+figure{margin:0;text-align:center}figcaption{font-size:13px;color:var(--muted);margin-top:10px}
+.phone{width:375px;height:800px;border-radius:44px;border:10px solid #13201c;background:var(--bg);overflow:hidden;position:relative;text-align:left}
+.top{padding:16px 16px 6px;display:flex;align-items:center;gap:12px}
+.back{font-size:22px;color:var(--primary);line-height:1}
+.logo{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:13px;flex:none}
+h1{font-size:16px;font-weight:600;margin:0;line-height:1.2}.sub{font-size:12px;color:var(--muted)}
+.body{padding:8px 16px 90px}
+.card{background:var(--surface);border-radius:16px;padding:14px;box-shadow:var(--sh);margin-bottom:10px}
+.lbl{font-size:12px;color:var(--muted)}.val{font-size:28px;font-weight:700;letter-spacing:-.01em;font-variant-numeric:tabular-nums;margin:2px 0 6px}
+.pill{display:inline-block;font-size:12px;font-weight:600;padding:3px 9px;border-radius:999px;font-variant-numeric:tabular-nums}.pg{background:var(--gainS);color:var(--gain)}.ps{background:var(--staleS);color:var(--stale)}
+.per{display:flex;gap:2px;margin:10px 0 4px}.per span{flex:1;text-align:center;font-size:12px;padding:5px 0;border-radius:999px}.per .on{background:var(--primary);color:#fff;font-weight:600}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
+.k{background:var(--surface);border-radius:14px;padding:10px 12px;box-shadow:var(--sh);border-top:4px solid var(--kc)}.k .v{font-size:15px;font-weight:600;font-variant-numeric:tabular-nums;margin-top:2px}
+.sec{font-size:14px;font-weight:600;margin:6px 0 8px}
+.news{font-size:13px;margin-bottom:10px}.news small{display:block;color:var(--muted);font-size:11px;margin-top:2px}
+.link{color:var(--primary);font-weight:600;font-size:13px}
+.bn{position:absolute;bottom:0;left:0;right:0;height:64px;background:var(--surface);display:flex;box-shadow:0 -2px 10px rgba(15,166,138,.08)}
+.bn span{flex:1;text-align:center;font-size:11px;padding-top:10px;color:var(--muted)}.bn span::before{content:"";display:block;width:24px;height:24px;margin:0 auto 4px;border-radius:8px;background:#d5e4df}.bn .on{color:#0B7A64;font-weight:600}.bn .on::before{background:var(--primary)}
+</style>
+</head>
+<body>
+<figure>
+<div class="phone">
+  <div class="top"><span class="back">‹</span><span class="logo" style="background:#111">iS</span><div><h1>iShares Core MSCI World</h1><div class="sub">IE00B4L5Y983 · ETF · comdirect</div></div></div>
+  <div class="body">
+    <div class="card">
+      <div class="lbl">Wert · 310 Stück à 112,46 €</div><div class="val">34.861,10 €</div>
+      <span class="pill pg">▲ +4.018,30 € · +13,03 % (1J)</span>
+      <div class="per"><span>1M</span><span>YTD</span><span class="on">1J</span><span>3J</span><span>Max</span></div>
+      <svg viewBox="0 0 320 120" width="100%" height="120" role="img" aria-label="Wert steigt im letzten Jahr">
+        <defs><linearGradient id="f1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0FA68A" stop-opacity=".35"/><stop offset="1" stop-color="#0FA68A" stop-opacity="0"/></linearGradient></defs>
+        <path d="M0,74 L30,78 60,64 90,68 120,54 150,60 180,46 210,50 240,34 270,38 300,24 320,18 L320,120 L0,120Z" fill="url(#f1)"/>
+        <polyline fill="none" stroke="#0FA68A" stroke-width="3" stroke-linejoin="round" points="0,74 30,78 60,64 90,68 120,54 150,60 180,46 210,50 240,34 270,38 300,24 320,18"/>
+        <polyline fill="none" stroke="#9BB8B0" stroke-width="2" stroke-dasharray="6 5" points="0,98 320,92"/>
+      </svg>
+      <div class="sub">Kurs vom 24.10.2026 · Yahoo</div>
+    </div>
+    <div class="grid">
+      <div class="k" style="--kc:var(--primary)"><div class="lbl">Cost Basis</div><div class="v">27.590,00 €</div></div>
+      <div class="k" style="--kc:var(--gain)"><div class="lbl">Unrealisiert</div><div class="v" style="color:var(--gain)">▲ +7.271,10 €</div></div>
+      <div class="k" style="--kc:var(--accent)"><div class="lbl">Dividenden · 1J</div><div class="v">412,60 €</div></div>
+      <div class="k" style="--kc:#A78BFA"><div class="lbl">Ø Kaufkurs</div><div class="v">89,00 €</div></div>
+    </div>
+    <div class="sec">Nachrichten · 14 Tage</div>
+    <div class="card">
+      <div class="news">MSCI World erreicht neues Rekordhoch<small>Handelsblatt · heute</small></div>
+      <div class="news" style="margin:0">ETF-Zuflüsse im September auf Rekordniveau<small>FAZ · vor 4 Tagen</small></div>
+    </div>
+  </div>
+  <div class="bn"><span>Übersicht</span><span class="on">Depots</span><span>Nachrichten</span><span>Mehr</span></div>
+</div>
+<figcaption>Position, aktueller Kurs (Flow 1, Höhepunkt)</figcaption>
+</figure>
+
+<figure>
+<div class="phone">
+  <div class="top"><span class="back">‹</span><span class="logo" style="background:#00A0DF">HC</span><div><h1>Open End Turbo Long SAP</h1><div class="sub">DE000HC1ABC2 · Zertifikat · finanzen.net zero</div></div></div>
+  <div class="body">
+    <div class="card">
+      <div class="lbl">Wert · 200 Stück à 4,82 €</div><div class="val">964,00 €</div>
+      <span class="pill pg">▲ +182,10 € · +23,29 % (1J)</span> <span class="pill ps">Kurs vom 18.10.2026 – veraltet</span>
+      <div class="per"><span>1M</span><span>YTD</span><span class="on">1J</span><span>3J</span><span>Max</span></div>
+      <div style="font-size:13px;margin-top:8px">Keine Kursquelle liefert aktuelle Kurse. <span class="link">Kurs manuell eintragen</span></div>
+    </div>
+    <div class="grid">
+      <div class="k" style="--kc:var(--primary)"><div class="lbl">Cost Basis</div><div class="v">781,90 €</div></div>
+      <div class="k" style="--kc:var(--gain)"><div class="lbl">Unrealisiert</div><div class="v" style="color:var(--gain)">▲ +182,10 €</div></div>
+    </div>
+    <div class="sec">Nachrichten · 14 Tage</div>
+    <div class="card"><div class="news" style="margin:0;color:var(--muted)">Keine Nachrichten der letzten 14 Tage.</div></div>
+  </div>
+  <div class="bn"><span>Übersicht</span><span class="on">Depots</span><span>Nachrichten</span><span>Mehr</span></div>
+</div>
+<figcaption>Gleiche Ansicht mit veraltetem Kurs</figcaption>
+</figure>
+</body>
+</html>

@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Import-Review – Desktop</title>
+<style>
+/* Governs: EXPERIENCE.md IA (Import), Key Flow 2 steps 3-5, Component Patterns (Import review table, Security logo), Voice and Tone, Interaction Primitives (no auto-booking). DESIGN.md direction "Minze", status-chip-import tokens. Sample data only. */
+:root{--primary:#0FA68A;--bg:#F3FBF8;--surface:#fff;--ink:#0B3B33;--muted:#5E7A73;--gain:#12A150;--gainS:#DDF6EC;--loss:#E5484D;--lossS:#FDE7E8;--stale:#A15C00;--staleS:#FFF1D6;--sh:0 2px 10px rgba(15,166,138,.10)}
+*{box-sizing:border-box}body{margin:0;font-family:Roboto,system-ui,-apple-system,"Segoe UI",sans-serif;background:#d7dedb;color:var(--ink);padding:24px}
+.browser{max-width:1280px;margin:auto;border-radius:12px;overflow:hidden;box-shadow:0 8px 30px rgba(0,0,0,.18);background:var(--bg)}
+.bar{background:#e8eceb;padding:8px 12px;display:flex;gap:6px;align-items:center}.dot{width:11px;height:11px;border-radius:50%;background:#c4cbc8}.url{margin-left:12px;background:#fff;border-radius:6px;padding:4px 12px;font-size:12px;color:var(--muted);flex:1}
+.app{display:flex;min-height:740px}
+nav{width:224px;background:var(--surface);padding:20px 12px}
+nav .brand{font-weight:700;padding:0 12px 20px;color:var(--primary);font-size:17px}
+nav a{display:block;padding:10px 14px;color:var(--ink);font-size:14px;border-radius:12px;margin-bottom:2px}
+nav a.on{background:#DDF6EC;color:#0B7A64;font-weight:600}
+main{flex:1;padding:24px 28px;max-width:1056px}
+h1{font-size:22px;font-weight:600;margin:0 0 4px}.sub{color:var(--muted);font-size:14px;margin-bottom:16px}
+.card{background:var(--surface);border-radius:16px;box-shadow:var(--sh);margin-bottom:12px;overflow:hidden}
+.summary{padding:14px 18px;font-size:14px;display:flex;justify-content:space-between;align-items:center}
+.btn{background:var(--primary);color:#fff;border-radius:8px;padding:9px 18px;font-size:14px;font-weight:600}.btn.dis{background:#BFD9D2}
+.btn2{border-radius:8px;padding:9px 14px;font-size:14px;margin-right:8px;color:var(--primary);font-weight:600}
+.fh{display:flex;align-items:center;gap:10px;padding:12px 18px;font-size:14px;font-weight:500}.fh .name{flex:1}
+.chip{font-size:12px;border-radius:999px;padding:3px 10px;font-weight:600}
+.ok{background:var(--gainS);color:var(--gain)}.dup{background:#ECF0EF;color:#546E68}.amb{background:var(--staleS);color:var(--stale)}.fail{background:var(--lossS);color:var(--loss)}
+table{width:100%;border-collapse:collapse;font-size:14px}th{text-align:left;font-weight:500;color:var(--muted);font-size:12px;padding:6px 18px}td{padding:10px 18px;border-top:1px solid #EEF4F2;vertical-align:middle}.n{text-align:right;font-variant-numeric:tabular-nums}
+.sec{display:flex;align-items:center;gap:10px}
+.logo{width:28px;height:28px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:10px;flex:none}
+.act{color:var(--primary);font-size:13px;font-weight:600;white-space:nowrap}
+.note{padding:10px 18px 14px;font-size:13px;color:var(--muted)}
+.decide{display:inline-flex;gap:4px}.decide span{padding:5px 12px;border-radius:999px;font-size:12px;font-weight:600;background:#ECF0EF;color:var(--ink)}
+.err{padding:4px 18px 14px;font-size:14px}.err a{color:var(--primary);font-weight:600}
+.more{font-size:13px;color:var(--muted);padding:4px 4px 0}
+</style>
+</head>
+<body>
+<div class="browser">
+  <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="url">depot.example.home / import / batch</span></div>
+  <div class="app">
+    <nav><div class="brand">DepotManagement</div><a>Übersicht</a><a>Depots</a><a class="on">Import</a><a>Nachrichten</a><a>Wertpapiere</a><a>Einstellungen</a></nav>
+    <main>
+      <h1>Import prüfen</h1>
+      <div class="sub">Deutsche Bank ROBIN · 14 Dateien hochgeladen am 31.10.2026</div>
+      <div class="card summary">
+        <span>12 Dateien erkannt, 1 Duplikat, 1 fehlgeschlagen · <b style="color:var(--stale)">1 Entscheidung offen</b></span>
+        <span><span class="btn2">Verwerfen</span><span class="btn dis">12 Buchungen buchen</span></span>
+      </div>
+
+      <div class="card">
+        <div class="fh"><span class="name">Sparplan_Ausfuehrung_2026-10-15.pdf</span><span class="chip amb">mehrdeutig</span></div>
+        <table><thead><tr><th>Typ</th><th>Datum</th><th>Wertpapier</th><th class="n">Stück</th><th class="n">Betrag</th><th>Entscheidung</th></tr></thead>
+        <tbody><tr><td>Kauf</td><td>15.10.2026</td><td><span class="sec"><span class="logo" style="background:#2E3192">X</span>Xtrackers MSCI Emerging Markets</span></td><td class="n">3,412871</td><td class="n">150,00 €</td><td><span class="decide"><span>Buchen</span><span>Verwerfen</span></span></td></tr></tbody></table>
+        <div class="note">Gleiche Buchung bereits vorhanden: Kauf 15.10.2026, 3,412871 Stück, 150,00 € (Sparplan). Zwei identische Sparplan-Käufe an einem Tag sind möglich.</div>
+      </div>
+
+      <div class="card">
+        <div class="fh"><span class="name">Wertpapierabrechnung_Kauf_2026-10-08.pdf</span><span class="chip ok">erkannt</span></div>
+        <table><thead><tr><th>Typ</th><th>Datum</th><th>Wertpapier</th><th class="n">Stück</th><th class="n">Betrag</th><th class="n">Gebühr</th><th></th></tr></thead>
+        <tbody><tr><td>Kauf</td><td>08.10.2026</td><td><span class="sec"><span class="logo" style="background:#96151D">V</span>Vanguard FTSE All-World</span></td><td class="n">12,000000</td><td class="n">1.482,36 €</td><td class="n">1,50 €</td><td class="act">Bearbeiten · Verwerfen</td></tr></tbody></table>
+      </div>
+
+      <div class="card">
+        <div class="fh"><span class="name">Dividendengutschrift_2026-10-01.pdf</span><span class="chip ok">erkannt</span></div>
+        <table><thead><tr><th>Typ</th><th>Datum</th><th>Wertpapier</th><th class="n">Betrag</th><th class="n">Steuer</th><th class="n">Gutschrift</th><th></th></tr></thead>
+        <tbody><tr><td>Dividende</td><td>01.10.2026</td><td><span class="sec"><span class="logo" style="background:#96151D">V</span>Vanguard FTSE All-World</span></td><td class="n">84,12 €</td><td class="n">15,51 €</td><td class="n">68,61 €</td><td class="act">Bearbeiten · Verwerfen</td></tr></tbody></table>
+      </div>
+
+      <div class="card">
+        <div class="fh"><span class="name">Wertpapierabrechnung_Kauf_2026-09-30.pdf</span><span class="chip dup">Duplikat</span></div>
+        <div class="note">Bereits gebucht am 30.09.2026 (Import vom 01.10.2026). Wird nicht erneut gebucht.</div>
+      </div>
+
+      <div class="card">
+        <div class="fh"><span class="name">Kontoauszug_Oktober.pdf</span><span class="chip fail">fehlgeschlagen</span></div>
+        <div class="err">Layout nicht erkannt. Buchung bitte manuell erfassen. <a href="#">Manuell erfassen</a></div>
+      </div>
+      <div class="more">+ 9 weitere erkannte Dateien</div>
+    </main>
+  </div>
+</div>
+</body>
+</html>
