@@ -1,6 +1,6 @@
 import Decimal from "decimal.js";
 import { describe, expect, it } from "vitest";
-import { formatDate, formatMoney, formatPercent, formatQuantity } from "./format";
+import { formatDate, formatMonth, formatMoney, formatPercent, formatQuantity } from "./format";
 
 const NBSP = " ";
 
@@ -83,4 +83,16 @@ describe("formatDate", () => {
       expect(() => formatDate(input)).toThrow(TypeError);
     },
   );
+});
+
+describe("formatMonth", () => {
+  it("renders the German month and year", () => {
+    expect(formatMonth("2026-10-25")).toBe("Oktober 2026");
+    expect(formatMonth("2026-03-01")).toBe("März 2026");
+    expect(formatMonth("2027-01-31")).toBe("Januar 2027");
+  });
+
+  it("throws on an invalid date", () => {
+    expect(() => formatMonth("2026-13-01")).toThrow(TypeError);
+  });
 });

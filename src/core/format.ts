@@ -3,6 +3,7 @@
  * Values are never converted to JS numbers; rounding is half-up via decimal.js.
  */
 import Decimal from "decimal.js";
+import { isBusinessDate } from "./dates";
 
 /** Local Decimal constructor with generous precision for intermediate steps (e.g. ratio × 100). */
 const D = Decimal.clone({ precision: 50, rounding: Decimal.ROUND_HALF_UP });
@@ -61,26 +62,31 @@ export function formatQuantity(value: DecimalInput): string {
   return formatDecimal(toDecimal(value), QUANTITY_MAX_DECIMALS, { trimZeros: true });
 }
 
-const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
-
-function daysInMonth(year: number, month: number): number {
-  if (month === 2) {
-    const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
-    return leap ? 29 : 28;
-  }
-  return [4, 6, 9, 11].includes(month) ? 30 : 31;
-}
-
 /** Business date `YYYY-MM-DD` → `DD.MM.YYYY`. Throws `TypeError` on malformed or impossible dates. */
 export function formatDate(isoDate: string): string {
-  const match = ISO_DATE.exec(isoDate);
-  if (!match) throw new TypeError(`Not a YYYY-MM-DD date: ${isoDate}`);
-  const [, y, m, d] = match;
-  const year = Number(y);
-  const month = Number(m);
-  const day = Number(d);
-  if (month < 1 || month > 12 || day < 1 || day > daysInMonth(year, month)) {
-    throw new TypeError(`Impossible date: ${isoDate}`);
-  }
+  if (!isBusinessDate(isoDate)) throw new TypeError(`Not a valid YYYY-MM-DD date: ${isoDate}`);
+  const [y, m, d] = isoDate.split("-");
   return `${d}.${m}.${y}`;
+}
+
+const MONTHS_DE = [
+  "Januar",
+  "Februar",
+  "März",
+  "April",
+  "Mai",
+  "Juni",
+  "Juli",
+  "August",
+  "September",
+  "Oktober",
+  "November",
+  "Dezember",
+];
+
+/** Business date `YYYY-MM-DD` → its month heading, e.g. `"Oktober 2026"`. Throws `TypeError` on invalid dates. */
+export function formatMonth(isoDate: string): string {
+  if (!isBusinessDate(isoDate)) throw new TypeError(`Not a valid YYYY-MM-DD date: ${isoDate}`);
+  const [y, m] = isoDate.split("-");
+  return `${MONTHS_DE[Number(m) - 1]} ${y}`;
 }

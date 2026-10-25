@@ -1,4 +1,4 @@
-// The ledger module is the only writer of ledger rows (Depots now; Transactions and Securities later).
+// The ledger module is the only writer of ledger rows (Depots, Securities, Transactions).
 export {
   BROKERS,
   createDepot,
@@ -16,3 +16,28 @@ export type {
   LedgerDb,
   RenameDepotInput,
 } from "./depots";
+export {
+  ASSET_TYPES,
+  ensureSecurity,
+  ISIN_ASSET_TYPES,
+  listSecurities,
+  SECURITY_NAME_MAX_LENGTH,
+} from "./securities";
+export type {
+  AssetType,
+  SecurityDetailsInput,
+  SecurityFailureReason,
+  SecurityIdentifierInput,
+  SecurityResult,
+  SecuritySummary,
+} from "./securities";
+export { listTransactions, QUANTITY_MAX_DECIMALS, recordTrade, TRADE_TYPES } from "./transactions";
+export type {
+  NewSecurityInput,
+  RecordTradeInput,
+  RecordTradeResult,
+  TradeFailureReason,
+  TradeType,
+  TransactionRecord,
+  TransactionType,
+} from "./transactions";

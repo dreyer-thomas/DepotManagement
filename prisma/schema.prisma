@@ -21,5 +21,56 @@ enum Broker {
 model Depot {
   id     String @id @default(cuid())
   name   String @unique
-  broker Broker
+  broker       Broker
+  transactions Transaction[]
+}
+
+enum AssetType {
+  STOCK
+  ETF
+  CERTIFICATE
+  CRYPTO
+  UNCLASSIFIED
+}
+
+// All AD-14 types are declared; story 1.4 writes only BUY and SELL.
+enum TransactionType {
+  BUY
+  SELL
+  DIVIDEND
+  FEE
+  TAX
+  DEPOSIT
+  WITHDRAWAL
+}
+
+// Owned by the ledger module; created only via ledger.ensureSecurity.
+model Security {
+  id           String        @id @default(cuid())
+  isin         String?       @unique
+  cryptoSymbol String?       @unique
+  name         String
+  assetType    AssetType
+  transactions Transaction[]
+}
+
+// Canonical Transaction shape (AD-14). Decimal values are TEXT strings; ordered by (date, sequence).
+model Transaction {
+  id         String          @id @default(cuid())
+  depotId    String
+  depot      Depot           @relation(fields: [depotId], references: [id])
+  securityId String?
+  security   Security?       @relation(fields: [securityId], references: [id], onDelete: Restrict)
+  type       TransactionType
+  /// Business date YYYY-MM-DD (Europe/Berlin).
+  date       String
+  sequence   Int
+  quantity   String?
+  price      String?
+  amount     String
+  fee        String
+  tax        String
+
+  @@unique([depotId, date, sequence])
+  @@index([securityId])
 }
