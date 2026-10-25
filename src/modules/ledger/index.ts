@@ -31,6 +31,8 @@ export type {
   SecurityResult,
   SecuritySummary,
 } from "./securities";
+export { listPositions } from "./positions";
+export type { PositionRecord } from "./positions";
 export { listTransactions, QUANTITY_MAX_DECIMALS, recordTrade, TRADE_TYPES } from "./transactions";
 export type {
   NewSecurityInput,

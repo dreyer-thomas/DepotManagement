@@ -11,10 +11,11 @@ import { DepotTabs } from "@/app/_components/depots/DepotTabs";
 import { brokerLabel } from "@/app/_components/depots/labels";
 import { PageTitle } from "@/app/_components/Placeholder";
 import { NewTransactionButton } from "@/app/_components/transactions/TransactionDialog";
+import { PositionsTable } from "@/app/_components/positions/PositionsTable";
 import { TransactionList } from "@/app/_components/transactions/TransactionList";
 import { businessDate } from "@/core/dates";
 import { formatMoney } from "@/core/format";
-import { getDepot, listSecurities, listTransactions } from "@/modules/ledger";
+import { getDepot, listPositions, listSecurities, listTransactions } from "@/modules/ledger";
 
 type Props = {
   params: Promise<{ id: string }>;
@@ -24,6 +25,14 @@ type Props = {
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const depot = await getDepot((await params).id);
   return { title: depot ? depot.name : "Depot nicht gefunden" };
+}
+
+function Message({ children }: { children: ReactNode }) {
+  return (
+    <Card>
+      <CardContent>{children}</CardContent>
+    </Card>
+  );
 }
 
 function TabPanel({ tab, children }: { tab: DepotTab; children: ReactNode }) {
@@ -38,11 +47,42 @@ export default async function DepotDetailPage({ params, searchParams }: Props) {
   const depot = await getDepot((await params).id);
   if (!depot) notFound();
   const tab = depotTab((await searchParams)?.tab);
-  const [transactions, securities] = await Promise.all([listTransactions(depot.id), listSecurities()]);
-  const newTransaction = (
-    <NewTransactionButton depotId={depot.id} securities={securities} today={businessDate(new Date())} />
-  );
-  const emptyTransactions = tab === "transactions" && transactions.length === 0;
+  const today = businessDate(new Date());
+  const [transactions, securities, positions] = await Promise.all([
+    listTransactions(depot.id),
+    listSecurities(),
+    tab === "positions" ? listPositions(depot.id, today) : Promise.resolve([]),
+  ]);
+  const newTransaction = <NewTransactionButton depotId={depot.id} securities={securities} today={today} />;
+  // An empty Depot shows its only "Neue Buchung" button inside the empty state of Positionen and Buchungen.
+  const emptyState = (tab === "transactions" || tab === "positions") && transactions.length === 0;
+
+  let content: ReactNode;
+  if (emptyState) {
+    content = (
+      <Message>
+        <Typography sx={{ mb: 2 }}>Noch keine Buchungen.</Typography>
+        {newTransaction}
+      </Message>
+    );
+  } else if (tab === "transactions") {
+    content = <TransactionList transactions={transactions} />;
+  } else if (tab === "positions") {
+    content =
+      positions.length === 0 ? (
+        <Message>
+          <Typography>Keine offenen Positionen.</Typography>
+        </Message>
+      ) : (
+        <PositionsTable positions={positions} />
+      );
+  } else {
+    content = (
+      <Message>
+        <Typography color="text.secondary">Dieser Bereich folgt in einer späteren Version.</Typography>
+      </Message>
+    );
+  }
 
   return (
     <>
@@ -52,29 +92,10 @@ export default async function DepotDetailPage({ params, searchParams }: Props) {
         <Typography>
           Cash-Konto <Typography component="span" variant="figure">{formatMoney(depot.cashBalance)}</Typography>
         </Typography>
-        {emptyTransactions ? null : <Box sx={{ ml: "auto !important" }}>{newTransaction}</Box>}
+        {emptyState ? null : <Box sx={{ ml: "auto !important" }}>{newTransaction}</Box>}
       </Stack>
       <DepotTabs depotId={depot.id} value={tab} />
-      <TabPanel tab={tab}>
-        {tab === "transactions" ? (
-          transactions.length === 0 ? (
-            <Card>
-              <CardContent>
-                <Typography sx={{ mb: 2 }}>Noch keine Buchungen.</Typography>
-                {newTransaction}
-              </CardContent>
-            </Card>
-          ) : (
-            <TransactionList transactions={transactions} />
-          )
-        ) : (
-          <Card>
-            <CardContent>
-              <Typography color="text.secondary">Dieser Bereich folgt in einer späteren Version.</Typography>
-            </CardContent>
-          </Card>
-        )}
-      </TabPanel>
+      <TabPanel tab={tab}>{content}</TabPanel>
     </>
   );
 }

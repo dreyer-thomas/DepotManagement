@@ -51,7 +51,7 @@ describe("Depot detail page", () => {
     expect(await generateMetadata(props("xyz"))).toEqual({ title: "Depot nicht gefunden" });
   });
 
-  it("shows name, Broker, Cash Account, the tabs and the empty Transactions state", async () => {
+  it("opens on Positionen and shows name, Broker, Cash Account, the tabs and the empty state", async () => {
     const { id } = await depot();
     const tree = await DepotDetailPage(props(id));
     const text = renderText(tree);
@@ -60,7 +60,7 @@ describe("Depot detail page", () => {
     expect(text).toContain("comdirect");
     expect(text).toContain("Cash-Konto 0,00\u00a0€");
     expect(text).toMatch(/Positionen .*Cash-Konto .*Buchungen/);
-    expect(html).toMatch(selectedTab("Buchungen"));
+    expect(html).toMatch(selectedTab("Positionen"));
     for (const tab of ["positions", "cash", "transactions"]) {
       expect(html).toContain(`href="/depots/${id}?tab=${tab}"`);
     }
@@ -96,10 +96,15 @@ describe("Depot detail page", () => {
     expect((html.match(/<button[^>]*>Neue Buchung/g) ?? []).length).toBe(1);
   });
 
-  it.each([
-    ["positions", "Positionen"],
-    ["cash", "Cash-Konto"],
-  ])("shows a placeholder on the %s tab", async (tab, label) => {
+  it("shows the empty state with one Neue Buchung button on the Buchungen tab", async () => {
+    const { id } = await depot();
+    const tree = await DepotDetailPage(props(id, "transactions"));
+    expect(renderText(tree)).toContain("Noch keine Buchungen.");
+    expect(renderHtml(tree)).toMatch(selectedTab("Buchungen"));
+    expect((renderHtml(tree).match(/<button[^>]*>Neue Buchung/g) ?? []).length).toBe(1);
+  });
+
+  it.each([["cash", "Cash-Konto"]])("shows a placeholder on the %s tab", async (tab, label) => {
     const { id } = await depot();
     const tree = await DepotDetailPage(props(id, tab));
     const text = renderText(tree);
@@ -110,10 +115,92 @@ describe("Depot detail page", () => {
     expect((renderHtml(tree).match(/<button[^>]*>Neue Buchung/g) ?? []).length).toBe(1);
   });
 
-  it("falls back to the Buchungen tab for an unknown tab value", async () => {
+  it("falls back to the Positionen tab for an unknown tab value", async () => {
     const { id } = await depot();
     const tree = await DepotDetailPage(props(id, "foo"));
     expect(renderText(tree)).toContain("Noch keine Buchungen.");
-    expect(renderHtml(tree)).toMatch(selectedTab("Buchungen"));
+    expect(renderHtml(tree)).toMatch(selectedTab("Positionen"));
+  });
+
+  it("shows open Positions with FIFO Cost Basis, price, value and the G/V pill", async () => {
+    const { id } = await depot();
+    const buy = await recordTrade({
+      depotId: id,
+      type: "BUY",
+      date: "2026-01-10",
+      quantity: "10",
+      price: "100",
+      fee: "5",
+      security: { new: { isin: "US0378331005", name: "Apple Inc.", assetType: "STOCK" } },
+    });
+    if (!buy.ok) throw new Error("setup failed");
+    const security = { id: buy.transaction.security!.id };
+    await recordTrade({ depotId: id, type: "BUY", date: "2026-02-10", quantity: "5", price: "120", fee: "2", security });
+    await recordTrade({ depotId: id, type: "SELL", date: "2026-03-10", quantity: "12", price: "130", fee: "3", security });
+
+    const tree = await DepotDetailPage(props(id));
+    const text = renderText(tree);
+    const html = renderHtml(tree);
+    expect(html).toMatch(selectedTab("Positionen"));
+    expect(text).toMatch(/Wertpapier .*Stück .*Einstandswert .*Ø Kaufkurs .*Kurs .*Wert .*G\/V/);
+    expect(text).toContain(
+      "AI Apple Inc. 3 361,20\u00a0€ 120,40\u00a0€ 130,00\u00a0€ 390,00\u00a0€ +28,80\u00a0€ · +7,97\u00a0%",
+    );
+    expect(text).toContain("AI Apple Inc. 3 Stück 390,00\u00a0€ +28,80\u00a0€ · +7,97\u00a0%");
+    expect(text).toContain("Sortieren nach");
+    expect(html).toContain("<table");
+    expect(html).toMatch(/<th[^>]*aria-sort="descending"[^>]*>(?:(?!<\/th>).)*Wert/);
+    expect((html.match(/<button[^>]*>Neue Buchung/g) ?? []).length).toBe(1);
+  });
+
+  it("orders Positions by value descending and leaves out future-dated buys", async () => {
+    const { id } = await depot();
+    await recordTrade({
+      depotId: id,
+      type: "BUY",
+      date: "2026-01-10",
+      quantity: "1",
+      price: "50",
+      security: { new: { isin: "US0378331005", name: "Apple Inc.", assetType: "STOCK" } },
+    });
+    await recordTrade({
+      depotId: id,
+      type: "BUY",
+      date: "2026-01-11",
+      quantity: "2",
+      price: "300",
+      security: { new: { isin: "DE0007164600", name: "SAP SE", assetType: "STOCK" } },
+    });
+    await recordTrade({
+      depotId: id,
+      type: "BUY",
+      date: "2099-01-01",
+      quantity: "1",
+      price: "10",
+      security: { new: { cryptoSymbol: "BTC", name: "Bitcoin", assetType: "CRYPTO" } },
+    });
+
+    const text = renderText(await DepotDetailPage(props(id)));
+    expect(text).toMatch(/SAP SE 2 Stück 600,00\u00a0€.*Apple Inc\. 1 Stück 50,00\u00a0€/);
+    expect(text).not.toContain("Bitcoin");
+  });
+
+  it("shows Keine offenen Positionen. when everything is sold", async () => {
+    const { id } = await depot();
+    const buy = await recordTrade({
+      depotId: id,
+      type: "BUY",
+      date: "2026-01-10",
+      quantity: "1",
+      price: "50",
+      security: { new: { isin: "US0378331005", name: "Apple Inc.", assetType: "STOCK" } },
+    });
+    if (!buy.ok) throw new Error("setup failed");
+    await recordTrade({ depotId: id, type: "SELL", date: "2026-01-11", quantity: "1", price: "60", security: { id: buy.transaction.security!.id } });
+
+    const tree = await DepotDetailPage(props(id));
+    expect(renderText(tree)).toContain("Keine offenen Positionen.");
+    expect(renderText(tree)).not.toContain("Noch keine Buchungen.");
+    expect((renderHtml(tree).match(/<button[^>]*>Neue Buchung/g) ?? []).length).toBe(1);
   });
 });

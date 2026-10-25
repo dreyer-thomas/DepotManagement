@@ -1,4 +1,4 @@
-/** Depot detail tabs, driven by `?tab=`. Story 1.5 switches the default to `positions`. */
+/** Depot detail tabs, driven by `?tab=`; the Depot detail opens on Positions. */
 export const DEPOT_TABS = [
   { value: "positions", label: "Positionen" },
   { value: "cash", label: "Cash-Konto" },
@@ -7,7 +7,7 @@ export const DEPOT_TABS = [
 
 export type DepotTab = (typeof DEPOT_TABS)[number]["value"];
 
-export const DEFAULT_DEPOT_TAB: DepotTab = "transactions";
+export const DEFAULT_DEPOT_TAB: DepotTab = "positions";
 
 /** The tab named by a `?tab=` value; unknown or missing values give the default. */
 export function depotTab(value: string | string[] | undefined): DepotTab {
