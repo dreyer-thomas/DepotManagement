@@ -198,12 +198,13 @@ describe("openingBalanceAction", () => {
     expect((await confirmParqetAction(form({ depotId: id, file: csvFile(NO_CASH), decisions }))).ok).toBe(true);
     revalidatePath.mockClear();
 
-    const result = await openingBalanceAction(form({ depotId: id, date: "2024-02-01", asOf: "2024-05-02", balance: "1.300,00" }));
-    expect(result).toMatchObject({ ok: true, transaction: { type: "DEPOSIT", amount: "2500" }, balance: "1300" });
+    // Funded buy: the ledger holds the 300 from the sale at the export date.
+    const result = await openingBalanceAction(form({ depotId: id, date: "2024-05-02", asOf: "2024-05-02", balance: "1.300,00" }));
+    expect(result).toMatchObject({ ok: true, transaction: { type: "DEPOSIT", date: "2024-05-02", amount: "1000" }, balance: "1300" });
     expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
 
     revalidatePath.mockClear();
-    expect(await openingBalanceAction(form({ depotId: id, date: "2024-02-01", asOf: "2024-05-02", balance: "1300" }))).toEqual({
+    expect(await openingBalanceAction(form({ depotId: id, date: "2024-05-02", asOf: "2024-05-02", balance: "1300" }))).toEqual({
       ok: true,
       transaction: null,
       balance: "1300",

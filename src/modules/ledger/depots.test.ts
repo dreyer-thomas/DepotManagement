@@ -3,11 +3,14 @@ import { createTestDatabase, type TestDatabase } from "../../../test/helpers/tes
 import {
   archiveDepot,
   createDepot,
+  deleteDepot,
   deleteTransaction,
   ensureSecurity,
   getDepot,
   listDepots,
   listHeldSecurities,
+  listSplits,
+  recordSplit,
   recordTransaction,
   type RecordTransactionInput,
   renameDepot,
@@ -45,6 +48,7 @@ describe("createDepot", () => {
         cashBalance: "0",
         archived: false,
         archivable: true,
+        transactionCount: 0,
       },
     });
     expect(await listDepots(db())).toEqual([result.ok && result.depot]);
@@ -372,5 +376,47 @@ describe("archiveDepot / unarchiveDepot", () => {
     // B holds s2, so it cannot be archived through the service; archive it directly for the held-set check.
     await db().depot.update({ where: { id: b.id }, data: { archived: true } });
     expect(await listHeldSecurities("2026-10-25", db())).toEqual([s1]);
+  });
+});
+
+describe("deleteDepot", () => {
+  async function book(depotId: string, input: Omit<RecordTransactionInput, "depotId">) {
+    const result = await recordTransaction({ depotId, ...input }, db());
+    if (!result.ok) throw new Error(`setup failed: ${result.reason}`);
+  }
+
+  it("deletes only the Depot and its Transactions; shared Securities, their splits and other Depots stay", async () => {
+    const target = await create("Ziel");
+    const other = await create("Anderes");
+    const shared = await ensureSecurity({ isin: "US0378331005" }, { name: "Apple Inc.", assetType: "STOCK" }, db());
+    if (!shared.ok) throw new Error("setup failed");
+    const id = shared.security.id;
+    const split = await recordSplit({ securityId: id, date: "2026-02-01", ratio: "1:4" }, db());
+    if (!split.ok) throw new Error("setup failed");
+    await book(target.id, { type: "DEPOSIT", date: "2026-01-01", amount: "5000" });
+    await book(target.id, { type: "BUY", date: "2026-01-02", quantity: "10", price: "100", security: { id } });
+    await book(target.id, { type: "DIVIDEND", date: "2026-01-03", amount: "5", security: { id } });
+    await book(target.id, { type: "FEE", date: "2026-01-04", fee: "1" });
+    await book(target.id, { type: "TAX", date: "2026-01-05", tax: "1" });
+    await book(target.id, { type: "SELL", date: "2026-03-01", quantity: "4", price: "30", security: { id } });
+    await book(target.id, { type: "WITHDRAWAL", date: "2026-03-02", amount: "10" });
+    await book(other.id, { type: "DEPOSIT", date: "2026-01-01", amount: "1000" });
+    await book(other.id, { type: "BUY", date: "2026-01-02", quantity: "1", price: "100", security: { id } });
+    expect((await getDepot(target.id, db()))?.transactionCount).toBe(7);
+
+    expect(await deleteDepot(target.id, db())).toEqual({ ok: true, deleted: { transactions: 7 } });
+    expect(await getDepot(target.id, db())).toBeNull();
+    expect(await db().transaction.count({ where: { depotId: target.id } })).toBe(0);
+    expect(await listDepots(db())).toEqual([expect.objectContaining({ id: other.id, transactionCount: 2 })]);
+    expect(await db().security.count()).toBe(1);
+    expect(await listSplits(db())).toEqual([expect.objectContaining({ security: expect.objectContaining({ id }), date: "2026-02-01" })]);
+  });
+
+  it("deletes an archived Depot and reports an unknown id as not-found", async () => {
+    const depot = await create("Archiv");
+    expect((await archiveDepot(depot.id, db())).ok).toBe(true);
+    expect(await deleteDepot(depot.id, db())).toEqual({ ok: true, deleted: { transactions: 0 } });
+    expect(await listDepots(db())).toEqual([]);
+    expect(await deleteDepot(depot.id, db())).toEqual({ ok: false, reason: "not-found" });
   });
 });

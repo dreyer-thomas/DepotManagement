@@ -60,6 +60,7 @@ describe("previewParqetMigration", () => {
     ]);
     expect(preview.duplicates).toEqual([]);
     expect(preview.hasCashRows).toBe(true);
+    expect(preview.fundingCount).toBe(0);
     expect(preview.flagged[0].rows[0]).toMatchObject({ type: "Buy", assettype: "Cash" });
     expect(preview.flagged.map((flag) => flag.reason)).toEqual([
       "unsupported-row",
@@ -107,6 +108,20 @@ describe("previewParqetMigration", () => {
       estimated: false,
     });
     expect(result.preview.figures?.positions.find((p) => p.securityKey === "US0378331005")?.name).toBe("Apple Inc.");
+  });
+
+  it("adds no funding to a cash-less file without negative cash effects", async () => {
+    const target = await depot();
+    const text = [
+      "datetime;price;shares;amount;tax;fee;realizedgains;type;assettype;identifier;currency;holdingname",
+      "2024-03-20T09:00:00.000Z;;;30;5;0;;Dividend;Security;US0378331005;EUR;Apfel",
+    ].join("\n");
+    const result = await previewParqetMigration(target.id, text, testDb.client);
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.preview.hasCashRows).toBe(false);
+    expect(result.preview.fundingCount).toBe(0);
+    expect(result.preview.counts.DEPOSIT).toBe(0);
+    expect(result.preview.figures?.cashBalance).toBe("25");
   });
 
   it("refuses an unknown or archived Depot", async () => {

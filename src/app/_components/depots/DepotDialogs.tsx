@@ -1,6 +1,7 @@
 "use client";
 
 import ArchiveOutlined from "@mui/icons-material/ArchiveOutlined";
+import DeleteOutlineOutlined from "@mui/icons-material/DeleteOutlineOutlined";
 import EditOutlined from "@mui/icons-material/EditOutlined";
 import Alert from "@mui/material/Alert";
 import Button, { type ButtonProps } from "@mui/material/Button";
@@ -20,11 +21,19 @@ import {
   type ArchiveActionState,
   archiveDepotAction,
   createDepotAction,
+  type DeleteDepotActionState,
+  deleteDepotAction,
   type DepotActionState,
   renameDepotAction,
   unarchiveDepotAction,
 } from "@/app/_actions/depots";
-import { BROKER_OPTIONS, depotErrorField, depotErrorMessage } from "./labels";
+import {
+  BROKER_OPTIONS,
+  deleteConfirmationMatches,
+  deleteDepotQuestion,
+  depotErrorField,
+  depotErrorMessage,
+} from "./labels";
 
 type DepotAction = (previous: DepotActionState, formData: FormData) => Promise<DepotActionState>;
 
@@ -322,5 +331,78 @@ export function UnarchiveDepotButton({ depot }: { depot: { id: string; name: str
         </Alert>
       ) : null}
     </Stack>
+  );
+}
+
+type DeletableDepot = { id: string; name: string; transactionCount: number };
+
+/**
+ * Confirmation form of the "Depot löschen" dialog: "Löschen" stays disabled until the Depot's name is
+ * typed exactly. Success closes it (the Depot leaves the list after revalidation); a failure shows an Alert.
+ */
+export function DeleteDepotForm({
+  depot,
+  onClose,
+  cancelRef,
+}: {
+  depot: DeletableDepot;
+  onClose: () => void;
+  cancelRef: RefObject<HTMLButtonElement | null>;
+}) {
+  const [typed, setTyped] = useState("");
+  const [state, formAction, pending] = useActionState<DeleteDepotActionState, FormData>(async (previous, formData) => {
+    const result = await deleteDepotAction(previous, formData);
+    if (result?.ok) onClose();
+    return result;
+  }, null);
+  const failure = state && !state.ok ? depotErrorMessage(state.reason) : undefined;
+  const matches = deleteConfirmationMatches(typed, depot.name);
+  return (
+    <form action={formAction} noValidate>
+      <input type="hidden" name="id" value={depot.id} />
+      <DialogContent sx={{ pt: 1 }}>
+        <Stack spacing={2}>
+          {failure ? (
+            <Alert severity="error" role="alert">
+              {failure}
+            </Alert>
+          ) : null}
+          <DialogContentText>{deleteDepotQuestion(depot.name, depot.transactionCount)}</DialogContentText>
+          <TextField
+            name="confirmName"
+            label={`Zum Bestätigen „${depot.name}“ eingeben`}
+            value={typed}
+            onChange={(event) => setTyped(event.target.value)}
+            fullWidth
+            autoComplete="off"
+          />
+        </Stack>
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2 }}>
+        <Button ref={cancelRef} onClick={onClose} disabled={pending} autoFocus sx={TOUCH_TARGET}>
+          Abbrechen
+        </Button>
+        <Button type="submit" variant="contained" color="error" disabled={pending || !matches} sx={TOUCH_TARGET}>
+          Löschen
+        </Button>
+      </DialogActions>
+    </form>
+  );
+}
+
+/** Icon button that opens the "Depot löschen" confirmation (active and archived Depots). */
+export function DeleteDepotButton({ depot }: { depot: DeletableDepot }) {
+  const dialog = useDialog();
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const label = `„${depot.name}“ löschen`;
+  return (
+    <>
+      <IconButton size="large" onClick={dialog.show} aria-label={label} title={label} sx={{ minWidth: 44, minHeight: 44 }}>
+        <DeleteOutlineOutlined />
+      </IconButton>
+      <DepotDialog open={dialog.open} onClose={dialog.hide} title="Depot löschen" initialFocus={cancelRef}>
+        <DeleteDepotForm key={dialog.session} depot={depot} onClose={dialog.hide} cancelRef={cancelRef} />
+      </DepotDialog>
+    </>
   );
 }

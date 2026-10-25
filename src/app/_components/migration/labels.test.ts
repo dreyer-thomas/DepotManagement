@@ -7,6 +7,7 @@ import {
   comparisonStatus,
   confirmFailureMessage,
   countRows,
+  fundingNote,
   openDecisionsLabel,
   openingBalanceFailureMessage,
   openingBalanceSuccess,
@@ -20,6 +21,12 @@ import {
 } from "./labels";
 
 describe("migration labels", () => {
+  it("announces funding DEPOSITs in singular and plural", () => {
+    expect(fundingNote(0)).toBe("Export ohne Kontobewegungen: 0 Einzahlungen werden ergänzt");
+    expect(fundingNote(1)).toBe("Export ohne Kontobewegungen: 1 Einzahlung wird ergänzt");
+    expect(fundingNote(3)).toBe("Export ohne Kontobewegungen: 3 Einzahlungen werden ergänzt");
+  });
+
   it.each<[PreviewFailureReason, string]>([
     ["unauthorized", "Sitzung abgelaufen. Bitte erneut anmelden."],
     ["file-missing", "Bitte eine CSV-Datei auswählen."],

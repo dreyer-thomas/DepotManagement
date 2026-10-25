@@ -95,4 +95,14 @@ describe("Settings page", () => {
     expect(html).toMatch(/<button[^>]*type="submit"[^>]*>Reaktivieren/);
     expect(html).toMatch(new RegExp(`<input[^>]*name="id"[^>]*value="${old.depot.id}"`));
   });
+
+  it("offers a delete button on active and archived Depot cards", async () => {
+    await createDepot({ name: "Aktiv", broker: "COMDIRECT" });
+    const old = await createDepot({ name: "Alt", broker: "FINANZEN_ZERO" });
+    if (!old.ok) throw new Error("setup failed");
+    expect((await archiveDepot(old.depot.id)).ok).toBe(true);
+    const html = renderHtml(await SettingsPage());
+    expect(html).toMatch(/<button[^>]*aria-label="„Aktiv“ löschen"/);
+    expect(html).toMatch(/<button[^>]*aria-label="„Alt“ löschen"/);
+  });
 });

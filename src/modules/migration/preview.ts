@@ -87,8 +87,10 @@ export type ParqetPreview = {
   securities: PreviewSecurity[];
   /** Proposals matching existing rows of the target Depot, in proposal order. */
   duplicates: PreviewDuplicate[];
-  /** False when the file has no Cash Account rows (cash cannot be reconciled). */
+  /** False when the file has no Cash Account rows (cash cannot be reconciled; funding DEPOSITs are added). */
   hasCashRows: boolean;
+  /** Number of funding DEPOSITs added for a file without Cash rows (0 with Cash rows). */
+  fundingCount: number;
   figures: PreviewFigures | null;
 };
 
@@ -277,6 +279,7 @@ export async function analyzeParqetExport(
         securities,
         duplicates,
         hasCashRows: read.hasCashRows,
+        fundingCount: read.proposals.filter((proposal) => proposal.funding).length,
         figures,
       },
     },

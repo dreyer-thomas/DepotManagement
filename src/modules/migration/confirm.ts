@@ -404,7 +404,8 @@ export async function confirmParqetMigration(
     sales,
   };
   if (!read.hasCashRows) {
-    summary.openingBalance = { date: read.proposals[0]?.date ?? asOf, asOf, ledgerBalance: ledgerCash };
+    // Dated at the export date: aligning down to the broker's balance never makes past cash negative.
+    summary.openingBalance = { date: asOf, asOf, ledgerBalance: ledgerCash };
   }
   return { ok: true, summary };
 }

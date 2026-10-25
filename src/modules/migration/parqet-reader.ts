@@ -10,6 +10,7 @@ import { parseSplitRatio } from "@/core/corporate-actions";
 import { businessDate, isBusinessDate } from "@/core/dates";
 import { canonicalDecimal, ExactDecimal } from "@/core/decimal";
 import { parseDecimalInput } from "@/core/decimal-input";
+import { fundingShortfalls } from "@/core/funding";
 import { cryptoSymbolSchema, isinSchema, QUANTITY_MAX_DECIMALS, SECURITY_NAME_MAX_LENGTH } from "@/modules/ledger";
 import { parseSemicolonCsv } from "./csv";
 
@@ -43,6 +44,11 @@ export type TransactionProposal = {
    * the same-day DEPOSIT (WITHDRAWAL if the cost is negative) that keeps the Cash Account unchanged.
    */
   delivery?: "buy" | "deposit";
+  /**
+   * Set on a funding DEPOSIT of a cash-less export (no Cash rows): the minimal same-day inflow that keeps the
+   * Cash Account from going negative before the proposal directly after it (whose `records` it shares).
+   */
+  funding?: true;
 };
 
 /** A same-instant `TransferOut`/`TransferIn` pair of one Security: a split `ratioOld:ratioNew` (AD-7). */
@@ -411,6 +417,37 @@ function alignToCash(trade: Trade, cash: CashRow, effect: Decimal): void {
   trade.amount = canonicalDecimal(amount);
 }
 
+/**
+ * Cash-less export: inserts a funding DEPOSIT (core `fundingShortfalls`) directly before each proposal that
+ * would push the Cash Account below zero, then re-sequences all proposals 1..n.
+ */
+function withFunding(proposals: TransactionProposal[]): TransactionProposal[] {
+  const funding = new Map(fundingShortfalls(proposals).map(({ row, amount }) => [row, amount]));
+  if (funding.size === 0) return proposals;
+  const result: TransactionProposal[] = [];
+  for (const proposal of proposals) {
+    const amount = funding.get(proposal);
+    if (amount !== undefined) {
+      result.push({
+        type: "DEPOSIT",
+        date: proposal.date,
+        sequence: 0,
+        securityKey: null,
+        quantity: null,
+        price: null,
+        amount,
+        fee: "0",
+        tax: "0",
+        realizedGain: null,
+        records: [...proposal.records],
+        funding: true,
+      });
+    }
+    result.push(proposal);
+  }
+  return result.map((proposal, index) => ({ ...proposal, sequence: index + 1 }));
+}
+
 export function readParqetCsv(text: string): ParqetReadResult {
   const records = parseSemicolonCsv(text);
   if (records.length === 0) return { ok: false, reason: "empty-file" };
@@ -639,7 +676,8 @@ export function readParqetCsv(text: string): ParqetReadResult {
     });
   }
   pending.sort((a, b) => compareChronological(a.at, b.at));
-  const proposals: TransactionProposal[] = pending.map(({ proposal }, index) => ({ ...proposal, sequence: index + 1 }));
+  const sequenced: TransactionProposal[] = pending.map(({ proposal }, index) => ({ ...proposal, sequence: index + 1 }));
+  const proposals = cashRows.length === 0 ? withFunding(sequenced) : sequenced;
 
   splitPlacements.sort(compareChronological);
   const splits: SplitProposal[] = splitPlacements.map(({ date, key, oldQuantity, newQuantity, ratioOld, ratioNew, records }) => ({

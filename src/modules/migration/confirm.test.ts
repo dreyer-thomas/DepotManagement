@@ -6,6 +6,7 @@ import {
   archiveDepot,
   createDepot,
   ensureSecurity,
+  listCashBookings,
   listIsinChanges,
   listPositions,
   listSplits,
@@ -27,6 +28,7 @@ import { previewParqetMigration } from "./preview";
 
 const FIXTURE = readFileSync(resolve(__dirname, "../../../test/fixtures/parqet/synthetic-export.csv.txt"), "utf8");
 const NO_CASH = readFileSync(resolve(__dirname, "../../../test/fixtures/parqet/synthetic-export-no-cash.csv.txt"), "utf8");
+const CASHLESS = readFileSync(resolve(__dirname, "../../../test/fixtures/parqet/synthetic-export-cashless.csv.txt"), "utf8");
 const HANDS_OFF = readFileSync(resolve(__dirname, "../../../test/fixtures/parqet/synthetic-export-hands-off.csv.txt"), "utf8");
 
 const OLD = "DE0007164600";
@@ -383,7 +385,8 @@ describe("confirmParqetMigration", () => {
       `2024-02-01T09:00:00.000Z;40;10;400;0;0;;Buy;Security;${APFEL};EUR;Apfel`,
     ].join("\n");
     const summary = ok(await confirmParqetMigration(depotId, text, EMPTY_DECISIONS, db()));
-    expect(summary.booked).toEqual({ transactions: 2, splits: 1, isinChanges: 0, securities: 1 });
+    // No Cash rows: the Buy gets a funding DEPOSIT of 400.
+    expect(summary.booked).toEqual({ transactions: 3, splits: 1, isinChanges: 0, securities: 1 });
     expect(await listSplits(db())).toEqual([expect.objectContaining({ date: "2024-06-01", ratioOld: "1", ratioNew: "4" })]);
     expect(summary.comparison?.positions).toEqual([]);
 
@@ -392,7 +395,7 @@ describe("confirmParqetMigration", () => {
     expect(again.preview.splits[0].recorded).toBe(true);
     const rerun = ok(await confirmParqetMigration(depotId, text, initialDecisions(again.preview), db()));
     expect(rerun.booked).toEqual({ transactions: 0, splits: 0, isinChanges: 0, securities: 0 });
-    expect(rerun.skipped).toMatchObject({ duplicates: 2, splits: 1 });
+    expect(rerun.skipped).toMatchObject({ duplicates: 3, splits: 1 });
   });
 
   it("names a failing split", async () => {
@@ -478,29 +481,66 @@ describe("hands-off fixture (story 2-5)", () => {
 describe("file without Cash rows", () => {
   const decisions: MigrationDecisions = { classifications: { [WELT]: "ETF" }, flags: {}, duplicates: {} };
 
-  it("does not reconcile cash and offers an opening booking dated the earliest proposal", async () => {
+  it("funds the buy, does not reconcile cash and offers an opening booking dated the export date", async () => {
     const depotId = await depot();
     const summary = ok(await confirmParqetMigration(depotId, NO_CASH, decisions, db()));
+    expect(summary.booked.transactions).toBe(3);
     expect(summary.comparison?.cash).toBeNull();
-    expect(summary.openingBalance).toEqual({ date: "2024-02-01", asOf: "2024-05-02", ledgerBalance: "-1200" });
+    expect(summary.openingBalance).toEqual({ date: "2024-05-02", asOf: "2024-05-02", ledgerBalance: "300" });
+    // listTransactions is newest first.
+    expect((await listTransactions(depotId, db())).map((row) => [row.type, row.date, row.amount])).toEqual([
+      ["SELL", "2024-05-02", "300"],
+      ["BUY", "2024-02-01", "1500"],
+      ["DEPOSIT", "2024-02-01", "1500"],
+    ]);
     expect(summary.comparison?.sales).toEqual([expect.objectContaining({ gain: { ledger: "0", file: "0", mismatch: false } })]);
   });
 
   it("books the difference to the entered balance as DEPOSIT/WITHDRAWAL, nothing at zero difference", async () => {
     const depotId = await depot();
     ok(await confirmParqetMigration(depotId, NO_CASH, decisions, db()));
-    const opening = await recordOpeningBalance({ depotId, date: "2024-02-01", asOf: "2024-05-02", balance: "300" }, db());
+    const opening = await recordOpeningBalance({ depotId, date: "2024-05-02", asOf: "2024-05-02", balance: "450" }, db());
     if (!opening.ok) throw new Error(opening.reason);
-    expect(opening.transaction).toMatchObject({ type: "DEPOSIT", date: "2024-02-01", amount: "1500" });
-    expect(opening.balance).toBe("300");
+    expect(opening.transaction).toMatchObject({ type: "DEPOSIT", date: "2024-05-02", amount: "150" });
+    expect(opening.balance).toBe("450");
 
-    expect(await recordOpeningBalance({ depotId, date: "2024-02-01", asOf: "2024-05-02", balance: "300" }, db())).toEqual({
+    expect(await recordOpeningBalance({ depotId, date: "2024-05-02", asOf: "2024-05-02", balance: "450" }, db())).toEqual({
       ok: true,
       transaction: null,
-      balance: "300",
+      balance: "450",
     });
     const lower = await recordOpeningBalance({ depotId, date: "2024-05-02", asOf: "2024-05-02", balance: "100" }, db());
-    expect(lower).toMatchObject({ ok: true, transaction: { type: "WITHDRAWAL", amount: "200" }, balance: "100" });
+    expect(lower).toMatchObject({ ok: true, transaction: { type: "WITHDRAWAL", amount: "350" }, balance: "100" });
+  });
+
+  it("funds a cash-less export minimally, never goes negative and aligns to the broker's balance at the export date", async () => {
+    const depotId = await depot();
+    const preview = await previewParqetMigration(depotId, CASHLESS, db());
+    if (!preview.ok) throw new Error(preview.reason);
+    expect(preview.preview.hasCashRows).toBe(false);
+    expect(preview.preview.fundingCount).toBe(3);
+    expect(preview.preview.figures?.cashBalance).toBe("0");
+
+    const summary = ok(await confirmParqetMigration(depotId, CASHLESS, EMPTY_DECISIONS, db()));
+    expect(summary.booked).toMatchObject({ transactions: 9, securities: 3 });
+    const rows = (await listTransactions(depotId, db())).reverse();
+    expect(rows.filter((row) => row.type === "DEPOSIT").map((row) => [row.date, row.amount])).toEqual([
+      ["2024-01-10", "1005"],
+      ["2024-02-15", "1000"],
+      ["2024-06-01", "392"],
+    ]);
+    const bookings = await listCashBookings(depotId, db());
+    expect(bookings.every((booking) => !new ExactDecimal(booking.balance).isNegative())).toBe(true);
+    expect(cashBalance(rows, "2024-06-01")).toBe("0");
+
+    const comparison = summary.comparison!;
+    expect(comparison.positions.some((position) => position.mismatch)).toBe(false);
+    expect(comparison.investedCapital.mismatch).toBe(false);
+    expect(comparison.sales.map((sale) => [sale.gain.ledger, sale.gain.mismatch])).toEqual([["92.5", false]]);
+    expect(summary.openingBalance).toEqual({ date: "2024-06-01", asOf: "2024-06-01", ledgerBalance: "0" });
+
+    const opening = await recordOpeningBalance({ depotId, date: "2024-06-01", asOf: "2024-06-01", balance: "150" }, db());
+    expect(opening).toMatchObject({ ok: true, transaction: { type: "DEPOSIT", date: "2024-06-01", amount: "150" }, balance: "150" });
   });
 
   it("validates the opening booking", async () => {

@@ -16,7 +16,7 @@ export function brokerLabel(broker: Broker): string {
   return BROKER_LABELS[broker];
 }
 
-export type DepotErrorReason = DepotFailureReason | ArchiveDepotFailureReason | "unauthorized";
+export type DepotErrorReason = DepotFailureReason | ArchiveDepotFailureReason | "unauthorized" | "name-mismatch";
 
 const DEPOT_ERROR_MESSAGES: Record<DepotErrorReason, string> = {
   "name-empty": "Bitte einen Namen eingeben.",
@@ -27,6 +27,7 @@ const DEPOT_ERROR_MESSAGES: Record<DepotErrorReason, string> = {
   "depot-not-flat": "Depot hat noch Positionen oder Guthaben.",
   "depot-archived": "Depot ist archiviert. Bitte zuerst reaktivieren.",
   unauthorized: "Sitzung abgelaufen. Bitte erneut anmelden.",
+  "name-mismatch": "Der eingegebene Name stimmt nicht mit dem Depotnamen überein.",
 };
 
 /** German message for a Depot write failure. */
@@ -37,8 +38,25 @@ export function depotErrorMessage(reason: DepotErrorReason): string {
 /** Which form field an error belongs to; others show as an Alert. */
 export function depotErrorField(reason: DepotErrorReason): "name" | "broker" | undefined {
   if (reason === "broker-invalid") return "broker";
-  if (reason === "not-found" || reason === "unauthorized" || reason === "depot-not-flat" || reason === "depot-archived") {
+  if (
+    reason === "not-found" ||
+    reason === "unauthorized" ||
+    reason === "depot-not-flat" ||
+    reason === "depot-archived" ||
+    reason === "name-mismatch"
+  ) {
     return undefined;
   }
   return "name";
+}
+
+/** Question of the "Depot löschen" dialog, naming the number of Transactions that will be deleted. */
+export function deleteDepotQuestion(name: string, transactionCount: number): string {
+  const bookings = transactionCount === 1 ? "1 Buchung" : `${transactionCount} Buchungen`;
+  return `Depot „${name}“ mit ${bookings} endgültig löschen? Das kann nicht rückgängig gemacht werden.`;
+}
+
+/** True when the typed confirmation (NFC, trimmed) equals the Depot's name exactly. */
+export function deleteConfirmationMatches(typed: string, name: string): boolean {
+  return typed.normalize("NFC").trim() === name;
 }

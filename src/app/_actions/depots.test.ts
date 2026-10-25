@@ -16,8 +16,13 @@ vi.mock("next/headers", () => ({
 vi.mock("next/cache", () => ({ revalidatePath }));
 
 import { prisma } from "@/db";
-import { listDepots, recordTransaction } from "@/modules/ledger";
-import { archiveDepotAction, createDepotAction, renameDepotAction, unarchiveDepotAction } from "./depots";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { listDepots, listTransactions, recordTransaction } from "@/modules/ledger";
+import { confirmParqetMigration, EMPTY_DECISIONS, previewParqetMigration } from "@/modules/migration";
+import { archiveDepotAction, createDepotAction, deleteDepotAction, renameDepotAction, unarchiveDepotAction } from "./depots";
+
+const CASHLESS = readFileSync(resolve(__dirname, "../../../test/fixtures/parqet/synthetic-export-cashless.csv.txt"), "utf8");
 
 const SECRET = "test-secret-with-at-least-32-characters";
 const HASH = "$2b$04$Raf6EM460q2HE2THwTzIR.5Uk58FNzZG7FhlOvTFD.sbuFp.We4pO";
@@ -31,6 +36,8 @@ beforeEach(async () => {
   fakes.current.state.incoming.set(SESSION_COOKIE, await createSessionToken("tester", SECRET));
   revalidatePath.mockClear();
   await prisma.transaction.deleteMany();
+  await prisma.corporateAction.deleteMany();
+  await prisma.security.deleteMany();
   await prisma.depot.deleteMany();
 });
 
@@ -61,6 +68,7 @@ describe("createDepotAction", () => {
         cashBalance: "0",
         archived: false,
         archivable: true,
+        transactionCount: 0,
       },
     });
     expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
@@ -191,5 +199,73 @@ describe("archiveDepotAction / unarchiveDepotAction", () => {
     expect(await action(null, form({ id: depot.id }))).toEqual({ ok: false, reason: "unauthorized" });
     expect(revalidatePath).not.toHaveBeenCalled();
     expect((await listDepots())[0].archived).toBe(false);
+  });
+});
+
+describe("deleteDepotAction", () => {
+  async function createOne(name: string) {
+    const result = await createDepotAction(null, form({ name, broker: "COMDIRECT" }));
+    if (!result?.ok) throw new Error("setup failed");
+    revalidatePath.mockClear();
+    return result.depot;
+  }
+
+  it("rejects a missing session and keeps the Depot", async () => {
+    const depot = await createOne("Hauptdepot");
+    fakes.current.state.incoming.clear();
+    expect(await deleteDepotAction(null, form({ id: depot.id, confirmName: "Hauptdepot" }))).toEqual({
+      ok: false,
+      reason: "unauthorized",
+    });
+    expect(await listDepots()).toHaveLength(1);
+  });
+
+  it.each(["hauptdepot", "Hauptdepo", ""])("keeps the Depot when the typed name is %j", async (confirmName) => {
+    const depot = await createOne("Hauptdepot");
+    expect(await deleteDepotAction(null, form({ id: depot.id, confirmName }))).toEqual({ ok: false, reason: "name-mismatch" });
+    expect(revalidatePath).not.toHaveBeenCalled();
+    expect(await listDepots()).toHaveLength(1);
+  });
+
+  it("normalizes the typed name to NFC before comparing", async () => {
+    const depot = await createOne("M\u00fcnchen");
+    expect(await deleteDepotAction(null, form({ id: depot.id, confirmName: "Mu\u0308nchen" }))).toEqual({
+      ok: true,
+      deleted: { transactions: 0 },
+    });
+    expect(await listDepots()).toEqual([]);
+  });
+
+  it("reports an unknown or missing id as not-found", async () => {
+    expect(await deleteDepotAction(null, form({ id: "nope", confirmName: "x" }))).toEqual({ ok: false, reason: "not-found" });
+    expect(await deleteDepotAction(null, form({ confirmName: "x" }))).toEqual({ ok: false, reason: "not-found" });
+  });
+
+  it("deletes a migrated Depot; the same export then migrates into a new Depot of that name without duplicates", async () => {
+    const first = await createOne("Cominvest");
+    const migrated = await confirmParqetMigration(first.id, CASHLESS, EMPTY_DECISIONS);
+    if (!migrated.ok) throw new Error(migrated.reason);
+    const booked = (await listTransactions(first.id)).length;
+    expect(booked).toBe(9);
+
+    expect(await deleteDepotAction(null, form({ id: first.id, confirmName: " Cominvest " }))).toEqual({
+      ok: true,
+      deleted: { transactions: booked },
+    });
+    expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
+    expect(await listDepots()).toEqual([]);
+    expect(await prisma.transaction.count()).toBe(0);
+    expect(await prisma.security.count()).toBe(3);
+
+    const second = await createOne("Cominvest");
+    const preview = await previewParqetMigration(second.id, CASHLESS);
+    if (!preview.ok) throw new Error(preview.reason);
+    expect(preview.preview.duplicates).toEqual([]);
+    expect(preview.preview.securities.every((security) => security.existing)).toBe(true);
+    const again = await confirmParqetMigration(second.id, CASHLESS, EMPTY_DECISIONS);
+    if (!again.ok) throw new Error(again.reason);
+    expect(again.summary.booked).toMatchObject({ transactions: 9, securities: 0 });
+    expect(again.summary.comparison?.positions.some((position) => position.mismatch)).toBe(false);
+    expect(again.summary.comparison?.investedCapital.mismatch).toBe(false);
   });
 });

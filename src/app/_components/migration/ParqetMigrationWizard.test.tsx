@@ -22,6 +22,7 @@ import { ParqetSummaryView } from "./ParqetSummaryView";
 
 const FIXTURE = readFileSync(resolve(__dirname, "../../../../test/fixtures/parqet/synthetic-export.csv.txt"), "utf8");
 const NO_CASH = readFileSync(resolve(__dirname, "../../../../test/fixtures/parqet/synthetic-export-no-cash.csv.txt"), "utf8");
+const CASHLESS = readFileSync(resolve(__dirname, "../../../../test/fixtures/parqet/synthetic-export-cashless.csv.txt"), "utf8");
 const HANDS_OFF = readFileSync(resolve(__dirname, "../../../../test/fixtures/parqet/synthetic-export-hands-off.csv.txt"), "utf8");
 
 const DECIDED: MigrationDecisions = EMPTY_DECISIONS;
@@ -34,6 +35,9 @@ let summary: MigrationSummary;
 let noCashSummary: MigrationSummary;
 /** Preview of the hands-off fixture into an empty Depot. */
 let handsOff: ParqetPreview;
+/** Previews of files without Cash rows into an empty Depot (1 and 3 funding DEPOSITs). */
+let noCashPreview: ParqetPreview;
+let cashlessPreview: ParqetPreview;
 
 beforeAll(async () => {
   testDb = createTestDatabase();
@@ -44,6 +48,11 @@ beforeAll(async () => {
   const fresh = await previewParqetMigration(empty.depot.id, HANDS_OFF, testDb.client);
   if (!fresh.ok) throw new Error(fresh.reason);
   handsOff = fresh.preview;
+  const noCashFresh = await previewParqetMigration(empty.depot.id, NO_CASH, testDb.client);
+  const cashlessFresh = await previewParqetMigration(empty.depot.id, CASHLESS, testDb.client);
+  if (!noCashFresh.ok || !cashlessFresh.ok) throw new Error("preview failed");
+  noCashPreview = noCashFresh.preview;
+  cashlessPreview = cashlessFresh.preview;
   const result = await previewParqetMigration(depot.depot.id, FIXTURE, testDb.client);
   if (!result.ok) throw new Error(result.reason);
   preview = result.preview;
@@ -93,6 +102,18 @@ describe("ParqetPreviewView", () => {
     expect(text).toContain("Investiertes Kapital 1.568,50\u00a0€");
     expect(text).toContain("Verrechnungskonto 9.142,67\u00a0€");
     expect(text).not.toContain("Übernehmen");
+    expect(text).not.toContain("Export ohne Kontobewegungen");
+  });
+
+  it("announces the funding DEPOSITs of a file without Cash rows", () => {
+    const plural = renderText(<ParqetPreviewView preview={cashlessPreview} />);
+    expect(plural).toContain("Export ohne Kontobewegungen: 3 Einzahlungen werden ergänzt");
+    expect(plural).toContain("Verrechnungskonto 0,00\u00a0€");
+    const singular = renderText(<ParqetPreviewView preview={noCashPreview} />);
+    expect(singular).toContain("Export ohne Kontobewegungen: 1 Einzahlung wird ergänzt");
+    expect(singular).toContain("Verrechnungskonto 300,00\u00a0€");
+    const none = renderText(<ParqetPreviewView preview={{ ...noCashPreview, fundingCount: 0 }} />);
+    expect(none).toContain("Export ohne Kontobewegungen: 0 Einzahlungen werden ergänzt");
   });
 
   it("preselects each new Security's estimated type, or its override", () => {
@@ -221,7 +242,7 @@ describe("ParqetSummaryView", () => {
     const text = renderText(<ParqetSummaryView summary={noCashSummary} />);
     expect(text).toContain("Verrechnungskonto nicht abgeglichen: Die Datei enthält keine Barbuchungen.");
     expect(text).toContain("Eröffnungsbuchung");
-    expect(text).toContain("Saldo im Depot am 02.05.2024: -1.200,00\u00a0€.");
+    expect(text).toContain("Saldo im Depot am 02.05.2024: 300,00\u00a0€.");
     expect(text).toContain("Keine Abweichung über 0,01 €.");
     expect(text).not.toMatch(/€ Abweichung/);
     expect(text).not.toContain("Nicht übernommen");
@@ -229,11 +250,12 @@ describe("ParqetSummaryView", () => {
 });
 
 describe("OpeningBalanceForm", () => {
-  it("prefills the earliest proposal date and limits it to the export date", () => {
-    const html = renderHtml(<OpeningBalanceForm depotId="d" offer={{ date: "2024-02-01", asOf: "2024-05-02", ledgerBalance: "-1200" }} />);
-    expect(html).toContain('value="2024-02-01"');
+  it("prefills the offered date (the export date) and limits it to the export date", () => {
+    expect(noCashSummary.openingBalance).toEqual({ date: "2024-05-02", asOf: "2024-05-02", ledgerBalance: "300" });
+    const html = renderHtml(<OpeningBalanceForm depotId="d" offer={noCashSummary.openingBalance!} />);
+    expect(html).toContain('value="2024-05-02"');
     expect(html).toContain('max="2024-05-02"');
-    expect(renderText(<OpeningBalanceForm depotId="d" offer={{ date: "2024-02-01", asOf: "2024-05-02", ledgerBalance: "-1200" }} />)).toContain(
+    expect(renderText(<OpeningBalanceForm depotId="d" offer={noCashSummary.openingBalance!} />)).toContain(
       "Saldo laut Broker am 02.05.2024",
     );
   });

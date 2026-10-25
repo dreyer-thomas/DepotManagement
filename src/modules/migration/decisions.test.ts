@@ -67,6 +67,10 @@ const PREVIEW: Pick<ParqetPreview, "securities" | "flagged" | "duplicates"> = {
 };
 
 describe("decisions", () => {
+  it("keys a funding DEPOSIT with a trailing f", () => {
+    expect(itemKey({ records: [4, 5], funding: true })).toBe("4-5f");
+  });
+
   it("keys items by their records; a delivery's DEPOSIT gets a trailing d", () => {
     expect(itemKey({ records: [4, 5] })).toBe("4-5");
     expect(itemKey({ records: [7] })).toBe("7");

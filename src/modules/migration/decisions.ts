@@ -74,10 +74,10 @@ export const EMPTY_DECISIONS: MigrationDecisions = { classifications: {}, flags:
 
 /**
  * The key of a proposal or flag: its CSV record numbers joined by "-"; a delivery's DEPOSIT (same record
- * as its BUY) gets a trailing "d".
+ * as its BUY) gets a trailing "d", a funding DEPOSIT (same records as the proposal it funds) a trailing "f".
  */
-export function itemKey(item: { records: readonly number[]; delivery?: "buy" | "deposit" }): string {
-  return item.records.join("-") + (item.delivery === "deposit" ? "d" : "");
+export function itemKey(item: { records: readonly number[]; delivery?: "buy" | "deposit"; funding?: true }): string {
+  return item.records.join("-") + (item.delivery === "deposit" ? "d" : "") + (item.funding ? "f" : "");
 }
 
 /** True for a Security that is not in the ledger yet and is identified by an ISIN: its estimated type can be overridden. */

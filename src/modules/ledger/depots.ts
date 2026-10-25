@@ -27,6 +27,8 @@ export type DepotSummary = {
   archived: boolean;
   /** True when the Depot may be archived (no open Positions, cash rounds to 0,00 €); computed on read, never stored. */
   archivable: boolean;
+  /** Number of the Depot's Transactions (all dates); computed on read, never stored. */
+  transactionCount: number;
 };
 
 export type DepotFailureReason = "name-empty" | "name-too-long" | "name-taken" | "broker-invalid" | "not-found" | "depot-archived";
@@ -38,6 +40,8 @@ export type ArchiveDepotFailureReason = "not-found" | "depot-not-flat";
 export type ArchiveDepotResult = { ok: true; depot: DepotSummary } | { ok: false; reason: ArchiveDepotFailureReason };
 
 export type UnarchiveDepotResult = { ok: true; depot: DepotSummary } | { ok: false; reason: "not-found" };
+
+export type DeleteDepotResult = { ok: true; deleted: { transactions: number } } | { ok: false; reason: "not-found" };
 
 export const depotNameSchema = z
   .string({ error: "name-empty" })
@@ -102,6 +106,7 @@ function toSummary(depot: DepotRow, rows: readonly ArchiveRow[], actions: Corpor
     cashBalance: cashBalance(rows, asOf),
     archived: depot.archived,
     archivable: canArchive(rows, asOf, actions),
+    transactionCount: rows.length,
   };
 }
 
@@ -178,6 +183,22 @@ export async function unarchiveDepot(id: string, db: LedgerDb = prisma): Promise
       ? await tx.depot.update({ where: { id: current.id }, data: { archived: false } })
       : current;
     return { ok: true, depot: toSummary(depot, await depotRows(tx, current.id), await loadCorporateActions(tx)) };
+  });
+}
+
+/**
+ * Deletes a Depot (active or archived) and everything scoped to it, in one DB transaction: all its
+ * Transactions, then the Depot. Securities, their CorporateActions and Prices, and every other Depot's
+ * rows stay untouched. Irreversible. Later stories that add Depot-scoped tables (import staging, caches)
+ * must delete their rows here too.
+ */
+export async function deleteDepot(id: string, db: LedgerDb = prisma): Promise<DeleteDepotResult> {
+  return inTransaction(db, async (tx): Promise<DeleteDepotResult> => {
+    const current = await tx.depot.findUnique({ where: { id }, select: { id: true } });
+    if (!current) return { ok: false, reason: "not-found" };
+    const { count } = await tx.transaction.deleteMany({ where: { depotId: current.id } });
+    await tx.depot.delete({ where: { id: current.id } });
+    return { ok: true, deleted: { transactions: count } };
   });
 }
 

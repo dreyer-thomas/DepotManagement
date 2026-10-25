@@ -129,6 +129,11 @@ export function openDecisionsLabel(count: number): string {
   return `Offene Entscheidungen: ${count}`;
 }
 
+/** Preview note for a file without Cash rows: "Export ohne Kontobewegungen: 3 Einzahlungen werden ergänzt". */
+export function fundingNote(count: number): string {
+  return `Export ohne Kontobewegungen: ${count === 1 ? "1 Einzahlung wird" : `${count} Einzahlungen werden`} ergänzt`;
+}
+
 /** The raw text of a flagged CSV record, e.g. `TransferIn · Security · IE00B4L5Y983 · Welt ETF · Stück 3 · …`. */
 export function rawRowLabel(row: RawRow): string {
   const parts = [row.datetime, row.type, row.assettype, row.identifier, row.holdingname];

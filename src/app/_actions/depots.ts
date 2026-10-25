@@ -7,7 +7,10 @@ import {
   archiveDepot,
   type ArchiveDepotResult,
   createDepot,
+  deleteDepot,
+  type DeleteDepotResult,
   type DepotResult,
+  getDepot,
   renameDepot,
   unarchiveDepot,
   type UnarchiveDepotResult,
@@ -26,6 +29,14 @@ const renameInput = z.object({ id: formText, name: formText });
 export type ArchiveActionState = ArchiveDepotResult | UnarchiveDepotResult | { ok: false; reason: "unauthorized" } | null;
 
 const idInput = z.object({ id: formText });
+
+/** Result of the delete server action; `null` before the first submit. */
+export type DeleteDepotActionState =
+  | DeleteDepotResult
+  | { ok: false; reason: "unauthorized" | "name-mismatch" }
+  | null;
+
+const deleteInput = z.object({ id: formText, confirmName: formText });
 
 const UNAUTHORIZED = { ok: false, reason: "unauthorized" } as const;
 
@@ -60,6 +71,22 @@ export async function unarchiveDepotAction(_previous: ArchiveActionState, formDa
   const { id } = idInput.parse({ id: formData.get("id") });
   if (!id) return { ok: false, reason: "not-found" };
   const result = await unarchiveDepot(id);
+  if (result.ok) revalidatePath("/", "layout");
+  return result;
+}
+
+/**
+ * Deletes a Depot with all its Transactions (irreversible). `confirmName` (NFC, trimmed) must equal the
+ * Depot's name exactly, else nothing is deleted.
+ */
+export async function deleteDepotAction(_previous: DeleteDepotActionState, formData: FormData): Promise<DeleteDepotActionState> {
+  if (!(await getSession())) return UNAUTHORIZED;
+  const { id, confirmName } = deleteInput.parse({ id: formData.get("id"), confirmName: formData.get("confirmName") });
+  if (!id) return { ok: false, reason: "not-found" };
+  const depot = await getDepot(id);
+  if (!depot) return { ok: false, reason: "not-found" };
+  if (confirmName.normalize("NFC").trim() !== depot.name) return { ok: false, reason: "name-mismatch" };
+  const result = await deleteDepot(id);
   if (result.ok) revalidatePath("/", "layout");
   return result;
 }

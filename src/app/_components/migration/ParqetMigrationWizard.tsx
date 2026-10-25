@@ -32,6 +32,7 @@ import {
   CLASSIFICATION_OPTIONS,
   confirmFailureMessage,
   countRows,
+  fundingNote,
   openDecisionsLabel,
   previewFailureMessage,
   securityTypeLabel,
@@ -241,6 +242,12 @@ export function ParqetPreviewView({ preview, classification }: { preview: Parqet
           </Box>
         )}
       </Section>
+
+      {preview.hasCashRows ? null : (
+        <Alert severity="info" sx={{ mt: 3 }}>
+          {fundingNote(preview.fundingCount)}
+        </Alert>
+      )}
 
       <Section id="parqet-result" title={preview.exportDate ? `Ergebnis laut Datei am ${formatDate(preview.exportDate)}` : "Ergebnis laut Datei"}>
         {preview.figures ? (

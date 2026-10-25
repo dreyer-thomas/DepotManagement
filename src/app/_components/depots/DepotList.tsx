@@ -2,37 +2,38 @@ import ExpandMore from "@mui/icons-material/ExpandMore";
 import Accordion from "@mui/material/Accordion";
 import AccordionDetails from "@mui/material/AccordionDetails";
 import AccordionSummary from "@mui/material/AccordionSummary";
-import Box from "@mui/material/Box";
 import Card from "@mui/material/Card";
 import CardContent from "@mui/material/CardContent";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import { formatMoney } from "@/core/format";
 import type { DepotSummary } from "@/modules/ledger";
-import { ArchiveDepotButton, RenameDepotButton, UnarchiveDepotButton } from "./DepotDialogs";
+import { ArchiveDepotButton, DeleteDepotButton, RenameDepotButton, UnarchiveDepotButton } from "./DepotDialogs";
 import { DepotLink } from "./DepotLink";
 import { brokerLabel } from "./labels";
 
-/** Settings mode actions: rename + archive for an active Depot, "Reaktivieren" for an archived one. */
+/** Settings mode actions: rename + archive + delete for an active Depot, "Reaktivieren" + delete for an archived one. */
 function SettingsActions({ depot, reasonId }: { depot: DepotSummary; reasonId: string }) {
   if (depot.archived) {
     return (
-      <Box sx={{ ml: "auto", flexShrink: 0 }}>
+      <Stack direction="row" sx={{ ml: "auto", flexShrink: 0, alignItems: "flex-start", gap: 0.5 }}>
         <UnarchiveDepotButton depot={depot} />
-      </Box>
+        <DeleteDepotButton depot={depot} />
+      </Stack>
     );
   }
   return (
     <Stack direction="row" sx={{ flexShrink: 0 }}>
       <RenameDepotButton depot={depot} />
       <ArchiveDepotButton depot={depot} describedBy={reasonId} />
+      <DeleteDepotButton depot={depot} />
     </Stack>
   );
 }
 
 /**
  * Depot cards: name (link to the detail page), Broker and Cash Account balance. In Settings mode
- * each card also gets its write actions (rename/archive, or reactivate when archived).
+ * each card also gets its write actions (rename/archive/delete, or reactivate/delete when archived).
  */
 export function DepotList({ depots, settings = false }: { depots: DepotSummary[]; settings?: boolean }) {
   return (

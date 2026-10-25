@@ -69,6 +69,11 @@ function cashTotal(proposals: Parameters<typeof cashEffect>[0][]): string {
   return canonicalDecimal(proposals.reduce((sum, proposal) => sum.plus(cashEffect(proposal)), new ExactDecimal(0)));
 }
 
+/** Proposals without the funding DEPOSITs a cash-less file gets (for tests about other rules). */
+function unfunded<P extends { funding?: true }>(proposals: readonly P[]): P[] {
+  return proposals.filter((proposal) => !proposal.funding);
+}
+
 function ok(result: ParqetReadResult) {
   if (!result.ok) throw new Error(`expected ok, got ${JSON.stringify(result)}`);
   return result;
@@ -432,11 +437,11 @@ describe("readParqetCsv — mapping rules", () => {
 
   it("offsets a delivery whose tax refund outweighs amount + fee with a WITHDRAWAL", () => {
     const result = ok(readParqetCsv(csv({ type: "TransferIn", identifier: AAPL, shares: "3", price: "0", amount: "0", fee: "0", tax: "-2" })));
-    expect(result.proposals).toEqual([
+    expect(unfunded(result.proposals)).toEqual([
       expect.objectContaining({ type: "WITHDRAWAL", amount: "2", securityKey: null, records: [2], delivery: "deposit" }),
       expect.objectContaining({ type: "BUY", amount: "0", tax: "-2", delivery: "buy" }),
     ]);
-    expect(cashTotal(result.proposals)).toBe("0");
+    expect(cashTotal(unfunded(result.proposals))).toBe("0");
   });
 
   it("books a delivery of amount 0 without a DEPOSIT", () => {
@@ -474,7 +479,7 @@ describe("readParqetCsv — mapping rules", () => {
     expect(result.splits).toEqual([
       { date: "2024-06-01", key: AAPL, oldQuantity: "10", newQuantity: "40", ratioOld: "1", ratioNew: "4", records: [3, 4] },
     ]);
-    expect(result.proposals.map((p) => p.type)).toEqual(["BUY"]);
+    expect(unfunded(result.proposals).map((p) => p.type)).toEqual(["BUY"]);
     expect(result.exportDate).toBe("2024-06-01");
   });
 
@@ -542,7 +547,7 @@ describe("readParqetCsv — mapping rules", () => {
   it("accepts eur in any case", () => {
     const result = ok(readParqetCsv(csv({ type: "Buy", identifier: AAPL, shares: "1", price: "1", amount: "1", currency: "eur" })));
     expect(withoutRows(result.flagged)).toEqual([]);
-    expect(result.proposals).toHaveLength(1);
+    expect(unfunded(result.proposals)).toHaveLength(1);
   });
 
   it.each<[string, Row, string | undefined]>([
@@ -660,7 +665,7 @@ describe("readParqetCsv — mapping rules", () => {
     const result = ok(
       readParqetCsv(csv({ type: "Buy", assettype: "Crypto", identifier: "btc", shares: "0,00012345", price: "40000", amount: "4,938" })),
     );
-    expect(result.proposals[0]).toMatchObject({ type: "BUY", securityKey: "BTC", quantity: "0.00012345" });
+    expect(unfunded(result.proposals)[0]).toMatchObject({ type: "BUY", securityKey: "BTC", quantity: "0.00012345" });
     expect(result.securities).toEqual([{ key: "BTC", isin: null, cryptoSymbol: "BTC", name: "BTC", proposedAssetType: "CRYPTO" }]);
   });
 
@@ -674,7 +679,7 @@ describe("readParqetCsv — mapping rules", () => {
         ),
       ),
     );
-    expect(result.proposals.map((p) => p.type)).toEqual(["BUY", "SELL"]);
+    expect(unfunded(result.proposals).map((p) => p.type)).toEqual(["BUY", "SELL"]);
     expect(result.securities[0].name).toBe("x".repeat(100));
   });
 
@@ -682,6 +687,55 @@ describe("readParqetCsv — mapping rules", () => {
     const result = ok(readParqetCsv(csv({ type: "Buy", identifier: AAPL, shares: "1", price: "1", amount: "1", currency: "USD" })));
     expect(result.proposals).toEqual([]);
     expect(result.exportDate).toBe("2024-05-06");
+  });
+});
+
+describe("readParqetCsv — funding for files without Cash rows", () => {
+  it("inserts a same-day funding DEPOSIT directly before each proposal that would push cash negative", () => {
+    const result = ok(
+      readParqetCsv(
+        csv(
+          { datetime: "2024-06-01T09:00:00Z", type: "Buy", identifier: AAPL, shares: "6", price: "100", amount: "600" },
+          { datetime: "2024-04-10T09:00:00Z", type: "Sell", identifier: WELT, shares: "2", price: "110", amount: "220", fee: "2" },
+          { datetime: "2024-03-01T09:00:00Z", type: "Buy", identifier: WELT, shares: "10", price: "100", amount: "1000", fee: "5" },
+        ),
+      ),
+    );
+    expect(result.hasCashRows).toBe(false);
+    expect(result.proposals.map((p) => [p.sequence, p.type, p.date, p.amount, p.records, p.funding ?? false])).toEqual([
+      [1, "DEPOSIT", "2024-03-01", "1005", [4], true],
+      [2, "BUY", "2024-03-01", "1000", [4], false],
+      [3, "SELL", "2024-04-10", "220", [3], false],
+      [4, "DEPOSIT", "2024-06-01", "382", [2], true],
+      [5, "BUY", "2024-06-01", "600", [2], false],
+    ]);
+    expect(result.proposals[0]).toMatchObject({ securityKey: null, quantity: null, price: null, realizedGain: null, fee: "0", tax: "0" });
+    expect(result.proposals[0].delivery).toBeUndefined();
+    expect(cashTotal(result.proposals)).toBe("0");
+  });
+
+  it("does not fund a delivery pair (its DEPOSIT covers the BUY)", () => {
+    const result = ok(readParqetCsv(csv({ type: "TransferIn", identifier: AAPL, shares: "2", price: "5", amount: "10" })));
+    expect(result.proposals.map((p) => [p.type, p.delivery, p.funding])).toEqual([
+      ["DEPOSIT", "deposit", undefined],
+      ["BUY", "buy", undefined],
+    ]);
+  });
+
+  it("adds nothing when the file has Cash rows, even if the balance goes negative", () => {
+    const result = ok(
+      readParqetCsv(
+        csv(
+          { type: "Buy", identifier: AAPL, shares: "1", price: "10", amount: "10" },
+          cash("TransferIn", "1", "2024-05-07T09:00:00.000Z"),
+        ),
+      ),
+    );
+    expect(result.hasCashRows).toBe(true);
+    expect(result.proposals.map((p) => [p.sequence, p.type, p.funding])).toEqual([
+      [1, "BUY", undefined],
+      [2, "DEPOSIT", undefined],
+    ]);
   });
 });
 
