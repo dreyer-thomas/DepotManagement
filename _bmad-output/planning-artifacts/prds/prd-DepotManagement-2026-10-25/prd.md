@@ -161,6 +161,7 @@ Tommy can bring his existing Transaction history for all Depots into DepotManage
 - After migration, each Cash Account balance matches Parqet as of the export date.
 - An export without cash movements (autosync portfolios) gets a deposit for each funding shortfall at the time of the buy, so the Cash Account never goes negative and returns treat that money as external inflow.
 - A Depot can be deleted with all its Transactions, so a migration can be redone.
+- Every trade in the export is booked with Parqet's quantity, price, amount and fee; where Parqet's cash rows differ from the trade figures (missing fee, withheld tax, one net cash row for a rebalancing), the difference is booked as tax so the Cash Account follows Parqet. A sell exceeding the holding by at most 0.001 units (rounding) is clamped and the shortfall taken from the next buy.
 
 **Notes:** Parqet offers a CSV export of all activities per Parqet portfolio (Activities overview → "Export as CSV"), only on paid tiers (Plus/Investor) (https://parqet.com/en/blog/export). **The export must be taken before the Parqet subscription is cancelled.** A real export has been analyzed; format and quirks are in `addendum.md` §A1. `[ASSUMPTION: the comdirect/cominvest and ROBIN exports share the observed format — verify before cancelling Parqet]` Depends on FR-3 and FR-17; sequence those first.
 

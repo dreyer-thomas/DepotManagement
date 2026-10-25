@@ -146,3 +146,11 @@ NEW: ... by asset type (ETF, Fonds, Aktie, Zertifikat, Krypto, Guthaben, Unklass
 **Change.** New Story 2.6 "Funding for Exports without Cash Rows and Depot Deletion": minimal same-day funding deposits for cash-less exports (cash never negative, deposits are external inflows), and "Depot löschen" with typed confirmation through the ledger. Amended: AD-6 (spine), PRD FR-15 consequences, SPEC CAP-15, EXPERIENCE.md Settings and Flow 4 note, epics FR15 inventory and coverage map. Sprint status gains `2-6-...: backlog`.
 
 **Handoff.** bmad-loop builds 2.6; then Tommy deletes the cominvest Depot, recreates it, re-runs the migration and aligns the final balance with the broker value.
+
+## Addendum B — Robust Cash Pairing and Rounding Tolerance (approved 2026-10-25)
+
+**Trigger.** Migrating the DB ROBIN export stopped with "Zeile 225 (Verkauf vom 05.02.2025): Verkauf übersteigt Bestand (8,5052 Stück)". A local read-only analysis of all three real exports (with the user's permission; nothing copied into the repository) found: 17 `cash-pair-mismatch` flags (ROBIN 5, finanzen.net zero 12) whose trades were skipped, causing three later oversells (IBM, Nestlé, IE00BGYWT403), plus one rounding oversell of 0.0008 units (Parqet rounds sell quantities; it later corrects itself with a 0.0016 buy and a 0.0008 sell). Mismatch patterns: cash row omits the fee; cash row lower than a sell's amount (withheld tax not in the row); dividend cash row differs from amount and tax; a ROBIN rebalancing instant with nine trades and a single net cash row.
+
+**Change.** New Story 2.7: group cash pairing per instant; trades always booked with Parqet's figures; group differences above €0.01 booked as one standalone TAX Transaction; sells exceeding the holding by ≤ 0.001 units clamped with the shortfall carried to the next buy. Amended: AD-6, PRD FR-15 consequences, SPEC CAP-15, EXPERIENCE.md Flow 4 notes, epics FR15 inventory and coverage map. Sprint status gains `2-7-...: backlog`.
+
+**Handoff.** bmad-loop builds 2.7; Claude re-runs the local scan against the real exports (expect zero flags and zero oversells); Tommy then migrates ROBIN and finanzen.net zero and confirms Story 2.4.

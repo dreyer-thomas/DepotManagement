@@ -37,7 +37,7 @@ FR11: Tommy can see a chart of value and invested capital over a selectable Peri
 FR12: Tommy can see Gain/Loss for a selectable Period split into realized and unrealized with dividends and fees; TTWROR and XIRR side by side for Portfolio and each Depot; realized Gain/Loss uses FIFO and matches Parqet's `realizedgains` per sale after migration; shown gross with taxes paid in the Period as a separate figure.
 FR13: Tommy can see the Portfolio or a Depot broken down by Position, by asset type (stock, ETF, fund, certificate, crypto, cash) and by Depot; no ETF look-through.
 FR14: Tommy can see news headlines of the last 14 days for held Securities, overall and per Security, each linking to the original article.
-FR15: Tommy can import his full Transaction history once from Parqet CSV exports, one file per Depot with target Depot selected; Positions, invested capital and Cash Account balance match Parqet at export date; same-timestamp Security transfers paired by ISIN → split, single out/in of different ISINs → ISIN change, unpaired TransferIn → delivery (BUY + equal DEPOSIT), only unpaired TransferOut flagged; no per-row decisions, asset types estimated from names; exports without cash rows get minimal funding deposits so cash never goes negative; Cash movements become Deposits, Withdrawals and cash sides; later imported documents for migrated Transactions are detected as duplicates. Depends on FR3 and FR17.
+FR15: Tommy can import his full Transaction history once from Parqet CSV exports, one file per Depot with target Depot selected; Positions, invested capital and Cash Account balance match Parqet at export date; same-timestamp Security transfers paired by ISIN → split, single out/in of different ISINs → ISIN change, unpaired TransferIn → delivery (BUY + equal DEPOSIT), only unpaired TransferOut flagged; no per-row decisions, asset types estimated from names; exports without cash rows get minimal funding deposits so cash never goes negative; cash rows are paired per instant and unmatched differences booked as TAX so no trade is skipped; sells exceeding the holding by ≤ 0.001 units are clamped with the shortfall carried to the next buy; Cash movements become Deposits, Withdrawals and cash sides; later imported documents for migrated Transactions are detected as duplicates. Depends on FR3 and FR17.
 FR16: Tommy can export all Depots and Transactions to an open file format and restore from it; export → restore into an empty instance reproduces identical Depots, Cash Accounts, Transactions, manual Prices and evaluations; restore replaces, never merges.
 FR17: Tommy can see balance and booking history of each Depot's Cash Account; buy, sell, dividend, fee and tax book their cash side automatically; Deposits and Withdrawals are entered manually and change only the Cash Account.
 FR18: Portfolio and Depot overviews and charts include Cash Account balances in total value, shown separately from Positions; Deposits and Withdrawals are external cash flows in both return metrics.
@@ -123,7 +123,7 @@ FR11: Epic 4 - Value development chart
 FR12: Epic 4 - Gain/Loss, TTWROR, XIRR
 FR13: Epic 4 - Composition
 FR14: Epic 3 - News on holdings
-FR15: Epic 2 - One-time Parqet migration (Stories 2.3, 2.4; hands-off rework in 2.5; cash-less exports and Depot deletion in 2.6)
+FR15: Epic 2 - One-time Parqet migration (Stories 2.3, 2.4; hands-off rework in 2.5; cash-less exports and Depot deletion in 2.6; robust cash pairing and rounding tolerance in 2.7)
 FR16: Epic 6 - Export and restore
 FR17: Epic 1 - Cash Account balance and history
 FR18: Epic 4 - Cash in overviews and return metrics
@@ -187,6 +187,28 @@ So that my cominvest history imports without a fake −26.000 € balance and I 
 **Then** the Depot, all its Transactions, its import staging and any caches are deleted through the `ledger` service in one DB transaction (AD-3); Securities and Prices shared with other Depots stay
 **And** the confirm dialog states how many Transactions will be deleted and that this cannot be undone
 **And** after deletion the same Parqet export can be migrated again into a newly created Depot
+
+### Story 2.7: Robust Cash Pairing and Rounding Tolerance in the Parqet Migration
+
+As Tommy,
+I want every trade from my Parqet exports to be booked even when Parqet's cash rows do not match the trade figures,
+So that no buy goes missing and no later sell fails with "Verkauf übersteigt Bestand".
+
+**Acceptance Criteria:**
+
+**Given** trade rows (BUY, SELL, DIVIDEND) and `Cash` rows of a Parqet export
+**When** the reader pairs them
+**Then** all trades and cash rows sharing one instant form a group; within a group, trades are paired 1:1 with cash rows first (as before), and any remaining trades and cash rows of the group are reconciled together as one group (e.g. a robo-advisor rebalancing with nine trades and a single net cash row)
+**And** `cash-pair-mismatch` is no longer a flag: every trade is booked with Parqet's quantity, price, amount and fee unchanged (Positions and Cost Basis match Parqet)
+**And** when a group's cash rows differ from the summed derived cash effects (AD-14) by more than €0.01, one standalone TAX Transaction (amount 0, signed tax = derived effect − cash, Security of the group's largest trade when the group has one Security, otherwise none) is added on that date, sequenced after the group's trades, so the Cash Account follows Parqet's cash rows; differences up to €0.01 keep the existing amount alignment (AD-6)
+**And** the preview shows "N Kontodifferenzen werden als Steuer gebucht" with the total
+**Given** a migrated SELL whose quantity exceeds the quantity held at that point by at most 0.001 units (Parqet rounding of fractional shares)
+**Then** the SELL is booked with the held quantity (amount, fee and tax unchanged), the shortfall is carried and subtracted from the quantity of the next BUY of the same Security in that Depot (amount unchanged), and the preview shows "N Rundungsreste ausgeglichen"
+**And** a SELL exceeding the holding by more than 0.001 units still stops booking with the existing message
+**Given** synthetic fixtures covering a buy whose cash row omits the fee, a sell whose cash row is lower than its amount (withheld tax), a dividend with a mismatching cash row, a rebalancing instant with several buys and sells and one net cash row, and a fractional sell exceeding the holding by 0.0008 followed later by a correcting buy
+**When** they are previewed and booked into an empty Depot
+**Then** there are no flags, booking succeeds, quantities end exactly as in the fixture, Cost Basis equals Parqet's, and the Cash Account equals the sum of the fixture's cash rows
+**And** the pure grouping, difference and shortfall functions live in `src/modules/migration` or `src/core` and are unit-tested
 
 ## Epic 3: Market Data — Prices, Logos, News
 Tommy gets current and historical Prices automatically, sees stale Prices flagged, can enter manual Prices and fix provider mappings, sees logos at every Security, and reads the last 14 days of news on his holdings.
