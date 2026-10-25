@@ -1,4 +1,3 @@
-import Button from "@mui/material/Button";
 import Card from "@mui/material/Card";
 import CardContent from "@mui/material/CardContent";
 import Stack from "@mui/material/Stack";
@@ -7,6 +6,7 @@ import type { Metadata } from "next";
 import { CreateDepotButton } from "@/app/_components/depots/DepotDialogs";
 import { AppLink } from "@/app/_components/depots/DepotLink";
 import { DepotList } from "@/app/_components/depots/DepotList";
+import { ParqetMigrationLink } from "@/app/_components/migration/ParqetMigrationLink";
 import { PageTitle } from "@/app/_components/Placeholder";
 import { listDepots } from "@/modules/ledger";
 
@@ -23,10 +23,7 @@ export default async function OverviewPage() {
             <Typography sx={{ mb: 2 }}>Noch kein Depot.</Typography>
             <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
               <CreateDepotButton label="Depot anlegen" />
-              {/* Enabled by the Parqet migration (Epic 2). */}
-              <Button variant="outlined" disabled sx={{ minHeight: 44 }}>
-                Aus Parqet übernehmen
-              </Button>
+              <ParqetMigrationLink />
             </Stack>
           </CardContent>
         </Card>

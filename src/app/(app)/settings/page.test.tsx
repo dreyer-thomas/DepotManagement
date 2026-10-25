@@ -34,6 +34,15 @@ describe("Settings page", () => {
     expect(text).toContain("Noch kein Depot.");
   });
 
+  it("links to the Parqet migration in its own section", async () => {
+    await createDepot({ name: "Hauptdepot", broker: "COMDIRECT" });
+    const tree = await SettingsPage();
+    expect(renderText(tree)).toContain("Parqet-Migration");
+    const html = renderHtml(tree);
+    expect(html).toMatch(/<a[^>]*href="\/settings\/parqet"[^>]*>Aus Parqet übernehmen/);
+    expect(html).not.toMatch(/disabled[^>]*>Aus Parqet übernehmen/);
+  });
+
   it("lists Depots with a rename button each", async () => {
     await createDepot({ name: "Hauptdepot", broker: "COMDIRECT" });
     const tree = await SettingsPage();

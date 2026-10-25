@@ -23,14 +23,16 @@ afterAll(async () => {
 });
 
 describe("Overview page", () => {
-  it("shows the empty state with 'Depot anlegen' and a disabled 'Aus Parqet übernehmen'", async () => {
+  it("shows the empty state with 'Depot anlegen' and an enabled 'Aus Parqet übernehmen' link", async () => {
     const tree = await OverviewPage();
     expect(findElement(tree, DepotList)).toBeUndefined();
     expect(findElement(tree, CreateDepotButton)?.props.label).toBe("Depot anlegen");
     const text = renderText(tree);
     expect(text).toContain("Noch kein Depot.");
     expect(text).toContain("Depot anlegen");
-    expect(renderHtml(tree)).toMatch(/<button[^>]*disabled[^>]*>Aus Parqet übernehmen/);
+    const html = renderHtml(tree);
+    expect(html).toMatch(/<a[^>]*href="\/settings\/parqet"[^>]*>Aus Parqet übernehmen/);
+    expect(html).not.toMatch(/disabled[^>]*>Aus Parqet übernehmen/);
   });
 
   it("lists the Depots with Broker and a zero Cash Account balance", async () => {

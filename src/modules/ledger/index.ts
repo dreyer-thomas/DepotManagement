@@ -51,8 +51,10 @@ export type {
 } from "./depots";
 export {
   ASSET_TYPES,
+  cryptoSymbolSchema,
   ensureSecurity,
   ISIN_ASSET_TYPES,
+  isinSchema,
   listSecurities,
   SECURITY_NAME_MAX_LENGTH,
 } from "./securities";

@@ -35,3 +35,11 @@ source_spec: `spec-2-2-record-isin-changes.md`
 severity: low
 reason: No jsdom/happy-dom/testing-library in the repo (same tooling gap as DW-3/DW-4). PositionsTable.test.tsx only counts the "Aktionen für …" buttons; the closed MUI Menu items and the dialog (record/edit/delete, error-to-field mapping) are never rendered in tests. Settle by adding DOM test tooling.
 status: open
+
+### DW-6: ParqetMigrationWizard's failure Alert, pending label and preview mounting after submit have no interaction test; the browser chain file input → server action → rendered preview is checked only in
+origin: spec-deferred cfba07821055
+location: src/app/_components/migration/ParqetMigrationWizard.tsx
+source_spec: `spec-2-3-parqet-export-preview.md`
+severity: low
+reason: ParqetMigrationWizard.test.tsx renders only the initial null state; ParqetPreviewView and previewFailureMessage are tested on their own; the action is tested with hand-built FormData. vitest runs in the node environment and no DOM testing library is installed (same tooling gap as the corporate-action dialogs). Settle by adding DOM test tooling.
+status: open
