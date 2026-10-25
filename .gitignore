@@ -1,0 +1,20 @@
+# Personal financial data — never commit (public repo)
+*.csv
+*.pdf
+*.xlsx
+/data/
+*.db
+*.sqlite
+*.sqlite3
+backups/
+
+# Secrets and local config
+.env
+.env.*
+!.env.example
+.claude/settings.local.json
+
+# Tooling
+node_modules/
+.DS_Store
+*.log
