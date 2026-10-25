@@ -1,0 +1,87 @@
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created, ready for development
+#   - in-progress: Developer actively working on implementation
+#   - review: Implementation complete, ready for review
+#   - done: Story completed
+
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+
+# Action Item Status:
+#   - open: Committed during a retrospective, not yet addressed
+#   - in-progress: Actively being worked on
+#   - done: Completed
+
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when its first story starts (via build's sprint sync)
+# - Stories can be worked in parallel if team capacity allows
+# - Developer typically creates the next story after the previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+# - Retrospective appends its action items to action_items; the status view surfaces open ones
+generated: 10-25-2026 14:10
+last_updated: 10-25-2026 14:10
+project: DepotManagement
+project_key: NOKEY
+tracking_system: file-system
+story_location: _bmad-output/implementation-artifacts
+development_status:
+  epic-1: backlog
+  1-1-project-starter-and-app-shell: backlog
+  1-2-single-user-login: backlog
+  1-3-create-and-rename-depots: backlog
+  1-4-record-buys-and-sells: backlog
+  1-5-positions-with-fifo-cost-basis: backlog
+  1-6-cash-account-and-non-trade-transactions: backlog
+  1-7-edit-and-delete-transactions-with-duplicate-warning: backlog
+  1-8-archive-depots: backlog
+  epic-1-retrospective: optional
+
+  epic-2: backlog
+  2-1-record-stock-splits: backlog
+  2-2-record-isin-changes: backlog
+  2-3-parqet-export-preview: backlog
+  2-4-confirm-migration-and-reconcile-with-parqet: backlog
+  epic-2-retrospective: optional
+
+  epic-3: backlog
+  3-1-securities-page-and-provider-mapping: backlog
+  3-2-prices-for-stocks-and-etfs: backlog
+  3-3-scheduled-refresh-and-stale-flags: backlog
+  3-4-prices-for-certificates-and-crypto: backlog
+  3-5-manual-prices: backlog
+  3-6-security-logos: backlog
+  3-7-news-on-holdings: backlog
+  epic-3-retrospective: optional
+
+  epic-4: backlog
+  4-1-depot-value-summary-with-period-selector: backlog
+  4-2-gain-loss-and-return-metrics: backlog
+  4-3-value-development-chart: backlog
+  4-4-portfolio-overview: backlog
+  4-5-composition: backlog
+  4-6-position-detail: backlog
+  epic-4-retrospective: optional
+
+  epic-5: backlog
+  5-1-upload-documents-into-a-review-batch: backlog
+  5-2-deutsche-bank-robin-parser: backlog
+  5-3-review-and-book-imported-transactions: backlog
+  5-4-comdirect-cominvest-parser: backlog
+  epic-5-retrospective: optional
+
+  epic-6: backlog
+  6-1-export-all-data: backlog
+  6-2-restore-from-export: backlog
+  6-3-daily-database-backup: backlog
+  6-4-production-deployment-behind-nginx: backlog
+  epic-6-retrospective: optional
