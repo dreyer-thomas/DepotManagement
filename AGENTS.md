@@ -27,7 +27,13 @@ Self-hosted, single-user portfolio tracker replacing Parqet: Depots, Transaction
 - Use `better-sqlite3@12.11.1`, not 13.x — the Prisma adapter requires `^12.6`.
 - Apply migrations with `prisma migrate deploy` in the deploy/start script; the app never migrates itself.
 - Set `NEXT_TELEMETRY_DISABLED=1`.
-- TODO after Story 1.1: verify dev, test, lint and typecheck commands and their caveats here.
+- Verify with `npm run lint && npm run typecheck && npm test && npm run build`; run the app with `npm run dev` (port 3000).
+- `npm install`/`npm ci` runs `prisma generate` (postinstall) into git-ignored `src/db/generated/prisma`; after editing `prisma/schema.prisma`, rerun `npx prisma generate` before typecheck.
+- `prisma.config.ts` takes the DB URL from `src/db/database-url.ts`: empty `DATABASE_URL` means `~/.depotmanagement/depot.db`, so any Prisma CLI call or the DB test creates that directory. Point `DATABASE_URL` at a temp file for throwaway runs.
+- `test/architecture/core-imports.test.ts` fails `npm test` when `src/core` imports anything but `decimal.js` or files inside `src/core` (`vitest` is allowed in `*.test.ts`).
+- The theme test parses DESIGN.md's frontmatter; change a color in DESIGN.md and `src/theme/tokens.ts` together.
+- `next build` fetches Roboto via `next/font/google` at build time (network needed); the browser never calls Google.
+- npm 11 prints `allow-scripts` warnings for better-sqlite3, prisma and others on install; they are harmless (the native binary and client are still built).
 
 ## Conventions that differ from defaults
 

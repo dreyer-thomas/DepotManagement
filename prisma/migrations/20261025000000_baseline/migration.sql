@@ -1,0 +1,1 @@
+-- Baseline migration: intentionally empty. Models arrive with later stories.

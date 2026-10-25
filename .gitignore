@@ -22,3 +22,21 @@ node_modules/
 .bmad-loop/cache/
 .bmad-loop/policy.toml
 _bmad/render/
+
+# Build output and generated code
+.next/
+next-env.d.ts
+src/db/generated/
+coverage/
+*.tsbuildinfo
+
+# SQLite side files
+*.db-wal
+*.db-shm
+*.db-journal
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite-journal
+*.sqlite3-wal
+*.sqlite3-shm
+*.sqlite3-journal

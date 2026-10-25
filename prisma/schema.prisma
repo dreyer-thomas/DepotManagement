@@ -1,0 +1,11 @@
+// Prisma schema. Models are added by later stories; the ledger module owns its models.
+// Money, quantities and prices are TEXT decimal strings (never Decimal/Float).
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/db/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
