@@ -76,8 +76,8 @@ describe("previewParqetAction", () => {
     const result = await previewParqetAction(null, form({ depotId: id, file: csvFile(FIXTURE) }));
     if (!result?.ok) throw new Error(JSON.stringify(result));
     expect(result.preview.depot.name).toBe("Hauptdepot");
-    expect(result.preview.exportDate).toBe("2024-07-03");
-    expect(result.preview.figures?.cashBalance).toBe("9142.666322");
+    expect(result.preview.exportDate).toBe("2024-07-04");
+    expect(result.preview.figures?.cashBalance).toBe("9052.666322");
     expect(await prisma.security.count()).toBe(0);
     expect(await prisma.transaction.count()).toBe(0);
     expect(await prisma.corporateAction.count()).toBe(0);
@@ -141,9 +141,9 @@ describe("confirmParqetAction", () => {
     const id = await depotId();
     const result = await confirmParqetAction(form({ depotId: id, file: csvFile(FIXTURE), decisions: JSON.stringify(DECIDED) }));
     if (!result.ok) throw new Error(JSON.stringify(result));
-    expect(result.summary.booked).toEqual({ transactions: 10, splits: 0, isinChanges: 1, securities: 5 });
+    expect(result.summary.booked).toEqual({ transactions: 12, splits: 0, isinChanges: 1, securities: 5 });
     const rows = await listTransactions(id);
-    expect(rows).toHaveLength(10);
+    expect(rows).toHaveLength(12);
     expect(rows.find((row) => row.security?.isin === "US0378331005")?.security?.assetType).toBe("FUND");
     expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
   });

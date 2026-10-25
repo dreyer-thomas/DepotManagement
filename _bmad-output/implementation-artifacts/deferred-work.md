@@ -51,3 +51,18 @@ source_spec: `spec-2-4-confirm-migration-and-reconcile-with-parqet.md`
 severity: low
 reason: ParqetMigrationWizard.test.tsx renders ConfirmBar, ParqetDecisions, ParqetSummaryView and OpeningBalanceForm statically with fixed props; no handler runs. vitest runs in the node environment and no DOM testing library is installed (same tooling gap as DW-3..DW-6). Breaking confirm() (e.g. sending empty decisions or dropping carryDecisions) would pass npm test. Settle by adding DOM test tooling.
 status: open
+
+### DW-8: An unrelated Cash DEPOSIT/WITHDRAWAL sharing an instant with a mismatching leftover trade is absorbed into the group and booked as part of a difference TAX instead of a deposit.
+origin: spec-deferred 609911afaaf4
+location: src/modules/migration/parqet-reader.ts (phase 2 grouping)
+source_spec: `spec-2-7-robust-cash-pairing-and-rounding-tolerance-in-the-parqet-mig.md`
+severity: medium
+reason: parqet-reader.ts phase 2 adds every unused cash row of the instant to the group (as the AC's "remaining trades and cash rows of the group are reconciled together" prescribes). Date-only events carry synthetic times (00:00Z/06:00Z), so a mismatching dividend and a deposit on the same day can share an instant. Cash balance still matches; the inflow is classified as tax refund (affects TTWROR/XIRR and tax totals). Visible before booking via the "Kontodifferenzen … (Summe …)" note. Separating them needs an intent decision (heuristic); settle with the operator's real-data migration (story 2.4).
+status: open
+
+### DW-9: A trade with no cash row at its instant in a file that has Cash rows gets no difference TAX, so the Cash Account would not follow Parqet's cash rows there.
+origin: spec-deferred 5deaeedd1fe9
+location: src/modules/migration/parqet-reader.ts (phase 2, group.cash.length === 0)
+source_spec: `spec-2-7-robust-cash-pairing-and-rounding-tolerance-in-the-parqet-mig.md`
+reason: Spec requires >= 1 unused cash row for phase 2 (unchanged 2.3-2.6 behavior). Unknown whether real ROBIN / finanzen.net zero exports contain such trades; the correct-course analysis listed none. Settle by the operator's real-data migration: a cash mismatch in the 2.4 reconciliation would reveal it.
+status: open

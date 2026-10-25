@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   ACTION_FAILED_MESSAGE,
   bookingFailureMessage,
+  cashDifferenceNote,
   bookingItemLabel,
   CLASSIFICATION_OPTIONS,
   comparisonStatus,
@@ -16,6 +17,7 @@ import {
   previewFailureMessage,
   type PreviewFailureReason,
   recordsLabel,
+  roundingNote,
   securityTypeLabel,
   skippedFlagLabel,
 } from "./labels";
@@ -25,6 +27,16 @@ describe("migration labels", () => {
     expect(fundingNote(0)).toBe("Export ohne Kontobewegungen: 0 Einzahlungen werden ergänzt");
     expect(fundingNote(1)).toBe("Export ohne Kontobewegungen: 1 Einzahlung wird ergänzt");
     expect(fundingNote(3)).toBe("Export ohne Kontobewegungen: 3 Einzahlungen werden ergänzt");
+  });
+
+  it("announces cash differences booked as TAX with their total, in singular and plural", () => {
+    expect(cashDifferenceNote(1, "-5")).toBe("1 Kontodifferenz wird als Steuer gebucht (Summe -5,00\u00a0€)");
+    expect(cashDifferenceNote(4, "17")).toBe("4 Kontodifferenzen werden als Steuer gebucht (Summe 17,00\u00a0€)");
+  });
+
+  it("announces balanced rounding remainders in singular and plural", () => {
+    expect(roundingNote(1)).toBe("1 Rundungsrest ausgeglichen");
+    expect(roundingNote(2)).toBe("2 Rundungsreste ausgeglichen");
   });
 
   it.each<[PreviewFailureReason, string]>([
@@ -52,7 +64,6 @@ describe("migration labels", () => {
     [{ reason: "unsupported-row", detail: "Buy/Cash" }, "Nicht unterstützte Zeile (Buy/Cash)"],
     [{ reason: "unpaired-security-transfer" }, "Ausgehender Wertpapier-Übertrag ohne passenden Eingang"],
     [{ reason: "unsupported-split" }, "Split-Verhältnis nicht darstellbar"],
-    [{ reason: "cash-pair-mismatch" }, "Buchung und Barbuchung weichen um mehr als 0,01 € ab"],
   ] as const)("flag %j → %j", (flag, label) => {
     expect(flagReasonLabel(flag)).toBe(label);
   });

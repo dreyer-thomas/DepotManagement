@@ -30,12 +30,13 @@ const FIXTURE = readFileSync(resolve(__dirname, "../../../test/fixtures/parqet/s
 const NO_CASH = readFileSync(resolve(__dirname, "../../../test/fixtures/parqet/synthetic-export-no-cash.csv.txt"), "utf8");
 const CASHLESS = readFileSync(resolve(__dirname, "../../../test/fixtures/parqet/synthetic-export-cashless.csv.txt"), "utf8");
 const HANDS_OFF = readFileSync(resolve(__dirname, "../../../test/fixtures/parqet/synthetic-export-hands-off.csv.txt"), "utf8");
+const ROBUST = readFileSync(resolve(__dirname, "../../../test/fixtures/parqet/synthetic-export-robust-pairing.csv.txt"), "utf8");
 
 const OLD = "DE0007164600";
 const NEW = "DE000SYN0013";
 const APFEL = "US0378331005";
 const WELT = "IE00B4L5Y983";
-const FLAG_KEYS = ["2", "3", "4-5", "7", "8"];
+const FLAG_KEYS = ["2", "3", "7", "8"];
 
 /** Explicit decisions for the fixture: skip every flag (same as no decision), types as estimated. */
 const DECIDED: MigrationDecisions = {
@@ -119,25 +120,24 @@ describe("confirmParqetMigration", () => {
     const summary = ok(await confirmParqetMigration(depotId, FIXTURE, DECIDED, db()));
 
     expect(summary.depot.name).toBe("Hauptdepot");
-    expect(summary.exportDate).toBe("2024-07-03");
-    expect(summary.booked).toEqual({ transactions: 10, splits: 0, isinChanges: 1, securities: 5 });
-    expect(summary.skipped).toEqual({ duplicates: 0, flags: 5, splits: 0, isinChanges: 0 });
+    expect(summary.exportDate).toBe("2024-07-04");
+    expect(summary.booked).toEqual({ transactions: 12, splits: 0, isinChanges: 1, securities: 5 });
+    expect(summary.skipped).toEqual({ duplicates: 0, flags: 4, splits: 0, isinChanges: 0 });
     expect(summary.skippedFlags).toEqual([
       { key: "2", records: [2], reason: "unsupported-row", detail: "Buy/Cash" },
       { key: "3", records: [3], reason: "unparseable", detail: "datetime" },
-      { key: "4-5", records: [4, 5], reason: "cash-pair-mismatch" },
       { key: "7", records: [7], reason: "unparseable", detail: "shares" },
       { key: "8", records: [8], reason: "non-eur", detail: "USD" },
     ]);
     const comparison = summary.comparison!;
     expect(comparison.positions.map((p) => [p.key, p.quantity.ledger, p.costBasis.ledger, p.mismatch])).toEqual([
-      [APFEL, "5", "62.23", false],
+      [APFEL, "15", "162.23", false],
       ["BTC", "0.00012345", "4.938", false],
       [NEW, "6.00172839", "1201.335678", false],
       [WELT, "3", "300", false],
     ]);
-    expect(comparison.investedCapital).toEqual({ ledger: "1568.503678", file: "1568.503678", mismatch: false });
-    expect(comparison.cash).toEqual({ ledger: "9142.666322", file: "9142.666322", mismatch: false });
+    expect(comparison.investedCapital).toEqual({ ledger: "1668.503678", file: "1668.503678", mismatch: false });
+    expect(comparison.cash).toEqual({ ledger: "9052.666322", file: "9052.666322", mismatch: false });
     expect(comparison.sales).toEqual([
       {
         key: "10-11",
@@ -150,7 +150,12 @@ describe("confirmParqetMigration", () => {
     expect(summary.openingBalance).toBeNull();
 
     const rows = await listTransactions(depotId, db());
-    expect(rows).toHaveLength(10);
+    expect(rows).toHaveLength(12);
+    // Records 4-5: the BUY as in Parqet, then a TAX refund of the difference to the cash row (−100 vs. −90).
+    expect(rows.filter((row) => row.date === "2024-07-04").sort((a, b) => a.sequence - b.sequence).map((row) => [row.type, row.amount, row.fee, row.tax, row.quantity, row.security?.isin ?? null])).toEqual([
+      ["BUY", "99", "1", "0", "10", APFEL],
+      ["TAX", "0", "0", "-10", null, APFEL],
+    ]);
     expect(rows.find((row) => row.type === "BUY" && row.security?.isin === OLD)?.security?.assetType).toBe("STOCK");
     // The delivery: DEPOSIT then BUY on the same date, cash unchanged.
     expect(rows.filter((row) => row.date === "2024-07-03").sort((a, b) => a.sequence - b.sequence).map((row) => [row.type, row.sequence, row.amount, row.security?.isin ?? null])).toEqual([
@@ -170,13 +175,13 @@ describe("confirmParqetMigration", () => {
 
     const preview = await previewParqetMigration(depotId, FIXTURE, db());
     if (!preview.ok) throw new Error(preview.reason);
-    expect(preview.preview.duplicates.map((d) => d.status)).toEqual(Array(10).fill("duplicate"));
-    expect(preview.preview.duplicates.map((d) => d.key).slice(-2)).toEqual(["6d", "6"]);
+    expect(preview.preview.duplicates.map((d) => d.status)).toEqual(Array(12).fill("duplicate"));
+    expect(preview.preview.duplicates.map((d) => d.key).slice(-4)).toEqual(["6d", "6", "5", "4-5"]);
     expect(preview.preview.isinChanges[0].recorded).toBe(true);
 
     const summary = ok(await confirmParqetMigration(depotId, FIXTURE, await rerunDecisions(depotId), db()));
     expect(summary.booked).toEqual({ transactions: 0, splits: 0, isinChanges: 0, securities: 0 });
-    expect(summary.skipped).toEqual({ duplicates: 10, flags: 5, splits: 0, isinChanges: 1 });
+    expect(summary.skipped).toEqual({ duplicates: 12, flags: 4, splits: 0, isinChanges: 1 });
     // The skipped SELL is still reconciled through its single match.
     expect(summary.comparison?.sales.map((sale) => sale.gain.mismatch)).toEqual([false]);
     expect(summary.comparison?.positions.some((p) => p.mismatch)).toBe(false);
@@ -187,7 +192,7 @@ describe("confirmParqetMigration", () => {
     ok(await confirmParqetMigration(await depot(), FIXTURE, DECIDED, db()));
     const second = await depot("Zweitdepot");
     const summary = ok(await confirmParqetMigration(second, FIXTURE, await rerunDecisions(second), db()));
-    expect(summary.booked).toEqual({ transactions: 10, splits: 0, isinChanges: 0, securities: 0 });
+    expect(summary.booked).toEqual({ transactions: 12, splits: 0, isinChanges: 0, securities: 0 });
     expect(summary.skipped.isinChanges).toBe(1);
     expect(summary.comparison?.positions.some((p) => p.mismatch)).toBe(false);
     expect(summary.comparison?.cash?.mismatch).toBe(false);
@@ -209,7 +214,7 @@ describe("confirmParqetMigration", () => {
     const summary = ok(
       await confirmParqetMigration(depotId, FIXTURE, { ...EMPTY_DECISIONS, classifications: { [APFEL]: "FUND" } }, db()),
     );
-    expect(summary.skipped.flags).toBe(5);
+    expect(summary.skipped.flags).toBe(4);
     const types = new Map((await listTransactions(depotId, db())).flatMap((row) => (row.security ? [[row.security.isin, row.security.assetType]] : [])));
     expect(types.get(APFEL)).toBe("FUND");
     expect(types.get(WELT)).toBe("ETF");
@@ -220,8 +225,8 @@ describe("confirmParqetMigration", () => {
   it("books a corrected flag after that date's proposals", async () => {
     const depotId = await depot();
     const summary = ok(await confirmParqetMigration(depotId, FIXTURE, withFlag("8", {}), db()));
-    expect(summary.booked.transactions).toBe(11);
-    expect(summary.skipped.flags).toBe(4);
+    expect(summary.booked.transactions).toBe(13);
+    expect(summary.skipped.flags).toBe(3);
     const rows = await listTransactions(depotId, db());
     const onDate = rows.filter((row) => row.date === "2024-06-03").sort((a, b) => a.sequence - b.sequence);
     expect(onDate.map((row) => [row.type, row.sequence])).toEqual([
@@ -242,10 +247,10 @@ describe("confirmParqetMigration", () => {
     const decisions = await rerunDecisions(depotId);
     const summary = ok(await confirmParqetMigration(depotId, FIXTURE, { ...decisions, duplicates: { ...decisions.duplicates, 24: "book" } }, db()));
     expect(summary.booked.transactions).toBe(1);
-    expect(summary.skipped.duplicates).toBe(9);
+    expect(summary.skipped.duplicates).toBe(11);
     const deposits = (await listTransactions(depotId, db())).filter((row) => row.type === "DEPOSIT" && row.date === "2024-01-02");
     expect(deposits).toHaveLength(2);
-    expect(await db().transaction.count()).toBe(11);
+    expect(await db().transaction.count()).toBe(13);
   });
 
   it("books a TAX correction with only its tax and a DEPOSIT correction without Security", async () => {
@@ -255,7 +260,7 @@ describe("confirmParqetMigration", () => {
     const summary = ok(
       await confirmParqetMigration(depotId, FIXTURE, { ...decisions, flags: { ...decisions.flags, 8: tax.flags["8"] } }, db()),
     );
-    expect(summary.booked.transactions).toBe(12);
+    expect(summary.booked.transactions).toBe(14);
     const rows = (await listTransactions(depotId, db())).filter((row) => row.date === "2024-06-03");
     expect(rows.find((row) => row.type === "TAX")).toMatchObject({
       amount: "0",
@@ -344,15 +349,15 @@ describe("confirmParqetMigration", () => {
     expect(await confirmParqetMigration(depotId, "", DECIDED, db())).toEqual({ ok: false, reason: "empty-file" });
   });
 
-  it("'Alle wie in Parqet übernehmen' books bookable flags as Parqet has them and skips the rest", async () => {
+  it("'Alle wie in Parqet übernehmen' leaves the fixture's flags (none bookable as-is) skipped", async () => {
     const depotId = await depot();
     const preview = await previewParqetMigration(depotId, FIXTURE, db());
     if (!preview.ok) throw new Error(preview.reason);
     const summary = ok(await confirmParqetMigration(depotId, FIXTURE, parqetAsIsDecisions(preview.preview, EMPTY_DECISIONS), db()));
-    // Only the cash-pair mismatch (an EUR Buy of a file Security) is bookable as-is.
-    expect(summary.booked.transactions).toBe(11);
+    // The former cash-pair mismatch (records 4-5) is no flag any more: it is booked as BUY + TAX anyway.
+    expect(summary.booked.transactions).toBe(12);
     expect(summary.skippedFlags.map((flag) => flag.key)).toEqual(["2", "3", "7", "8"]);
-    const buy = (await listTransactions(depotId, db())).find((row) => row.date === "2024-07-04");
+    const buy = (await listTransactions(depotId, db())).find((row) => row.date === "2024-07-04" && row.type === "BUY");
     expect(buy).toMatchObject({ type: "BUY", quantity: "10", price: "9.9", amount: "99", fee: "1", security: { isin: APFEL } });
   });
 
@@ -475,6 +480,103 @@ describe("hands-off fixture (story 2-5)", () => {
       [S1, false],
       [F3, false],
     ]);
+  });
+});
+
+describe("robust cash pairing and rounding fixture (story 2-7)", () => {
+  const A = "DE000SYNCA09";
+  const B = "DE000SYNCB08";
+  const C = "DE000SYNCC07";
+  const D = "DE000SYNCD06";
+
+  it("previews without flags and books every trade with Parqet's figures, cash equal to the file's cash rows", async () => {
+    const depotId = await depot();
+    const preview = await previewParqetMigration(depotId, ROBUST, db());
+    if (!preview.ok) throw new Error(preview.reason);
+    expect(preview.preview.flagged).toEqual([]);
+    expect(preview.preview.cashDifferenceCount).toBe(4);
+    // −5 (fee omitted) + 22 (withheld tax) + 2 (dividend) + 2 (rebalancing).
+    expect(preview.preview.cashDifferenceTotal).toBe("21");
+    expect(preview.preview.roundingCount).toBe(1);
+    expect(openDecisions(preview.preview, EMPTY_DECISIONS)).toEqual([]);
+
+    const summary = ok(await confirmParqetMigration(depotId, ROBUST, EMPTY_DECISIONS, db()));
+    expect(summary.skippedFlags).toEqual([]);
+    const positions = await listPositions(depotId, "2024-07-02", db());
+    expect(Object.fromEntries(positions.map((p) => [p.security.isin, [p.quantity, p.costBasis]]))).toEqual({
+      [A]: ["3", "301.5"],
+      [B]: ["5", "250"],
+      [C]: ["2", "200"],
+    });
+    expect(canonicalDecimal(positions.reduce((sum, p) => sum.plus(p.costBasis), new ExactDecimal(0)))).toBe("751.5");
+
+    const rows = await listTransactions(depotId, db());
+    // Σ signed cash rows: 10000 − 1000 + 418 + 15 − 92 − 50 + 50.04 − 0.08 + 0.04.
+    expect(cashBalance(rows, "2024-07-02")).toBe("9341");
+    // Trades keep Parqet's quantity, price, amount and fee (only the rounding pair's quantities change).
+    const trades = rows.filter((row) => row.type !== "TAX" && row.type !== "DEPOSIT").reverse();
+    expect(trades.map((row) => [row.type, row.security?.isin, row.quantity, row.price, row.amount, row.fee, row.tax])).toEqual([
+      ["BUY", A, "10", "100", "1000", "5", "0"],
+      ["SELL", A, "4", "110", "440", "0", "0"],
+      ["DIVIDEND", A, null, null, "20", "0", "3"],
+      ["BUY", B, "5", "50", "250", "0", "0"],
+      ["BUY", C, "2", "100", "200", "0", "0"],
+      ["SELL", A, "3", "120", "360", "0", "0"],
+      ["BUY", D, "1", "50", "50", "0", "0"],
+      ["SELL", D, "1", "50", "50.04", "0", "0"],
+      ["BUY", D, "0.0008", "50", "0.08", "0", "0"],
+      ["SELL", D, "0.0008", "50", "0.04", "0", "0"],
+    ]);
+    expect(rows.filter((row) => row.type === "TAX").reverse().map((row) => [row.date, row.tax, row.security?.isin ?? null])).toEqual([
+      ["2024-01-10", "-5", A],
+      ["2024-02-10", "22", A],
+      ["2024-03-01", "2", A],
+      ["2024-04-01", "2", null],
+    ]);
+
+    const comparison = summary.comparison!;
+    expect(comparison.positions.some((p) => p.mismatch)).toBe(false);
+    expect(comparison.investedCapital).toEqual({ ledger: "751.5", file: "751.5", mismatch: false });
+    expect(comparison.cash).toEqual({ ledger: "9341", file: "9341", mismatch: false });
+    expect(comparison.sales.map((sale) => [sale.securityKey, sale.gain.ledger, sale.gain.mismatch])).toEqual([
+      [A, "38", false],
+      [A, "58.5", false],
+      [D, "0.04", false],
+      [D, "-0.04", false],
+    ]);
+  });
+
+  it("reports every proposal of a re-run as a duplicate (clamped quantities included) and books nothing", async () => {
+    const depotId = await depot();
+    const first = ok(await confirmParqetMigration(depotId, ROBUST, EMPTY_DECISIONS, db()));
+    const before = await counts();
+    const again = await previewParqetMigration(depotId, ROBUST, db());
+    if (!again.ok) throw new Error(again.reason);
+    expect(again.preview.duplicates).toHaveLength(first.booked.transactions);
+    expect(again.preview.duplicates.every((d) => d.status === "duplicate")).toBe(true);
+    const duplicated = again.preview.duplicates.map((d) => d.proposal);
+    expect(duplicated.filter((p) => p.originalQuantity !== undefined).map((p) => [p.type, p.quantity, p.originalQuantity])).toEqual([
+      ["SELL", "1", "1.0008"],
+      ["BUY", "0.0008", "0.0016"],
+    ]);
+    expect(duplicated.filter((p) => p.cashDifference)).toHaveLength(4);
+
+    const rerun = ok(await confirmParqetMigration(depotId, ROBUST, initialDecisions(again.preview), db()));
+    expect(rerun.booked.transactions).toBe(0);
+    expect(rerun.skipped.duplicates).toBe(first.booked.transactions);
+    expect(await counts()).toEqual(before);
+  });
+
+  it("still stops booking at a SELL exceeding the holding by more than 0.001", async () => {
+    const depotId = await depot();
+    const text = ROBUST.replace(";50,04;;;;TransferIn;", ";50,1;;;;TransferIn;").replace(";50;1,0008;50,04;", ";50;1,002;50,1;");
+    expect(await confirmParqetMigration(depotId, text, EMPTY_DECISIONS, db())).toEqual({
+      ok: false,
+      reason: "booking-failed",
+      item: { kind: "proposal", key: "6-7", records: [6, 7], date: "2024-06-03", type: "SELL" },
+      failure: { ok: false, reason: "sell-exceeds-holding", available: "1" },
+    });
+    expect(await counts()).toEqual({ securities: 0, transactions: 0, corporateActions: 0 });
   });
 });
 

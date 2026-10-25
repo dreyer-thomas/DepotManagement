@@ -4,7 +4,7 @@
 
 ## Goal
 
-Tommy can record stock splits and ISIN changes, and bring his complete Transaction history from Parqet CSV exports into DepotManagement (one file per Depot) without making decisions row by row. Positions, invested capital and Cash Account balances must match Parqet at the export date. Exports without cash rows get a sensible Cash Account, and a Depot can be deleted so that a failed migration can be run again. After this epic he works with real data, so correctness and reconciliation matter more than features.
+Tommy can record stock splits and ISIN changes, and bring his complete Transaction history from Parqet CSV exports into DepotManagement (one file per Depot) without making decisions row by row. Positions, invested capital and Cash Account balances must match Parqet at the export date. Exports without cash rows get a sensible Cash Account, and a Depot can be deleted so that a failed migration can be run again. Every trade must be booked even when Parqet's cash rows do not match the trade figures or Parqet rounds fractional sell quantities. After this epic he works with real data, so correctness and reconciliation matter more than features.
 
 ## Stories
 
@@ -14,6 +14,7 @@ Tommy can record stock splits and ISIN changes, and bring his complete Transacti
 - Story 2.4: Confirm Migration and Reconcile with Parqet
 - Story 2.5: Hands-off Parqet Migration
 - Story 2.6: Funding for Exports without Cash Rows and Depot Deletion
+- Story 2.7: Robust Cash Pairing and Rounding Tolerance in the Parqet Migration
 
 ## Requirements & Constraints
 
@@ -21,6 +22,8 @@ Tommy can record stock splits and ISIN changes, and bring his complete Transacti
 - Migration success: per Depot, Positions, invested capital and Cash Account balance match Parqet at export date. FIFO realized Gain/Loss is compared per sale with Parqet's `realizedgains`, and differences above €0.01 are highlighted. Cent-level drift across many lots is acceptable; Depot value and Cost Basis must be exact.
 - Hands-off: the migration completes without per-row decisions. Asset types are estimated from names and stay editable later. Remaining flags never block "Übernehmen".
 - Cash-less exports (no `Cash` rows at all, e.g. comdirect/cominvest autosync): the migration inserts minimal funding deposits so cash never goes negative. Sale and dividend proceeds stay in cash and fund later buys. Exports with cash rows are processed exactly as before. The balance-alignment Deposit/Withdrawal from 2.4 can then set the final balance to the broker's value.
+- Mismatching cash rows (fee omitted, withheld tax missing, dividend differences, one net cash row for a rebalancing instant) never cause skipped trades: `cash-pair-mismatch` is no longer a flag. Every trade is booked with Parqet's quantity, price, amount and fee unchanged, so Positions and Cost Basis match Parqet, and the Cash Account equals the sum of Parqet's cash rows.
+- Rounding oversells: a migrated SELL exceeding the holding by ≤ 0.001 units is booked with the held quantity (amount, fee, tax unchanged); the shortfall is subtracted from the quantity of the next BUY of that Security in the Depot (amount unchanged). Larger oversells still stop booking with "Verkauf übersteigt Bestand".
 - Depot deletion removes the Depot, its Transactions, import staging and caches. Securities and Prices shared with other Depots stay. Afterwards, the same export can be migrated again into a new Depot.
 - Later document imports of migrated Transactions must be detected as duplicates. Re-running the same file books only non-duplicates.
 - EUR only: non-EUR rows are flagged, never booked.
@@ -36,7 +39,8 @@ Tommy can record stock splits and ISIN changes, and bring his complete Transacti
   - Cash effect, defined once in `core/cash`: BUY −(amount+fee+tax); SELL/DIVIDEND +amount−fee−tax; FEE −fee; TAX −tax; DEPOSIT +amount; WITHDRAWAL −amount.
 - **Parqet mapping:**
   - Parsing: semicolons, decimal comma, newest rows first. Rows are submitted oldest-first, and `datetime` becomes a Europe/Berlin business date (synthetic times dropped).
-  - Trade/dividend rows and their Cash pair collapse into one Transaction. On a rounding mismatch, `amount` is adjusted so the derived cash equals the cash row.
+  - Trades (BUY/SELL/DIVIDEND) and Cash rows sharing one instant form a group. Within it, trades pair 1:1 with cash rows first and collapse into one Transaction; leftover trades and cash rows are reconciled together. Group difference (cash rows vs. summed derived cash effects) ≤ €0.01: adjust `amount` so derived cash equals the cash row. Above €0.01: add one standalone TAX Transaction (amount 0, signed tax = derived effect − cash; Security of the largest trade if the group has one Security, else none), same date, sequenced after the group's trades. Never change quantity, amount or fee for this.
+  - Grouping, difference and shortfall-carry functions are pure (in `src/modules/migration` or `src/core`) and unit-tested.
   - Dividends use `amount`, not price × shares. Negative tax means a refund. A `cost` row with only tax becomes a TAX Transaction.
   - Unpaired Cash TransferIn/Out become a DEPOSIT/WITHDRAWAL.
 - **Security transfers at one instant:**
@@ -61,6 +65,7 @@ Tommy can record stock splits and ISIN changes, and bring his complete Transacti
      - the estimated asset type per Security, with an inline override
      - a collapsed "Nicht übernommen (n)" section, with "Alle wie in Parqet übernehmen"
      - the note "Export ohne Kontobewegungen: N Einzahlungen werden ergänzt" for cash-less files
+     - "N Kontodifferenzen werden als Steuer gebucht" (with total) and "N Rundungsreste ausgeglichen"
      - the resulting Positions and cash balance at export date
   3. One-click "Übernehmen".
   4. The summary shows the comparison with Parqet, the per-sale realized check and the skipped items.
@@ -70,6 +75,6 @@ Tommy can record stock splits and ISIN changes, and bring his complete Transacti
 ## Cross-Story Dependencies
 
 - 2.1 and 2.2 (CorporateAction model, split/ISIN-change core) are prerequisites for the migration's split and ISIN-change proposals. The migration also relies on Epic 1: ledger service, `core/cash`, `core/duplicates`, `ensureSecurity`.
-- 2.3 builds the pure reader and preview; 2.4 confirms, books and reconciles. 2.5 reworks 2.3/2.4: it adds the FUND type and the classifier, removes mandatory classification and transfer decisions, and adds splits/deliveries. 2.6 adds cash-less funding and Depot deletion on top of 2.5.
-- Story 2.4 stays at operator verification; its real-data checks run after 2.5/2.6. Operator flow: delete the cominvest Depot, recreate it, re-migrate, align the balance.
+- 2.3 builds the pure reader and preview; 2.4 confirms, books and reconciles. 2.5 reworks 2.3/2.4: it adds the FUND type and the classifier, removes mandatory classification and transfer decisions, and adds splits/deliveries. 2.6 adds cash-less funding and Depot deletion on top of 2.5. 2.7 reworks the reader's cash pairing and booking's oversell handling from 2.3–2.6 (removes the `cash-pair-mismatch` flag).
+- Story 2.4 stays at operator verification; its real-data checks run after 2.5–2.7. Operator flow: delete the cominvest Depot, recreate it, re-migrate, align the balance; after 2.7, migrate ROBIN and finanzen.net zero (expect zero flags and zero oversells).
 - Downstream: Epic 3 (classification UI) and Epic 4 (composition "Fonds" segment) must handle FUND. Epic 5 document import must detect migrated Transactions as duplicates. Epic 4 returns treat delivery and funding deposits as external inflows.

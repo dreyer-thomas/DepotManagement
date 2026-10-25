@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { cashEffect } from "@/core/cash";
 import { canonicalDecimal, ExactDecimal } from "@/core/decimal";
+import { itemKey } from "./decisions";
 import { type FlaggedRow, type ParqetReadResult, readParqetCsv, splitRatio } from "./parqet-reader";
 
 const FIXTURE = readFileSync(resolve(__dirname, "../../../test/fixtures/parqet/synthetic-export.csv.txt"), "utf8");
@@ -217,6 +218,33 @@ describe("readParqetCsv — synthetic fixture", () => {
         records: [6],
         delivery: "buy",
       },
+      {
+        type: "BUY",
+        date: "2024-07-04",
+        sequence: 11,
+        securityKey: AAPL,
+        quantity: "10",
+        price: "9.9",
+        amount: "99",
+        fee: "1",
+        tax: "0",
+        realizedGain: null,
+        records: [5],
+      },
+      {
+        type: "TAX",
+        date: "2024-07-04",
+        sequence: 12,
+        securityKey: AAPL,
+        quantity: null,
+        price: null,
+        amount: "0",
+        fee: "0",
+        tax: "-10",
+        realizedGain: null,
+        records: [4, 5],
+        cashDifference: true,
+      },
     ]);
   });
 
@@ -237,7 +265,6 @@ describe("readParqetCsv — synthetic fixture", () => {
     expect(withoutRows(result.flagged)).toEqual([
       { records: [2], reason: "unsupported-row", detail: "Buy/Cash" },
       { records: [3], reason: "unparseable", detail: "datetime" },
-      { records: [4, 5], reason: "cash-pair-mismatch" },
       { records: [7], reason: "unparseable", detail: "shares" },
       { records: [8], reason: "non-eur", detail: "USD" },
     ]);
@@ -270,11 +297,6 @@ describe("readParqetCsv — synthetic fixture", () => {
         currency: "USD",
       },
     ]);
-    const mismatch = result.flagged.find((flag) => flag.reason === "cash-pair-mismatch");
-    expect(mismatch?.rows.map((row) => [row.type, row.assettype, row.amount])).toEqual([
-      ["TransferOut", "Cash", "90"],
-      ["Buy", "Security", "99"],
-    ]);
     // A record with the wrong field count still lists what it has.
     expect(result.flagged.find((flag) => flag.records[0] === 3)?.rows[0].datetime).toBe("garbage");
   });
@@ -285,8 +307,8 @@ describe("readParqetCsv — synthetic fixture", () => {
     expect(noCash.hasCashRows).toBe(false);
   });
 
-  it("takes the latest proposal date (here a delivery) as export date", () => {
-    expect(result.exportDate).toBe("2024-07-03");
+  it("takes the latest proposal date (here a cash-difference TAX) as export date", () => {
+    expect(result.exportDate).toBe("2024-07-04");
   });
 });
 
@@ -369,12 +391,17 @@ describe("readParqetCsv — mapping rules", () => {
     ]);
   });
 
-  it("flags a trade and its same-datetime cash row that differ by more than €0.01", () => {
+  it("books a trade differing from its cash row by more than €0.01 unchanged, plus a TAX for the difference", () => {
     const result = ok(
       readParqetCsv(csv({ type: "Buy", identifier: AAPL, shares: "10", price: "9,9", amount: "99", fee: "1" }, cash("TransferOut", "90"))),
     );
-    expect(result.proposals).toEqual([]);
-    expect(withoutRows(result.flagged)).toEqual([{ records: [2, 3], reason: "cash-pair-mismatch" }]);
+    expect(withoutRows(result.flagged)).toEqual([]);
+    expect(result.proposals).toEqual([
+      expect.objectContaining({ type: "BUY", sequence: 1, quantity: "10", price: "9.9", amount: "99", fee: "1", tax: "0", records: [2] }),
+      expect.objectContaining({ type: "TAX", sequence: 2, securityKey: AAPL, amount: "0", fee: "0", tax: "-10", records: [2, 3], cashDifference: true }),
+    ]);
+    expect(result.proposals[0].originalAmount).toBeUndefined();
+    expect(cashTotal(result.proposals)).toBe("-90");
   });
 
   it("pairs each trade with the closest cash row of the same datetime and direction", () => {
@@ -735,6 +762,196 @@ describe("readParqetCsv — funding for files without Cash rows", () => {
     expect(result.proposals.map((p) => [p.sequence, p.type, p.funding])).toEqual([
       [1, "BUY", undefined],
       [2, "DEPOSIT", undefined],
+    ]);
+  });
+});
+
+describe("readParqetCsv — cash groups and rounding (story 2.7)", () => {
+  const B = "DE000SYNCB08";
+  const C = "DE000SYNCC07";
+
+  it("books withheld tax on a Sell as a TAX after it", () => {
+    const result = ok(readParqetCsv(csv({ type: "Sell", identifier: AAPL, shares: "4", price: "110", amount: "440" }, cash("TransferIn", "418"))));
+    expect(withoutRows(result.flagged)).toEqual([]);
+    expect(result.proposals.map((p) => [p.sequence, p.type, p.amount, p.tax, p.securityKey, p.records])).toEqual([
+      [1, "SELL", "440", "0", AAPL, [2]],
+      [2, "TAX", "0", "22", AAPL, [2, 3]],
+    ]);
+    expect(cashTotal(result.proposals)).toBe("418");
+  });
+
+  it("books a dividend difference as a TAX", () => {
+    const result = ok(readParqetCsv(csv({ type: "Dividend", identifier: AAPL, amount: "20", tax: "3" }, cash("TransferIn", "15"))));
+    expect(result.proposals.map((p) => [p.type, p.amount, p.tax])).toEqual([
+      ["DIVIDEND", "20", "3"],
+      ["TAX", "0", "2"],
+    ]);
+    expect(cashTotal(result.proposals)).toBe("15");
+  });
+
+  const rebalancing = (out: string) =>
+    csv(
+      cash("TransferOut", out),
+      { type: "Sell", identifier: AAPL, shares: "3", price: "120", amount: "360" },
+      { type: "Buy", identifier: C, shares: "2", price: "100", amount: "200" },
+      { type: "Buy", identifier: B, shares: "5", price: "50", amount: "250" },
+    );
+
+  it("books a rebalancing instant's net cash difference as one Security-less TAX after its trades", () => {
+    const result = ok(readParqetCsv(rebalancing("92")));
+    expect(withoutRows(result.flagged)).toEqual([]);
+    expect(result.proposals.map((p) => [p.sequence, p.type, p.securityKey, p.amount, p.tax, p.records])).toEqual([
+      [1, "BUY", B, "250", "0", [5]],
+      [2, "BUY", C, "200", "0", [4]],
+      [3, "SELL", AAPL, "360", "0", [3]],
+      [4, "TAX", null, "0", "2", [2, 3, 4, 5]],
+    ]);
+    expect(result.proposals[3].cashDifference).toBe(true);
+    expect(cashTotal(result.proposals)).toBe("-92");
+  });
+
+  it("aligns the group's largest trade when the group differs by at most €0.01", () => {
+    const result = ok(readParqetCsv(rebalancing("90,01")));
+    expect(result.proposals.map((p) => [p.type, p.amount, p.originalAmount, p.records])).toEqual([
+      ["BUY", "250", undefined, [5]],
+      ["BUY", "200", undefined, [4]],
+      ["SELL", "359.99", "360", [2, 3]],
+    ]);
+    expect(cashTotal(result.proposals)).toBe("-90.01");
+  });
+
+  it("keeps a flagged trade's instant unreconciled: the cash row joins the flag", () => {
+    const result = ok(
+      readParqetCsv(
+        csv(
+          { type: "Buy", identifier: AAPL, shares: "1", price: "10", amount: "10", currency: "USD" },
+          { type: "Buy", identifier: WELT, shares: "1", price: "10", amount: "10" },
+          cash("TransferOut", "25"),
+        ),
+      ),
+    );
+    expect(withoutRows(result.flagged)).toEqual([{ records: [2, 4], reason: "non-eur", detail: "USD" }]);
+    expect(result.proposals.map((p) => [p.type, p.securityKey, p.records])).toEqual([["BUY", WELT, [3]]]);
+  });
+
+  it("keeps a cash row at an instant without trades as DEPOSIT beside a reconciled group", () => {
+    const result = ok(
+      readParqetCsv(
+        csv(
+          cash("TransferIn", "500", "2024-01-02T00:00:00.000Z"),
+          { type: "Buy", identifier: AAPL, shares: "10", price: "100", amount: "1000", fee: "5" },
+          cash("TransferOut", "1000"),
+        ),
+      ),
+    );
+    expect(result.proposals.map((p) => [p.type, p.amount, p.tax, p.records])).toEqual([
+      ["DEPOSIT", "500", "0", [2]],
+      ["BUY", "1000", "0", [3]],
+      ["TAX", "0", "-5", [3, 4]],
+    ]);
+  });
+
+  it("clamps a rounding oversell and subtracts the shortfall from the next BUY", () => {
+    const result = ok(
+      readParqetCsv(
+        csv(
+          { datetime: "2024-07-02T09:00:00Z", type: "Sell", identifier: AAPL, shares: "0,0008", price: "50", amount: "0,04" },
+          { datetime: "2024-07-01T09:00:00Z", type: "Buy", identifier: AAPL, shares: "0,0016", price: "50", amount: "0,08" },
+          { datetime: "2024-06-03T09:00:00Z", type: "Sell", identifier: AAPL, shares: "1,0008", price: "50", amount: "50,04" },
+          { datetime: "2024-05-02T09:00:00Z", type: "Buy", identifier: AAPL, shares: "1", price: "50", amount: "50" },
+        ),
+      ),
+    );
+    expect(unfunded(result.proposals).map((p) => [p.type, p.quantity, p.originalQuantity, p.amount, p.price])).toEqual([
+      ["BUY", "1", undefined, "50", "50"],
+      ["SELL", "1", "1.0008", "50.04", "50"],
+      ["BUY", "0.0008", "0.0016", "0.08", "50"],
+      ["SELL", "0.0008", undefined, "0.04", "50"],
+    ]);
+    // Funding sees the unchanged amounts: one deposit before the first BUY.
+    expect(result.proposals.filter((p) => p.funding).map((p) => p.amount)).toEqual(["50"]);
+  });
+
+  it("pairs one trade 1:1 and reconciles the instant's leftover trade and cash row into a difference TAX", () => {
+    const result = ok(
+      readParqetCsv(
+        csv(
+          cash("TransferOut", "100"),
+          { type: "Buy", identifier: WELT, shares: "1", price: "100", amount: "100", fee: "5" },
+          cash("TransferOut", "10"),
+          { type: "Buy", identifier: AAPL, shares: "1", price: "10", amount: "10,004" },
+        ),
+      ),
+    );
+    expect(withoutRows(result.flagged)).toEqual([]);
+    expect(result.proposals.map((p) => [p.type, p.securityKey, p.amount, p.originalAmount, p.tax, p.records])).toEqual([
+      ["BUY", AAPL, "10", "10.004", "0", [4, 5]],
+      ["BUY", WELT, "100", undefined, "0", [3]],
+      ["TAX", WELT, "0", undefined, "-5", [2, 3]],
+    ]);
+    expect(cashTotal(result.proposals)).toBe("-110");
+  });
+
+  it("clamps a SELL of the new Security against the holding converted by the file's ISIN change", () => {
+    const NEW = "DE000SYN0013";
+    const result = ok(
+      readParqetCsv(
+        csv(
+          { datetime: "2024-06-03T09:00:00Z", type: "Sell", identifier: NEW, shares: "5,0005", price: "20", amount: "100,01" },
+          { datetime: "2024-05-02T00:00:00Z", type: "TransferIn", identifier: NEW, shares: "5" },
+          { datetime: "2024-05-02T00:00:00Z", type: "TransferOut", identifier: AAPL, shares: "10" },
+          { datetime: "2024-04-02T09:00:00Z", type: "Buy", identifier: AAPL, shares: "10", price: "10", amount: "100" },
+        ),
+      ),
+    );
+    expect(result.isinChanges.map((change) => [change.oldKey, change.newKey, change.oldQuantity, change.newQuantity])).toEqual([
+      [AAPL, NEW, "10", "5"],
+    ]);
+    expect(unfunded(result.proposals).map((p) => [p.type, p.securityKey, p.quantity, p.originalQuantity, p.amount])).toEqual([
+      ["BUY", AAPL, "10", undefined, "100"],
+      ["SELL", NEW, "5", "5.0005", "100.01"],
+    ]);
+  });
+
+  it("keeps every proposal's item key unique (difference TAX records are a union)", () => {
+    const robust = readFileSync(resolve(__dirname, "../../../test/fixtures/parqet/synthetic-export-robust-pairing.csv.txt"), "utf8");
+    const result = ok(readParqetCsv(robust));
+    expect(withoutRows(result.flagged)).toEqual([]);
+    const keys = result.proposals.map(itemKey);
+    expect(new Set(keys).size).toBe(keys.length);
+    expect(result.proposals.filter((p) => p.cashDifference).map(itemKey)).toEqual(["18-19", "16-17", "14-15", "10-11-12-13"]);
+  });
+
+  it("leaves an oversell above 0.001 untouched", () => {
+    const result = ok(
+      readParqetCsv(
+        csv(
+          { datetime: "2024-06-03T09:00:00Z", type: "Sell", identifier: AAPL, shares: "1,002", price: "50", amount: "50,1" },
+          { datetime: "2024-05-02T09:00:00Z", type: "Buy", identifier: AAPL, shares: "1", price: "50", amount: "50" },
+        ),
+      ),
+    );
+    expect(unfunded(result.proposals).map((p) => [p.type, p.quantity, p.originalQuantity])).toEqual([
+      ["BUY", "1", undefined],
+      ["SELL", "1.002", undefined],
+    ]);
+  });
+
+  it("clamps against the holding after a split in the file", () => {
+    const result = ok(
+      readParqetCsv(
+        csv(
+          { datetime: "2024-06-03T09:00:00Z", type: "Sell", identifier: AAPL, shares: "2,0004", price: "25", amount: "50,01" },
+          { datetime: "2024-06-01T00:00:00Z", type: "TransferIn", identifier: AAPL, shares: "2" },
+          { datetime: "2024-06-01T00:00:00Z", type: "TransferOut", identifier: AAPL, shares: "1" },
+          { datetime: "2024-05-02T09:00:00Z", type: "Buy", identifier: AAPL, shares: "1", price: "50", amount: "50" },
+        ),
+      ),
+    );
+    expect(result.splits.map((split) => [split.ratioOld, split.ratioNew])).toEqual([["1", "2"]]);
+    expect(unfunded(result.proposals).map((p) => [p.type, p.quantity, p.originalQuantity])).toEqual([
+      ["BUY", "1", undefined],
+      ["SELL", "2", "2.0004"],
     ]);
   });
 });

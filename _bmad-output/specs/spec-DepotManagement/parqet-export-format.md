@@ -24,5 +24,7 @@ Observed from a real export of one Parqet portfolio (finanzen.net zero, multi-ye
 - `cost` row with amount 0 and only `tax` set = standalone tax debit.
 - Dividends sometimes `shares=1, price=amount` — use `amount`, not `price × shares`.
 - Rounding mismatch between a trade and its cash pair (e.g. `123,456` vs `123,46`).
+- Cash rows may omit the fee, omit withheld tax, differ on dividends, or be one net row for several trades at one instant (e.g. a rebalancing) — booked as a standalone difference TAX after the trades (story 2.7).
+- Sell quantities of fractional shares may be rounded, so a sell exceeds the holding by ≤ 0.001 — clamped to the held quantity, the shortfall taken from the next BUY of that Security (story 2.7).
 - Date-only events carry synthetic time (06:00Z / 00:00Z).
 - `realizedgains` is Parqet's FIFO result — reconciliation check after migration.

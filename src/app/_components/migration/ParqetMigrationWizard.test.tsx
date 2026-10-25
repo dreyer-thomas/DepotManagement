@@ -79,10 +79,12 @@ afterAll(async () => {
 describe("ParqetPreviewView", () => {
   it("shows the preview in German with de-DE formats and no confirm button", () => {
     const text = renderText(<ParqetPreviewView preview={preview} />);
-    expect(text).toContain("Vorschau – Hauptdepot, Stand 03.07.2024");
+    expect(text).toContain("Vorschau – Hauptdepot, Stand 04.07.2024");
     expect(text).toContain("Es wurde noch nichts gebucht.");
     expect(text).toContain("Rundung angeglichen: 1");
-    expect(text).toContain("Kauf 4 Verkauf 1 Dividende 1 Steuer 1 Einzahlung 2 Auszahlung 1");
+    expect(text).toContain("1 Kontodifferenz wird als Steuer gebucht (Summe -10,00\u00a0€)");
+    expect(text).not.toContain("Rundungsre");
+    expect(text).toContain("Kauf 5 Verkauf 1 Dividende 1 Steuer 2 Einzahlung 2 Auszahlung 1");
     expect(text).toContain("Keine Splits erkannt.");
     expect(text).toContain(
       "02.05.2024: Altname Software SE (DE0007164600) → Neuname Software SE (DE000SYN0013), 12,00345678 : 6,00172839",
@@ -95,12 +97,12 @@ describe("ParqetPreviewView", () => {
     expect(text).toContain("Neuname Software SE DE000SYN0013 Art (geschätzt) Aktie ETF Fonds Zertifikat");
     expect(text).not.toContain("Bitte wählen");
     expect(text).toContain("Bitcoin BTC Krypto");
-    expect(text).toContain("Apfel \"Tech\" Inc.; Class A 5 62,23\u00a0€");
+    expect(text).toContain("Apfel \"Tech\" Inc.; Class A 15 162,23\u00a0€");
     expect(text).toContain("Bitcoin 0,00012345 4,94\u00a0€");
     expect(text).toContain("Welt ETF 3 300,00\u00a0€");
-    expect(text).toContain("Ergebnis laut Datei am 03.07.2024");
-    expect(text).toContain("Investiertes Kapital 1.568,50\u00a0€");
-    expect(text).toContain("Verrechnungskonto 9.142,67\u00a0€");
+    expect(text).toContain("Ergebnis laut Datei am 04.07.2024");
+    expect(text).toContain("Investiertes Kapital 1.668,50\u00a0€");
+    expect(text).toContain("Verrechnungskonto 9.052,67\u00a0€");
     expect(text).not.toContain("Übernehmen");
     expect(text).not.toContain("Export ohne Kontobewegungen");
   });
@@ -114,6 +116,21 @@ describe("ParqetPreviewView", () => {
     expect(singular).toContain("Verrechnungskonto 300,00\u00a0€");
     const none = renderText(<ParqetPreviewView preview={{ ...noCashPreview, fundingCount: 0 }} />);
     expect(none).toContain("Export ohne Kontobewegungen: 0 Einzahlungen werden ergänzt");
+  });
+
+  it("announces cash differences and rounding remainders in singular and plural, only when present", () => {
+    const plural = renderText(
+      <ParqetPreviewView preview={{ ...preview, cashDifferenceCount: 4, cashDifferenceTotal: "21", roundingCount: 2 }} />,
+    );
+    expect(plural).toContain("4 Kontodifferenzen werden als Steuer gebucht (Summe 21,00\u00a0€)");
+    expect(plural).toContain("2 Rundungsreste ausgeglichen");
+    const singular = renderText(<ParqetPreviewView preview={{ ...preview, roundingCount: 1 }} />);
+    expect(singular).toContain("1 Rundungsrest ausgeglichen");
+    const none = renderText(
+      <ParqetPreviewView preview={{ ...preview, cashDifferenceCount: 0, cashDifferenceTotal: "0", roundingCount: 0 }} />,
+    );
+    expect(none).not.toContain("Kontodifferenz");
+    expect(none).not.toContain("Rundungsre");
   });
 
   it("preselects each new Security's estimated type, or its override", () => {
@@ -160,7 +177,7 @@ describe("ParqetDecisions", () => {
   it("collapses flagged rows under 'Nicht übernommen (n)', skipped by default, with the as-is action", () => {
     const html = renderHtml(<ParqetDecisions preview={preview} decisions={initialDecisions(preview)} onChange={noop} onConfirmAsIs={noop} />);
     const text = renderText(<ParqetDecisions preview={preview} decisions={initialDecisions(preview)} onChange={noop} onConfirmAsIs={noop} />);
-    expect(text).toContain("Nicht übernommen (5)");
+    expect(text).toContain("Nicht übernommen (4)");
     expect(text).toContain("Alle wie in Parqet übernehmen");
     expect(html).toMatch(/aria-expanded="false"/);
     expect(text).not.toContain("Neue Wertpapiere einordnen");
@@ -221,19 +238,19 @@ describe("ParqetSummaryView", () => {
   it("reports booked and skipped counts and marks differences with text", () => {
     const text = renderText(<ParqetSummaryView summary={summary} />);
     expect(text).toContain("Übernommen – Hauptdepot");
-    expect(text).toContain("Gebucht: 10 Buchungen, 0 Splits, 1 ISIN-Wechsel, 5 neue Wertpapiere.");
+    expect(text).toContain("Gebucht: 12 Buchungen, 0 Splits, 1 ISIN-Wechsel, 5 neue Wertpapiere.");
     expect(text).toContain(
-      "Übersprungen: 0 Doppelbuchungen, 5 nicht übernommene Zeilen, 0 bereits erfasste Splits, 0 bereits erfasste ISIN-Wechsel.",
+      "Übersprungen: 0 Doppelbuchungen, 4 nicht übernommene Zeilen, 0 bereits erfasste Splits, 0 bereits erfasste ISIN-Wechsel.",
     );
-    expect(text).toContain("Nicht übernommen (5)");
-    expect(text).toContain("Zeilen 4, 5: Buchung und Barbuchung weichen um mehr als 0,01 € ab");
+    expect(text).toContain("Nicht übernommen (4)");
+    expect(text).not.toContain("Zeilen 4, 5");
     expect(text).toContain("Zeile 8: Keine Euro-Buchung (Währung USD)");
     expect(text).toContain("Zum Depot Hauptdepot");
-    expect(text).toContain("Abgleich mit Parqet am 03.07.2024");
+    expect(text).toContain("Abgleich mit Parqet am 04.07.2024");
     expect(text).toContain("1 × Abweichung über 0,01 €");
-    expect(text).toContain("Apfel \"Tech\" Inc.; Class A 5 5 62,23\u00a0€ 62,23\u00a0€ gleich");
-    expect(text).toContain("Investiertes Kapital 1.568,50\u00a0€ 1.568,50\u00a0€ gleich");
-    expect(text).toContain("Verrechnungskonto 9.142,67\u00a0€ 9.142,67\u00a0€ gleich");
+    expect(text).toContain("Apfel \"Tech\" Inc.; Class A 15 15 162,23\u00a0€ 162,23\u00a0€ gleich");
+    expect(text).toContain("Investiertes Kapital 1.668,50\u00a0€ 1.668,50\u00a0€ gleich");
+    expect(text).toContain("Verrechnungskonto 9.052,67\u00a0€ 9.052,67\u00a0€ gleich");
     expect(text).toContain("03.06.2024 Apfel \"Tech\" Inc.; Class A 436,77\u00a0€ 436,79\u00a0€ Abweichung");
     expect(text).not.toContain("Eröffnungsbuchung");
   });

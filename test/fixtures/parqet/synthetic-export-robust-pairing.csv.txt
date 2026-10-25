@@ -1,0 +1,20 @@
+datetime;date;time;price;shares;amount;tax;fee;realizedgains;type;broker;assettype;identifier;wkn;originalcurrency;currency;fxrate;holding;holdingname;holdingnickname;exchange;avgholdingperiod;notes
+2024-07-02T09:00:00.000Z;02.07.2024;09:00;;;0,04;;;;TransferIn;;Cash;;;EUR;EUR;1;h-cash;"Verrechnungskonto";;;;
+2024-07-02T09:00:00.000Z;02.07.2024;09:00;50;0,0008;0,04;0;0;-0,04;Sell;;Security;DE000SYNCD06;;EUR;EUR;1;h-DE000SYNCD06;"Synthetik Delta AG";;;;
+2024-07-01T09:00:00.000Z;01.07.2024;09:00;;;0,08;;;;TransferOut;;Cash;;;EUR;EUR;1;h-cash;"Verrechnungskonto";;;;
+2024-07-01T09:00:00.000Z;01.07.2024;09:00;50;0,0016;0,08;0;0;;Buy;;Security;DE000SYNCD06;;EUR;EUR;1;h-DE000SYNCD06;"Synthetik Delta AG";;;;
+2024-06-03T09:00:00.000Z;03.06.2024;09:00;;;50,04;;;;TransferIn;;Cash;;;EUR;EUR;1;h-cash;"Verrechnungskonto";;;;
+2024-06-03T09:00:00.000Z;03.06.2024;09:00;50;1,0008;50,04;0;0;0,04;Sell;;Security;DE000SYNCD06;;EUR;EUR;1;h-DE000SYNCD06;"Synthetik Delta AG";;;;
+2024-05-02T09:00:00.000Z;02.05.2024;09:00;;;50;;;;TransferOut;;Cash;;;EUR;EUR;1;h-cash;"Verrechnungskonto";;;;
+2024-05-02T09:00:00.000Z;02.05.2024;09:00;50;1;50;0;0;;Buy;;Security;DE000SYNCD06;;EUR;EUR;1;h-DE000SYNCD06;"Synthetik Delta AG";;;;
+2024-04-01T09:00:00.000Z;01.04.2024;09:00;;;92;;;;TransferOut;;Cash;;;EUR;EUR;1;h-cash;"Verrechnungskonto";;;;
+2024-04-01T09:00:00.000Z;01.04.2024;09:00;120;3;360;0;0;58,5;Sell;;Security;DE000SYNCA09;;EUR;EUR;1;h-DE000SYNCA09;"Synthetik Alpha AG";;;;
+2024-04-01T09:00:00.000Z;01.04.2024;09:00;100;2;200;0;0;;Buy;;Security;DE000SYNCC07;;EUR;EUR;1;h-DE000SYNCC07;"Synthetik Gamma AG";;;;
+2024-04-01T09:00:00.000Z;01.04.2024;09:00;50;5;250;0;0;;Buy;;Security;DE000SYNCB08;;EUR;EUR;1;h-DE000SYNCB08;"Synthetik Beta AG";;;;
+2024-03-01T09:00:00.000Z;01.03.2024;09:00;;;15;;;;TransferIn;;Cash;;;EUR;EUR;1;h-cash;"Verrechnungskonto";;;;
+2024-03-01T09:00:00.000Z;01.03.2024;09:00;;;20;3;0;;Dividend;;Security;DE000SYNCA09;;EUR;EUR;1;h-DE000SYNCA09;"Synthetik Alpha AG";;;;
+2024-02-10T09:00:00.000Z;10.02.2024;09:00;;;418;;;;TransferIn;;Cash;;;EUR;EUR;1;h-cash;"Verrechnungskonto";;;;
+2024-02-10T09:00:00.000Z;10.02.2024;09:00;110;4;440;0;0;38;Sell;;Security;DE000SYNCA09;;EUR;EUR;1;h-DE000SYNCA09;"Synthetik Alpha AG";;;;
+2024-01-10T09:00:00.000Z;10.01.2024;09:00;;;1000;;;;TransferOut;;Cash;;;EUR;EUR;1;h-cash;"Verrechnungskonto";;;;
+2024-01-10T09:00:00.000Z;10.01.2024;09:00;100;10;1000;0;5;;Buy;;Security;DE000SYNCA09;;EUR;EUR;1;h-DE000SYNCA09;"Synthetik Alpha AG";;;;
+2024-01-02T00:00:00.000Z;02.01.2024;00:00;;;10000;;;;TransferIn;;Cash;;;EUR;EUR;1;h-cash;"Verrechnungskonto";;;;

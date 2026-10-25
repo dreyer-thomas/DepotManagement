@@ -60,8 +60,6 @@ export function flagReasonLabel(flag: Pick<FlaggedRow, "reason" | "detail">): st
       return "Ausgehender Wertpapier-Übertrag ohne passenden Eingang";
     case "unsupported-split":
       return "Split-Verhältnis nicht darstellbar";
-    case "cash-pair-mismatch":
-      return "Buchung und Barbuchung weichen um mehr als 0,01 € ab";
   }
 }
 
@@ -132,6 +130,17 @@ export function openDecisionsLabel(count: number): string {
 /** Preview note for a file without Cash rows: "Export ohne Kontobewegungen: 3 Einzahlungen werden ergänzt". */
 export function fundingNote(count: number): string {
   return `Export ohne Kontobewegungen: ${count === 1 ? "1 Einzahlung wird" : `${count} Einzahlungen werden`} ergänzt`;
+}
+
+/** Preview note: "3 Kontodifferenzen werden als Steuer gebucht (Summe 12,34 €)"; `total` is the signed Σ tax. */
+export function cashDifferenceNote(count: number, total: string): string {
+  const subject = count === 1 ? "1 Kontodifferenz wird" : `${count} Kontodifferenzen werden`;
+  return `${subject} als Steuer gebucht (Summe ${formatMoney(total)})`;
+}
+
+/** Preview note: "2 Rundungsreste ausgeglichen". */
+export function roundingNote(count: number): string {
+  return count === 1 ? "1 Rundungsrest ausgeglichen" : `${count} Rundungsreste ausgeglichen`;
 }
 
 /** The raw text of a flagged CSV record, e.g. `TransferIn · Security · IE00B4L5Y983 · Welt ETF · Stück 3 · …`. */

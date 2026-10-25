@@ -6,12 +6,14 @@
  */
 import { classifySecurityName } from "@/core/asset-type";
 import { cashEffect } from "@/core/cash";
-import { parseSplitRatio } from "@/core/corporate-actions";
+import { type CorporateActions, parseSplitRatio } from "@/core/corporate-actions";
 import { businessDate, isBusinessDate } from "@/core/dates";
 import { canonicalDecimal, ExactDecimal } from "@/core/decimal";
 import { parseDecimalInput } from "@/core/decimal-input";
 import { fundingShortfalls } from "@/core/funding";
+import { clampRoundingOversells } from "@/core/rounding";
 import { cryptoSymbolSchema, isinSchema, QUANTITY_MAX_DECIMALS, SECURITY_NAME_MAX_LENGTH } from "@/modules/ledger";
+import { reconcileCashGroup } from "./cash-groups";
 import { parseSemicolonCsv } from "./csv";
 
 type Decimal = InstanceType<typeof ExactDecimal>;
@@ -37,6 +39,11 @@ export type TransactionProposal = {
   originalAmount?: string;
   /** The file's tax before it was aligned to the cash row (rounding, TAX only). */
   originalTax?: string;
+  /**
+   * The file's quantity before a rounding oversell was clamped (SELL: booked with the held quantity) or its
+   * shortfall subtracted (the next BUY of that Security); amount, fee, tax and price stay the file's.
+   */
+  originalQuantity?: string;
   /** CSV record numbers (header = 1) this proposal came from, ascending. */
   records: number[];
   /**
@@ -49,6 +56,11 @@ export type TransactionProposal = {
    * Cash Account from going negative before the proposal directly after it (whose `records` it shares).
    */
   funding?: true;
+  /**
+   * Set on the standalone TAX that books the difference between an instant's trades and its Cash rows
+   * (above €0.01): `tax` = derived cash effect − cash rows; sequenced directly after those trades.
+   */
+  cashDifference?: true;
 };
 
 /** A same-instant `TransferOut`/`TransferIn` pair of one Security: a split `ratioOld:ratioNew` (AD-7). */
@@ -86,7 +98,6 @@ export const FLAG_REASONS = [
   "unsupported-row",
   "unpaired-security-transfer",
   "unsupported-split",
-  "cash-pair-mismatch",
 ] as const;
 export type FlagReason = (typeof FLAG_REASONS)[number];
 
@@ -165,7 +176,8 @@ type Trade = Placement & {
   realizedGain: string | null;
   originalAmount?: string;
   originalTax?: string;
-  cashRecord?: number;
+  /** Records of the Cash rows this trade absorbed (1:1 pair or an aligned group). */
+  cashRecords: number[];
 };
 
 type Direction = "in" | "out";
@@ -312,7 +324,7 @@ function parseRecord(
       if (amount !== "0" || fee !== "0" || tax === "0") throw unsupported();
       result = {
         kind: "trade",
-        row: { ...placement, type: "TAX", securityKey: key, quantity: null, price: null, amount: "0", fee: "0", tax, realizedGain: null },
+        row: { ...placement, type: "TAX", securityKey: key, quantity: null, price: null, amount: "0", fee: "0", tax, realizedGain: null, cashRecords: [] },
       };
     } else if (type === "dividend") {
       result = {
@@ -327,6 +339,7 @@ function parseRecord(
           fee: number("fee", { required: false }),
           tax: number("tax", { required: false, absolute: false }),
           realizedGain: null,
+          cashRecords: [],
         },
       };
     } else {
@@ -352,6 +365,7 @@ function parseRecord(
           fee,
           tax,
           realizedGain,
+          cashRecords: [],
         },
       };
     }
@@ -402,7 +416,11 @@ function closest(candidates: CashRow[], effect: Decimal): { row: CashRow; differ
 
 /** Aligns the trade to the cash row so its derived cash effect equals the cash row exactly (AD-6). */
 function alignToCash(trade: Trade, cash: CashRow, effect: Decimal): void {
-  const target = effect.isNegative() ? new ExactDecimal(cash.amount).negated() : new ExactDecimal(cash.amount);
+  alignToEffect(trade, effect.isNegative() ? new ExactDecimal(cash.amount).negated() : new ExactDecimal(cash.amount), effect);
+}
+
+/** Changes the trade's amount (a TAX row's tax) so its derived cash effect becomes `target`. */
+function alignToEffect(trade: Trade, target: Decimal, effect: Decimal): void {
   if (target.equals(effect)) return;
   if (trade.type === "TAX") {
     trade.originalTax = trade.tax;
@@ -446,6 +464,22 @@ function withFunding(proposals: TransactionProposal[]): TransactionProposal[] {
     result.push(proposal);
   }
   return result.map((proposal, index) => ({ ...proposal, sequence: index + 1 }));
+}
+
+/**
+ * Rounding oversells (core `clampRoundingOversells`, the file's own rows and corporate actions): a SELL
+ * exceeding the holding by ≤ 0.001 takes the held quantity, the next BUY of that Security the shortfall less.
+ * Only quantities change (`originalQuantity` keeps the file's), so cash and funding are unaffected.
+ */
+function withRoundingClamped(proposals: TransactionProposal[], actions: CorporateActions): TransactionProposal[] {
+  const rows = proposals.map((proposal) => ({ ...proposal, securityId: proposal.securityKey, proposal }));
+  const clamped = clampRoundingOversells(rows, actions);
+  if (clamped.size === 0) return proposals;
+  return rows.map((row) => {
+    const quantity = clamped.get(row);
+    if (quantity === undefined || row.proposal.quantity === null) return row.proposal;
+    return { ...row.proposal, quantity, originalQuantity: row.proposal.quantity };
+  });
 }
 
 export function readParqetCsv(text: string): ParqetReadResult {
@@ -503,11 +537,9 @@ export function readParqetCsv(text: string): ParqetReadResult {
   trades.sort(compareChronological);
   cashRows.sort(compareChronological);
 
-  // Cash pairing: a trade with a non-zero cash effect takes the closest unpaired cash row with the same
-  // instant and direction; within €0.01 the two collapse into one proposal.
+  // Cash pairing, phase 1: a trade with a non-zero cash effect takes the closest unpaired cash row with the
+  // same instant and direction; within €0.01 the two collapse into one proposal.
   const usedCash = new Set<CashRow>();
-  const mismatched = new Set<Trade>();
-  const unpairedWithCandidates: Trade[] = [];
   const candidatesOf = (trade: Trade, effect: Decimal) => {
     const direction: Direction = effect.isNegative() ? "out" : "in";
     return cashRows.filter((cash) => !usedCash.has(cash) && cash.instant === trade.instant && cash.direction === direction);
@@ -519,18 +551,9 @@ export function readParqetCsv(text: string): ParqetReadResult {
     if (!best) continue;
     if (best.difference.lessThanOrEqualTo(PAIR_TOLERANCE)) {
       usedCash.add(best.row);
-      trade.cashRecord = best.row.record;
+      trade.cashRecords.push(best.row.record);
       alignToCash(trade, best.row, effect);
-    } else {
-      unpairedWithCandidates.push(trade);
     }
-  }
-  for (const trade of unpairedWithCandidates) {
-    const best = closest(candidatesOf(trade, effectOf(trade)), effectOf(trade));
-    if (!best) continue;
-    usedCash.add(best.row);
-    mismatched.add(trade);
-    flagged.push({ records: [trade.record, best.row.record].sort((a, b) => a - b), reason: "cash-pair-mismatch" });
   }
 
   // A leftover cash row at the instant of a flagged trade row is that trade's cash leg: flag it with it.
@@ -539,6 +562,53 @@ export function readParqetCsv(text: string): ParqetReadResult {
     if (!flag) continue;
     usedCash.add(cash);
     flag.records = [...flag.records, cash.record].sort((a, b) => a - b);
+  }
+
+  // Phase 2 (story 2.7): per instant without a flagged trade row, the unpaired trades with a non-zero cash
+  // effect and the unused cash rows are reconciled together: within €0.01 the largest trade is aligned,
+  // above it one standalone TAX books the difference. The trades keep Parqet's figures.
+  const cashDifferences: { at: Placement; proposal: Omit<TransactionProposal, "sequence"> }[] = [];
+  const leftovers = new Map<number, { trades: Trade[]; cash: CashRow[] }>();
+  const groupAt = (instant: number) => {
+    let group = leftovers.get(instant);
+    if (!group) leftovers.set(instant, (group = { trades: [], cash: [] }));
+    return group;
+  };
+  for (const trade of trades) {
+    if (trade.cashRecords.length > 0 || tradeFlags.has(trade.instant) || effectOf(trade).isZero()) continue;
+    groupAt(trade.instant).trades.push(trade);
+  }
+  for (const cash of cashRows) if (!usedCash.has(cash) && leftovers.has(cash.instant)) groupAt(cash.instant).cash.push(cash);
+  for (const group of leftovers.values()) {
+    if (group.cash.length === 0) continue;
+    for (const cash of group.cash) usedCash.add(cash);
+    const cashRecords = group.cash.map((cash) => cash.record);
+    const result = reconcileCashGroup(
+      group.trades.map((trade) => ({ trade, effect: cashEffect(trade), securityKey: trade.securityKey })),
+      group.cash,
+    );
+    if (result.kind === "align") {
+      alignToEffect(result.trade, new ExactDecimal(result.effect), effectOf(result.trade));
+      result.trade.cashRecords.push(...cashRecords);
+      continue;
+    }
+    const last = group.trades[group.trades.length - 1];
+    cashDifferences.push({
+      at: last,
+      proposal: {
+        type: "TAX",
+        date: last.date,
+        securityKey: result.securityKey,
+        quantity: null,
+        price: null,
+        amount: "0",
+        fee: "0",
+        tax: result.tax,
+        realizedGain: null,
+        records: [...group.trades.map((trade) => trade.record), ...cashRecords].sort((a, b) => a - b),
+        cashDifference: true,
+      },
+    });
   }
 
   // Security transfers per instant (AD-7): (a) per Security, TransferOut and TransferIn pair (file order)
@@ -601,7 +671,6 @@ export function readParqetCsv(text: string): ParqetReadResult {
   // Each proposal keeps where it sits in time until it is ordered.
   const pending: { at: Placement; proposal: Omit<TransactionProposal, "sequence"> }[] = [];
   for (const trade of trades) {
-    if (mismatched.has(trade)) continue;
     const proposal: Omit<TransactionProposal, "sequence"> = {
       type: trade.type,
       date: trade.date,
@@ -612,12 +681,14 @@ export function readParqetCsv(text: string): ParqetReadResult {
       fee: trade.fee,
       tax: trade.tax,
       realizedGain: trade.realizedGain,
-      records: trade.cashRecord === undefined ? [trade.record] : [trade.record, trade.cashRecord].sort((a, b) => a - b),
+      records: [trade.record, ...trade.cashRecords].sort((a, b) => a - b),
     };
     if (trade.originalAmount !== undefined) proposal.originalAmount = trade.originalAmount;
     if (trade.originalTax !== undefined) proposal.originalTax = trade.originalTax;
     pending.push({ at: trade, proposal });
   }
+  // Pushed after the trades: the stable sort keeps each difference TAX directly after its group's last trade.
+  pending.push(...cashDifferences);
   for (const cash of cashRows) {
     if (usedCash.has(cash)) continue;
     pending.push({
@@ -676,10 +747,23 @@ export function readParqetCsv(text: string): ParqetReadResult {
     });
   }
   pending.sort((a, b) => compareChronological(a.at, b.at));
-  const sequenced: TransactionProposal[] = pending.map(({ proposal }, index) => ({ ...proposal, sequence: index + 1 }));
+  splitPlacements.sort(compareChronological);
+  changes.sort(compareChronological);
+  const sequenced = withRoundingClamped(
+    pending.map(({ proposal }, index) => ({ ...proposal, sequence: index + 1 })),
+    {
+      splits: splitPlacements.map(({ key, date, ratioOld, ratioNew }) => ({ securityId: key, date, ratioOld, ratioNew })),
+      isinChanges: changes.map(({ oldKey, newKey, date, oldQuantity, newQuantity }) => ({
+        oldSecurityId: oldKey,
+        newSecurityId: newKey,
+        date,
+        oldQuantity,
+        newQuantity,
+      })),
+    },
+  );
   const proposals = cashRows.length === 0 ? withFunding(sequenced) : sequenced;
 
-  splitPlacements.sort(compareChronological);
   const splits: SplitProposal[] = splitPlacements.map(({ date, key, oldQuantity, newQuantity, ratioOld, ratioNew, records }) => ({
     date,
     key,
@@ -689,7 +773,6 @@ export function readParqetCsv(text: string): ParqetReadResult {
     ratioNew,
     records,
   }));
-  changes.sort(compareChronological);
   const isinChanges: IsinChangeProposal[] = changes.map(({ date, oldKey, newKey, oldQuantity, newQuantity, records }) => ({
     date,
     oldKey,

@@ -29,12 +29,14 @@ import {
 } from "@/modules/migration/decisions";
 import {
   ACTION_FAILED_MESSAGE,
+  cashDifferenceNote,
   CLASSIFICATION_OPTIONS,
   confirmFailureMessage,
   countRows,
   fundingNote,
   openDecisionsLabel,
   previewFailureMessage,
+  roundingNote,
   securityTypeLabel,
 } from "./labels";
 import { ParqetDecisions } from "./ParqetDecisions";
@@ -117,6 +119,16 @@ export function ParqetPreviewView({ preview, classification }: { preview: Parqet
         <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
           Rundung angeglichen: {preview.adjustedCount}
         </Typography>
+      ) : null}
+      {preview.cashDifferenceCount > 0 ? (
+        <Alert severity="info" sx={{ mt: 1 }}>
+          {cashDifferenceNote(preview.cashDifferenceCount, preview.cashDifferenceTotal)}
+        </Alert>
+      ) : null}
+      {preview.roundingCount > 0 ? (
+        <Alert severity="info" sx={{ mt: 1 }}>
+          {roundingNote(preview.roundingCount)}
+        </Alert>
       ) : null}
 
       <Section id="parqet-counts" title="Buchungen">

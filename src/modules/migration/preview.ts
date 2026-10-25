@@ -91,6 +91,12 @@ export type ParqetPreview = {
   hasCashRows: boolean;
   /** Number of funding DEPOSITs added for a file without Cash rows (0 with Cash rows). */
   fundingCount: number;
+  /** Number of standalone TAX proposals booking a difference between trades and Cash rows (> €0.01). */
+  cashDifferenceCount: number;
+  /** Canonical Σ tax of those TAX proposals; "0" without any. */
+  cashDifferenceTotal: string;
+  /** Number of SELLs clamped to the held quantity (rounding oversell ≤ 0.001). */
+  roundingCount: number;
   figures: PreviewFigures | null;
 };
 
@@ -199,6 +205,8 @@ export async function analyzeParqetExport(
     (proposal) => proposal.originalAmount !== undefined || proposal.originalTax !== undefined,
   ).length;
 
+  const cashDifferences = read.proposals.filter((proposal) => proposal.cashDifference);
+
   const recordedChanges = await listIsinChanges(db);
   const coreChanges: IsinChange[] = recordedChanges.map((change) => ({
     oldSecurityId: change.oldSecurity.id,
@@ -280,6 +288,12 @@ export async function analyzeParqetExport(
         duplicates,
         hasCashRows: read.hasCashRows,
         fundingCount: read.proposals.filter((proposal) => proposal.funding).length,
+        cashDifferenceCount: cashDifferences.length,
+        cashDifferenceTotal: canonicalDecimal(
+          cashDifferences.reduce((sum, proposal) => sum.plus(proposal.tax), new ExactDecimal(0)),
+        ),
+        roundingCount: read.proposals.filter((proposal) => proposal.type === "SELL" && proposal.originalQuantity !== undefined)
+          .length,
         figures,
       },
     },

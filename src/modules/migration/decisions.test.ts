@@ -43,7 +43,7 @@ const security = (key: string, assetType: "ETF" | "STOCK" | "CRYPTO", existing =
 
 const PREVIEW: Pick<ParqetPreview, "securities" | "flagged" | "duplicates"> = {
   securities: [security("A", "STOCK"), security("B", "ETF", true), security("C", "CRYPTO"), security("D", "STOCK", true)],
-  flagged: [{ records: [4, 5], reason: "cash-pair-mismatch", rows: [] }],
+  flagged: [{ records: [4, 5], reason: "non-eur", detail: "USD", rows: [] }],
   duplicates: [
     {
       key: "9",

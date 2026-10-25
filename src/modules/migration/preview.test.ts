@@ -50,8 +50,8 @@ describe("previewParqetMigration", () => {
     const { preview } = result;
 
     expect(preview.depot).toEqual({ id: target.id, name: "Hauptdepot" });
-    expect(preview.exportDate).toBe("2024-07-03");
-    expect(preview.counts).toEqual({ BUY: 4, SELL: 1, DIVIDEND: 1, TAX: 1, DEPOSIT: 2, WITHDRAWAL: 1 });
+    expect(preview.exportDate).toBe("2024-07-04");
+    expect(preview.counts).toEqual({ BUY: 5, SELL: 1, DIVIDEND: 1, TAX: 2, DEPOSIT: 2, WITHDRAWAL: 1 });
     expect(preview.adjustedCount).toBe(1);
     expect(preview.splits).toEqual([]);
     expect(preview.isinChanges).toEqual([expect.objectContaining({ oldKey: "DE0007164600", recorded: false })]);
@@ -61,11 +61,14 @@ describe("previewParqetMigration", () => {
     expect(preview.duplicates).toEqual([]);
     expect(preview.hasCashRows).toBe(true);
     expect(preview.fundingCount).toBe(0);
+    // Records 4-5: BUY 99 + fee 1 against a cash row of 90 → the BUY as in Parqet plus a TAX refund of 10.
+    expect(preview.cashDifferenceCount).toBe(1);
+    expect(preview.cashDifferenceTotal).toBe("-10");
+    expect(preview.roundingCount).toBe(0);
     expect(preview.flagged[0].rows[0]).toMatchObject({ type: "Buy", assettype: "Cash" });
     expect(preview.flagged.map((flag) => flag.reason)).toEqual([
       "unsupported-row",
       "unparseable",
-      "cash-pair-mismatch",
       "unparseable",
       "non-eur",
     ]);
@@ -78,13 +81,13 @@ describe("previewParqetMigration", () => {
     ]);
     expect(preview.figures).toEqual({
       positions: [
-        { securityKey: "US0378331005", name: 'Apfel "Tech" Inc.; Class A', quantity: "5", costBasis: "62.23" },
+        { securityKey: "US0378331005", name: 'Apfel "Tech" Inc.; Class A', quantity: "15", costBasis: "162.23" },
         { securityKey: "BTC", name: "Bitcoin", quantity: "0.00012345", costBasis: "4.938" },
         { securityKey: "DE000SYN0013", name: "Neuname Software SE", quantity: "6.00172839", costBasis: "1201.335678" },
         { securityKey: "IE00B4L5Y983", name: "Welt ETF", quantity: "3", costBasis: "300" },
       ],
-      investedCapital: "1568.503678",
-      cashBalance: "9142.666322",
+      investedCapital: "1668.503678",
+      cashBalance: "9052.666322",
     });
     // Plain, serialisable data.
     expect(JSON.parse(JSON.stringify(preview))).toEqual(preview);

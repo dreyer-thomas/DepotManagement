@@ -53,7 +53,7 @@ development_status:
   2-4-confirm-migration-and-reconcile-with-parqet: backlog
   2-5-hands-off-parqet-migration: done
   2-6-funding-for-exports-without-cash-rows-and-depot-deletion: done
-  2-7-robust-cash-pairing-and-rounding-tolerance-in-the-parqet-mig: backlog
+  2-7-robust-cash-pairing-and-rounding-tolerance-in-the-parqet-mig: done
   epic-2-retrospective: optional
 
   epic-3: backlog
