@@ -52,9 +52,12 @@ export type {
   UnarchiveDepotResult,
 } from "./depots";
 export {
+  allowedAssetTypes,
   ASSET_TYPES,
+  changeSecurityType,
   cryptoSymbolSchema,
   ensureSecurity,
+  getSecurity,
   ISIN_ASSET_TYPES,
   isinSchema,
   listSecurities,
@@ -62,6 +65,7 @@ export {
 } from "./securities";
 export type {
   AssetType,
+  ChangeSecurityTypeResult,
   SecurityDetailsInput,
   SecurityFailureReason,
   SecurityIdentifierInput,

@@ -1,0 +1,53 @@
+{
+  "coins": [
+    {
+      "id": "bitcoin",
+      "name": "Bitcoin",
+      "api_symbol": "bitcoin",
+      "symbol": "BTC",
+      "market_cap_rank": 1,
+      "thumb": "https://coin-images.coingecko.com/coins/images/1/thumb/bitcoin.png",
+      "large": "https://coin-images.coingecko.com/coins/images/1/large/bitcoin.png"
+    },
+    {
+      "id": "bitget-wrapped-btc",
+      "name": "Bitget Wrapped BTC",
+      "api_symbol": "bitget-wrapped-btc",
+      "symbol": "BGBTC",
+      "market_cap_rank": 284,
+      "thumb": "https://coin-images.coingecko.com/coins/images/102172988/thumb/20260423-114744.png",
+      "large": "https://coin-images.coingecko.com/coins/images/102172988/large/20260423-114744.png"
+    },
+    {
+      "id": "strkbtc",
+      "name": "strkBTC",
+      "api_symbol": "strkbtc",
+      "symbol": "STRKBTC",
+      "market_cap_rank": 1350,
+      "thumb": "https://coin-images.coingecko.com/coins/images/102173511/thumb/strkBTC_Logo.png",
+      "large": "https://coin-images.coingecko.com/coins/images/102173511/large/strkBTC_Logo.png"
+    },
+    {
+      "id": "bitcoin-pro",
+      "name": "Bitcoin Pro",
+      "api_symbol": "bitcoin-pro",
+      "symbol": "BTCP",
+      "market_cap_rank": 1502,
+      "thumb": "https://coin-images.coingecko.com/coins/images/3545/thumb/DSiD9ZhWsAE_8cS.png",
+      "large": "https://coin-images.coingecko.com/coins/images/3545/large/DSiD9ZhWsAE_8cS.png"
+    },
+    {
+      "id": "bitcoin-usd-btcfi",
+      "name": "Bitcoin USD (BTCFi)",
+      "api_symbol": "bitcoin-usd-btcfi",
+      "symbol": "BTCUSD",
+      "market_cap_rank": 1592,
+      "thumb": "https://coin-images.coingecko.com/coins/images/37181/thumb/BtcUSD_Logo.png",
+      "large": "https://coin-images.coingecko.com/coins/images/37181/large/BtcUSD_Logo.png"
+    }
+  ],
+  "exchanges": [],
+  "icos": [],
+  "categories": [],
+  "nfts": []
+}

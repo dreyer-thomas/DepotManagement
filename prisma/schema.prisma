@@ -58,6 +58,7 @@ model Security {
   corporateActions CorporateAction[] @relation("CorporateActionSecurity")
   /// ISIN changes whose new Security this is.
   isinChangeSources CorporateAction[] @relation("IsinChangeTarget")
+  providerMapping   ProviderMapping?
 }
 
 // Canonical Transaction shape (AD-14). Decimal values are TEXT strings; ordered by (date, sequence).
@@ -106,4 +107,28 @@ model CorporateAction {
   @@unique([securityId, type, date])
   @@index([securityId])
   @@index([newSecurityId])
+}
+
+enum PriceProvider {
+  YAHOO
+  ONVISTA
+  COINGECKO
+}
+
+enum MappingOrigin {
+  AUTO
+  MANUAL
+}
+
+// Owned by the prices module (AD-9). At most one row per Security. A row is either mapped
+// (provider + symbol both set) or a "not found" marker (both null) recording that auto-resolution ran.
+model ProviderMapping {
+  id         String         @id @default(cuid())
+  securityId String         @unique
+  security   Security       @relation(fields: [securityId], references: [id], onDelete: Cascade)
+  provider   PriceProvider?
+  symbol     String?
+  origin     MappingOrigin
+  /// UTC ISO timestamp of the last write.
+  updatedAt  String
 }

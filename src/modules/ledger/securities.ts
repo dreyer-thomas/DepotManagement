@@ -152,8 +152,50 @@ export async function ensureSecurity(
   }
 }
 
+/** The Security with this id, or null. */
+export async function getSecurity(securityId: string, db: LedgerDb = prisma): Promise<SecuritySummary | null> {
+  return db.security.findUnique({ where: { id: securityId }, select: SECURITY_SELECT });
+}
+
 /** All Securities sorted by name (de-DE collation). */
 export async function listSecurities(db: LedgerDb = prisma): Promise<SecuritySummary[]> {
   const securities = await db.security.findMany({ select: SECURITY_SELECT });
   return securities.sort((a, b) => a.name.localeCompare(b.name, "de-DE"));
+}
+
+/**
+ * Asset types a Security may be changed to: STOCK/ETF/FUND/CERTIFICATE for an ISIN Security, CRYPTO
+ * for a crypto Security (CRYPTO ⇔ crypto symbol). Never `UNCLASSIFIED`.
+ */
+export function allowedAssetTypes(security: Pick<SecuritySummary, "isin" | "cryptoSymbol">): AssetType[] {
+  return security.isin !== null ? [...ISIN_ASSET_TYPES] : ["CRYPTO"];
+}
+
+export type ChangeSecurityTypeResult =
+  | { ok: true; security: SecuritySummary }
+  | { ok: false; reason: "not-found" | "asset-type-invalid" };
+
+/**
+ * Changes a Security's asset type (AD-16: only the ledger writes it). The target must match the
+ * identifier (see `allowedAssetTypes`); provider mappings are left untouched.
+ */
+export async function changeSecurityType(
+  securityId: unknown,
+  assetType: unknown,
+  db: LedgerDb = prisma,
+): Promise<ChangeSecurityTypeResult> {
+  if (typeof securityId !== "string" || securityId === "") return { ok: false, reason: "not-found" };
+  const parsed = assetTypeSchema.safeParse(assetType);
+  const security = await getSecurity(securityId, db);
+  if (!security) return { ok: false, reason: "not-found" };
+  if (!parsed.success || !allowedAssetTypes(security).includes(parsed.data)) {
+    return { ok: false, reason: "asset-type-invalid" };
+  }
+  if (security.assetType === parsed.data) return { ok: true, security };
+  const updated = await db.security.update({
+    where: { id: securityId },
+    data: { assetType: parsed.data },
+    select: SECURITY_SELECT,
+  });
+  return { ok: true, security: updated };
 }

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createTestDatabase, type TestDatabase } from "../../../test/helpers/test-db";
-import { ensureSecurity, listSecurities } from "./index";
+import { allowedAssetTypes, changeSecurityType, ensureSecurity, listSecurities } from "./index";
 import { hasValidIsinCheckDigit } from "./securities";
 
 let testDb: TestDatabase;
@@ -98,5 +98,50 @@ describe("listSecurities", () => {
     await ensureSecurity({ isin: "IE00B4L5Y983" }, { name: "Öko", assetType: "ETF" }, db());
     await ensureSecurity({ cryptoSymbol: "BTC" }, { name: "bitcoin", assetType: "CRYPTO" }, db());
     expect((await listSecurities(db())).map((s) => s.name)).toEqual(["bitcoin", "Öko", "Zeta"]);
+  });
+});
+
+describe("changeSecurityType", () => {
+  async function isinSecurity(assetType: "STOCK" | "UNCLASSIFIED" = "STOCK") {
+    return db().security.create({
+      data: { isin: "IE00B4L5Y983", name: "Welt ETF", assetType },
+      select: { id: true, name: true, isin: true, cryptoSymbol: true, assetType: true },
+    });
+  }
+
+  it("stores a new type valid for an ISIN Security", async () => {
+    const security = await isinSecurity();
+    expect(await changeSecurityType(security.id, "ETF", db())).toEqual({ ok: true, security: { ...security, assetType: "ETF" } });
+    expect((await listSecurities(db()))[0].assetType).toBe("ETF");
+  });
+
+  it("classifies an UNCLASSIFIED Security", async () => {
+    const security = await isinSecurity("UNCLASSIFIED");
+    const result = await changeSecurityType(security.id, "FUND", db());
+    expect(result.ok && result.security.assetType).toBe("FUND");
+  });
+
+  it.each(["CRYPTO", "UNCLASSIFIED", "BOND", 42, undefined])("rejects %j for an ISIN Security", async (assetType) => {
+    const security = await isinSecurity();
+    expect(await changeSecurityType(security.id, assetType, db())).toEqual({ ok: false, reason: "asset-type-invalid" });
+    expect((await listSecurities(db()))[0].assetType).toBe("STOCK");
+  });
+
+  it("rejects non-CRYPTO types for a crypto Security", async () => {
+    const btc = await ensureSecurity({ cryptoSymbol: "BTC" }, { name: "Bitcoin", assetType: "CRYPTO" }, db());
+    if (!btc.ok) throw new Error("setup failed");
+    expect(await changeSecurityType(btc.security.id, "STOCK", db())).toEqual({ ok: false, reason: "asset-type-invalid" });
+    expect(await changeSecurityType(btc.security.id, "CRYPTO", db())).toEqual(btc);
+  });
+
+  it.each(["missing", "", 7, null])("returns not-found for id %j", async (id) => {
+    expect(await changeSecurityType(id, "ETF", db())).toEqual({ ok: false, reason: "not-found" });
+  });
+});
+
+describe("allowedAssetTypes", () => {
+  it("offers the ISIN types for an ISIN Security and CRYPTO for a crypto Security, never UNCLASSIFIED", () => {
+    expect(allowedAssetTypes({ isin: "IE00B4L5Y983", cryptoSymbol: null })).toEqual(["STOCK", "ETF", "FUND", "CERTIFICATE"]);
+    expect(allowedAssetTypes({ isin: null, cryptoSymbol: "BTC" })).toEqual(["CRYPTO"]);
   });
 });
