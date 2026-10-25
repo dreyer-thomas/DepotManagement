@@ -66,8 +66,18 @@ export type {
   SecurityResult,
   SecuritySummary,
 } from "./securities";
-export { listPositions } from "./positions";
-export type { PositionRecord } from "./positions";
+export { listPositions, listRealizedSales } from "./positions";
+export type { PositionRecord, RealizedSaleRecord } from "./positions";
+export { BATCH_TIMEOUT_MS, recordBatch } from "./batch";
+export type {
+  BatchEntry,
+  BatchFailure,
+  BatchIsinChangeEntry,
+  BatchSecurity,
+  BatchTransactionEntry,
+  RecordBatchInput,
+  RecordBatchResult,
+} from "./batch";
 export { listCashBookings } from "./cash";
 export type { CashBookingRecord } from "./cash";
 export {

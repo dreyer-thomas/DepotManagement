@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createTestDatabase, type TestDatabase } from "../../../test/helpers/test-db";
-import { archiveDepot, createDepot, ensureSecurity } from "@/modules/ledger";
+import { archiveDepot, createDepot, ensureSecurity, recordIsinChange, recordTransaction } from "@/modules/ledger";
 import { previewParqetMigration } from "./preview";
 
 const FIXTURE = readFileSync(resolve(__dirname, "../../../test/fixtures/parqet/synthetic-export.csv.txt"), "utf8");
@@ -53,7 +53,10 @@ describe("previewParqetMigration", () => {
     expect(preview.exportDate).toBe("2024-06-10");
     expect(preview.counts).toEqual({ BUY: 3, SELL: 1, DIVIDEND: 1, TAX: 1, DEPOSIT: 1, WITHDRAWAL: 1 });
     expect(preview.adjustedCount).toBe(1);
-    expect(preview.isinChanges).toHaveLength(1);
+    expect(preview.isinChanges).toEqual([expect.objectContaining({ oldKey: "DE0007164600", recorded: false })]);
+    expect(preview.duplicates).toEqual([]);
+    expect(preview.hasCashRows).toBe(true);
+    expect(preview.flagged[0].rows[0]).toMatchObject({ type: "Buy", assettype: "Cash" });
     expect(preview.flagged.map((flag) => flag.reason)).toEqual([
       "unsupported-row",
       "unparseable",
@@ -124,6 +127,47 @@ describe("previewParqetMigration", () => {
     if (!result.ok) throw new Error(result.reason);
     expect(result.preview.exportDate).toBeNull();
     expect(result.preview.figures).toBeNull();
-    expect(result.preview.flagged).toEqual([{ records: [2], reason: "unparseable", detail: "datetime" }]);
+    expect(result.preview.flagged).toEqual([
+      expect.objectContaining({ records: [2], reason: "unparseable", detail: "datetime" }),
+    ]);
+  });
+});
+
+describe("previewParqetMigration — against the existing ledger", () => {
+  it("lists proposals matching the Depot's rows as duplicates (only that Depot, never within the file)", async () => {
+    const target = await depot();
+    const other = await depot("Zweitdepot");
+    const apple = await ensureSecurity({ isin: "US0378331005" }, { name: "Apple Inc.", assetType: "STOCK" }, testDb.client);
+    if (!apple.ok) throw new Error("setup failed");
+    const deposit = { type: "DEPOSIT", date: "2024-01-02", amount: "10000" } as const;
+    expect((await recordTransaction({ depotId: target.id, ...deposit }, testDb.client)).ok).toBe(true);
+    // Two identical dividends → the proposal is ambiguous.
+    for (let i = 0; i < 2; i++) {
+      const dividend = { depotId: target.id, type: "DIVIDEND", date: "2024-03-01", amount: "30.005", tax: "4.5", security: { id: apple.security.id }, allowDuplicate: true };
+      expect((await recordTransaction(dividend, testDb.client)).ok).toBe(true);
+    }
+    expect((await recordTransaction({ depotId: other.id, type: "WITHDRAWAL", date: "2024-06-10", amount: "50" }, testDb.client)).ok).toBe(true);
+
+    const result = await previewParqetMigration(target.id, FIXTURE, testDb.client);
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.preview.duplicates.map((d) => [d.key, d.proposal.type, d.status, d.matches.length])).toEqual([
+      ["24", "DEPOSIT", "duplicate", 1],
+      ["18-19", "DIVIDEND", "ambiguous", 2],
+    ]);
+    expect(result.preview.duplicates[0].matches[0]).toMatchObject({ type: "DEPOSIT", amount: "10000", date: "2024-01-02" });
+  });
+
+  it("marks an ISIN change whose old Security already has one on that date as recorded", async () => {
+    const target = await depot();
+    const old = await ensureSecurity({ isin: "DE0007164600" }, { name: "Alt", assetType: "STOCK" }, testDb.client);
+    if (!old.ok) throw new Error("setup failed");
+    const changed = await recordIsinChange(
+      { oldSecurityId: old.security.id, newSecurity: { new: { isin: "DE000SYN0013", name: "Neu", assetType: "STOCK" } }, date: "2024-05-02", oldQuantity: "2", newQuantity: "1" },
+      testDb.client,
+    );
+    expect(changed.ok).toBe(true);
+    const result = await previewParqetMigration(target.id, FIXTURE, testDb.client);
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.preview.isinChanges[0].recorded).toBe(true);
   });
 });

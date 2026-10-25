@@ -1,4 +1,5 @@
 import { prisma } from "@/db";
+import { fifo } from "@/core/fifo";
 import { computePositions, type Position } from "@/core/positions";
 import type { PriceObservation } from "@/core/prices";
 import { loadCorporateActions } from "./corporate-actions";
@@ -56,4 +57,23 @@ export async function listPositions(depotId: string, today: string, db: LedgerDb
   });
   const byId = new Map(securities.map((security) => [security.id, security]));
   return positions.map(({ securityId, ...position }) => ({ ...position, security: byId.get(securityId)! }));
+}
+
+/** One realized SELL of a Depot (computed on read): its ledger position and FIFO gain (gross, tax excluded). */
+export type RealizedSaleRecord = { securityId: string; date: string; sequence: number; gain: string };
+
+/**
+ * The Depot's SELLs dated on or before `asOf` with their FIFO realized gain (`core/fifo`, replayed with
+ * every recorded corporate action as of `asOf`), ordered by `(date, sequence)`. Read-only.
+ */
+export async function listRealizedSales(depotId: string, asOf: string, db: LedgerDb = prisma): Promise<RealizedSaleRecord[]> {
+  const rows = await db.transaction.findMany({
+    where: { depotId, type: { in: ["BUY", "SELL"] } },
+    select: { securityId: true, type: true, date: true, sequence: true, quantity: true, amount: true, fee: true },
+  });
+  if (rows.length === 0) return [];
+  const actions = await loadCorporateActions(db);
+  return fifo(rows, asOf, actions)
+    .flatMap(({ securityId, sales }) => sales.map((sale) => ({ securityId, date: sale.date, sequence: sale.sequence, gain: sale.gain })))
+    .sort((a, b) => (a.date !== b.date ? (a.date < b.date ? -1 : 1) : a.sequence - b.sequence));
 }

@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { cashEffect } from "@/core/cash";
-import { type ParqetReadResult, readParqetCsv } from "./parqet-reader";
+import { type FlaggedRow, type ParqetReadResult, readParqetCsv } from "./parqet-reader";
 
 const FIXTURE = readFileSync(resolve(__dirname, "../../../test/fixtures/parqet/synthetic-export.csv.txt"), "utf8");
 
@@ -52,6 +52,15 @@ const cash = (type: "TransferIn" | "TransferOut", amount: string, datetime = T):
   assettype: "Cash",
   amount,
 });
+
+/** Flags without their raw rows (checked separately). */
+function withoutRows(flagged: readonly FlaggedRow[]) {
+  return flagged.map((flag) => {
+    const copy: Partial<FlaggedRow> = { ...flag };
+    delete copy.rows;
+    return copy;
+  });
+}
 
 function ok(result: ParqetReadResult) {
   if (!result.ok) throw new Error(`expected ok, got ${JSON.stringify(result)}`);
@@ -152,7 +161,7 @@ describe("readParqetCsv — synthetic fixture", () => {
         amount: "500",
         fee: "1",
         tax: "-2",
-        realizedGain: "438.77",
+        realizedGain: "436.77",
         records: [10, 11],
       },
       {
@@ -185,7 +194,7 @@ describe("readParqetCsv — synthetic fixture", () => {
   });
 
   it("flags every row that must not be booked, with record numbers", () => {
-    expect(result.flagged).toEqual([
+    expect(withoutRows(result.flagged)).toEqual([
       { records: [2], reason: "unsupported-row", detail: "Buy/Cash" },
       { records: [3], reason: "unparseable", detail: "datetime" },
       { records: [4, 5], reason: "cash-pair-mismatch" },
@@ -202,6 +211,38 @@ describe("readParqetCsv — synthetic fixture", () => {
       { key: "DE000SYN0013", isin: "DE000SYN0013", cryptoSymbol: null, name: "Neuname Software SE", proposedAssetType: "UNCLASSIFIED" },
       { key: AAPL, isin: AAPL, cryptoSymbol: null, name: 'Apfel "Tech" Inc.; Class A', proposedAssetType: "UNCLASSIFIED" },
     ]);
+  });
+
+  it("keeps the raw text of each flagged record for review and correction", () => {
+    const transfer = result.flagged.find((flag) => flag.reason === "unpaired-security-transfer");
+    expect(transfer?.rows).toEqual([
+      {
+        datetime: "2024-07-03T06:00:00.000Z",
+        type: "TransferIn",
+        assettype: "Security",
+        identifier: "IE00B4L5Y983",
+        holdingname: "Welt ETF",
+        shares: "3",
+        price: "0",
+        amount: "300",
+        fee: "0",
+        tax: "0",
+        currency: "EUR",
+      },
+    ]);
+    const mismatch = result.flagged.find((flag) => flag.reason === "cash-pair-mismatch");
+    expect(mismatch?.rows.map((row) => [row.type, row.assettype, row.amount])).toEqual([
+      ["TransferOut", "Cash", "90"],
+      ["Buy", "Security", "99"],
+    ]);
+    // A record with the wrong field count still lists what it has.
+    expect(result.flagged.find((flag) => flag.records[0] === 3)?.rows[0].datetime).toBe("garbage");
+  });
+
+  it("reports whether the file has Cash Account rows", () => {
+    expect(result.hasCashRows).toBe(true);
+    const noCash = ok(readParqetCsv(csv({ type: "Buy", identifier: AAPL, shares: "1", price: "10", amount: "10" })));
+    expect(noCash.hasCashRows).toBe(false);
   });
 
   it("takes the latest proposal date as export date", () => {
@@ -254,7 +295,7 @@ describe("readParqetCsv — mapping rules", () => {
     expect(result.proposals).toEqual([
       expect.objectContaining({ type: "TAX", securityKey: AAPL, amount: "0", fee: "0", tax: "3.1", records: [2, 3] }),
     ]);
-    expect(result.flagged).toEqual([{ records: [4], reason: "unsupported-row", detail: "cost/Cash" }]);
+    expect(withoutRows(result.flagged)).toEqual([{ records: [4], reason: "unsupported-row", detail: "cost/Cash" }]);
   });
 
   it("aligns a TAX's tax to its cash row", () => {
@@ -281,7 +322,7 @@ describe("readParqetCsv — mapping rules", () => {
         ),
       ),
     );
-    expect(flagged).toEqual([]);
+    expect(withoutRows(flagged)).toEqual([]);
     expect(proposals.map((p) => [p.type, p.records])).toEqual([
       ["BUY", [2]],
       ["WITHDRAWAL", [3]],
@@ -293,7 +334,7 @@ describe("readParqetCsv — mapping rules", () => {
       readParqetCsv(csv({ type: "Buy", identifier: AAPL, shares: "10", price: "9,9", amount: "99", fee: "1" }, cash("TransferOut", "90"))),
     );
     expect(result.proposals).toEqual([]);
-    expect(result.flagged).toEqual([{ records: [2, 3], reason: "cash-pair-mismatch" }]);
+    expect(withoutRows(result.flagged)).toEqual([{ records: [2, 3], reason: "cash-pair-mismatch" }]);
   });
 
   it("pairs each trade with the closest cash row of the same datetime and direction", () => {
@@ -326,7 +367,7 @@ describe("readParqetCsv — mapping rules", () => {
       { date: "2024-05-06", oldKey: AAPL, newKey: "DE000SYN0013", oldQuantity: "10", newQuantity: "5", records: [2, 3] },
     ]);
     expect(result.proposals).toEqual([]);
-    expect(result.flagged).toEqual([]);
+    expect(withoutRows(result.flagged)).toEqual([]);
     expect(result.exportDate).toBe("2024-05-06");
   });
 
@@ -351,7 +392,7 @@ describe("readParqetCsv — mapping rules", () => {
   ] as [string, Row[], number[]][])("flags %s as unpaired-security-transfer", (_label, rows, records) => {
     const result = ok(readParqetCsv(csv(...rows)));
     expect(result.isinChanges).toEqual([]);
-    expect(result.flagged).toEqual([{ records, reason: "unpaired-security-transfer" }]);
+    expect(withoutRows(result.flagged)).toEqual([{ records, reason: "unpaired-security-transfer" }]);
   });
 
   it.each([
@@ -359,12 +400,12 @@ describe("readParqetCsv — mapping rules", () => {
     ["", ""],
   ])("flags currency %j as non-eur", (currency, detail) => {
     const result = ok(readParqetCsv(csv({ type: "Buy", identifier: AAPL, shares: "1", price: "1", amount: "1", currency })));
-    expect(result.flagged).toEqual([{ records: [2], reason: "non-eur", detail }]);
+    expect(withoutRows(result.flagged)).toEqual([{ records: [2], reason: "non-eur", detail }]);
   });
 
   it("accepts eur in any case", () => {
     const result = ok(readParqetCsv(csv({ type: "Buy", identifier: AAPL, shares: "1", price: "1", amount: "1", currency: "eur" })));
-    expect(result.flagged).toEqual([]);
+    expect(withoutRows(result.flagged)).toEqual([]);
     expect(result.proposals).toHaveLength(1);
   });
 
@@ -383,7 +424,7 @@ describe("readParqetCsv — mapping rules", () => {
   ])("flags %s as unparseable", (_label, row, detail) => {
     const result = ok(readParqetCsv(csv(row)));
     expect(result.proposals).toEqual([]);
-    expect(result.flagged).toEqual([{ records: [2], reason: "unparseable", detail }]);
+    expect(withoutRows(result.flagged)).toEqual([{ records: [2], reason: "unparseable", detail }]);
   });
 
   it("aligns a Sell to its cash row", () => {
@@ -423,7 +464,7 @@ describe("readParqetCsv — mapping rules", () => {
       readParqetCsv(csv({ type: "Buy", identifier: AAPL, shares: "1", price: "10", amount: "10", currency: "USD" }, cash("TransferOut", "9,2"))),
     );
     expect(result.proposals).toEqual([]);
-    expect(result.flagged).toEqual([{ records: [2, 3], reason: "non-eur", detail: "USD" }]);
+    expect(withoutRows(result.flagged)).toEqual([{ records: [2, 3], reason: "non-eur", detail: "USD" }]);
   });
 
   it("pairs cash rows and Security transfers by instant, however the datetime is spelled", () => {
@@ -437,7 +478,7 @@ describe("readParqetCsv — mapping rules", () => {
         ),
       ),
     );
-    expect(result.flagged).toEqual([]);
+    expect(withoutRows(result.flagged)).toEqual([]);
     expect(result.proposals).toEqual([expect.objectContaining({ type: "BUY", records: [2, 3] })]);
     expect(result.isinChanges).toEqual([expect.objectContaining({ oldKey: AAPL, newKey: "DE000SYN0013", records: [4, 5] })]);
   });
@@ -457,7 +498,7 @@ describe("readParqetCsv — mapping rules", () => {
 
   it("flags a row with the wrong field count as unparseable", () => {
     const result = ok(readParqetCsv(`${HEADER}\n${T};1;1`));
-    expect(result.flagged).toEqual([{ records: [2], reason: "unparseable" }]);
+    expect(withoutRows(result.flagged)).toEqual([{ records: [2], reason: "unparseable" }]);
     expect(result.exportDate).toBeNull();
   });
 
@@ -467,7 +508,7 @@ describe("readParqetCsv — mapping rules", () => {
     ["Buy", "Bond", "Buy/Bond"],
   ])("flags type %s with assettype %s as unsupported-row", (type, assettype, detail) => {
     const result = ok(readParqetCsv(csv({ type, assettype, identifier: AAPL, shares: "1", price: "1", amount: "1" })));
-    expect(result.flagged).toEqual([{ records: [2], reason: "unsupported-row", detail }]);
+    expect(withoutRows(result.flagged)).toEqual([{ records: [2], reason: "unsupported-row", detail }]);
   });
 
   it.each([

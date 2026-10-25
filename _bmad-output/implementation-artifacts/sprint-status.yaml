@@ -50,7 +50,7 @@ development_status:
   2-1-record-stock-splits: done
   2-2-record-isin-changes: done
   2-3-parqet-export-preview: done
-  2-4-confirm-migration-and-reconcile-with-parqet: backlog
+  2-4-confirm-migration-and-reconcile-with-parqet: awaiting-operator
   epic-2-retrospective: optional
 
   epic-3: backlog

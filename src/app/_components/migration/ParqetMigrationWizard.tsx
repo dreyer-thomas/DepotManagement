@@ -14,11 +14,29 @@ import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
-import { type FormEvent, type ReactNode, startTransition, useActionState, useState } from "react";
-import { previewParqetAction, type PreviewParqetActionState } from "@/app/_actions/migration";
+import { type FormEvent, type ReactNode, useState, useTransition } from "react";
+import { confirmParqetAction, previewParqetAction } from "@/app/_actions/migration";
 import { formatDate, formatMoney, formatQuantity } from "@/core/format";
-import type { ParqetPreview } from "@/modules/migration";
-import { countRows, flagReasonLabel, previewFailureMessage, recordsLabel, securityTypeLabel } from "./labels";
+import type { MigrationSummary, ParqetPreview } from "@/modules/migration";
+import {
+  carryDecisions,
+  EMPTY_DECISIONS,
+  initialDecisions,
+  type MigrationDecisions,
+  openDecisions,
+} from "@/modules/migration/decisions";
+import {
+  ACTION_FAILED_MESSAGE,
+  confirmFailureMessage,
+  countRows,
+  flagReasonLabel,
+  openDecisionsLabel,
+  previewFailureMessage,
+  recordsLabel,
+  securityTypeLabel,
+} from "./labels";
+import { ParqetDecisions } from "./ParqetDecisions";
+import { ParqetSummaryView } from "./ParqetSummaryView";
 
 const TOUCH_TARGET = { minHeight: 44 };
 const NUMERIC = { fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" } as const;
@@ -95,6 +113,7 @@ export function ParqetPreviewView({ preview }: { preview: ParqetPreview }) {
                 <Typography variant="body2" component="span" sx={{ fontVariantNumeric: "tabular-nums" }}>
                   {formatDate(change.date)}: {securityLabel(change.oldKey)} → {securityLabel(change.newKey)},{" "}
                   {formatQuantity(change.oldQuantity)} : {formatQuantity(change.newQuantity)}
+                  {change.recorded ? " · bereits erfasst, wird nicht erneut gebucht" : ""}
                 </Typography>
               </li>
             ))}
@@ -110,7 +129,7 @@ export function ParqetPreviewView({ preview }: { preview: ParqetPreview }) {
         ) : (
           <>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-              Diese Zeilen werden nicht gebucht und fließen in keine Zahl ein.
+              Diese Zeilen fließen in keine Zahl ein und werden nur gebucht, wenn du sie korrigierst.
             </Typography>
             <Box component="ul" sx={{ m: 0, pl: 2.5 }}>
               {preview.flagged.map((flag) => (
@@ -215,23 +234,91 @@ export function ParqetPreviewView({ preview }: { preview: ParqetPreview }) {
   );
 }
 
+type Loaded = { preview: ParqetPreview; file: File; depotId: string };
+
 /**
- * "Aus Parqet übernehmen" wizard, step 1: pick a Parqet CSV and the target Depot, then show the read-only
- * preview. Booking (and classifying Securities) follows in story 2.4.
+ * "Aus Parqet übernehmen" wizard: pick a Parqet CSV and the target Depot, review the preview, decide the
+ * open items, then "Übernehmen" re-sends the same file and Depot with the decisions; the summary compares
+ * the booked ledger with Parqet. Server actions are called directly so preview, decisions and summary
+ * live in one client state; nothing is written optimistically.
  */
 export function ParqetMigrationWizard({ depots }: { depots: WizardDepot[] }) {
   const [depotId, setDepotId] = useState(depots[0]?.id ?? "");
   const [fileName, setFileName] = useState("");
-  const [state, formAction, pending] = useActionState<PreviewParqetActionState, FormData>(previewParqetAction, null);
+  const [loaded, setLoaded] = useState<Loaded | null>(null);
+  const [decisions, setDecisions] = useState<MigrationDecisions>(EMPTY_DECISIONS);
+  const [summary, setSummary] = useState<MigrationSummary | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
 
-  // Submit manually so the chosen file stays selected after the preview (React resets action forms).
+  /** A changed file or Depot makes the preview (and any summary) stale. */
+  const reset = () => {
+    setLoaded(null);
+    setSummary(null);
+    setError(null);
+    setDecisions(EMPTY_DECISIONS);
+  };
+
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
-    startTransition(() => formAction(data));
+    const file = data.get("file");
+    const target = String(data.get("depotId") ?? "");
+    startTransition(async () => {
+      let result: Awaited<ReturnType<typeof previewParqetAction>>;
+      try {
+        result = await previewParqetAction(null, data);
+      } catch {
+        setError(ACTION_FAILED_MESSAGE);
+        return;
+      }
+      setSummary(null);
+      if (result?.ok && file instanceof File) {
+        setLoaded({ preview: result.preview, file, depotId: target });
+        setDecisions(initialDecisions(result.preview));
+        setError(null);
+      } else {
+        setLoaded(null);
+        setError(result && !result.ok ? previewFailureMessage(result) : null);
+      }
+    });
   };
 
-  const failure = state && !state.ok ? state : undefined;
+  /** A changed decision makes the last failure message stale. */
+  const changeDecisions = (next: MigrationDecisions) => {
+    setDecisions(next);
+    setError(null);
+  };
+
+  const open = loaded ? openDecisions(loaded.preview, decisions) : [];
+
+  const confirm = () => {
+    if (!loaded || open.length > 0) return;
+    const data = new FormData();
+    data.set("file", loaded.file);
+    data.set("depotId", loaded.depotId);
+    data.set("decisions", JSON.stringify(decisions));
+    startTransition(async () => {
+      let result: Awaited<ReturnType<typeof confirmParqetAction>>;
+      try {
+        result = await confirmParqetAction(data);
+      } catch {
+        setError(ACTION_FAILED_MESSAGE);
+        return;
+      }
+      if (result.ok) {
+        setSummary(result.summary);
+        setLoaded(null);
+        setError(null);
+        return;
+      }
+      if (result.reason === "decisions-open") {
+        setLoaded({ ...loaded, preview: result.preview });
+        setDecisions(carryDecisions(result.preview, decisions));
+      }
+      setError(confirmFailureMessage(result));
+    });
+  };
 
   return (
     <>
@@ -239,24 +326,23 @@ export function ParqetMigrationWizard({ depots }: { depots: WizardDepot[] }) {
         <CardContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             Lade den CSV-Export eines Parqet-Portfolios hoch und wähle das Ziel-Depot. Die Vorschau zeigt, was gebucht
-            würde – gebucht wird noch nichts.
+            würde – gebucht wird erst mit „Übernehmen“.
           </Typography>
           <form onSubmit={submit} noValidate aria-label="Parqet-Export prüfen">
             <Stack spacing={2}>
-              {failure ? (
-                <Alert severity="error" role="alert">
-                  {previewFailureMessage(failure)}
-                </Alert>
-              ) : null}
               <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} sx={{ alignItems: { sm: "center" } }}>
-                <Button component="label" variant="outlined" sx={TOUCH_TARGET}>
+                <Button component="label" variant="outlined" disabled={pending} sx={TOUCH_TARGET}>
                   CSV-Datei wählen
                   <input
                     type="file"
                     name="file"
                     accept=".csv,text/csv"
                     hidden
-                    onChange={(event) => setFileName(event.target.files?.[0]?.name ?? "")}
+                    disabled={pending}
+                    onChange={(event) => {
+                      setFileName(event.target.files?.[0]?.name ?? "");
+                      reset();
+                    }}
                   />
                 </Button>
                 <Typography variant="body2" color={fileName ? "text.primary" : "text.secondary"} sx={{ wordBreak: "break-all" }}>
@@ -268,7 +354,11 @@ export function ParqetMigrationWizard({ depots }: { depots: WizardDepot[] }) {
                 name="depotId"
                 label="Ziel-Depot"
                 value={depotId}
-                onChange={(event) => setDepotId(event.target.value)}
+                onChange={(event) => {
+                  setDepotId(event.target.value);
+                  reset();
+                }}
+                disabled={pending}
                 fullWidth
                 slotProps={{ select: { native: true } }}
               >
@@ -280,14 +370,40 @@ export function ParqetMigrationWizard({ depots }: { depots: WizardDepot[] }) {
               </TextField>
               <Box>
                 <Button type="submit" variant="contained" disabled={pending} sx={TOUCH_TARGET}>
-                  {pending ? "Wird gelesen …" : "Vorschau anzeigen"}
+                  {pending && !loaded ? "Wird gelesen …" : "Vorschau anzeigen"}
                 </Button>
               </Box>
             </Stack>
           </form>
         </CardContent>
       </Card>
-      {state?.ok ? <ParqetPreviewView preview={state.preview} /> : null}
+      {error ? (
+        <Alert severity="error" role="alert" sx={{ mt: 2 }}>
+          {error}
+        </Alert>
+      ) : null}
+      {loaded ? (
+        <>
+          <ParqetPreviewView preview={loaded.preview} />
+          <ParqetDecisions preview={loaded.preview} decisions={decisions} onChange={changeDecisions} disabled={pending} />
+          <ConfirmBar openCount={open.length} pending={pending} onConfirm={confirm} />
+        </>
+      ) : null}
+      {summary ? <ParqetSummaryView summary={summary} /> : null}
     </>
+  );
+}
+
+/** "Offene Entscheidungen: n" and "Übernehmen" (enabled only with none open and nothing pending). */
+export function ConfirmBar({ openCount, pending, onConfirm }: { openCount: number; pending: boolean; onConfirm: () => void }) {
+  return (
+    <Box sx={{ mt: 3, mb: 2, display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap" }}>
+      <Typography variant="body2" sx={{ fontWeight: openCount > 0 ? 600 : 400 }} role="status">
+        {openDecisionsLabel(openCount)}
+      </Typography>
+      <Button variant="contained" onClick={onConfirm} disabled={openCount > 0 || pending} sx={TOUCH_TARGET}>
+        {pending ? "Wird gebucht …" : "Übernehmen"}
+      </Button>
+    </Box>
   );
 }

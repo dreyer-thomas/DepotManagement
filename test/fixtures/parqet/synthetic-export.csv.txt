@@ -8,7 +8,7 @@ garbage;;;;;5;;;;TransferIn;;Cash;;;EUR;EUR;1;h-cash-0001;"Verrechnungskonto";;;
 2024-07-01T09:00:00.000Z;01.07.2024;09:00;10;1;10;0;0;;Buy;;Security;US5949181045;;USD;USD;1;h-sec-usd;"Fenster Corp.";;;;
 2024-06-10T00:00:00.000Z;10.06.2024;00:00;;;50;;;;TransferOut;;Cash;;;EUR;EUR;1;h-cash-0001;"Verrechnungskonto";;;;
 2024-06-03T12:00:00.000Z;03.06.2024;12:00;;;501;;;;TransferIn;;Cash;;;EUR;EUR;1;h-cash-0001;"Verrechnungskonto";;;;
-2024-06-03T12:00:00.000Z;03.06.2024;12:00;100;5;500;-2;1;438,77;Sell;;Security;US0378331005;;EUR;EUR;1;h-sec-apfel;"Apfel ""Tech"" Inc.; Class A";;;;"Teilverkauf; Rest bleibt"
+2024-06-03T12:00:00.000Z;03.06.2024;12:00;100;5;500;-2;1;436,77;Sell;;Security;US0378331005;;EUR;EUR;1;h-sec-apfel;"Apfel ""Tech"" Inc.; Class A";;;;"Teilverkauf; Rest bleibt"
 2024-05-02T00:00:00.000Z;02.05.2024;00:00;200,1;6,00172839;1201,335678;0;0;;TransferIn;;Security;DE000SYN0013;;EUR;EUR;1;h-sec-neu;"Neuname Software SE";;;;
 2024-05-02T00:00:00.000Z;02.05.2024;00:00;0;12,00345678;0;0;0;-1201,335678;TransferOut;;Security;DE0007164600;;EUR;EUR;1;h-sec-alt;"Altname Software SE";;;;
 2024-04-15T08:00:00.000Z;15.04.2024;08:00;;;1201,335678;;;;TransferOut;;Cash;;;EUR;EUR;1;h-cash-0001;"Verrechnungskonto";;;;

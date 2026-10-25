@@ -5,6 +5,7 @@ import { createRequestFakes } from "../../../test/helpers/next-mocks";
 import { createSessionToken, SESSION_COOKIE } from "@/modules/auth";
 
 const fakes = vi.hoisted(() => ({}) as { current: ReturnType<typeof createRequestFakes> });
+const revalidatePath = vi.hoisted(() => vi.fn());
 const dbFile = await vi.hoisted(async () => {
   const { useMigratedDatabaseForSingleton } = await import("../../../test/helpers/migrated-db-file");
   return useMigratedDatabaseForSingleton();
@@ -14,12 +15,21 @@ vi.mock("next/headers", () => ({
   cookies: async () => fakes.current.cookieStore,
   headers: async () => fakes.current.state.headers,
 }));
+vi.mock("next/cache", () => ({ revalidatePath }));
 
 import { prisma } from "@/db";
-import { archiveDepot, createDepot } from "@/modules/ledger";
-import { previewParqetAction } from "./migration";
+import { archiveDepot, createDepot, listTransactions } from "@/modules/ledger";
+import type { MigrationDecisions } from "@/modules/migration";
+import { confirmParqetAction, openingBalanceAction, previewParqetAction } from "./migration";
 
 const FIXTURE = readFileSync(resolve(__dirname, "../../../test/fixtures/parqet/synthetic-export.csv.txt"), "utf8");
+const NO_CASH = readFileSync(resolve(__dirname, "../../../test/fixtures/parqet/synthetic-export-no-cash.csv.txt"), "utf8");
+
+const DECIDED: MigrationDecisions = {
+  classifications: { DE0007164600: "STOCK", DE000SYN0013: "ETF", US0378331005: "STOCK" },
+  flags: Object.fromEntries(["2", "3", "4-5", "6", "7", "8"].map((key) => [key, { action: "skip" as const }])),
+  duplicates: {},
+};
 const SECRET = "test-secret-with-at-least-32-characters";
 const HASH = "$2b$04$Raf6EM460q2HE2THwTzIR.5Uk58FNzZG7FhlOvTFD.sbuFp.We4pO";
 const savedEnv = { ...process.env };
@@ -30,9 +40,11 @@ beforeEach(async () => {
   process.env.AUTH_PASSWORD_HASH = HASH;
   process.env.SESSION_SECRET = SECRET;
   fakes.current.state.incoming.set(SESSION_COOKIE, await createSessionToken("tester", SECRET));
+  await prisma.corporateAction.deleteMany();
   await prisma.transaction.deleteMany();
   await prisma.security.deleteMany();
   await prisma.depot.deleteMany();
+  revalidatePath.mockClear();
 });
 
 afterEach(() => {
@@ -50,10 +62,9 @@ async function depotId(name = "Hauptdepot") {
   return created.depot.id;
 }
 
-function form(fields: { depotId?: string; file?: File | string }) {
+function form(fields: Record<string, File | string | undefined>) {
   const data = new FormData();
-  if (fields.depotId !== undefined) data.set("depotId", fields.depotId);
-  if (fields.file !== undefined) data.set("file", fields.file);
+  for (const [key, value] of Object.entries(fields)) if (value !== undefined) data.set(key, value);
   return data;
 }
 
@@ -119,6 +130,96 @@ describe("previewParqetAction", () => {
     const id = await depotId();
     fakes.current.state.incoming.clear();
     expect(await previewParqetAction(null, form({ depotId: id, file: csvFile(FIXTURE) }))).toEqual({
+      ok: false,
+      reason: "unauthorized",
+    });
+  });
+});
+
+describe("confirmParqetAction", () => {
+  it("books the file with the decisions and revalidates", async () => {
+    const id = await depotId();
+    const result = await confirmParqetAction(form({ depotId: id, file: csvFile(FIXTURE), decisions: JSON.stringify(DECIDED) }));
+    if (!result.ok) throw new Error(JSON.stringify(result));
+    expect(result.summary.booked).toEqual({ transactions: 8, isinChanges: 1, securities: 4 });
+    expect(await listTransactions(id)).toHaveLength(8);
+    expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
+  });
+
+  it("returns decisions-open with the fresh preview, without revalidating", async () => {
+    const id = await depotId();
+    const result = await confirmParqetAction(form({ depotId: id, file: csvFile(FIXTURE), decisions: JSON.stringify({ ...DECIDED, flags: {} }) }));
+    expect(result).toMatchObject({ ok: false, reason: "decisions-open" });
+    expect(await prisma.transaction.count()).toBe(0);
+    expect(revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["missing", undefined],
+    ["not JSON", "{"],
+    ["not decisions", JSON.stringify({ classifications: { X: "BOND" }, flags: {}, duplicates: {} })],
+  ])("returns decisions-invalid when the decisions are %s", async (_label, decisions) => {
+    const id = await depotId();
+    expect(await confirmParqetAction(form({ depotId: id, file: csvFile(FIXTURE), decisions }))).toEqual({
+      ok: false,
+      reason: "decisions-invalid",
+    });
+  });
+
+  it("applies the preview's file checks and the session check", async () => {
+    const id = await depotId();
+    const decisions = JSON.stringify(DECIDED);
+    expect(await confirmParqetAction(form({ depotId: id, decisions }))).toEqual({ ok: false, reason: "file-missing" });
+    expect(await confirmParqetAction(form({ depotId: id, file: csvFile("x".repeat(5 * 1024 * 1024 + 1)), decisions }))).toEqual({
+      ok: false,
+      reason: "file-too-large",
+    });
+    expect(await confirmParqetAction(form({ file: csvFile(FIXTURE), decisions }))).toEqual({ ok: false, reason: "depot-not-found" });
+    expect((await archiveDepot(id)).ok).toBe(true);
+    expect(await confirmParqetAction(form({ depotId: id, file: csvFile(FIXTURE), decisions }))).toEqual({
+      ok: false,
+      reason: "depot-archived",
+    });
+    fakes.current.state.incoming.clear();
+    expect(await confirmParqetAction(form({ depotId: id, file: csvFile(FIXTURE), decisions }))).toEqual({
+      ok: false,
+      reason: "unauthorized",
+    });
+  });
+});
+
+describe("openingBalanceAction", () => {
+  it("books the difference to the entered German balance and revalidates", async () => {
+    const id = await depotId();
+    const decisions = JSON.stringify({ classifications: { IE00B4L5Y983: "ETF" }, flags: {}, duplicates: {} });
+    expect((await confirmParqetAction(form({ depotId: id, file: csvFile(NO_CASH), decisions }))).ok).toBe(true);
+    revalidatePath.mockClear();
+
+    const result = await openingBalanceAction(form({ depotId: id, date: "2024-02-01", asOf: "2024-05-02", balance: "1.300,00" }));
+    expect(result).toMatchObject({ ok: true, transaction: { type: "DEPOSIT", amount: "2500" }, balance: "1300" });
+    expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
+
+    revalidatePath.mockClear();
+    expect(await openingBalanceAction(form({ depotId: id, date: "2024-02-01", asOf: "2024-05-02", balance: "1300" }))).toEqual({
+      ok: true,
+      transaction: null,
+      balance: "1300",
+    });
+    expect(revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unparseable balance and a missing session", async () => {
+    const id = await depotId();
+    expect(await openingBalanceAction(form({ depotId: id, date: "2024-02-01", asOf: "2024-05-02", balance: "abc" }))).toEqual({
+      ok: false,
+      reason: "balance-invalid",
+    });
+    expect(await openingBalanceAction(form({ depotId: id, date: "2024-02-01", asOf: "2024-05-02" }))).toEqual({
+      ok: false,
+      reason: "balance-invalid",
+    });
+    fakes.current.state.incoming.clear();
+    expect(await openingBalanceAction(form({ depotId: id, date: "2024-02-01", asOf: "2024-05-02", balance: "1" }))).toEqual({
       ok: false,
       reason: "unauthorized",
     });

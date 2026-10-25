@@ -63,11 +63,31 @@ export const FLAG_REASONS = [
 ] as const;
 export type FlagReason = (typeof FLAG_REASONS)[number];
 
+/** Columns whose raw text a flagged row keeps for review and correction. */
+export const RAW_COLUMNS = [
+  "datetime",
+  "type",
+  "assettype",
+  "identifier",
+  "holdingname",
+  "shares",
+  "price",
+  "amount",
+  "fee",
+  "tax",
+  "currency",
+] as const;
+export type RawColumn = (typeof RAW_COLUMNS)[number];
+
+/** The raw (trimmed) text of one CSV record's review columns; missing fields are "". */
+export type RawRow = Record<RawColumn, string>;
+
 /**
  * A row (or pair) that is never booked. `detail`: the offending column (`unparseable`; absent on a wrong
- * field count), the currency (`non-eur`) or the raw `type/assettype` (`unsupported-row`).
+ * field count), the currency (`non-eur`) or the raw `type/assettype` (`unsupported-row`). `rows` holds the
+ * raw text of each record in `records` (same order).
  */
-export type FlaggedRow = { records: number[]; reason: FlagReason; detail?: string };
+export type FlaggedRow = { records: number[]; reason: FlagReason; detail?: string; rows: RawRow[] };
 
 export type ParqetReadResult =
   | {
@@ -76,6 +96,8 @@ export type ParqetReadResult =
       isinChanges: IsinChangeProposal[];
       securities: ParqetSecurity[];
       flagged: FlaggedRow[];
+      /** True when the file has at least one parsed Cash Account row (TransferIn/TransferOut on `Cash`). */
+      hasCashRows: boolean;
       /** Latest business date among Transaction and ISIN-change proposals (else among all parsed dates); `null` without any. */
       exportDate: string | null;
     }
@@ -128,7 +150,7 @@ type Parsed =
   | { kind: "cash"; row: CashRow }
   | { kind: "transfer"; row: Transfer }
   /** `instant` is set when the datetime parsed; `nonCash` unless the row is a Cash TransferIn/TransferOut. */
-  | { kind: "flag"; flag: FlaggedRow; instant?: number; nonCash: boolean };
+  | { kind: "flag"; flag: Omit<FlaggedRow, "rows">; instant?: number; nonCash: boolean };
 
 class RowError extends Error {
   constructor(
@@ -348,16 +370,28 @@ export function readParqetCsv(text: string): ParqetReadResult {
   if (missing.length > 0) return { ok: false, reason: "missing-columns", columns: missing };
   if (rows.length === 0) return { ok: false, reason: "empty-file" };
 
-  const flagged: FlaggedRow[] = [];
+  const flagged: Omit<FlaggedRow, "rows">[] = [];
   const trades: Trade[] = [];
   const cashRows: CashRow[] = [];
   const transfers: Transfer[] = [];
   const names: Named[] = [];
   const dates: string[] = [];
   // Flags of non-cash rows (trades) by instant: their same-instant cash rows are flagged with them.
-  const tradeFlags = new Map<number, FlaggedRow>();
+  const tradeFlags = new Map<number, Omit<FlaggedRow, "rows">>();
+  const rawRows = new Map<number, RawRow>();
+  const rawOf = (record: number): RawRow =>
+    rawRows.get(record) ?? (Object.fromEntries(RAW_COLUMNS.map((column) => [column, ""])) as RawRow);
 
   rows.forEach(({ fields, recordNumber }, position) => {
+    rawRows.set(
+      recordNumber,
+      Object.fromEntries(
+        RAW_COLUMNS.map((column) => {
+          const index = columns.get(column);
+          return [column, index === undefined ? "" : (fields[index] ?? "").trim()];
+        }),
+      ) as RawRow,
+    );
     if (fields.length !== header.fields.length) {
       flagged.push({ records: [recordNumber], reason: "unparseable" });
       return;
@@ -495,6 +529,7 @@ export function readParqetCsv(text: string): ParqetReadResult {
   }));
 
   flagged.sort((a, b) => a.records[0] - b.records[0]);
+  const flaggedRows: FlaggedRow[] = flagged.map((flag) => ({ ...flag, rows: flag.records.map(rawOf) }));
 
   // Securities referenced by proposals and ISIN changes; name from the newest row that has one.
   const keys = new Set<string>();
@@ -530,5 +565,5 @@ export function readParqetCsv(text: string): ParqetReadResult {
   const proposedDates = [...proposals.map((proposal) => proposal.date), ...isinChanges.map((change) => change.date)];
   const exportDate = proposedDates.length > 0 ? latest(proposedDates) : latest(dates);
 
-  return { ok: true, proposals, isinChanges, securities, flagged, exportDate };
+  return { ok: true, proposals, isinChanges, securities, flagged: flaggedRows, hasCashRows: cashRows.length > 0, exportDate };
 }

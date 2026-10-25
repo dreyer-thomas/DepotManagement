@@ -43,3 +43,11 @@ source_spec: `spec-2-3-parqet-export-preview.md`
 severity: low
 reason: ParqetMigrationWizard.test.tsx renders only the initial null state; ParqetPreviewView and previewFailureMessage are tested on their own; the action is tested with hand-built FormData. vitest runs in the node environment and no DOM testing library is installed (same tooling gap as the corporate-action dialogs). Settle by adding DOM test tooling.
 status: open
+
+### DW-7: The wizard's client flow (re-send of file/Depot/decisions on "Übernehmen", decisions carried over after decisions-open, reset on file/Depot change, opening-balance submit) has no interaction test;
+origin: spec-deferred d1e27822026b
+location: src/app/_components/migration/ParqetMigrationWizard.tsx
+source_spec: `spec-2-4-confirm-migration-and-reconcile-with-parqet.md`
+severity: low
+reason: ParqetMigrationWizard.test.tsx renders ConfirmBar, ParqetDecisions, ParqetSummaryView and OpeningBalanceForm statically with fixed props; no handler runs. vitest runs in the node environment and no DOM testing library is installed (same tooling gap as DW-3..DW-6). Breaking confirm() (e.g. sending empty decisions or dropping carryDecisions) would pass npm test. Settle by adding DOM test tooling.
+status: open

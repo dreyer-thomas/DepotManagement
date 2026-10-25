@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
+  ACTION_FAILED_MESSAGE,
+  bookingFailureMessage,
+  bookingItemLabel,
+  comparisonStatus,
+  confirmFailureMessage,
   countRows,
+  openDecisionsLabel,
+  openingBalanceFailureMessage,
+  openingBalanceSuccess,
+  rawRowLabel,
   flagReasonLabel,
   previewFailureMessage,
   type PreviewFailureReason,
@@ -58,5 +67,100 @@ describe("migration labels", () => {
     expect(securityTypeLabel("UNCLASSIFIED")).toBe("Typ unbekannt");
     expect(securityTypeLabel("CRYPTO")).toBe("Krypto");
     expect(securityTypeLabel("ETF")).toBe("ETF");
+  });
+});
+
+describe("migration confirm labels", () => {
+  const sell = { kind: "proposal", key: "2", records: [2], date: "2024-03-01", type: "SELL" } as const;
+
+  it("names booking items", () => {
+    expect(bookingItemLabel({ kind: "depot" })).toBe("Depot");
+    expect(bookingItemLabel({ kind: "security", key: "US0378331005" })).toBe("Wertpapier US0378331005");
+    expect(bookingItemLabel(sell)).toBe("Zeile 2 (Verkauf vom 01.03.2024)");
+    expect(bookingItemLabel({ kind: "flag", key: "6", records: [6], date: "", type: "BUY" })).toBe("Markierte Zeile 6 (korrigiert als Kauf)");
+    expect(bookingItemLabel({ kind: "flag", key: "6", records: [6], date: "2024-02-30", type: "BUY" })).toBe(
+      "Markierte Zeile 6 (korrigiert als Kauf vom 2024-02-30)",
+    );
+    expect(
+      bookingItemLabel({ kind: "isin-change", key: "12-13", records: [12, 13], date: "2024-05-02", oldKey: "A", newKey: "B" }),
+    ).toBe("Zeilen 12, 13 (ISIN-Wechsel A → B vom 02.05.2024)");
+  });
+
+  it("explains a booking failure with the ledger's message for that item", () => {
+    expect(bookingFailureMessage(sell, { ok: false, reason: "sell-exceeds-holding", available: "0" })).toBe(
+      "Nicht gebucht – Zeile 2 (Verkauf vom 01.03.2024): Verkauf übersteigt Bestand (0 Stück). Es wurde nichts übernommen.",
+    );
+    expect(bookingFailureMessage({ ...sell, kind: "flag", type: "BUY" }, { ok: false, reason: "amount-invalid" })).toContain(
+      "Der Betrag darf nicht negativ sein.",
+    );
+    const change = { kind: "isin-change", key: "1-2", records: [1, 2], date: "2024-05-02", oldKey: "A", newKey: "B" } as const;
+    expect(bookingFailureMessage(change, { ok: false, reason: "later-sell-exceeds-holding", date: "2024-06-01" })).toContain(
+      "Der Verkauf am 01.06.2024 würde den Bestand übersteigen.",
+    );
+    expect(bookingFailureMessage({ kind: "security", key: "X" }, { ok: false, reason: "isin-invalid" })).toContain(
+      "Bitte eine gültige ISIN eingeben.",
+    );
+    expect(bookingFailureMessage({ kind: "depot" }, { ok: false, reason: "security-ref-unknown" })).toContain("Wertpapier fehlt.");
+  });
+
+  it("explains confirm failures", () => {
+    expect(confirmFailureMessage({ ok: false, reason: "depot-archived" })).toBe("Depot ist archiviert. Bitte zuerst reaktivieren.");
+    expect(confirmFailureMessage({ ok: false, reason: "decisions-invalid" })).toContain("nicht gelesen");
+    expect(confirmFailureMessage({ ok: false, reason: "missing-columns", columns: ["fee"] })).toContain("fee");
+    expect(
+      confirmFailureMessage({ ok: false, reason: "booking-failed", item: { kind: "depot" }, failure: { ok: false, reason: "depot-archived" } }),
+    ).toContain("Depot: Depot ist archiviert.");
+  });
+
+  it("tells the user to check the Depot after a failed connection", () => {
+    expect(ACTION_FAILED_MESSAGE).toBe("Verbindung fehlgeschlagen. Bitte das Depot prüfen, bevor du es erneut versuchst.");
+  });
+
+  it("labels decisions, raw rows and comparison status", () => {
+    expect(openDecisionsLabel(2)).toBe("Offene Entscheidungen: 2");
+    expect(
+      rawRowLabel({
+        datetime: "2024-07-03T06:00:00.000Z",
+        type: "TransferIn",
+        assettype: "Security",
+        identifier: "IE00B4L5Y983",
+        holdingname: "Welt ETF",
+        shares: "3",
+        price: "0",
+        amount: "300",
+        fee: "",
+        tax: "",
+        currency: "EUR",
+      }),
+    ).toBe("2024-07-03T06:00:00.000Z · TransferIn · Security · IE00B4L5Y983 · Welt ETF · Stück 3 · Kurs 0 · Betrag 300 · EUR");
+    expect(comparisonStatus(true)).toBe("Abweichung");
+    expect(comparisonStatus(false)).toBe("gleich");
+  });
+
+  it("explains the opening booking", () => {
+    expect(openingBalanceFailureMessage({ ok: false, reason: "date-after-export" }, "2024-05-02")).toBe(
+      "Das Buchungsdatum darf nicht nach dem 02.05.2024 liegen.",
+    );
+    expect(openingBalanceFailureMessage({ ok: false, reason: "balance-invalid" }, "2024-05-02")).toContain("Saldo");
+    expect(openingBalanceFailureMessage({ ok: false, reason: "unauthorized" }, "2024-05-02")).toContain("Sitzung");
+    expect(openingBalanceSuccess({ ok: true, transaction: null, balance: "300" }, "2024-05-02")).toBe(
+      "Nichts zu buchen: Der Saldo am 02.05.2024 stimmt bereits (300,00\u00a0€).",
+    );
+    const transaction = {
+      id: "t",
+      depotId: "d",
+      type: "DEPOSIT",
+      date: "2024-02-01",
+      sequence: 1,
+      quantity: null,
+      price: null,
+      amount: "1500",
+      fee: "0",
+      tax: "0",
+      security: null,
+    } as const;
+    expect(openingBalanceSuccess({ ok: true, transaction, balance: "300" }, "2024-05-02")).toBe(
+      "Einzahlung über 1.500,00\u00a0€ am 01.02.2024 gebucht. Saldo am 02.05.2024: 300,00\u00a0€.",
+    );
   });
 });

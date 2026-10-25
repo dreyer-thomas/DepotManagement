@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createTestDatabase, type TestDatabase } from "../../../test/helpers/test-db";
-import { createDepot, ensureSecurity, listPositions, recordTrade, type RecordTradeInput } from "./index";
+import { createDepot, ensureSecurity, listPositions, listRealizedSales, recordIsinChange, recordTrade, type RecordTradeInput } from "./index";
 
 let testDb: TestDatabase;
 let depotId: string;
@@ -74,5 +74,34 @@ describe("listPositions", () => {
     await record({ date: "2026-10-01", quantity: "2", price: "100" });
     await record({ type: "SELL", date: "2026-10-01", quantity: "2", price: "110" });
     expect(await listPositions(depotId, TODAY, db())).toEqual([]);
+  });
+});
+
+describe("listRealizedSales", () => {
+  it("is empty without trades", async () => {
+    expect(await listRealizedSales(depotId, TODAY, db())).toEqual([]);
+  });
+
+  it("lists each SELL with its FIFO gain by (date, sequence), up to asOf, across an ISIN change", async () => {
+    await record({ date: "2026-01-10", quantity: "10", price: "100", fee: "5" });
+    await record({ date: "2026-02-10", quantity: "5", price: "120", fee: "2" });
+    await record({ type: "SELL", date: "2026-03-10", quantity: "12", price: "130", fee: "3" });
+    const changed = await recordIsinChange(
+      { oldSecurityId: appleId, newSecurity: { new: { isin: "DE000SYN0013", name: "Neu", assetType: "STOCK" } }, date: "2026-04-01", oldQuantity: "1", newQuantity: "2" },
+      db(),
+    );
+    if (!changed.ok) throw new Error(changed.reason);
+    const newId = changed.isinChange.newSecurity.id;
+    await record({ type: "SELL", date: "2026-05-01", quantity: "6", price: "70", security: { id: newId } });
+    await record({ depotId: otherDepotId, date: "2026-01-10", quantity: "1", price: "1" });
+    await record({ depotId: otherDepotId, type: "SELL", date: "2026-01-11", quantity: "1", price: "2" });
+
+    // 12 sold: 10 × 100 + 5 fee, then 2 of the 5 (2 × 120 + 2 × 2/5 fee) → cost 1245.8; proceeds 1557.
+    expect(await listRealizedSales(depotId, TODAY, db())).toEqual([
+      { securityId: appleId, date: "2026-03-10", sequence: 1, gain: "311.2" },
+      // Remaining 3 units (cost 361.2) became 6; sold for 420.
+      { securityId: newId, date: "2026-05-01", sequence: 1, gain: "58.8" },
+    ]);
+    expect(await listRealizedSales(depotId, "2026-04-30", db())).toHaveLength(1);
   });
 });
