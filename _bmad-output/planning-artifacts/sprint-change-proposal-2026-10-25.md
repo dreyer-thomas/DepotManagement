@@ -154,3 +154,11 @@ NEW: ... by asset type (ETF, Fonds, Aktie, Zertifikat, Krypto, Guthaben, Unklass
 **Change.** New Story 2.7: group cash pairing per instant; trades always booked with Parqet's figures; group differences above €0.01 booked as one standalone TAX Transaction; sells exceeding the holding by ≤ 0.001 units clamped with the shortfall carried to the next buy. Amended: AD-6, PRD FR-15 consequences, SPEC CAP-15, EXPERIENCE.md Flow 4 notes, epics FR15 inventory and coverage map. Sprint status gains `2-7-...: backlog`.
 
 **Handoff.** bmad-loop builds 2.7; Claude re-runs the local scan against the real exports (expect zero flags and zero oversells); Tommy then migrates ROBIN and finanzen.net zero and confirms Story 2.4.
+
+## Addendum C — Missing Deposits and Fee-Aware Gain Comparison (approved 2026-10-25)
+
+**Trigger.** After Story 2.7, an end-to-end migration of all three real exports into a throwaway database (local only) booked everything (0 flags, Positions and invested capital equal to Parqet) but left the DB ROBIN Cash Account at −7.947,51 € and finanzen.net zero at −5.340,39 € (both equal to Parqet's own balances; running minimum −11.963,28 €): Parqet's cash rows lack the user's deposits. Story 2.7 booked inflow-side group differences (e.g. a ROBIN savings contribution of ~1.760 € invested directly) as negative TAX, totalling −1.879,97 € "refunds" for ROBIN. Realized-gain comparison at finanzen.net zero showed 50/90 deviations, almost all exactly −1 € or −2 € (the app deducts order fees; Parqet's `realizedgains` does not).
+
+**Change.** New Story 2.8: inflow-side group differences → DEPOSIT, outflow-side → TAX; minimal funding for every export; fee-explained gain differences shown as "Gebühren". Amended: AD-6, PRD FR-15 consequences, SPEC CAP-15, EXPERIENCE.md Flow 4 notes, epics FR15 inventory and coverage map. Sprint status gains `2-8-...: backlog`.
+
+**Handoff.** bmad-loop builds 2.8; Claude re-runs the throwaway end-to-end migration (expect no negative cash, no negative TAX from contributions, only non-fee gain deviations); Tommy then migrates all three Depots, aligns each Cash Account to the broker balance and confirms Story 2.4.

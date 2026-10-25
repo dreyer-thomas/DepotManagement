@@ -37,7 +37,7 @@ FR11: Tommy can see a chart of value and invested capital over a selectable Peri
 FR12: Tommy can see Gain/Loss for a selectable Period split into realized and unrealized with dividends and fees; TTWROR and XIRR side by side for Portfolio and each Depot; realized Gain/Loss uses FIFO and matches Parqet's `realizedgains` per sale after migration; shown gross with taxes paid in the Period as a separate figure.
 FR13: Tommy can see the Portfolio or a Depot broken down by Position, by asset type (stock, ETF, fund, certificate, crypto, cash) and by Depot; no ETF look-through.
 FR14: Tommy can see news headlines of the last 14 days for held Securities, overall and per Security, each linking to the original article.
-FR15: Tommy can import his full Transaction history once from Parqet CSV exports, one file per Depot with target Depot selected; Positions, invested capital and Cash Account balance match Parqet at export date; same-timestamp Security transfers paired by ISIN → split, single out/in of different ISINs → ISIN change, unpaired TransferIn → delivery (BUY + equal DEPOSIT), only unpaired TransferOut flagged; no per-row decisions, asset types estimated from names; exports without cash rows get minimal funding deposits so cash never goes negative; cash rows are paired per instant and unmatched differences booked as TAX so no trade is skipped; sells exceeding the holding by ≤ 0.001 units are clamped with the shortfall carried to the next buy; Cash movements become Deposits, Withdrawals and cash sides; later imported documents for migrated Transactions are detected as duplicates. Depends on FR3 and FR17.
+FR15: Tommy can import his full Transaction history once from Parqet CSV exports, one file per Depot with target Depot selected; Positions, invested capital and Cash Account balance match Parqet at export date; same-timestamp Security transfers paired by ISIN → split, single out/in of different ISINs → ISIN change, unpaired TransferIn → delivery (BUY + equal DEPOSIT), only unpaired TransferOut flagged; no per-row decisions, asset types estimated from names; exports without cash rows get minimal funding deposits so cash never goes negative; cash rows are paired per instant and unmatched differences booked as TAX so no trade is skipped; sells exceeding the holding by ≤ 0.001 units are clamped with the shortfall carried to the next buy; inflow-side cash differences become DEPOSITs, outflow-side become TAX, and minimal funding applies to every export so cash never goes negative; Cash movements become Deposits, Withdrawals and cash sides; later imported documents for migrated Transactions are detected as duplicates. Depends on FR3 and FR17.
 FR16: Tommy can export all Depots and Transactions to an open file format and restore from it; export → restore into an empty instance reproduces identical Depots, Cash Accounts, Transactions, manual Prices and evaluations; restore replaces, never merges.
 FR17: Tommy can see balance and booking history of each Depot's Cash Account; buy, sell, dividend, fee and tax book their cash side automatically; Deposits and Withdrawals are entered manually and change only the Cash Account.
 FR18: Portfolio and Depot overviews and charts include Cash Account balances in total value, shown separately from Positions; Deposits and Withdrawals are external cash flows in both return metrics.
@@ -123,7 +123,7 @@ FR11: Epic 4 - Value development chart
 FR12: Epic 4 - Gain/Loss, TTWROR, XIRR
 FR13: Epic 4 - Composition
 FR14: Epic 3 - News on holdings
-FR15: Epic 2 - One-time Parqet migration (Stories 2.3, 2.4; hands-off rework in 2.5; cash-less exports and Depot deletion in 2.6; robust cash pairing and rounding tolerance in 2.7)
+FR15: Epic 2 - One-time Parqet migration (Stories 2.3, 2.4; hands-off rework in 2.5; cash-less exports and Depot deletion in 2.6; robust cash pairing and rounding tolerance in 2.7; missing deposits and fee-aware gain comparison in 2.8)
 FR16: Epic 6 - Export and restore
 FR17: Epic 1 - Cash Account balance and history
 FR18: Epic 4 - Cash in overviews and return metrics
@@ -209,6 +209,31 @@ So that no buy goes missing and no later sell fails with "Verkauf übersteigt Be
 **When** they are previewed and booked into an empty Depot
 **Then** there are no flags, booking succeeds, quantities end exactly as in the fixture, Cost Basis equals Parqet's, and the Cash Account equals the sum of the fixture's cash rows
 **And** the pure grouping, difference and shortfall functions live in `src/modules/migration` or `src/core` and are unit-tested
+
+### Story 2.8: Missing Deposits and Fee-Aware Gain Comparison in the Parqet Migration
+
+As Tommy,
+I want money Parqet never recorded as a deposit to be booked as a deposit, and fee-only gain differences not to look like errors,
+So that my Cash Accounts are plausible, my taxes-paid figure is right and the migration summary only shows real deviations.
+
+**Acceptance Criteria:**
+
+**Given** a group of trades and cash rows sharing one instant (Story 2.7) whose cash rows differ from the summed derived cash effects by more than €0.01
+**When** the cash rows show less money going out or more coming in than the trades explain (difference on the inflow side)
+**Then** the difference is booked as one DEPOSIT on that date, sequenced before the group's trades (money paid in from outside, e.g. a savings-plan contribution invested directly)
+**When** the cash rows show more money going out or less coming in than the trades explain (difference on the outflow side)
+**Then** the difference stays one standalone TAX Transaction with a positive tax, as in Story 2.7
+**And** the preview shows "N fehlende Einzahlungen ergänzt" and "N Kontodifferenzen als Steuer gebucht" separately with their totals
+**Given** any Parqet export, with or without `Cash` rows
+**When** proposals are walked in `(date, sequence)` order
+**Then** the minimal-funding rule of Story 2.6 applies to every export: whenever a row would take the running Cash Account balance below zero, a same-day DEPOSIT for exactly the shortfall is inserted before it, so the migrated Cash Account never goes negative
+**And** the cash comparison with Parqet in the summary explains that Parqet's own balance lacks deposits when the funding rule added any, instead of reporting a plain mismatch
+**Given** the per-sale comparison of realized Gain/Loss with Parqet's `realizedgains`
+**Then** a difference that equals the fees attributable to the sale (the sell fee plus the buy fees of the consumed FIFO lots, within €0.01) is shown as "Gebühren" and not counted as a deviation; other differences above €0.01 remain deviations
+**Given** synthetic fixtures with a rebalancing instant whose net cash row omits a contribution, a sell with withheld tax, a cash history that would go negative, and sales with buy and sell fees
+**When** they are previewed and booked into an empty Depot
+**Then** contributions are DEPOSITs, withheld tax is TAX with positive tax, the Cash Account never goes negative, and fee-only gain differences are not deviations
+**And** the classification of differences and the fee attribution are pure functions with unit tests
 
 ## Epic 3: Market Data — Prices, Logos, News
 Tommy gets current and historical Prices automatically, sees stale Prices flagged, can enter manual Prices and fix provider mappings, sees logos at every Security, and reads the last 14 days of news on his holdings.
