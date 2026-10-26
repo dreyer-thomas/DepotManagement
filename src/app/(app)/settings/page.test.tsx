@@ -1,4 +1,7 @@
-import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { findElement } from "../../../../test/helpers/next-mocks";
 import { renderHtml, renderText } from "../../../../test/helpers/render-text";
 
@@ -8,6 +11,7 @@ const dbFile = await vi.hoisted(async () => {
 });
 
 import { prisma } from "@/db";
+import { runDatabaseBackup, stopBackupScheduler } from "@/modules/backup";
 import { archiveDepot, createDepot, recordTrade } from "@/modules/ledger";
 import { ExportButton } from "../../_components/backup/ExportButton";
 import { RestoreButton } from "../../_components/backup/RestoreButton";
@@ -34,11 +38,39 @@ function findBackupSection(node: unknown): Node | undefined {
   return undefined;
 }
 
+let backupDir: string;
+
 beforeEach(async () => {
+  backupDir = mkdtempSync(join(tmpdir(), "depot-settings-backup-"));
+  process.env.BACKUP_DIR = backupDir;
   await prisma.transaction.deleteMany();
   await prisma.security.deleteMany();
   await prisma.depot.deleteMany();
 });
+
+afterEach(() => {
+  stopBackupScheduler();
+  vi.restoreAllMocks();
+  delete process.env.BACKUP_DIR;
+  rmSync(backupDir, { recursive: true, force: true });
+});
+
+/** A dated DB backup file with the given mtime. */
+function backupFile(name: string, iso: string): void {
+  const path = join(backupDir, name);
+  writeFileSync(path, "x");
+  utimesSync(path, new Date(iso), new Date(iso));
+}
+
+/** Records a failed backup attempt: the DB file named by DATABASE_URL does not exist. */
+async function failBackup(): Promise<void> {
+  vi.spyOn(console, "error").mockImplementation(() => undefined);
+  const result = await runDatabaseBackup({
+    env: { BACKUP_DIR: backupDir, DATABASE_URL: `file:${join(backupDir, "missing.db")}` },
+    now: () => new Date("2026-10-26T08:00:00Z"),
+  });
+  expect(result.ok).toBe(false);
+}
 
 afterAll(async () => {
   await prisma.$disconnect();
@@ -76,6 +108,38 @@ describe("Settings page", () => {
     const section = findBackupSection(await SettingsPage());
     expect(findElement(section, RestoreButton)).toBeDefined();
     expect(renderText(section as never)).toContain("wiederherstellen");
+  });
+
+  it("warns about a failed DB backup with the time of the last successful one", async () => {
+    backupFile("depot-2026-10-25.sqlite", "2026-10-25T02:00:00Z");
+    await failBackup();
+    const section = findBackupSection(await SettingsPage());
+    const html = renderHtml(section as never);
+    expect(html).toMatch(/MuiAlert-colorWarning/);
+    expect(renderText(section as never)).toContain(
+      "Die letzte Datenbanksicherung ist fehlgeschlagen. Letzte erfolgreiche Sicherung: 25.10.2026, 03:00.",
+    );
+    expect(renderText(section as never)).not.toContain("Letzte Datenbanksicherung:");
+  });
+
+  it("warns about a failed DB backup when there was never a successful one", async () => {
+    await failBackup();
+    const text = renderText(findBackupSection(await SettingsPage()) as never);
+    expect(text).toContain("Die letzte Datenbanksicherung ist fehlgeschlagen. Noch keine erfolgreiche Sicherung.");
+  });
+
+  it("shows the time of the last DB backup when no attempt failed", async () => {
+    backupFile("depot-2026-10-25.sqlite", "2026-10-25T02:00:00Z");
+    const section = findBackupSection(await SettingsPage());
+    expect(renderText(section as never)).toContain("Letzte Datenbanksicherung: 25.10.2026, 03:00");
+    expect(renderHtml(section as never)).not.toMatch(/MuiAlert/);
+  });
+
+  it("shows no DB backup line or warning without backups and failures", async () => {
+    const section = findBackupSection(await SettingsPage());
+    const text = renderText(section as never);
+    expect(text).not.toContain("Datenbanksicherung");
+    expect(renderHtml(section as never)).not.toMatch(/MuiAlert/);
   });
 
   it("lists Depots with a rename button each", async () => {

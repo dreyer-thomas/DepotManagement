@@ -1,3 +1,4 @@
+import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Card from "@mui/material/Card";
 import CardContent from "@mui/material/CardContent";
@@ -6,16 +7,21 @@ import Typography from "@mui/material/Typography";
 import type { Metadata } from "next";
 import { ExportButton } from "@/app/_components/backup/ExportButton";
 import { RestoreButton } from "@/app/_components/backup/RestoreButton";
+import { backupFailedWarning, lastBackupLine } from "@/app/_components/backup/labels";
 import { CreateDepotButton } from "@/app/_components/depots/DepotDialogs";
 import { DepotGroups } from "@/app/_components/depots/DepotList";
 import { ParqetMigrationLink } from "@/app/_components/migration/ParqetMigrationLink";
 import { PageTitle } from "@/app/_components/Placeholder";
+import { formatDateTime } from "@/core/format";
+import { backupStatus } from "@/modules/backup";
 import { listDepots } from "@/modules/ledger";
 
 export const metadata: Metadata = { title: "Einstellungen" };
 
 export default async function SettingsPage() {
   const depots = await listDepots();
+  const backup = backupStatus();
+  const lastBackup = backup.lastSuccessAt ? formatDateTime(backup.lastSuccessAt) : null;
   return (
     <>
       <PageTitle>Einstellungen</PageTitle>
@@ -57,6 +63,15 @@ export default async function SettingsPage() {
           <ExportButton />
           <RestoreButton />
         </Stack>
+        {backup.lastAttemptFailed ? (
+          <Alert severity="warning" sx={{ mt: 2 }}>
+            {backupFailedWarning(lastBackup)}
+          </Alert>
+        ) : lastBackup ? (
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+            {lastBackupLine(lastBackup)}
+          </Typography>
+        ) : null}
       </Box>
     </>
   );

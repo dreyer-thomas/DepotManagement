@@ -27,9 +27,10 @@ async function refreshNewsAfterPrices(): Promise<void> {
 
 /**
  * Starts the in-process background jobs (AD-13: the price scheduler, whose daily run also refreshes the
- * news afterwards, even when the price run failed; AD-19: one logo fetch run) unless this is `next build`.
- * The scheduler guards against a second start in the same process; the logo run has its own globalThis
- * guard and runs fire-and-forget (a failure is logged, never thrown).
+ * news afterwards, even when the price run failed, and the daily DB backup scheduler; AD-19: one logo
+ * fetch run) unless this is `next build`. Both schedulers guard against a second start in the same
+ * process; the logo run has its own globalThis guard and runs fire-and-forget (a failure is logged, never
+ * thrown).
  */
 export async function startBackgroundJobs(): Promise<void> {
   if (process.env.NEXT_PHASE === "phase-production-build") return;
@@ -43,6 +44,8 @@ export async function startBackgroundJobs(): Promise<void> {
       }
     },
   });
+  const { startBackupScheduler } = await import("@/modules/backup");
+  startBackupScheduler();
   const global = globalThis as LogoStartGlobal;
   if (global[LOGO_START]) return;
   global[LOGO_START] = true;

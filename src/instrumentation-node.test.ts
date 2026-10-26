@@ -11,6 +11,10 @@ vi.mock("@/modules/logos", () => ({ fetchMissingLogos }));
 const refreshNews = vi.hoisted(() => vi.fn(async () => ({ updated: 0, failed: [] })));
 vi.mock("@/modules/news", () => ({ refreshNews }));
 
+// The backup scheduler is a fake: no test writes a backup into the real home directory.
+const startBackupScheduler = vi.hoisted(() => vi.fn(() => true));
+vi.mock("@/modules/backup", () => ({ startBackupScheduler }));
+
 const LOGO_START = Symbol.for("depotmanagement.logoStartupRun");
 
 import { stopPriceScheduler } from "@/modules/prices";
@@ -69,6 +73,7 @@ describe("startBackgroundJobs", () => {
     refreshPrices.mockClear();
     fetchMissingLogos.mockClear();
     refreshNews.mockClear();
+    startBackupScheduler.mockClear();
     delete (globalThis as Record<symbol, unknown>)[LOGO_START];
   });
 
@@ -107,6 +112,13 @@ describe("startBackgroundJobs", () => {
     expect(error).toHaveBeenCalledWith("News: scheduled refresh failed (RangeError)");
   });
 
+  it("starts the backup scheduler on every call (it guards against a second start itself)", async () => {
+    delete process.env.NEXT_PHASE;
+    await startBackgroundJobs();
+    expect(startBackupScheduler).toHaveBeenCalledTimes(1);
+    expect(startBackupScheduler).toHaveBeenCalledWith();
+  });
+
   it("starts one logo fetch run, even when called twice", async () => {
     delete process.env.NEXT_PHASE;
     await startBackgroundJobs();
@@ -128,5 +140,6 @@ describe("startBackgroundJobs", () => {
     expect(refreshPrices).not.toHaveBeenCalled();
     expect(fetchMissingLogos).not.toHaveBeenCalled();
     expect(refreshNews).not.toHaveBeenCalled();
+    expect(startBackupScheduler).not.toHaveBeenCalled();
   });
 });

@@ -138,6 +138,25 @@ Settings → "Datensicherung" → "Wiederherstellen" replaces **all** data with 
 
 Moving data from a local instance to production: export on the local instance, then restore that file on the production instance (after its first start and login). The production instance's previous content, if any, is kept as the automatic pre-restore export in its `BACKUP_DIR`.
 
+## Daily database backup
+
+The app copies its SQLite database once a day to `BACKUP_DIR` (empty = `~/.depotmanagement/backups`; created if missing) as `depot-<YYYY-MM-DD>.sqlite` (Europe/Berlin date). The copy runs at start-up when today's file is missing and then on the first hourly check of every new day. It uses SQLite's online backup API on a separate connection, so it is consistent even while the app writes (WAL mode); the file is written under a temporary name, made accessible to its owner only (`0600`) and renamed when complete.
+
+After each successful backup only the newest `BACKUP_KEEP` files named `depot-<YYYY-MM-DD>.sqlite` are kept (empty or invalid = 30); other files in the directory, such as the automatic pre-restore exports, are never deleted. Settings → "Datensicherung" shows the time of the last successful backup; if the last attempt failed, it shows a warning instead, and the log names the error.
+
+The default `BACKUP_DIR` is on the same disk as the database and does not protect against a disk failure: point `BACKUP_DIR` at another disk or a synced or off-site location.
+
+### Restoring from a backup file
+
+1. Stop the app.
+2. Keep a copy of the current database file named by `DATABASE_URL` (empty = `~/.depotmanagement/depot.db`) and of its `-wal` and `-shm` files, if they exist.
+3. Copy the chosen `depot-<YYYY-MM-DD>.sqlite` over the database file. The copy must stay readable and writable by the user the app runs as (the backup file is `0600`, owned by that user).
+4. Delete the database file's `-wal` and `-shm` files next to it (e.g. `depot.db-wal`, `depot.db-shm`) if they exist; they belong to the replaced database.
+5. Run `npx prisma migrate deploy` with the same `DATABASE_URL`: an older backup may lack newer migrations.
+6. Start the app.
+
+Everything written after that backup is lost.
+
 ## Definition of Done (UI stories)
 
 Every UI story is done only when all of these hold:

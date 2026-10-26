@@ -1,4 +1,4 @@
-// German texts of the restore UI (story 6.2).
+// German texts of the restore UI (story 6.2) and the daily DB backup status (story 6.3).
 import type { RestoreActionState } from "@/app/_actions/backup";
 import { ACTION_FAILED_MESSAGE } from "@/app/_components/import/labels";
 import { RESTORE_MAX_FILE_BYTES } from "@/modules/backup/limits";
@@ -39,4 +39,17 @@ export function restoreErrorMessage(reason: RestoreErrorReason, detail?: string)
 
 export function restoreSuccessMessage(backupFileName: string): string {
   return `Daten wiederhergestellt. Automatischer Export: ${backupFileName}`;
+}
+
+/** Warning when the last DB backup failed; `lastSuccess` is a formatted `DD.MM.YYYY, HH:mm` or null. */
+export function backupFailedWarning(lastSuccess: string | null): string {
+  const since = lastSuccess
+    ? `Letzte erfolgreiche Sicherung: ${lastSuccess}.`
+    : "Noch keine erfolgreiche Sicherung.";
+  return `Die letzte Datenbanksicherung ist fehlgeschlagen. ${since}`;
+}
+
+/** Secondary line with the time of the last successful DB backup (`DD.MM.YYYY, HH:mm`). */
+export function lastBackupLine(lastSuccess: string): string {
+  return `Letzte Datenbanksicherung: ${lastSuccess}`;
 }
