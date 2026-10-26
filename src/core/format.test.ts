@@ -1,6 +1,6 @@
 import Decimal from "decimal.js";
 import { describe, expect, it } from "vitest";
-import { formatDate, formatMonth, formatMoney, formatPercent, formatQuantity } from "./format";
+import { formatDate, formatDateTime, formatMonth, formatMoney, formatPercent, formatQuantity } from "./format";
 
 const NBSP = " ";
 
@@ -94,5 +94,22 @@ describe("formatMonth", () => {
 
   it("throws on an invalid date", () => {
     expect(() => formatMonth("2026-13-01")).toThrow(TypeError);
+  });
+});
+
+describe("formatDateTime", () => {
+  it("renders a UTC instant in Europe/Berlin as DD.MM.YYYY, HH:mm", () => {
+    expect(formatDateTime("2026-10-23T18:05:00.000Z")).toBe("23.10.2026, 20:05");
+    // After the switch to winter time (2026-10-25): UTC+1.
+    expect(formatDateTime("2026-10-26T07:30:00.000Z")).toBe("26.10.2026, 08:30");
+    // Crosses midnight into the next Berlin day.
+    expect(formatDateTime("2026-12-31T23:15:00.000Z")).toBe("01.01.2027, 00:15");
+    expect(formatDateTime("2026-06-01T22:00:00.000Z")).toBe("02.06.2026, 00:00");
+  });
+
+  it("throws TypeError on an unparsable instant", () => {
+    expect(() => formatDateTime("nope")).toThrow(TypeError);
+    expect(() => formatDateTime("2026-10-23")).toThrow(TypeError);
+    expect(() => formatDateTime("2026-13-23T10:00:00Z")).toThrow(TypeError);
   });
 });

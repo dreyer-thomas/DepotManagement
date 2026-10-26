@@ -8,6 +8,8 @@ import {
   type PriceDeps,
   refetchPriceHistory,
   refreshPrices,
+  saveManualPrice,
+  securityPriceInfo,
   setMapping,
   type YahooChart,
 } from "./index";
@@ -155,7 +157,7 @@ describe("refreshPrices", () => {
     const chart = charts({ "SAP.DE": recorded("yahoo-chart-sap-de") });
 
     const result = await refreshPrices("2026-10-23", deps(chart), db());
-    expect(result).toEqual({ updated: 1, failed: [{ securityId: nvidia, name: "NVIDIA", reason: "unexpected" }] });
+    expect(result).toEqual({ updated: 1, failed: [{ securityId: nvidia, name: "NVIDIA", provider: "YAHOO", reason: "unexpected" }] });
     expect(await providerRows(sap)).toHaveLength(9);
     expect(await providerRows(nvidia)).toEqual([expect.objectContaining({ date: "2026-10-13", price: "150" })]);
     expect(await mapping(nvidia)).toMatchObject({ fetchError: "unexpected", historyFrom: null });
@@ -172,7 +174,7 @@ describe("refreshPrices", () => {
     const chart = charts({ "SAP.DE": recorded("yahoo-chart-sap-de"), "NVD.DE": new TypeError("fetch failed") });
 
     const result = await refreshPrices("2026-10-23", deps(chart), db());
-    expect(result).toEqual({ updated: 1, failed: [{ securityId: nvidia, name: "NVIDIA", reason: "network" }] });
+    expect(result).toEqual({ updated: 1, failed: [{ securityId: nvidia, name: "NVIDIA", provider: "YAHOO", reason: "network" }] });
     expect(await providerRows(sap)).toHaveLength(9);
     expect(await providerRows(nvidia)).toEqual([expect.objectContaining({ date: "2026-10-13", price: "150" })]);
     expect(await mapping(nvidia)).toMatchObject({ fetchError: "network", historyFrom: null, fetchedAt: null });
@@ -192,8 +194,8 @@ describe("refreshPrices", () => {
     expect(result.updated).toBe(0);
     expect(result.failed).toEqual(
       expect.arrayContaining([
-        { securityId: sap, name: "SAP SE", reason: "currency" },
-        { securityId: nvidia, name: "NVIDIA", reason: "not-found" },
+        { securityId: sap, name: "SAP SE", provider: "YAHOO", reason: "currency" },
+        { securityId: nvidia, name: "NVIDIA", provider: "YAHOO", reason: "not-found" },
       ]),
     );
     expect(await db().price.count()).toBe(0);
@@ -261,6 +263,30 @@ describe("refreshPrices", () => {
     expect(maxActive).toBe(1);
     expect(await providerRows(sap)).toHaveLength(9);
   });
+
+  it("serializes runs across module copies (instrumentation and server-action bundles)", async () => {
+    const sap = await security(SAP, "SAP SE");
+    await buy(sap, "2026-10-13");
+    await mapTo(sap, "YAHOO", "SAP.DE");
+    let active = 0;
+    let maxActive = 0;
+    const chart = vi.fn<YahooChart>(async () => {
+      active++;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      active--;
+      return recorded("yahoo-chart-sap-de");
+    });
+    vi.resetModules();
+    const copy = await import("./index");
+    expect(copy.refreshPrices).not.toBe(refreshPrices);
+    await Promise.all([
+      refreshPrices("2026-10-23", deps(chart), db()),
+      copy.refreshPrices("2026-10-23", deps(chart), db()),
+    ]);
+    expect(chart).toHaveBeenCalledTimes(2);
+    expect(maxActive).toBe(1);
+  });
 });
 
 describe("backfillHeldPrices", () => {
@@ -316,7 +342,7 @@ describe("refetchPriceHistory", () => {
     const failing = charts({ "NVD.DE": new TypeError("fetch failed") });
     expect(await refetchPriceHistory(nvidia, "2024-06-14", deps(failing), db())).toEqual({
       updated: 0,
-      failed: [{ securityId: nvidia, name: "NVIDIA", reason: "network" }],
+      failed: [{ securityId: nvidia, name: "NVIDIA", provider: "YAHOO", reason: "network" }],
     });
     expect((await providerRows(nvidia)).find((row) => row.date === "2024-06-07")?.price).toBe("110.44");
     // The failed full refetch clears `historyFrom`, so the next backfill retries it.
@@ -384,6 +410,20 @@ describe("latestStoredPrices and Positions", () => {
     expect(await latestStoredPrices([], "2026-10-23", db())).toEqual([]);
   });
 
+  it("carries fetchedAt and, for PROVIDER rows, the provider of the current mapping", async () => {
+    const sap = await security(SAP, "SAP SE");
+    await mapTo(sap, "YAHOO", "SAP.DE");
+    await price(sap, "2026-10-21", "PROVIDER", "201");
+    await price(sap, "2026-10-19", "MANUAL", "190");
+    const observations = await latestStoredPrices([sap], "2026-10-23", db());
+    expect(observations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ source: "provider", fetchedAt: NOW.toISOString(), provider: "YAHOO" }),
+        expect.objectContaining({ source: "manual", fetchedAt: NOW.toISOString(), provider: null }),
+      ]),
+    );
+  });
+
   it("values Positions with MANUAL over PROVIDER over the Transaction price, carrying forward the latest", async () => {
     const sap = await security(SAP, "SAP SE");
     await buy(sap, "2026-10-20", "10", "100");
@@ -410,5 +450,90 @@ describe("latestStoredPrices and Positions", () => {
       storedPrices: (ids, asOf) => latestStoredPrices(ids, asOf, db()),
     });
     expect(position).toMatchObject({ quantity: "10", price: "110.44", value: "1104.4" });
+  });
+});
+
+describe("securityPriceInfo", () => {
+  async function price(securityId: string, date: string, source: "MANUAL" | "PROVIDER", value: string) {
+    await db().price.create({ data: { securityId, date, source, price: value, fetchedAt: NOW.toISOString() } });
+  }
+
+  it("gives each Security with a price its latest date and source; stale only for held ones", async () => {
+    const sap = await security(SAP, "SAP SE");
+    const nvidia = await security(NVIDIA, "NVIDIA");
+    const none = await security("US0378331005", "Apple");
+    await buy(sap, "2026-10-01");
+    await mapTo(sap, "YAHOO", "SAP.DE");
+    await price(sap, "2026-10-22", "PROVIDER", "200");
+    // NVIDIA: not held, only an old stored price.
+    await price(nvidia, "2026-10-01", "MANUAL", "100");
+
+    const info = await securityPriceInfo("2026-10-26", db());
+    expect(info[sap]).toEqual({
+      date: "2026-10-22",
+      source: "provider",
+      fetchedAt: NOW.toISOString(),
+      provider: "YAHOO",
+      stale: true,
+    });
+    expect(info[nvidia]).toEqual({ date: "2026-10-01", source: "manual", fetchedAt: NOW.toISOString(), provider: null, stale: false });
+    expect(info[none]).toBeUndefined();
+
+    await price(sap, "2026-10-23", "MANUAL", "201");
+    expect((await securityPriceInfo("2026-10-26", db()))[sap]).toMatchObject({ date: "2026-10-23", source: "manual", stale: false });
+  });
+
+  it("falls back to the latest Transaction price", async () => {
+    const sap = await security(SAP, "SAP SE");
+    await buy(sap, "2026-10-24", "1", "150");
+    expect((await securityPriceInfo("2026-10-26", db()))[sap]).toEqual({
+      date: "2026-10-24",
+      source: "transaction",
+      fetchedAt: null,
+      provider: null,
+      stale: false,
+    });
+  });
+});
+
+describe("saveManualPrice", () => {
+  const rows = () => db().price.findMany({ select: { date: true, source: true, price: true }, orderBy: { source: "asc" } });
+
+  it("stores a German decimal as a MANUAL row and replaces it on the same date", async () => {
+    const sap = await security(SAP, "SAP SE");
+    await mapTo(sap, "YAHOO", "SAP.DE");
+    await db().providerMapping.update({ where: { securityId: sap }, data: { fetchError: "network" } });
+    await db().price.create({ data: { securityId: sap, date: "2026-10-20", source: "PROVIDER", price: "99", fetchedAt: NOW.toISOString() } });
+
+    expect(await saveManualPrice(sap, { date: "2026-10-20", price: "12,34" }, "2026-10-26", db())).toEqual({ ok: true });
+    expect(await saveManualPrice(sap, { date: "2026-10-20", price: "1.234,5" }, "2026-10-26", db())).toEqual({ ok: true });
+    expect(await rows()).toEqual([
+      { date: "2026-10-20", source: "MANUAL", price: "1234.5" },
+      { date: "2026-10-20", source: "PROVIDER", price: "99" },
+    ]);
+    // The mapping and its fetch state stay untouched.
+    expect(await mapping(sap)).toMatchObject({ symbol: "SAP.DE", fetchError: "network" });
+  });
+
+  it.each([
+    [{ date: "2026-10-27", price: "10" }, "date-invalid"],
+    [{ date: "2026-02-30", price: "10" }, "date-invalid"],
+    [{ date: "", price: "10" }, "date-invalid"],
+    [{ date: "2026-10-26", price: "0" }, "price-invalid"],
+    [{ date: "2026-10-26", price: "-1" }, "price-invalid"],
+    [{ date: "2026-10-26", price: "" }, "price-invalid"],
+    [{ date: "2026-10-26", price: "abc" }, "price-invalid"],
+    [{ date: "2026-10-26", price: 5 }, "price-invalid"],
+  ])("rejects %j with %s and writes nothing", async (input, reason) => {
+    const sap = await security(SAP, "SAP SE");
+    expect(await saveManualPrice(sap, input, "2026-10-26", db())).toEqual({ ok: false, reason });
+    expect(await rows()).toEqual([]);
+  });
+
+  it("returns not-found for an unknown Security", async () => {
+    expect(await saveManualPrice("missing", { date: "2026-10-26", price: "1" }, "2026-10-26", db())).toEqual({
+      ok: false,
+      reason: "not-found",
+    });
   });
 });

@@ -73,7 +73,7 @@ export type {
   SecurityResult,
   SecuritySummary,
 } from "./securities";
-export { listPositions, listRealizedSales } from "./positions";
+export { latestTradePrices, listPositions, listRealizedSales } from "./positions";
 export type { ListPositionsOptions, PositionRecord, RealizedSaleRecord, StoredPriceLoader } from "./positions";
 export { BATCH_TIMEOUT_MS, recordBatch } from "./batch";
 export type {

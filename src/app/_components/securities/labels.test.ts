@@ -3,9 +3,9 @@ import { mappingLabel, resolveFailedMessage, typeOptions } from "./labels";
 
 describe("mappingLabel", () => {
   it("names provider and symbol, the not-found marker, or the pending state", () => {
-    expect(mappingLabel({ provider: "YAHOO", symbol: "SAP.DE", origin: "AUTO" })).toBe("Yahoo Finance · SAP.DE");
-    expect(mappingLabel({ provider: "COINGECKO", symbol: "bitcoin", origin: "MANUAL" })).toBe("CoinGecko · bitcoin");
-    expect(mappingLabel({ provider: null, symbol: null, origin: "AUTO" })).toBe("Keine Kursquelle gefunden");
+    expect(mappingLabel({ provider: "YAHOO", symbol: "SAP.DE", origin: "AUTO", fetchError: null })).toBe("Yahoo Finance · SAP.DE");
+    expect(mappingLabel({ provider: "COINGECKO", symbol: "bitcoin", origin: "MANUAL", fetchError: null })).toBe("CoinGecko · bitcoin");
+    expect(mappingLabel({ provider: null, symbol: null, origin: "AUTO", fetchError: null })).toBe("Keine Kursquelle gefunden");
     expect(mappingLabel(null)).toBe("Kursquelle noch nicht ermittelt");
   });
 });

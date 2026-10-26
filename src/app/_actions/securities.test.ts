@@ -191,7 +191,7 @@ describe("setMappingAction", () => {
     const msci = await security({ isin: MSCI_WORLD }, "iShares Core MSCI World", "ETF");
     expect(await setMappingAction(null, form({ securityId: msci.id, provider: "YAHOO", symbol: "EUNL.DE" }))).toEqual({
       ok: true,
-      mapping: { provider: "YAHOO", symbol: "EUNL.DE", origin: "MANUAL" },
+      mapping: { provider: "YAHOO", symbol: "EUNL.DE", origin: "MANUAL", fetchError: null },
     });
     expect(revalidatePath).toHaveBeenCalledWith("/securities");
     expect(after).toHaveBeenCalledTimes(1);

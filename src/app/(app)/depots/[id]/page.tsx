@@ -103,6 +103,7 @@ export default async function DepotDetailPage({ params, searchParams }: Props) {
       <PositionsTable
         positions={positions}
         cashBalance={depot.cashBalance}
+        today={today}
         splits={splits}
         isinChanges={isinChanges}
         securities={securities}

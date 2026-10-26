@@ -83,6 +83,40 @@ export async function listPositions(
 }
 
 /**
+ * Per Security of `securityIds`, the latest BUY/SELL price observation (any Depot) dated on or before
+ * `asOf`, ordered by `(date, sequence, id)`; Securities without one are absent. As traded (no corporate
+ * action adjustment): callers use it for the price date and source, not as a value. Read-only.
+ */
+export async function latestTradePrices(
+  securityIds: readonly string[],
+  asOf: string,
+  db: LedgerDb = prisma,
+): Promise<PriceObservation[]> {
+  if (securityIds.length === 0) return [];
+  const rows = await db.transaction.findMany({
+    where: { securityId: { in: [...securityIds] }, type: { in: ["BUY", "SELL"] }, date: { lte: asOf }, price: { not: null } },
+    select: { id: true, securityId: true, date: true, sequence: true, price: true },
+  });
+  const latest = new Map<string, (typeof rows)[number]>();
+  for (const row of rows) {
+    const current = latest.get(row.securityId as string);
+    const later =
+      !current ||
+      row.date > current.date ||
+      (row.date === current.date && (row.sequence > current.sequence || (row.sequence === current.sequence && row.id > current.id)));
+    if (later) latest.set(row.securityId as string, row);
+  }
+  return [...latest.values()].map((row) => ({
+    id: row.id,
+    securityId: row.securityId as string,
+    date: row.date,
+    sequence: row.sequence,
+    price: row.price as string,
+    source: "transaction" as const,
+  }));
+}
+
+/**
  * One realized SELL of a Depot (computed on read): its ledger position, FIFO gain (gross, tax excluded) and
  * the fees that gain deducts (sell fee plus the consumed share of buy fees, `core/fee-attribution`).
  */

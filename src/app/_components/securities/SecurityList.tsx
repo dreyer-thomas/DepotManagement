@@ -1,3 +1,4 @@
+import Alert from "@mui/material/Alert";
 import Card from "@mui/material/Card";
 import CardContent from "@mui/material/CardContent";
 import Chip from "@mui/material/Chip";
@@ -5,22 +6,39 @@ import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import { securityTypeLabel } from "@/app/_components/migration/labels";
 import { allowedAssetTypes } from "@/modules/ledger";
-import type { SecurityWithMapping } from "@/modules/prices";
+import type { SecurityPriceInfo, SecurityWithMapping } from "@/modules/prices";
+import { fetchErrorText } from "../prices/price-labels";
+import { PriceDate } from "../prices/StaleBadge";
 import { mappingLabel } from "./labels";
+import { ManualPriceButton } from "./ManualPriceDialog";
 import { MappingDialogButton, ResolveMappingButton } from "./MappingDialog";
 import { SecurityLogo } from "./SecurityLogo";
 import { TypeDialogButton } from "./TypeDialog";
 
 /**
- * Securities with logo placeholder, name, ISIN or crypto symbol, type chip and price source, plus
- * "Kursquelle bearbeiten", "Typ ändern" and (after a miss) "Automatisch suchen".
+ * Securities with logo placeholder, name, ISIN or crypto symbol, type chip, price source and latest
+ * price date (stale badge for held Securities), plus "Kursquelle bearbeiten", "Typ ändern" and (after a
+ * miss) "Automatisch suchen". A failed last fetch shows an error naming the provider with
+ * "Kurs manuell eintragen".
  */
-export function SecurityList({ securities }: { securities: SecurityWithMapping[] }) {
+export function SecurityList({
+  securities,
+  prices = {},
+  today,
+}: {
+  securities: SecurityWithMapping[];
+  /** Latest price info per Security id (`securityPriceInfo`); absent ids have no price. */
+  prices?: Record<string, SecurityPriceInfo>;
+  /** Today's business date (default date of a manual Price). */
+  today: string;
+}) {
   return (
     <Stack component="ul" spacing={1.5} sx={{ listStyle: "none", p: 0, m: 0 }}>
       {securities.map((security) => {
         const unclassified = security.assetType === "UNCLASSIFIED";
         const notFound = security.mapping !== null && security.mapping.provider === null;
+        const price = prices[security.id];
+        const fetchFailed = Boolean(security.mapping?.provider && security.mapping.fetchError);
         return (
           <li key={security.id}>
             <Card>
@@ -45,6 +63,20 @@ export function SecurityList({ securities }: { securities: SecurityWithMapping[]
                     <Typography variant="body2" color={security.mapping?.provider ? "text.primary" : "text.secondary"}>
                       {mappingLabel(security.mapping)}
                     </Typography>
+                    {price ? (
+                      <div>
+                        <PriceDate info={price} />
+                      </div>
+                    ) : null}
+                    {fetchFailed ? (
+                      <Alert
+                        severity="error"
+                        sx={{ mt: 0.5, alignItems: "center", flexWrap: "wrap", rowGap: 1, "& .MuiAlert-action": { ml: 0, pl: 0 } }}
+                        action={<ManualPriceButton security={security} today={today} />}
+                      >
+                        {fetchErrorText(security.mapping?.provider ?? null)}
+                      </Alert>
+                    ) : null}
                     <Stack direction="row" sx={{ gap: 1, flexWrap: "wrap", mt: 1, alignItems: "flex-start" }}>
                       <MappingDialogButton security={security} />
                       <TypeDialogButton security={security} allowedTypes={allowedAssetTypes(security)} />

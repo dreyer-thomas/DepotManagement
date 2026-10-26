@@ -20,8 +20,11 @@ import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import { useState } from "react";
 import { formatMoney, formatQuantity } from "@/core/format";
+import { isStale } from "@/core/prices";
 import type { IsinChangeRecord, PositionRecord, SecuritySummary, SplitRecord } from "@/modules/ledger";
 import { IsinChangeDialog } from "../corporate-actions/IsinChangeDialog";
+import type { PriceDateInfo } from "../prices/price-labels";
+import { PriceDate } from "../prices/StaleBadge";
 import { SplitDialog } from "../corporate-actions/SplitDialog";
 import { SecurityLogo } from "../securities/SecurityLogo";
 import { GainLossPill } from "./GainLossPill";
@@ -44,6 +47,23 @@ const money = (value: string | null) => (value === null ? MISSING : formatMoney(
 
 function GainLoss({ position }: { position: PositionRecord }) {
   return position.gain === null ? <span>{MISSING}</span> : <GainLossPill gain={position.gain} ratio={position.gainRatio} />;
+}
+
+/** Price date info of a Position for the date line / stale badge; `null` without a price. */
+function priceInfo(position: PositionRecord, today: string | undefined): PriceDateInfo | null {
+  if (position.priceDate === null || position.priceSource === null) return null;
+  return {
+    date: position.priceDate,
+    source: position.priceSource,
+    fetchedAt: position.priceFetchedAt,
+    provider: position.priceProvider,
+    stale: today !== undefined && isStale(position.priceDate, today),
+  };
+}
+
+function PositionPriceDate({ position, today }: { position: PositionRecord; today: string | undefined }) {
+  const info = priceInfo(position, today);
+  return info ? <PriceDate info={info} /> : null;
 }
 
 function SecurityName({ name }: { name: string }) {
@@ -150,12 +170,14 @@ function CashName() {
 function DesktopTable({
   rows,
   cashBalance,
+  today,
   sort,
   onSort,
   onAction,
 }: {
   rows: PositionRecord[];
   cashBalance: string;
+  today: string | undefined;
   sort: Sort;
   onSort: (key: PositionSortKey) => void;
   onAction: OnAction;
@@ -201,7 +223,16 @@ function DesktopTable({
               <TableCell sx={numeric}>{formatQuantity(position.quantity)}</TableCell>
               <TableCell sx={numeric}>{formatMoney(position.costBasis)}</TableCell>
               <TableCell sx={numeric}>{formatMoney(position.averagePrice)}</TableCell>
-              <TableCell sx={numeric}>{money(position.price)}</TableCell>
+              <TableCell sx={numeric}>
+                {position.price === null ? (
+                  MISSING
+                ) : (
+                  <Stack spacing={0.25} sx={{ alignItems: "flex-end" }}>
+                    <span>{money(position.price)}</span>
+                    <PositionPriceDate position={position} today={today} />
+                  </Stack>
+                )}
+              </TableCell>
               <TableCell sx={numeric}>{money(position.value)}</TableCell>
               <TableCell sx={numeric}>
                 <GainLoss position={position} />
@@ -235,12 +266,14 @@ function DesktopTable({
 function PhoneList({
   rows,
   cashBalance,
+  today,
   sort,
   onChange,
   onAction,
 }: {
   rows: PositionRecord[];
   cashBalance: string;
+  today: string | undefined;
   sort: Sort;
   onChange: (sort: Sort) => void;
   onAction: OnAction;
@@ -293,9 +326,12 @@ function PhoneList({
                 <Typography variant="body2" sx={{ fontWeight: 500, overflowWrap: "anywhere" }}>
                   {position.security.name}
                 </Typography>
-                <Typography variant="caption" color="text.secondary" sx={{ fontVariantNumeric: "tabular-nums" }}>
-                  {formatQuantity(position.quantity)} Stück
-                </Typography>
+                <Stack direction="row" sx={{ alignItems: "center", columnGap: 1, rowGap: 0.5, flexWrap: "wrap" }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ fontVariantNumeric: "tabular-nums" }}>
+                    {formatQuantity(position.quantity)} Stück
+                  </Typography>
+                  <PositionPriceDate position={position} today={today} />
+                </Stack>
               </Box>
               <Stack spacing={0.5} sx={{ alignItems: "flex-end", ...numeric }}>
                 <Typography variant="body2" sx={{ fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>
@@ -333,11 +369,13 @@ function PhoneList({
  * Open Positions: sortable table from `md`, stacked rows below; both share one sort state. The Cash
  * Account row is pinned below the sorted rows and never sorted. Each Position has a row menu
  * ("Corporate Action → Split" / "→ ISIN-Wechsel" open the split or ISIN-change dialog of its
- * Security) unless `readOnly`.
+ * Security) unless `readOnly`. The price shows its date below it; with `today` a price older than 3
+ * days shows the stale badge instead (`core.isStale`).
  */
 export function PositionsTable({
   positions,
   cashBalance,
+  today,
   splits = [],
   isinChanges = [],
   securities = [],
@@ -346,6 +384,8 @@ export function PositionsTable({
 }: {
   positions: PositionRecord[];
   cashBalance: string;
+  /** Today's business date for the stale check; without it no price is flagged stale. */
+  today?: string;
   /** Recorded splits (any Security), listed in the split dialog. */
   splits?: SplitRecord[];
   /** Recorded ISIN changes (any Security), listed in the ISIN-change dialog. */
@@ -372,8 +412,8 @@ export function PositionsTable({
       };
   return (
     <>
-      <DesktopTable rows={rows} cashBalance={cashBalance} sort={sort} onSort={onSort} onAction={onAction} />
-      <PhoneList rows={rows} cashBalance={cashBalance} sort={sort} onChange={setSort} onAction={onAction} />
+      <DesktopTable rows={rows} cashBalance={cashBalance} today={today} sort={sort} onSort={onSort} onAction={onAction} />
+      <PhoneList rows={rows} cashBalance={cashBalance} today={today} sort={sort} onChange={setSort} onAction={onAction} />
       {dialog?.action === "split" && !readOnly ? (
         <SplitDialog
           key={session}

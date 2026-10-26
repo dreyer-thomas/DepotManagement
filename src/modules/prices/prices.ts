@@ -4,9 +4,19 @@
 // never stop other Securities and never touch existing Price rows.
 import { prisma } from "@/db";
 import type { Split } from "@/core/corporate-actions";
-import { addDays } from "@/core/dates";
-import type { PriceObservation } from "@/core/prices";
-import { firstActivityDates, getSecurity, listHeldSecurities, listSplits } from "@/modules/ledger";
+import { addDays, isBusinessDate } from "@/core/dates";
+import { ExactDecimal } from "@/core/decimal";
+import { parseDecimalInput } from "@/core/decimal-input";
+import { isStale, type PriceObservation, type PriceSource, resolvePrice } from "@/core/prices";
+import type { PriceProvider } from "@/db/generated/prisma/client";
+import {
+  firstActivityDates,
+  getSecurity,
+  latestTradePrices,
+  listHeldSecurities,
+  listSecurities,
+  listSplits,
+} from "@/modules/ledger";
 import { inTransaction, type MappingDeps, type PricesDb, resolveMissingMappings } from "./mappings";
 import type { DailyClose, PriceAdapter, PriceFetch, PriceFetchFailure } from "./providers/types";
 import { type YahooChart, yahooPrices } from "./providers/yahoo";
@@ -17,7 +27,7 @@ export type PriceDeps = MappingDeps & {
   chart?: YahooChart;
 };
 
-export type PriceRunFailure = { securityId: string; name: string; reason: PriceFetchFailure };
+export type PriceRunFailure = { securityId: string; name: string; provider: PriceProvider; reason: PriceFetchFailure };
 
 /** Outcome of a price run: number of Securities whose Prices were stored, and the failed ones. */
 export type PriceRunResult = { updated: number; failed: PriceRunFailure[] };
@@ -30,12 +40,15 @@ type Plan = { securityId: string; symbol: string; from: string; to: string; full
 
 const EMPTY_RESULT: PriceRunResult = { updated: 0, failed: [] };
 
-// In-process serialization: a run started while another is running waits for it to finish.
-let queue: Promise<unknown> = Promise.resolve();
+// In-process serialization: a run started while another is running waits for it to finish. The queue
+// lives on globalThis so every module copy in the process (instrumentation, server actions) shares it.
+const QUEUE = Symbol.for("depotmanagement.priceRunQueue");
+type QueueGlobal = typeof globalThis & { [QUEUE]?: Promise<unknown> };
 
 function serialized<T>(run: () => Promise<T>): Promise<T> {
-  const result = queue.then(run, run);
-  queue = result.catch(() => undefined);
+  const global = globalThis as QueueGlobal;
+  const result = (global[QUEUE] ?? Promise.resolve()).then(run, run);
+  global[QUEUE] = result.catch(() => undefined);
   return result;
 }
 
@@ -140,7 +153,7 @@ async function recordFailure(plan: Plan, reason: PriceFetchFailure, db: PricesDb
     // The failure is still returned; recording it is best effort.
   }
   const security = await getSecurity(plan.securityId, db).catch(() => null);
-  return { securityId: plan.securityId, name: security?.name ?? plan.symbol, reason };
+  return { securityId: plan.securityId, name: security?.name ?? plan.symbol, provider: "YAHOO", reason };
 }
 
 async function runPlans(plans: Plan[], deps: PriceDeps, db: PricesDb): Promise<PriceRunResult> {
@@ -217,7 +230,8 @@ export function refetchPriceHistory(
 
 /**
  * Stored Prices as resolver observations: per Security of `securityIds` its latest MANUAL and its latest
- * PROVIDER Price dated on or before `asOf` (enough for the resolver's precedence and carry-forward).
+ * PROVIDER Price dated on or before `asOf` (enough for the resolver's precedence and carry-forward), with
+ * `fetchedAt` and, for PROVIDER rows, the provider of the Security's current mapping.
  */
 export async function latestStoredPrices(
   securityIds: readonly string[],
@@ -234,10 +248,17 @@ export async function latestStoredPrices(
     group._max.date ? [{ securityId: group.securityId, source: group.source, date: group._max.date }] : [],
   );
   if (keys.length === 0) return [];
-  const rows = await db.price.findMany({
-    where: { OR: keys },
-    select: { id: true, securityId: true, date: true, source: true, price: true },
-  });
+  const [rows, mappings] = await Promise.all([
+    db.price.findMany({
+      where: { OR: keys },
+      select: { id: true, securityId: true, date: true, source: true, price: true, fetchedAt: true },
+    }),
+    db.providerMapping.findMany({
+      where: { securityId: { in: [...new Set(keys.map((key) => key.securityId))] } },
+      select: { securityId: true, provider: true },
+    }),
+  ]);
+  const providers = new Map(mappings.map((mapping) => [mapping.securityId, mapping.provider]));
   return rows.map((row) => ({
     id: row.id,
     securityId: row.securityId,
@@ -245,5 +266,81 @@ export async function latestStoredPrices(
     sequence: 0,
     price: row.price,
     source: row.source === "MANUAL" ? "manual" : "provider",
+    fetchedAt: row.fetchedAt,
+    provider: row.source === "PROVIDER" ? (providers.get(row.securityId) ?? null) : null,
   }));
+}
+
+/** Latest price date of a Security with its source (for the date line, stale badge and tooltip). */
+export type SecurityPriceInfo = {
+  date: string;
+  source: PriceSource;
+  /** UTC ISO fetch / entry time; null for a Transaction price. */
+  fetchedAt: string | null;
+  /** Provider of a provider price (current mapping); null otherwise. */
+  provider: PriceProvider | null;
+  /** `isStale(date, today)`, only ever true for held Securities. */
+  stale: boolean;
+};
+
+/**
+ * Per Security id the price the core resolver picks as of `today` from its latest stored MANUAL /
+ * PROVIDER Price and its latest BUY/SELL price; Securities without any price are absent. Read-only,
+ * no provider call.
+ */
+export async function securityPriceInfo(today: string, db: PricesDb = prisma): Promise<Record<string, SecurityPriceInfo>> {
+  const securityIds = (await listSecurities(db)).map((security) => security.id);
+  if (securityIds.length === 0) return {};
+  const [stored, trades, held] = await Promise.all([
+    latestStoredPrices(securityIds, today, db),
+    latestTradePrices(securityIds, today, db),
+    listHeldSecurities(today, db),
+  ]);
+  const observations = [...stored, ...trades];
+  const heldIds = new Set(held);
+  const info: Record<string, SecurityPriceInfo> = {};
+  for (const securityId of securityIds) {
+    const resolved = resolvePrice(observations, securityId, today);
+    if (!resolved) continue;
+    info[securityId] = {
+      date: resolved.date,
+      source: resolved.source,
+      fetchedAt: resolved.fetchedAt,
+      provider: (resolved.provider as PriceProvider | null) ?? null,
+      stale: heldIds.has(securityId) && isStale(resolved.date, today),
+    };
+  }
+  return info;
+}
+
+export type SaveManualPriceFailureReason = "not-found" | "date-invalid" | "price-invalid";
+
+export type SaveManualPriceResult = { ok: true } | { ok: false; reason: SaveManualPriceFailureReason };
+
+/**
+ * Stores a manual Price of `securityId` on `input.date` (a business date on or before `today`), replacing
+ * an existing MANUAL row of that date. `input.price` is German or plain decimal text, > 0. PROVIDER rows
+ * and the mapping are never touched.
+ */
+export async function saveManualPrice(
+  securityId: unknown,
+  input: { date: unknown; price: unknown },
+  today: string,
+  db: PricesDb = prisma,
+): Promise<SaveManualPriceResult> {
+  const security = typeof securityId === "string" && securityId ? await getSecurity(securityId, db) : null;
+  if (!security) return { ok: false, reason: "not-found" };
+  const date = typeof input.date === "string" ? input.date.trim() : "";
+  if (!isBusinessDate(date) || date > today) return { ok: false, reason: "date-invalid" };
+  const parsed = typeof input.price === "string" ? parseDecimalInput(input.price) : { ok: false as const };
+  if (!parsed.ok || parsed.value === "" || !new ExactDecimal(parsed.value).greaterThan(0)) {
+    return { ok: false, reason: "price-invalid" };
+  }
+  const fetchedAt = new Date().toISOString();
+  await db.price.upsert({
+    where: { securityId_date_source: { securityId: security.id, date, source: "MANUAL" } },
+    create: { securityId: security.id, date, source: "MANUAL", price: parsed.value, fetchedAt },
+    update: { price: parsed.value, fetchedAt },
+  });
+  return { ok: true };
 }

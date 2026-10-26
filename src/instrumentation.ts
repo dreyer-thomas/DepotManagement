@@ -2,7 +2,8 @@
 // so builds need no auth environment.
 export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
-    const { checkAuthConfigOrExit } = await import("./instrumentation-node");
+    const { checkAuthConfigOrExit, startBackgroundJobs } = await import("./instrumentation-node");
     checkAuthConfigOrExit();
+    await startBackgroundJobs();
   }
 }

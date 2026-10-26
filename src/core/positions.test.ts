@@ -62,10 +62,36 @@ describe("computePositions", () => {
     expect(position).toMatchObject({ quantity: "2", costBasis: "200", price: "150", priceDate: "2026-10-20", value: "300", gain: "100", gainRatio: "0.5" });
   });
 
+  it("carries the resolved price's source, fetch time and provider, also through a split", () => {
+    const trades = [trade("BUY", "2026-10-01", 1, "2", "100")];
+    const stored: PriceObservation = {
+      id: "p1",
+      securityId: "s1",
+      date: "2026-10-05",
+      sequence: 0,
+      price: "120",
+      source: "provider",
+      fetchedAt: "2026-10-05T18:00:00.000Z",
+      provider: "YAHOO",
+    };
+    const split: Split = { securityId: "s1", date: "2026-10-10", ratioOld: "1", ratioNew: "2" };
+    const [position] = computePositions(trades, [...observationsOf(trades), stored], TODAY, { splits: [split], isinChanges: [] });
+    expect(position).toMatchObject({
+      quantity: "4",
+      price: "60",
+      priceDate: "2026-10-05",
+      priceSource: "provider",
+      priceFetchedAt: "2026-10-05T18:00:00.000Z",
+      priceProvider: "YAHOO",
+    });
+    const [fromTrade] = computePositions(trades, observationsOf(trades), TODAY, NONE);
+    expect(fromTrade).toMatchObject({ priceSource: "transaction", priceFetchedAt: null, priceProvider: null });
+  });
+
   it("leaves price fields null without a price on or before today", () => {
     const trades = [trade("BUY", "2026-10-01", 1, "2", "100")];
     const [position] = computePositions(trades, [], TODAY, NONE);
-    expect(position).toMatchObject({ quantity: "2", costBasis: "200", averagePrice: "100", price: null, priceDate: null, value: null, gain: null, gainRatio: null });
+    expect(position).toMatchObject({ quantity: "2", costBasis: "200", averagePrice: "100", price: null, priceDate: null, priceSource: null, priceFetchedAt: null, priceProvider: null, value: null, gain: null, gainRatio: null });
   });
 
   it("has a null ratio for a zero Cost Basis", () => {

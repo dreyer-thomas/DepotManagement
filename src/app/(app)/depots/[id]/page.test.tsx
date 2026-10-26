@@ -170,7 +170,7 @@ describe("Depot detail page", () => {
     const text = renderText(await DepotDetailPage(props(id)));
     expect(text).toContain("Cash-Konto 731,10\u00a0€");
     expect(text).toMatch(/AI Apple Inc\. 10 1\.005,00\u00a0€ .*Cash-Konto 731,10\u00a0€ Sortieren nach/);
-    expect(text).toMatch(/Apple Inc\. 10 Stück 1\.000,00\u00a0€ .*Cash-Konto 731,10\u00a0€$/);
+    expect(text).toMatch(/Apple Inc\. 10 Stück Kurs vom 10\.01\.2026 – veraltet 1\.000,00\u00a0€ .*Cash-Konto 731,10\u00a0€$/);
   });
 
   it("shows the message and the Cash row for a cash-only Depot", async () => {
@@ -226,9 +226,9 @@ describe("Depot detail page", () => {
     expect(html).toMatch(selectedTab("Positionen"));
     expect(text).toMatch(/Wertpapier .*Stück .*Einstandswert .*Ø Kaufkurs .*Kurs .*Wert .*G\/V/);
     expect(text).toContain(
-      "AI Apple Inc. 3 361,20\u00a0€ 120,40\u00a0€ 130,00\u00a0€ 390,00\u00a0€ +28,80\u00a0€ · +7,97\u00a0%",
+      "AI Apple Inc. 3 361,20\u00a0€ 120,40\u00a0€ 130,00\u00a0€ Kurs vom 10.03.2026 – veraltet 390,00\u00a0€ +28,80\u00a0€ · +7,97\u00a0%",
     );
-    expect(text).toContain("AI Apple Inc. 3 Stück 390,00\u00a0€ +28,80\u00a0€ · +7,97\u00a0%");
+    expect(text).toContain("AI Apple Inc. 3 Stück Kurs vom 10.03.2026 – veraltet 390,00\u00a0€ +28,80\u00a0€ · +7,97\u00a0%");
     expect(text).toContain("Sortieren nach");
     expect(html).toContain("<table");
     expect(html).toMatch(/<th[^>]*aria-sort="descending"[^>]*>(?:(?!<\/th>).)*Wert/);
@@ -251,9 +251,9 @@ describe("Depot detail page", () => {
       prisma.price.create({ data: { securityId, date, source, price: value, fetchedAt: "2026-01-12T18:00:00.000Z" } });
 
     await price("2026-01-12", "PROVIDER", "110");
-    expect(renderText(await DepotDetailPage(props(id)))).toContain("110,00\u00a0€ 1.100,00\u00a0€ +100,00\u00a0€");
+    expect(renderText(await DepotDetailPage(props(id)))).toContain("110,00\u00a0€ Kurs vom 12.01.2026 – veraltet 1.100,00\u00a0€ +100,00\u00a0€");
     await price("2026-01-12", "MANUAL", "115");
-    expect(renderText(await DepotDetailPage(props(id)))).toContain("115,00\u00a0€ 1.150,00\u00a0€ +150,00\u00a0€");
+    expect(renderText(await DepotDetailPage(props(id)))).toContain("115,00\u00a0€ Kurs vom 12.01.2026 – veraltet 1.150,00\u00a0€ +150,00\u00a0€");
   });
 
   it("orders Positions by value descending and leaves out future-dated buys", async () => {
@@ -284,7 +284,7 @@ describe("Depot detail page", () => {
     });
 
     const text = renderText(await DepotDetailPage(props(id)));
-    expect(text).toMatch(/SAP SE 2 Stück 600,00\u00a0€.*Apple Inc\. 1 Stück 50,00\u00a0€/);
+    expect(text).toMatch(/SAP SE 2 Stück Kurs vom 11\.01\.2026 – veraltet 600,00\u00a0€.*Apple Inc\. 1 Stück Kurs vom 10\.01\.2026 – veraltet 50,00\u00a0€/);
     expect(text).not.toContain("Bitcoin");
   });
 
@@ -344,7 +344,7 @@ describe("Depot detail page", () => {
     const transactions = renderText(await DepotDetailPage(props(id, "transactions")));
     expect(transactions).toContain("Kauf AI Apple Inc. 10.01.2026 10 Stück 900,00\u00a0€ -905,00\u00a0€");
     const positions = renderText(await DepotDetailPage(props(id)));
-    expect(positions).toContain("AI Apple Inc. 10 905,00\u00a0€ 90,50\u00a0€ 90,00\u00a0€ 900,00\u00a0€");
+    expect(positions).toContain("AI Apple Inc. 10 905,00\u00a0€ 90,50\u00a0€ 90,00\u00a0€ Kurs vom 10.01.2026 – veraltet 900,00\u00a0€");
     const cash = renderText(await DepotDetailPage(props(id, "cash")));
     expect(cash).toContain("Cash-Konto 1.095,00\u00a0€");
     expect(cash).toContain("10.01.2026 Kauf AI Apple Inc. -905,00\u00a0€ 1.095,00\u00a0€");
@@ -412,7 +412,7 @@ describe("Depot detail page", () => {
     if (!split.ok) throw new Error("setup failed");
 
     const positions = await DepotDetailPage(props(id));
-    expect(renderText(positions)).toContain("AI Apple Inc. 40 4.000,00\u00a0€ 100,00\u00a0€ 100,00\u00a0€ 4.000,00\u00a0€");
+    expect(renderText(positions)).toContain("AI Apple Inc. 40 4.000,00\u00a0€ 100,00\u00a0€ 100,00\u00a0€ Kurs vom 02.01.2024 – veraltet 4.000,00\u00a0€");
     expect(renderHtml(positions).match(/aria-label="Aktionen für Apple Inc\."/g)).toHaveLength(2);
 
     const transactions = renderText(await DepotDetailPage(props(id, "transactions")));
@@ -460,7 +460,7 @@ describe("Depot detail page", () => {
 
     const positions = await DepotDetailPage(props(id));
     const text = renderText(positions);
-    expect(text).toContain("NA Neu AG 5 1.000,00\u00a0€ 200,00\u00a0€ 200,00\u00a0€ 1.000,00\u00a0€");
+    expect(text).toContain("NA Neu AG 5 1.000,00\u00a0€ 200,00\u00a0€ 200,00\u00a0€ Kurs vom 02.01.2024 – veraltet 1.000,00\u00a0€");
     expect(text).not.toContain("Alt AG");
     expect(renderHtml(positions).match(/aria-label="Aktionen für Neu AG"/g)).toHaveLength(2);
 

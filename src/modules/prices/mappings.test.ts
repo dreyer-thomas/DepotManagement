@@ -344,7 +344,7 @@ describe("setMapping", () => {
     await resolveMissingMappings(providers().deps, db());
     expect(await setMapping(msci.id, { provider: "YAHOO", symbol: " EUNL.DE " }, db())).toEqual({
       ok: true,
-      mapping: { provider: "YAHOO", symbol: "EUNL.DE", origin: "MANUAL" },
+      mapping: { provider: "YAHOO", symbol: "EUNL.DE", origin: "MANUAL", fetchError: null },
     });
     expect(await rows()).toEqual([
       expect.objectContaining({ securityId: msci.id, provider: "YAHOO", symbol: "EUNL.DE", origin: "MANUAL" }),
@@ -411,8 +411,15 @@ describe("listSecuritiesWithMappings", () => {
     await setMapping(sap.id, { provider: "YAHOO", symbol: "SAP.DE" }, db());
     expect(await listSecuritiesWithMappings(db())).toEqual([
       { ...btc, mapping: null },
-      { ...sap, mapping: { provider: "YAHOO", symbol: "SAP.DE", origin: "MANUAL" } },
+      { ...sap, mapping: { provider: "YAHOO", symbol: "SAP.DE", origin: "MANUAL", fetchError: null } },
     ]);
+  });
+
+  it("includes the reason of the last failed fetch", async () => {
+    const sap = await security({ isin: SAP }, "SAP", "STOCK");
+    await setMapping(sap.id, { provider: "YAHOO", symbol: "SAP.DE" }, db());
+    await db().providerMapping.update({ where: { securityId: sap.id }, data: { fetchError: "network" } });
+    expect((await listSecuritiesWithMappings(db()))[0].mapping).toMatchObject({ provider: "YAHOO", fetchError: "network" });
   });
 
   it("deletes the mapping with its Security (cascade)", async () => {

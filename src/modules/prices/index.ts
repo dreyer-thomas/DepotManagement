@@ -22,8 +22,25 @@ export type {
   SetMappingFailureReason,
   SetMappingResult,
 } from "./mappings";
-export { backfillHeldPrices, latestStoredPrices, REFRESH_OVERLAP_DAYS, refetchPriceHistory, refreshPrices } from "./prices";
-export type { PriceDeps, PriceRunFailure, PriceRunResult } from "./prices";
+export {
+  backfillHeldPrices,
+  latestStoredPrices,
+  REFRESH_OVERLAP_DAYS,
+  refetchPriceHistory,
+  refreshPrices,
+  saveManualPrice,
+  securityPriceInfo,
+} from "./prices";
+export type {
+  PriceDeps,
+  PriceRunFailure,
+  PriceRunResult,
+  SaveManualPriceFailureReason,
+  SaveManualPriceResult,
+  SecurityPriceInfo,
+} from "./prices";
+export { startPriceScheduler, stopPriceScheduler } from "./scheduler";
+export type { PriceSchedulerDeps } from "./scheduler";
 export { PRICE_FETCH_FAILURES } from "./providers/types";
 export type { DailyClose, PriceAdapter, PriceFetch, PriceFetchContext, PriceFetchFailure } from "./providers/types";
 export { yahooPrices } from "./providers/yahoo";

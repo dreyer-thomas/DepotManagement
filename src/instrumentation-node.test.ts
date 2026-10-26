@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from "vitest";
-import { checkAuthConfigOrExit } from "./instrumentation-node";
+
+// The real scheduler runs with a fake price run: no provider call and no database in this test.
+const refreshPrices = vi.hoisted(() => vi.fn(async () => ({ updated: 0, failed: [] })));
+vi.mock("@/modules/prices/prices", () => ({ refreshPrices }));
+
+import { stopPriceScheduler } from "@/modules/prices";
+import { checkAuthConfigOrExit, startBackgroundJobs } from "./instrumentation-node";
 
 const HASH = "$2b$04$Raf6EM460q2HE2THwTzIR.5Uk58FNzZG7FhlOvTFD.sbuFp.We4pO";
 const SECRET = "test-secret-with-at-least-32-characters";
@@ -16,6 +22,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  stopPriceScheduler();
   process.env = { ...savedEnv };
   vi.restoreAllMocks();
 });
@@ -45,5 +52,26 @@ describe("checkAuthConfigOrExit", () => {
     checkAuthConfigOrExit();
     expect(exit).not.toHaveBeenCalled();
     expect(error).not.toHaveBeenCalled();
+  });
+});
+
+describe("startBackgroundJobs", () => {
+  beforeEach(() => {
+    refreshPrices.mockClear();
+  });
+
+  it("starts one price scheduler with one immediate run, even when called twice", async () => {
+    delete process.env.NEXT_PHASE;
+    await startBackgroundJobs();
+    await startBackgroundJobs();
+    await vi.waitFor(() => expect(refreshPrices).toHaveBeenCalledTimes(1));
+    expect(refreshPrices.mock.calls[0]).toEqual([expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/)]);
+  });
+
+  it("starts nothing during next build", async () => {
+    process.env.NEXT_PHASE = "phase-production-build";
+    await startBackgroundJobs();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(refreshPrices).not.toHaveBeenCalled();
   });
 });

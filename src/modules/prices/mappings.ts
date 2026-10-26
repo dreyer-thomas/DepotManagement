@@ -24,6 +24,8 @@ export type ProviderMappingSummary = {
   provider: PriceProvider | null;
   symbol: string | null;
   origin: MappingOrigin;
+  /** Reason of the last failed price fetch (`PriceFetchFailure`); null after a success or before any fetch. */
+  fetchError: string | null;
 };
 
 /** A Security with its mapping; `mapping` is null while auto-resolution has not run for it. */
@@ -245,7 +247,7 @@ export async function setMapping(
       where: { securityId: security.id },
       create: { securityId: security.id, ...data },
       update: data,
-      select: { provider: true, symbol: true, origin: true },
+      select: { provider: true, symbol: true, origin: true, fetchError: true },
     });
   });
   return { ok: true, mapping };
@@ -255,7 +257,7 @@ export async function setMapping(
 export async function listSecuritiesWithMappings(db: PricesDb = prisma): Promise<SecurityWithMapping[]> {
   const [securities, rows] = await Promise.all([
     listSecurities(db),
-    db.providerMapping.findMany({ select: { securityId: true, provider: true, symbol: true, origin: true } }),
+    db.providerMapping.findMany({ select: { securityId: true, provider: true, symbol: true, origin: true, fetchError: true } }),
   ]);
   const bySecurity = new Map(rows.map(({ securityId, ...mapping }) => [securityId, mapping]));
   return securities.map((security) => ({ ...security, mapping: bySecurity.get(security.id) ?? null }));

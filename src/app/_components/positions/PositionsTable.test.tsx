@@ -11,6 +11,9 @@ const position = (name: string, fields: Partial<PositionRecord>): PositionRecord
   averagePrice: "100",
   price: null,
   priceDate: null,
+  priceSource: null,
+  priceFetchedAt: null,
+  priceProvider: null,
   value: null,
   gain: null,
   gainRatio: null,
@@ -73,5 +76,36 @@ describe("PositionsTable", () => {
     const readOnly = renderHtml(<PositionsTable positions={rows} cashBalance="0" readOnly />);
     expect(readOnly).not.toContain("Aktionen");
     expect(readOnly).toMatch(/<tr[^>]*data-cash-row[^>]*>(?:<td[^>]*>(?:(?!<\/td>).)*<\/td>){5}<td[^>]*>0,00\u00a0€<\/td><td[^>]*><\/td><\/tr>/);
+  });
+
+  it("shows the price date below the price, and the stale badge when older than 3 days, in both layouts", () => {
+    const priced = (name: string, priceDate: string) =>
+      position(name, {
+        price: "100",
+        priceDate,
+        priceSource: "provider",
+        priceFetchedAt: "2026-10-22T18:00:00.000Z",
+        priceProvider: "YAHOO",
+        value: "200",
+        gain: "0",
+        gainRatio: "0",
+      });
+    const rows = [priced("Frisch", "2026-10-24"), priced("Grenze", "2026-10-23"), priced("Alt", "2026-10-22")];
+    const tree = <PositionsTable positions={rows} cashBalance="0" today="2026-10-26" />;
+    const text = renderText(tree);
+    expect(text).toContain("100,00\u00a0€ Kurs vom 24.10.2026 200,00");
+    expect(text).toContain("100,00\u00a0€ Kurs vom 23.10.2026 200,00");
+    expect(text).toContain("100,00\u00a0€ Kurs vom 22.10.2026 – veraltet 200,00");
+    expect(text).toContain("2 Stück Kurs vom 22.10.2026 – veraltet");
+    expect(text.match(/veraltet/g)).toHaveLength(2);
+    const html = renderHtml(tree);
+    expect(html.match(/data-stale-badge=""[^>]*tabindex="0"|tabindex="0"[^>]*data-stale-badge=""/g)).toHaveLength(2);
+    // Without today nothing is flagged.
+    expect(renderText(<PositionsTable positions={rows} cashBalance="0" />)).not.toContain("veraltet");
+  });
+
+  it("shows neither date nor badge without a price", () => {
+    const text = renderText(<PositionsTable positions={[position("Ohnepreis", {})]} cashBalance="0" today="2026-10-26" />);
+    expect(text).not.toContain("Kurs vom");
   });
 });

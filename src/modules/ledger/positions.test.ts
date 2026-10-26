@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createTestDatabase, type TestDatabase } from "../../../test/helpers/test-db";
-import { createDepot, ensureSecurity, listPositions, listRealizedSales, recordIsinChange, recordTrade, type RecordTradeInput } from "./index";
+import { createDepot, ensureSecurity, latestTradePrices, listPositions, listRealizedSales, recordIsinChange, recordTrade, type RecordTradeInput } from "./index";
 
 let testDb: TestDatabase;
 let depotId: string;
@@ -74,6 +74,24 @@ describe("listPositions", () => {
     await record({ date: "2026-10-01", quantity: "2", price: "100" });
     await record({ type: "SELL", date: "2026-10-01", quantity: "2", price: "110" });
     expect(await listPositions(depotId, TODAY, db())).toEqual([]);
+  });
+});
+
+describe("latestTradePrices", () => {
+  it("returns the latest BUY/SELL price per Security of any Depot on or before asOf", async () => {
+    const sap = await ensureSecurity({ isin: "DE0007164600" }, { name: "SAP SE", assetType: "STOCK" }, db());
+    if (!sap.ok) throw new Error("setup failed");
+    await record({ date: "2026-10-01", quantity: "10", price: "100" });
+    await record({ depotId: otherDepotId, date: "2026-10-12", quantity: "1", price: "112" });
+    await record({ date: "2026-10-10", quantity: "1", price: "110" });
+    await record({ date: "2026-10-10", quantity: "1", price: "111" });
+    await record({ type: "SELL", date: "2026-10-30", quantity: "1", price: "999" });
+    const observations = await latestTradePrices([appleId, sap.security.id], TODAY, db());
+    expect(observations).toHaveLength(1);
+    expect(observations[0]).toMatchObject({ securityId: appleId, date: "2026-10-12", price: "112", source: "transaction" });
+    // Same date: the later sequence wins.
+    expect((await latestTradePrices([appleId], "2026-10-11", db()))[0]).toMatchObject({ date: "2026-10-10", price: "111" });
+    expect(await latestTradePrices([], TODAY, db())).toEqual([]);
   });
 });
 

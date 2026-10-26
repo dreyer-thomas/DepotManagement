@@ -5,7 +5,7 @@
 import { adjustedPrice, type CorporateActions } from "./corporate-actions";
 import { canonicalDecimal, ExactDecimal } from "./decimal";
 import { fifo, type FifoRow } from "./fifo";
-import { type PriceObservation, resolvePrice } from "./prices";
+import { type PriceObservation, type PriceSource, resolvePrice } from "./prices";
 
 export type Position = {
   securityId: string;
@@ -15,6 +15,12 @@ export type Position = {
   averagePrice: string;
   price: string | null;
   priceDate: string | null;
+  /** Source of the resolved price; `null` without a price. */
+  priceSource: PriceSource | null;
+  /** UTC ISO fetch / entry time of a stored price; `null` for Transaction prices or without a price. */
+  priceFetchedAt: string | null;
+  /** Provider of a provider price (e.g. `YAHOO`); `null` otherwise. */
+  priceProvider: string | null;
   value: string | null;
   gain: string | null;
   /** `gain / costBasis`; `null` without a price or when the Cost Basis is zero. */
@@ -68,6 +74,9 @@ export function computePositions(
       averagePrice: canonicalDecimal(costBasis.dividedBy(quantity)),
       price: resolved?.price ?? null,
       priceDate: resolved?.date ?? null,
+      priceSource: resolved?.source ?? null,
+      priceFetchedAt: resolved?.fetchedAt ?? null,
+      priceProvider: resolved?.provider ?? null,
       value,
       gain,
       gainRatio,

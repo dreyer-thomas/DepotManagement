@@ -15,18 +15,23 @@ vi.mock("@/app/_actions/securities", () => ({
   setMappingAction: vi.fn(),
   changeSecurityTypeAction: vi.fn(),
 }));
+vi.mock("@/app/_actions/prices", () => ({ refreshPricesAction: vi.fn(), saveManualPriceAction: vi.fn() }));
 
 import { prisma } from "@/db";
-import { ensureSecurity } from "@/modules/ledger";
+import { createDepot, ensureSecurity, recordTrade } from "@/modules/ledger";
 import { setMapping } from "@/modules/prices";
 import { MappingAutoResolver } from "../../_components/securities/MappingAutoResolver";
+import { PriceRefreshButton } from "../../_components/securities/PriceRefreshButton";
 import { SecurityList } from "../../_components/securities/SecurityList";
 import SecuritiesPage from "./page";
 
 beforeEach(async () => {
   vi.stubGlobal("fetch", fetchSpy);
   fetchSpy.mockReset();
+  await prisma.price.deleteMany();
   await prisma.providerMapping.deleteMany();
+  await prisma.transaction.deleteMany();
+  await prisma.depot.deleteMany();
   await prisma.security.deleteMany();
 });
 
@@ -51,6 +56,7 @@ describe("Securities page", () => {
     expect(text).toContain("Data provided by CoinGecko");
     expect(renderHtml(tree)).toContain('href="https://www.coingecko.com"');
     expect(findElement(tree, MappingAutoResolver)?.props.pending).toBe(0);
+    expect(findElement(tree, PriceRefreshButton)).toBeUndefined();
   });
 
   it("lists every Security with identifier, type and mapping state, without calling a provider", async () => {
@@ -84,5 +90,49 @@ describe("Securities page", () => {
     expect(text.match(/Kursquelle bearbeiten/g)).toHaveLength(4);
     expect(text.match(/Typ ändern/g)).toHaveLength(4);
     expect(renderHtml(tree)).toMatch(/MuiChip-colorWarning[^>]*>(?:(?!<\/div>).)*Typ unbekannt/);
+  });
+
+  it("shows the refresh button, latest price dates, the stale badge for held Securities and fetch errors", async () => {
+    vi.useFakeTimers({ now: new Date("2026-10-26T10:00:00.000Z"), toFake: ["Date"] });
+    try {
+      const sap = await security({ isin: "DE0007164600" }, "SAP", "STOCK");
+      const msci = await security({ isin: "IE00B4L5Y983" }, "iShares Core MSCI World", "ETF");
+      const idle = await security({ isin: "US0378331005" }, "Apple", "STOCK");
+      const depot = await createDepot({ name: "Hauptdepot", broker: "COMDIRECT" });
+      if (!depot.ok) throw new Error("setup failed");
+      for (const [id, date] of [
+        [sap.id, "2026-10-01"],
+        [msci.id, "2026-10-01"],
+      ]) {
+        const trade = await recordTrade({ depotId: depot.depot.id, type: "BUY", date, quantity: "1", price: "100", security: { id } });
+        if (!trade.ok) throw new Error("setup failed");
+      }
+      await setMapping(sap.id, { provider: "YAHOO", symbol: "SAP.DE" });
+      await setMapping(msci.id, { provider: "YAHOO", symbol: "EUNL.DE" });
+      await prisma.providerMapping.update({ where: { securityId: msci.id }, data: { fetchError: "network" } });
+      const at = "2026-10-24T18:00:00.000Z";
+      await prisma.price.createMany({
+        data: [
+          { securityId: sap.id, date: "2026-10-24", source: "PROVIDER", price: "200", fetchedAt: at },
+          { securityId: msci.id, date: "2026-10-22", source: "PROVIDER", price: "90", fetchedAt: at },
+          // Not held: an old price shows its date but no badge.
+          { securityId: idle.id, date: "2026-10-01", source: "MANUAL", price: "150", fetchedAt: at },
+        ],
+      });
+
+      const tree = await SecuritiesPage();
+
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(findElement(tree, PriceRefreshButton)).toBeDefined();
+      const text = renderText(tree);
+      expect(text).toContain("Kurse aktualisieren");
+      expect(text).toContain("Apple US0378331005 Aktie Kursquelle noch nicht ermittelt Kurs vom 01.10.2026 ");
+      expect(text).toContain("Yahoo Finance · EUNL.DE Kurs vom 22.10.2026 – veraltet Kurs konnte nicht von Yahoo Finance geladen werden. Kurs manuell eintragen");
+      expect(text).toContain("Yahoo Finance · SAP.DE Kurs vom 24.10.2026 Kursquelle bearbeiten");
+      expect(text.match(/veraltet/g)).toHaveLength(1);
+      expect(text.match(/Kurs manuell eintragen/g)).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

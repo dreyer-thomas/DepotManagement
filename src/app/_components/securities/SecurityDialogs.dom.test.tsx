@@ -26,7 +26,7 @@ beforeEach(() => {
   resolveOne.mockReset();
 });
 
-const msci = { id: "s1", name: "iShares Core MSCI World", mapping: { provider: null, symbol: null, origin: "AUTO" as const } };
+const msci = { id: "s1", name: "iShares Core MSCI World", mapping: { provider: null, symbol: null, origin: "AUTO" as const, fetchError: null } };
 
 async function openMappingDialog(security: Parameters<typeof MappingDialogButton>[0]["security"] = msci) {
   const user = userEvent.setup({ delay: null });
@@ -38,7 +38,7 @@ async function openMappingDialog(security: Parameters<typeof MappingDialogButton
 
 describe("MappingDialogButton", () => {
   it("saves provider and symbol and closes", async () => {
-    setMapping.mockResolvedValue({ ok: true, mapping: { provider: "YAHOO", symbol: "EUNL.DE", origin: "MANUAL" } });
+    setMapping.mockResolvedValue({ ok: true, mapping: { provider: "YAHOO", symbol: "EUNL.DE", origin: "MANUAL", fetchError: null } });
     const { user, dialog } = await openMappingDialog();
     await user.click(within(dialog).getByRole("combobox", { name: "Kursquelle" }));
     await user.click(await screen.findByRole("option", { name: "Yahoo Finance" }));
@@ -67,7 +67,7 @@ describe("MappingDialogButton", () => {
     const { user, dialog } = await openMappingDialog({
       id: "s2",
       name: "SAP",
-      mapping: { provider: "YAHOO", symbol: "SAP.DE", origin: "AUTO" },
+      mapping: { provider: "YAHOO", symbol: "SAP.DE", origin: "AUTO", fetchError: null },
     });
     expect((within(dialog).getByRole("textbox", { name: "Symbol" }) as HTMLInputElement).value).toBe("SAP.DE");
     expect(within(dialog).getByRole("combobox", { name: "Kursquelle" }).textContent).toBe("Yahoo Finance");

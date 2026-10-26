@@ -69,6 +69,30 @@ export function formatDate(isoDate: string): string {
   return `${d}.${m}.${y}`;
 }
 
+const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/;
+
+const BERLIN_DATE_TIME = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Europe/Berlin",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
+
+/**
+ * UTC ISO instant → Europe/Berlin `DD.MM.YYYY, HH:mm`, e.g. `2026-10-23T18:05:00.000Z` →
+ * `"23.10.2026, 20:05"`. Throws `TypeError` on an unparsable instant.
+ */
+export function formatDateTime(isoInstant: string): string {
+  // Parsing a given instant reads no clock; only the strict ISO form is accepted.
+  const instant = ISO_INSTANT.test(isoInstant) ? Date.parse(isoInstant) : Number.NaN;
+  if (Number.isNaN(instant)) throw new TypeError(`Not a valid ISO instant: ${isoInstant}`);
+  const parts = Object.fromEntries(BERLIN_DATE_TIME.formatToParts(instant).map((part) => [part.type, part.value]));
+  return `${parts.day}.${parts.month}.${parts.year}, ${parts.hour}:${parts.minute}`;
+}
+
 const MONTHS_DE = [
   "Januar",
   "Februar",

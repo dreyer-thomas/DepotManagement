@@ -12,6 +12,7 @@ vi.mock("@/app/_actions/securities", () => ({
   setMappingAction: vi.fn(),
   changeSecurityTypeAction: vi.fn(),
 }));
+vi.mock("@/app/_actions/prices", () => ({ refreshPricesAction: vi.fn(), saveManualPriceAction: vi.fn() }));
 
 registerDomCleanup();
 
@@ -33,9 +34,37 @@ async function offeredTypes(name: string) {
 
 describe("SecurityList", () => {
   it("offers the types allowed for each identifier in 'Typ ändern'", async () => {
-    render(<SecurityList securities={securities} />);
+    render(<SecurityList securities={securities} today="2026-10-26" />);
     expect(await offeredTypes("SAP")).toEqual(["Aktie", "ETF", "Fonds", "Zertifikat"]);
     await screen.findByRole("button", { name: "Typ ändern – Bitcoin" });
     expect(await offeredTypes("Bitcoin")).toEqual(["Krypto"]);
+  });
+
+  it("shows the latest price date, the stale badge and the fetch error with the manual-price action", async () => {
+    const mapped = (fetchError: string | null) => ({ provider: "YAHOO" as const, symbol: "SAP.DE", origin: "AUTO" as const, fetchError });
+    const rows: SecurityWithMapping[] = [
+      { ...securities[0], mapping: null },
+      { ...securities[1], assetType: "STOCK", mapping: mapped("network") },
+    ];
+    render(
+      <SecurityList
+        securities={rows}
+        today="2026-10-26"
+        prices={{
+          s1: { date: "2026-10-24", source: "transaction", fetchedAt: null, provider: null, stale: false },
+          s2: { date: "2026-10-22", source: "provider", fetchedAt: "2026-10-22T18:05:00.000Z", provider: "YAHOO", stale: true },
+        }}
+      />,
+    );
+    expect(screen.getByText("Kurs vom 24.10.2026")).toBeTruthy();
+    expect(screen.getByText("Kurs vom 22.10.2026 – veraltet")).toBeTruthy();
+    const error = screen.getByText("Kurs konnte nicht von Yahoo Finance geladen werden.");
+    expect(error).toBeTruthy();
+    const buttons = screen.getAllByRole("button", { name: /^Kurs manuell eintragen/ });
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0].getAttribute("aria-label")).toBe("Kurs manuell eintragen – SAP");
+    const user = userEvent.setup({ delay: null });
+    await user.click(buttons[0]);
+    expect(await screen.findByRole("dialog", { name: "Kurs manuell eintragen" })).toBeTruthy();
   });
 });
