@@ -82,7 +82,7 @@ development_status:
   5-2-deutsche-bank-robin-parser: done
   5-3-review-and-book-imported-transactions: done
   5-4-comdirect-cominvest-parser: awaiting-operator
-  5-5-finanzen-net-zero-baader-bank-parser: backlog
+  5-5-finanzen-net-zero-baader-bank-parser: done
   epic-5-retrospective: optional
 
   epic-6: backlog

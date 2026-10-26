@@ -111,9 +111,16 @@ export const documentLinkSchema = z.discriminatedUnion("kind", [
 
 /**
  * A parser result with extras: `note` is a German review hint shown under the file name; `link` feeds
- * `linkDocuments`. Empty `proposals` are valid only with a `dividend-tax-notice` link.
+ * `linkDocuments`; `noBooking` is the German info of a document that needs no booking (story 5.5, e.g. a
+ * finanzen.net zero tax-pot notice). Empty `proposals` are valid only with a `dividend-tax-notice` link or
+ * with `noBooking`; `noBooking` is valid only with empty `proposals` and no `link`.
  */
-export type ParsedDocument = { proposals: readonly TransactionProposalInput[]; note?: string; link?: DocumentLink };
+export type ParsedDocument = {
+  proposals: readonly TransactionProposalInput[];
+  note?: string;
+  link?: DocumentLink;
+  noBooking?: string;
+};
 
 /** Validates a `ParsedDocument` (proposals as `proposalListSchema`). */
 export const parsedDocumentSchema = z
@@ -121,6 +128,7 @@ export const parsedDocumentSchema = z
     proposals: proposalListSchema,
     note: z.string().trim().min(1).optional(),
     link: documentLinkSchema.optional(),
+    noBooking: z.string().trim().min(1).optional(),
   })
   .strict();
 

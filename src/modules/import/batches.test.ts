@@ -60,7 +60,7 @@ function deps(overrides: Partial<ImportDeps> = {}): ImportDeps {
 
 const pdf = (name: string, text = "Dokument"): UploadedFile => ({ name, bytes: new TextEncoder().encode(`%PDF-1.4 ${text}`) });
 
-async function depot(broker: "DEUTSCHE_BANK" | "COMDIRECT" = "DEUTSCHE_BANK", name = "ROBIN") {
+async function depot(broker: "DEUTSCHE_BANK" | "COMDIRECT" | "FINANZEN_ZERO" = "DEUTSCHE_BANK", name = "ROBIN") {
   const result = await createDepot({ name, broker }, db());
   if (!result.ok) throw new Error("setup failed");
   return result.depot;
@@ -755,5 +755,37 @@ describe("comdirect upload (story 5.4)", () => {
       expect.objectContaining({ type: "SELL", date: "2026-05-06", isin: "LU0274209740", quantity: "3.2", price: "52.5", amount: "168", fee: "0", tax: "3.32" }),
     ]);
     expect(batch.items.map((item) => item.reason)).toEqual([null, null]);
+  });
+});
+
+describe("finanzen.net zero upload (story 5.5)", () => {
+  const zero = (name: string) => readFileSync(resolve(__dirname, "../../../test/fixtures/import/finanzen-zero", name), "utf8");
+
+  it("stages a buy, a tax refund, a tax-pot notice and an ISIN change and books only the BUY and the TAX", async () => {
+    const { id } = await depot("FINANZEN_ZERO", "finanzen.net zero");
+    const batchId = await create(id, [
+      pdf("kauf.pdf", zero("buy.txt")),
+      pdf("erstattung.pdf", zero("tax-refund.txt")),
+      pdf("topf.pdf", zero("tax-pot-no-booking.txt")),
+      pdf("umtausch.pdf", zero("isin-change.txt")),
+    ]);
+    const batch = await review(batchId);
+    expect(batch.items.map((item) => [item.fileName, item.status, item.reviewStatus, item.documentType, item.reason])).toEqual([
+      ["kauf.pdf", "PARSED", "PARSED", "trade", null],
+      ["erstattung.pdf", "PARSED", "PARSED", "tax-refund", null],
+      ["topf.pdf", "NO_BOOKING", "NO_BOOKING", "tax-pot", "Keine Buchung erforderlich."],
+      ["umtausch.pdf", "FAILED", "FAILED", null, "Kapitalmaßnahme bitte als Corporate Action erfassen."],
+    ]);
+    expect(batch.items[2]?.proposals).toEqual([]);
+    expect(batch.items[3]?.proposals).toEqual([]);
+    expect(batch.files).toEqual({ PARSED: 2, AMBIGUOUS: 0, DUPLICATE: 0, NO_BOOKING: 1, FAILED: 1 });
+    expect(batch.bookKeys).toHaveLength(2);
+
+    expect(await book(batchId)).toEqual({ ok: true, booked: 2, depotId: id });
+    const rows = await listTransactions(id, db());
+    expect(rows.reverse().map((row) => [row.date, row.type, row.security?.isin ?? null, row.quantity, row.price, row.amount, row.fee, row.tax])).toEqual([
+      ["2026-04-15", "BUY", "DE0007236101", "12", "180.5", "2166", "0", "0"],
+      ["2026-08-29", "TAX", null, null, null, "0", "0", "-18.99"],
+    ]);
   });
 });

@@ -42,7 +42,7 @@ export function linkDocuments(inputs: readonly LinkInput[]): LinkedOutcome[] {
   }
 
   const result: LinkedOutcome[] = inputs.map(({ outcome }): LinkedOutcome => {
-    if (outcome.status === "FAILED") return outcome;
+    if (outcome.status === "FAILED" || outcome.status === "NO_BOOKING") return outcome;
     if (outcome.status === "LINK_ONLY") return { status: "FAILED", reason: NOTICE_WITHOUT_CREDIT_REASON };
     return {
       status: "PARSED",

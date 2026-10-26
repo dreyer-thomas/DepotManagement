@@ -29,13 +29,14 @@ afterEach(() => {
 });
 
 describe("parseDocument", () => {
-  it("registers the Deutsche Bank and comdirect parsers; other documents stay unrecognized", () => {
+  it("registers the Deutsche Bank, comdirect and finanzen.net zero parsers; other documents stay unrecognized", () => {
     expect(PARSERS.DEUTSCHE_BANK.map((entry) => entry.documentType)).toEqual(["trade", "dividend"]);
     expect(PARSERS.COMDIRECT.map((entry) => entry.documentType)).toEqual(["trade", "dividend", "dividend-tax"]);
-    expect(PARSERS.FINANZEN_ZERO).toEqual([]);
+    expect(PARSERS.FINANZEN_ZERO.map((entry) => entry.documentType)).toEqual(["corporate-action", "trade", "dividend", "tax-refund", "tax-pot"]);
     expect(parseDocument("DEUTSCHE_BANK", "Kauf")).toEqual({ status: "FAILED", reason: UNRECOGNIZED_REASON });
     expect(parseDocument("COMDIRECT", "Abrechnung: Kauf von Wertpapieren")).toEqual({ status: "FAILED", reason: UNRECOGNIZED_REASON });
     expect(parseDocument("FINANZEN_ZERO", "Wertpapierkauf GESCHÄFTSABRECHNUNG")).toEqual({ status: "FAILED", reason: UNRECOGNIZED_REASON });
+    expect(parseDocument("FINANZEN_ZERO", "Wertpapierabrechnung: Kauf")).toEqual({ status: "FAILED", reason: UNRECOGNIZED_REASON });
     expect(UNRECOGNIZED_REASON).toBe("Layout nicht erkannt. Buchung bitte manuell erfassen.");
   });
 
@@ -139,6 +140,31 @@ describe("parseDocument", () => {
       status: "FAILED",
       reason: INVALID_OUTPUT_REASON,
     });
+  });
+
+  it("returns a document needing no booking as NO_BOOKING with its info", () => {
+    const none: Parser = () => ({ proposals: [], noBooking: " Keine Buchung erforderlich. " });
+    expect(parseDocument("DEUTSCHE_BANK", "x", registry([{ documentType: "tax-pot", parse: none }]))).toEqual({
+      status: "NO_BOOKING",
+      documentType: "tax-pot",
+      reason: "Keine Buchung erforderlich.",
+    });
+  });
+
+  it("fails a no-booking result with proposals, a link, a note or a blank info", () => {
+    const link = { kind: "dividend-credit", reference: "R1", beforeTax: "21" } as const;
+    const results: Parser[] = [
+      () => ({ proposals: [BUY], noBooking: "Keine Buchung erforderlich." }),
+      () => ({ proposals: [], link, noBooking: "Keine Buchung erforderlich." }),
+      () => ({ proposals: [], note: "Bitte prüfen.", noBooking: "Keine Buchung erforderlich." }),
+      () => ({ proposals: [], noBooking: " " }),
+    ];
+    for (const parse of results) {
+      expect(parseDocument("DEUTSCHE_BANK", "x", registry([{ documentType: "t", parse }]))).toEqual({
+        status: "FAILED",
+        reason: INVALID_OUTPUT_REASON,
+      });
+    }
   });
 
   it("fails a parsed document without proposals and without tax-notice link, or with an invalid shape", () => {

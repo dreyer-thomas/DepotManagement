@@ -135,3 +135,10 @@ location: src/modules/import/parsers/comdirect/trade.ts, dividend.ts
 source_spec: `spec-5-4-comdirect-cominvest-parser.md`
 reason: All fixtures are comdirect "Trading" layouts; buy-fees.txt and savings-plan.txt are synthetic variants of buy.txt and multi-execution is tested by concatenating buy.txt and sell.txt. If cominvest settlements use another title or layout they fail safely with "Layout nicht erkannt". Settled by anonymised real cominvest and comdirect samples (operator action).
 status: open
+
+### DW-15: A tax-pot notice that moves cash with wording other than Zu Lasten/Gunsten Konto, erstatten wir or belasten wir would be stored as NO_BOOKING and its booking lost.
+origin: spec-deferred 70fb21b1f9bd
+location: src/modules/import/parsers/finanzen-zero/tax-pot.ts:349
+source_spec: `spec-5-5-finanzen-net-zero-baader-bank-parser.md`
+reason: Only the anonymised fixture tax-pot-no-booking.txt (no posting) is known; refunds come as Steuerausgleichsrechnung, which the tax-refund parser claims first. Settled by a real Baader tax-pot notice that also moves cash, or by confirming such notices never move cash.
+status: open

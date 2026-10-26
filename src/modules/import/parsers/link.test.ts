@@ -119,6 +119,14 @@ describe("linkDocuments", () => {
     expect(result[1]).toMatchObject({ status: "NO_BOOKING" });
   });
 
+  it("passes a NO_BOOKING outcome through unchanged", () => {
+    const noBooking = { status: "NO_BOOKING", documentType: "tax-pot", reason: "Keine Buchung erforderlich." } as const;
+    expect(linkDocuments([credit(), { fileName: "topf.pdf", outcome: noBooking }])).toEqual([
+      expect.objectContaining({ status: "PARSED", documentType: "dividend" }),
+      noBooking,
+    ]);
+  });
+
   it("passes other outcomes through without links", () => {
     const result = linkDocuments([file("buy.pdf", fixture("buy.txt")), file("x.pdf", "Kontoauszug")]);
     expect(result[0]).toMatchObject({ status: "PARSED", documentType: "trade" });

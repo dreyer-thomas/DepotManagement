@@ -8,6 +8,11 @@ import { parseComdirectDividendTax } from "./comdirect/tax-notice";
 import { parseComdirectTrade } from "./comdirect/trade";
 import { parseDeutscheBankDividend } from "./deutsche-bank/dividend";
 import { parseDeutscheBankTrade } from "./deutsche-bank/trade";
+import { parseFinanzenZeroCorporateAction } from "./finanzen-zero/corporate-action";
+import { parseFinanzenZeroDividend } from "./finanzen-zero/dividend";
+import { parseFinanzenZeroTaxPot } from "./finanzen-zero/tax-pot";
+import { parseFinanzenZeroTaxRefund } from "./finanzen-zero/tax-refund";
+import { parseFinanzenZeroTrade } from "./finanzen-zero/trade";
 
 /** One registered parser and the document type it reads (e.g. `"trade"`, `"dividend"`). */
 export type ParserEntry = { documentType: string; parse: Parser };
@@ -18,7 +23,8 @@ export type ParserRegistry = Record<Broker, readonly ParserEntry[]>;
 /**
  * The production registry. Deutsche Bank / ROBIN reads settlements and dividend credits (story 5.2);
  * comdirect reads settlements (with their tax notice pages), dividend credits and dividend tax notices
- * (story 5.4); finanzen.net zero stays manual: its documents are unrecognized.
+ * (story 5.4); finanzen.net zero / Baader Bank fails corporate actions first, then reads settlements,
+ * dividends and fund distributions, tax refunds and tax-pot notices that need no booking (story 5.5).
  */
 export const PARSERS: ParserRegistry = {
   COMDIRECT: [
@@ -30,7 +36,13 @@ export const PARSERS: ParserRegistry = {
     { documentType: "trade", parse: parseDeutscheBankTrade },
     { documentType: "dividend", parse: parseDeutscheBankDividend },
   ],
-  FINANZEN_ZERO: [],
+  FINANZEN_ZERO: [
+    { documentType: "corporate-action", parse: parseFinanzenZeroCorporateAction },
+    { documentType: "trade", parse: parseFinanzenZeroTrade },
+    { documentType: "dividend", parse: parseFinanzenZeroDividend },
+    { documentType: "tax-refund", parse: parseFinanzenZeroTaxRefund },
+    { documentType: "tax-pot", parse: parseFinanzenZeroTaxPot },
+  ],
 };
 
 /** Reason of a document no parser claims; also shown for an empty registry. */
@@ -46,11 +58,13 @@ export const UNREADABLE_REASON = "Dokument erkannt, aber nicht lesbar. Buchung b
 
 /**
  * Outcome of one document: valid proposals with the document type (plus an optional review note and
- * link), a link without proposals (a tax notice awaiting `linkDocuments`), or a German failure reason.
+ * link), a link without proposals (a tax notice awaiting `linkDocuments`), a document that needs no
+ * booking (with its German info), or a German failure reason.
  */
 export type ParseOutcome =
   | { status: "PARSED"; documentType: string; proposals: TransactionProposal[]; note?: string; link?: DocumentLink }
   | { status: "LINK_ONLY"; documentType: string; link: DocumentLink }
+  | { status: "NO_BOOKING"; documentType: string; reason: string }
   | { status: "FAILED"; reason: string };
 
 function isParseError(value: unknown): value is { error: unknown; message?: unknown } {
@@ -83,7 +97,14 @@ export function parseDocument(broker: Broker, text: string, registry: ParserRegi
       ? proposalListSchema.safeParse(result).data
       : parsedDocumentSchema.safeParse(result).data;
     if (parsed === undefined) return { status: "FAILED", reason: INVALID_OUTPUT_REASON };
-    const { proposals, note, link } = Array.isArray(parsed) ? { proposals: parsed, note: undefined, link: undefined } : parsed;
+    const { proposals, note, link, noBooking } = Array.isArray(parsed)
+      ? { proposals: parsed, note: undefined, link: undefined, noBooking: undefined }
+      : parsed;
+    if (noBooking !== undefined) {
+      // A document needing no booking carries only its info; proposals, a link or a note next to it are invalid.
+      if (proposals.length > 0 || link !== undefined || note !== undefined) return { status: "FAILED", reason: INVALID_OUTPUT_REASON };
+      return { status: "NO_BOOKING", documentType: entry.documentType, reason: noBooking };
+    }
     if (link?.kind === "dividend-tax-notice") {
       // A tax notice carries only its link; proposals next to it are not a valid result.
       if (proposals.length > 0) return { status: "FAILED", reason: INVALID_OUTPUT_REASON };
