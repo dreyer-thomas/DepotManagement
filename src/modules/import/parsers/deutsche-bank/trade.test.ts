@@ -220,3 +220,71 @@ describe("parseDocument(DEUTSCHE_BANK) for settlements", () => {
     expect(parseDocument("DEUTSCHE_BANK", text)).toEqual({ status: "FAILED", reason: UNRECOGNIZED_REASON });
   });
 });
+
+describe("parseDeutscheBankTrade on the real (value-first) unpdf layout", () => {
+  it("reads a real buy", () => {
+    expect(parseDocument("DEUTSCHE_BANK", fixture("real-buy.txt"))).toEqual({
+      status: "PARSED",
+      documentType: "trade",
+      proposals: [
+        {
+          type: "BUY",
+          date: "2026-03-16",
+          isin: "IE00BK5BQT80",
+          name: "VANGUARD FTSE ALL-WORLD U.ETF REG.SHS USD ACC",
+          quantity: "3.1415",
+          price: "98.765432",
+          amount: "310.27",
+          fee: "0",
+          tax: "0",
+        },
+      ],
+    });
+  });
+
+  it.each([
+    ["real-sell-loss.txt", "IE00B4L5Y983", "ISHSIII-CORE MSCI WORLD USD(ACC) FUNDS", "4.2", "61.25", "257.25"],
+    ["real-sell-gain.txt", "IE00BJ0KDQ92", "XTR.(IE)-MSCI WORLD 1C FUNDS", "1.75", "112.4", "196.7"],
+  ])("reads a real sell (%s); informational tax lines are not taxes", (file, isin, name, quantity, price, amount) => {
+    expect(parseDocument("DEUTSCHE_BANK", fixture(file))).toEqual({
+      status: "PARSED",
+      documentType: "trade",
+      proposals: [{ type: "SELL", date: "2026-03-16", isin, name, quantity, price, amount, fee: "0", tax: "0" }],
+    });
+  });
+
+  it("derives a fee from a booked total above the Kurswert", () => {
+    const text = fixture("real-buy.txt").replace("Belastung\n310,27EUR", "Belastung\n312,27EUR");
+    expect(parseDeutscheBankTrade(text)).toEqual([expect.objectContaining({ type: "BUY", amount: "310.27", fee: "2", tax: "0" })]);
+  });
+
+  it("keeps names with leading or trailing digits", () => {
+    const text = fixture("real-buy.txt").replace(
+      "1/1VANGUARD FTSE ALL-WORLD U.ETF REG.SHS USD ACC1234567 10010",
+      "1/13M CO. ANL. 2030 FUNDS 20301234567 10010",
+    );
+    expect(parseDeutscheBankTrade(text)).toEqual([expect.objectContaining({ name: "3M CO. ANL. 2030 FUNDS 2030" })]);
+  });
+
+  it("does not read a compound of a tax label as tax", () => {
+    const text = fixture("real-sell-gain.txt").replace("- keine Steuerbescheinigung -", "17,22EURKapitalertragsteuerpflichtiger Gewinn");
+    expect(parseDeutscheBankTrade(text)).toEqual([expect.objectContaining({ type: "SELL", fee: "0", tax: "0" })]);
+  });
+
+  it("reads value-first withheld taxes as tax paid", () => {
+    const text = fixture("real-sell-gain.txt")
+      .replace("Gutschrift\n196,70EUR", "Gutschrift\n191,49EUR")
+      .replace("- keine Steuerbescheinigung -", "4,94EURKapitalertragsteuer\n0,27EURSolidaritätszuschlag");
+    expect(parseDeutscheBankTrade(text)).toEqual([expect.objectContaining({ type: "SELL", amount: "196.7", fee: "0", tax: "5.21" })]);
+  });
+
+  it("fails rather than booking an unreadable value-first tax line as a fee", () => {
+    const text = fixture("real-sell-gain.txt").replace("- keine Steuerbescheinigung -", "4,94EUR auf Kapitalertragsteuer");
+    expect(parseDeutscheBankTrade(text)).toEqual({ error: "invalid", message: expect.stringContaining("Steuerbetrag") });
+  });
+
+  it("fails a foreign-currency value-first tax line", () => {
+    const text = fixture("real-sell-gain.txt").replace("- keine Steuerbescheinigung -", "4,94USDKapitalertragsteuer");
+    expect(parseDeutscheBankTrade(text)).toEqual({ error: "invalid", message: expect.stringContaining("Fremdwährung") });
+  });
+});

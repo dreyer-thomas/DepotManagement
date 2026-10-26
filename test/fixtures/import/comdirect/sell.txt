@@ -1,0 +1,119 @@
+25449 Quickborn
+Ihren Auftrag haben wir gemäß unseren produktbezogenen
+Geschäftsbedingungen "Trading" wie nachstehend ausgeführt.
+Die Wertpapiere haben wir der Abrechnung entsprechend gebucht.
+Wir bitten Sie, diese Abrechnung auf ihre Richtigkeit und
+Vollständigkeit zu überprüfen und etwaige Einwendungen
+unverzüglich zu erheben.
+A113
+DO15DD/16/04/2010
+*
+Telefon : 04106-708 25 00
+Max Mustermann
+Musterstraße 1
+12345 Musterstadt
+01099999 Depotnr.: 1234567 00
+BLZ: 200 411 33
+GESCHÄFTSABRECHNUNG VOM 06.05.2026
+Wertpapierverkauf
+Geschäftsnummer : 91 000002
+100000000002 Rechnungsnummer : 100000000002DB95
+Geschäftstag : 06.05.2026 Ausführungsplatz : TRADEGATE
+(Kommissionsgeschäft)
+Wertpapier-Bezeichnung WPKNR/ISIN
+Xtrackers MSCI Japan UCITS ETF DBX0NH
+Inhaber-Anteile 1C o.N. LU0274209740
+Nennwert Zum Mischkurs von
+St. 3,2 EUR 52,5
+Kurswert : EUR 168,00
+IBAN Valuta Zu Ihren Gunsten vor Steuern
+DE00 2004 1133 0123 4567 00 EUR 08.05.2026 EUR 168,00
+Verwahrungs-Art: GIROSAMMELVERWAHRUNG
+Informationen zur steuerlichen Behandlung dieses Geschäftsvorgangs und den auf
+Ihrem Konto gebuchten Endbetrag finden Sie auf der separaten Steuermitteilung.
+Ihre comdirect
+Diese Abrechnung wird von der Bank nicht unterschrieben
+Die Leistung ist gemäß §4 Nr.8 UStG umsatzsteuerfrei. USt-Id-Nr.: DE 114 103 514
+Kundennr. /BLZ Bezeichnung
+abweichend wirtschaftlich Berechtigter
+Max Mustermann
+Musterstraße 1
+12345 Musterstadt
+----
+1234567
+200 411 33
+KEINE STEUERBESCHEINIGUNG ...
+comdirect
+25451 Quickborn
+Telefon: 04106 - 708 25 00
+Datum: 06.05.2026
+Referenz-Nummer: 2AAAAAAAAAA001AA
+Depotnummer: 1234567 00
+Herrn
+Max Mustermann
+Musterstraße 1
+12345 Musterstadt
+010 99999
+Steuerliche Behandlung: Verkauf Investmentfonds Nr. 91000002 vom 06.05.2026
+Stk. -3,2 XTR.MSCI JAPAN 1C , WKN / ISIN: DBX0NH / LU0274209740
+Zu Ihren Gunsten vor Steuern: EUR 168,00
+Steuerbemessungsgrundlage (1) EUR 12,60
+Kapitalertragsteuer EUR -3,15
+Solidaritätszuschlag EUR -0,17
+Kirchensteuer EUR 0,00_____________________
+abgeführte Steuern EUR -3,32_____________________
+Zu Ihren Gunsten nach Steuern: EUR 164,68
+Die Gutschrift erfolgt mit Valuta 08.05.2026 auf Konto EUR mit der IBAN DE00 2004 1133 0123 4567 00
+(1) siehe "Hinweise zur Ermittlung der Steuerbemessungsgrundlage" auf der Folgeseite
+Bisher einbehaltene bzw. angerechnete Steuer in EUR (4)
+Verrechnungssalden in EUR (4)
+in
+vor Ermittlung
+nach Ermittlung
+einbehaltene
+Kapitalertragsteuer Solidaritätszuschlag einbehaltene
+Kirchensteuer angerechnete
+ausländische Quellensteuer
+vor Ermittlung
+nach Ermittlung
+aus Aktien sonstige
+Gewinne / Verluste anrechenbare
+ausländische Quellensteuer verfügbarer
+Freistellungsauftrag
+einbehaltener
+Gewinne / Verluste
+2026
+100,00
+103,15
+5,50
+5,67
+0,00
+0,00
+0,00
+0,00
+KEINE STEUERBESCHEINIGUNG
+2026in
+0,00
+0,00
+500,00
+500,00
+0,00
+0,00
+0,00
+0,00
+Hinweise zur Ermittlung der Steuerbemessungsgrundlage:
+Veräußerungserlös EUR 168,00
+abzüglich Anschaffungskosten EUR -150,00
+abzüglich besitzzeitanteilige akkumulierte Vorabpauschale EUR 0,00______________________
+Veräußerungsergebnis EUR 18,00
+Teilfreistellung (30%) EUR -5,40
+fiktives Veräußerungsergebnis aus Merkposten (nach Teilfreistellung) EUR 0,00
+erhaltene Zwischengewinne (ggf. Ersatzwert) EUR 0,00
+noch nicht dem Steuerabzug unterworfene akkumulierte thesaurierte
+Erträge/Mehrbetrag/Schätzwert EUR 0,00
+fiktives Veräußerungsergebnis aus Übergangsregelung EUR 0,00______________________
+Summe Merkposten 31.12.2017 EUR 0,00_______________________
+Steuerbemessungsgrundlage vor Verlustverrechnung EUR 12,60
+Ihre comdirect
+Diese Abrechnung ist maschinell erstellt und wird nicht unterschrieben.
+(4) Die ausgewiesenen EUR-Beträge spiegeln den Stand zum Abrechnungszeitpunkt wider.

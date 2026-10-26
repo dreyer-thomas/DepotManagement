@@ -1,0 +1,44 @@
+Abrechnung: Verkauf von Wertpapieren
+Depotinhaber: Max Mustermann
+Vermögensverwaltungsmandat
+SeiteWertpapierbezeichnungDepotnummerFilialnummer
+1/1XTR.(IE)-MSCI WORLD 1C FUNDS1234567 10010
+1,75STNominalA1XB5UWKN
+112,4EURKursIE00BJ0KDQ92ISIN
+Wertpapierrechnung GroßbritannienVerwahrart
+Kommissionsgeschäft im XETRA-HandelGeschäft
+außerbörslichBörse
+16.03.2026Schlusstag1000000003 / 9998Belegnummer
+BetragWährungAbrechnung
+196,70EURKurswert
+Buchung auf Kontonummer 1234567 01 mit Wertstellung 18.03.2026
+Gutschrift
+196,70EUR
+BetragWährung
+Informationen zum Steuerabzug
+- keine Steuerbescheinigung -
+24,60EURVeräußerungsgewinn vor Teilfreistellung
+7,38EURAbzüglich Teilfreistellung von Erträgen (Gewinne, Ersatz-BMG, Ausschüttungen)
+17,22EURAuf Ihren Freistellungsbetrag angerechnet
+Die Wertpapiere haben wir entsprechend der Abrechnung gebucht. Unser Geschäftsverkehr mit Ihnen wird durch unsere Allgemeinen Geschäftsbedingungen
+und die Sonderbedingungen für Wertpapiergeschäfte geregelt. Bitte überprüfen Sie diese Abrechnung schnellstmöglich und richten Sie etwaige Einwendungen
+in den Geschäftsräumen der Bank oder schriftlich an Deutsche Bank AG, QM - Support, 04082 Leipzig. Andernfalls gilt diese Abrechnung als genehmigt.
+Die unter § 4 Nr. 8 UStG im Inland fallenden Bank- und Finanzdienstleistungen sind von der Umsatzsteuer befreit, sofern Umsatzsteuer nicht gesondert
+ausgewiesen ist. Soweit der Leistungsempfänger umsatzsteuerlicher Unternehmer ist und seinen Sitz in einem anderen EU-Mitgliedstaat hat und die Bank
+und Finanzdienstleistungen nach dortigem Recht umsatzsteuerpflichtig sind, gilt die Steuerschuldnerschaft des Leistungsempfängers. Umsatzsteuer ID
+Nr.: Deutsche Bank AG, 60262 Frankfurt DE114103379
+Vorsitzender des Aufsichtsrats: Alexander R. Wynaendts
+Vorstand: Christian Sewing (Vorsitzender), Fabrizio Campelli, Raja Akram, Marcus Chromik, Marie-Jeanne Deverdun, Stefan Hoops, Alexander von zur Mühlen, Laura Padovani,
+Claudio de Sanctis, Rebecca Short
+Deutsche Bank Aktiengesellschaft mit Sitz in Frankfurt am Main; Amtsgericht Frankfurt am Main, HRB Nr. 30 000; Umsatzsteuer-Id.-Nr. DE114103379; www.db.com
+TR00000001 20260316 003_000_
+Deutsche Bank AG
+Zentrale Frankfurt
+60262 Frankfurt
+Beratungsteam
+Telefon 0000 0000-000
+24/7-Kundenservice (069) 910-10000
+Max Mustermann
+Musterstraße 1
+12345 Musterstadt
+16. März 2026

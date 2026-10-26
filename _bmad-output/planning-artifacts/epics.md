@@ -778,7 +778,10 @@ So that I can stop relying on Parqet's error-prone autosync.
 **Then** a pure parser extracts AD-14 proposals as in Story 5.2 and the review and booking flow of Story 5.3 applies unchanged
 **And** fractional savings-plan executions and Wertpapierabrechnungen with separate fee and tax lines are handled
 **And** unexpected layouts yield `failed` with a specific reason
-**And** the parser is unit-tested against anonymised text fixtures of each document type.
+**And** the parser is unit-tested against the anonymised real-layout fixtures in `test/fixtures/import/comdirect/` (`buy.txt`, `sell.txt`, `dividend.txt`, `dividend-tax.txt`; expected values are stated in the fixtures' test, not here). Trade settlements are label-first (`Kurswert : EUR …`); the dividend credit has glued tokens (WKN and ISIN directly followed by the name)
+**And** a comdirect Wertpapierabrechnung PDF carries its Steuermitteilung as further pages of the same file: the trade's tax is read from that part (abgeführte Steuern), so one file yields one proposal with fee and tax
+**And** an Ertragsgutschrift and its Steuermitteilung arrive as separate files and are merged into one DIVIDEND proposal by Referenz-Nummer (the credit's "Referenz-Nr." equals the notice's "Referenz-Nummer"); tax = gross EUR − credited EUR after tax, which covers Kapitalertragsteuer, Solidaritätszuschlag, Kirchensteuer and foreign withholding tax
+**And** an Ertragsgutschrift whose Steuermitteilung is not in the batch yields the DIVIDEND with tax 0 and a review hint; a dividend Steuermitteilung without its Ertragsgutschrift in the batch fails with "Steuermitteilung ohne Ertragsgutschrift. Bitte zusammen hochladen."
 
 ## Epic 6: Data Safety & Operations
 
