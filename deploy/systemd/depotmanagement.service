@@ -1,0 +1,44 @@
+# Example systemd unit for DepotManagement. Copy to /etc/systemd/system/depotmanagement.service,
+# adapt the commented paths and names, then: sudo systemctl daemon-reload && sudo systemctl enable depotmanagement
+# See README.md, "Production deployment".
+
+[Unit]
+Description=DepotManagement portfolio tracker
+After=network-online.target
+Wants=network-online.target
+# Give up after 5 failed starts within 5 minutes (e.g. a failing migration) instead of restarting forever.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+# Dedicated service user without login; it owns the checkout and /var/lib/depotmanagement.
+User=depot
+Group=depot
+# The git checkout (the directory that contains package.json).
+WorkingDirectory=/opt/depotmanagement
+# Configuration outside the repository, mode 0600, owned by root. systemd reads it without shell
+# expansion, so AUTH_PASSWORD_HASH holds the plain bcrypt hash (no `\$`). Never source it in a shell.
+# It sets absolute paths: DATABASE_URL=file:/var/lib/depotmanagement/depot.db,
+# BACKUP_DIR=/var/lib/depotmanagement/backups, DATA_DIR=/var/lib/depotmanagement/data.
+EnvironmentFile=/etc/depotmanagement/depotmanagement.env
+Environment=NODE_ENV=production
+Environment=NEXT_TELEMETRY_DISABLED=1
+# Files the app creates (database and its -wal/-shm, backups, logos, uploaded PDFs) are owner-only.
+UMask=0077
+# Applies pending migrations, then execs a single `next start` on 127.0.0.1:${PORT:-3000}.
+# Node 24 must be installed system-wide (e.g. /usr/bin/node) so it is on systemd's default PATH.
+ExecStart=/opt/depotmanagement/scripts/start.sh
+Restart=on-failure
+RestartSec=5
+# stdout/stderr go to journald: journalctl -u depotmanagement
+StandardOutput=journal
+StandardError=journal
+
+# Basic hardening. ProtectSystem=full makes /usr, /boot and /etc read-only; /opt and /var/lib stay writable.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

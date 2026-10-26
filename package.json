@@ -10,10 +10,11 @@
   "scripts": {
     "dev": "NEXT_TELEMETRY_DISABLED=1 next dev",
     "build": "NEXT_TELEMETRY_DISABLED=1 next build",
-    "start": "prisma migrate deploy && NEXT_TELEMETRY_DISABLED=1 next start",
+    "start": "sh scripts/start.sh",
     "test": "vitest run",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
+    "check:tracked": "node scripts/check-tracked-files.mjs",
     "postinstall": "prisma generate",
     "hash-password": "node scripts/hash-password.mjs",
     "extract-pdf-text": "node scripts/extract-pdf-text.mjs"
