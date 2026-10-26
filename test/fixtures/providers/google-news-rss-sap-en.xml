@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!-- Synthetic Google News RSS response (en edition) for the query "SAP" when:14d. Fictitious headlines. -->
+<rss version="2.0" xmlns:media="http://search.yahoo.com/mrss/">
+  <channel>
+    <generator>NFE/5.0</generator>
+    <title>"SAP" when:14d - Google News</title>
+    <link>https://news.google.com/search?q=%22SAP%22+when:14d&amp;hl=en-US&amp;gl=US&amp;ceid=US:en</link>
+    <language>en-US</language>
+    <description>Google News</description>
+    <item>
+      <title>SAP launches AI push - Tech Example</title>
+      <link>https://news.example.com/sap-shared</link>
+      <guid isPermaLink="false">synthetic-en-1</guid>
+      <pubDate>Fri, 23 Oct 2026 16:00:00 GMT</pubDate>
+      <source url="https://tech.example.org">Tech Example</source>
+    </item>
+    <item>
+      <title>SAP shares rise after earnings - Example Wire</title>
+      <link>https://wire.example.org/sap-earnings</link>
+      <guid isPermaLink="false">synthetic-en-2</guid>
+      <pubDate>Sun, 25 Oct 2026 18:00:00 GMT</pubDate>
+      <source url="https://wire.example.org">Example Wire</source>
+    </item>
+  </channel>
+</rss>

@@ -1,0 +1,42 @@
+{
+  "explains": [],
+  "count": 4,
+  "quotes": [],
+  "news": [
+    {
+      "uuid": "synthetic-yahoo-1",
+      "title": "SAP hebt  Prognose an",
+      "publisher": "Example Finance",
+      "link": "https://finance.example.net/sap-prognose",
+      "providerPublishTime": 1792994400,
+      "type": "STORY"
+    },
+    {
+      "uuid": "synthetic-yahoo-2",
+      "title": "SAP Q3 results beat estimates",
+      "publisher": "Example Finance",
+      "link": "https://finance.example.net/sap-q3",
+      "providerPublishTime": 1792663200,
+      "type": "STORY"
+    },
+    {
+      "uuid": "synthetic-yahoo-3",
+      "title": "SAP partners with example startup",
+      "publisher": "Example Daily",
+      "link": "https://daily.example.net/sap-startup",
+      "providerPublishTime": "2026-10-20T08:15:00.000Z",
+      "type": "STORY"
+    },
+    {
+      "uuid": "synthetic-yahoo-4",
+      "title": "Item without link",
+      "publisher": "Example Daily",
+      "providerPublishTime": 1792663200,
+      "type": "STORY"
+    }
+  ],
+  "nav": [],
+  "lists": [],
+  "researchReports": [],
+  "totalTime": 12
+}

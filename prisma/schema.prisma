@@ -61,6 +61,8 @@ model Security {
   providerMapping   ProviderMapping?
   prices            Price[]
   logo              SecurityLogo?
+  newsArticles      NewsArticle[]
+  newsFetch         NewsFetch?
 }
 
 // Canonical Transaction shape (AD-14). Decimal values are TEXT strings; ordered by (date, sequence).
@@ -188,4 +190,35 @@ model SecurityLogo {
   contentType String?
   /// UTC ISO timestamp of the fetch (or upload).
   fetchedAt   String
+}
+
+enum NewsProvider {
+  GOOGLE_NEWS
+  YAHOO
+}
+
+// Owned by the news module (AD-11). Cached headlines per held Security; not ledger data, never backed up.
+// A refresh replaces all rows of a Security at once.
+model NewsArticle {
+  id          String       @id @default(cuid())
+  securityId  String
+  security    Security     @relation(fields: [securityId], references: [id], onDelete: Cascade)
+  url         String
+  title       String
+  source      String
+  /// UTC ISO timestamp of publication.
+  publishedAt String
+  provider    NewsProvider
+  /// UTC ISO timestamp of the fetch.
+  fetchedAt   String
+
+  @@unique([securityId, url])
+}
+
+// Owned by the news module (AD-11). Last successful news refresh of a Security.
+model NewsFetch {
+  securityId String   @id
+  security   Security @relation(fields: [securityId], references: [id], onDelete: Cascade)
+  /// UTC ISO timestamp of the last successful refresh.
+  fetchedAt  String
 }

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } fr
 
 // process.exit is mocked, so register() continues: never start a real scheduler here.
 const startPriceScheduler = vi.hoisted(() => vi.fn(() => true));
-vi.mock("@/modules/prices", () => ({ startPriceScheduler }));
+vi.mock("@/modules/prices", () => ({ startPriceScheduler, refreshPrices: vi.fn() }));
 
 import { register } from "./instrumentation";
 

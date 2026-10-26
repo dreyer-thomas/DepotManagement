@@ -9,6 +9,11 @@ export function recorded(name: string): unknown {
   return JSON.parse(readFileSync(resolve(FIXTURES, `${name}.json`), "utf8"));
 }
 
+/** A recorded text response body from `test/fixtures/providers/<name>` (file name with extension). */
+export function recordedText(name: string): string {
+  return readFileSync(resolve(FIXTURES, name), "utf8");
+}
+
 export type FetchCall = { url: string; method: string; headers: Record<string, string>; body: string | undefined };
 
 type Reply = Response | Error | ((call: FetchCall) => Response | Error);

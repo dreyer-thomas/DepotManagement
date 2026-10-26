@@ -7,6 +7,10 @@ vi.mock("@/modules/prices/prices", () => ({ refreshPrices }));
 const fetchMissingLogos = vi.hoisted(() => vi.fn(async () => ({ stored: 0, notFound: 0, failed: 0 })));
 vi.mock("@/modules/logos", () => ({ fetchMissingLogos }));
 
+// The news refresh after the price run is a fake too.
+const refreshNews = vi.hoisted(() => vi.fn(async () => ({ updated: 0, failed: [] })));
+vi.mock("@/modules/news", () => ({ refreshNews }));
+
 const LOGO_START = Symbol.for("depotmanagement.logoStartupRun");
 
 import { stopPriceScheduler } from "@/modules/prices";
@@ -64,6 +68,7 @@ describe("startBackgroundJobs", () => {
   beforeEach(() => {
     refreshPrices.mockClear();
     fetchMissingLogos.mockClear();
+    refreshNews.mockClear();
     delete (globalThis as Record<symbol, unknown>)[LOGO_START];
   });
 
@@ -73,6 +78,33 @@ describe("startBackgroundJobs", () => {
     await startBackgroundJobs();
     await vi.waitFor(() => expect(refreshPrices).toHaveBeenCalledTimes(1));
     expect(refreshPrices.mock.calls[0]).toEqual([expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/)]);
+  });
+
+  it("refreshes the news after the price run", async () => {
+    delete process.env.NEXT_PHASE;
+    const order: string[] = [];
+    refreshPrices.mockImplementationOnce(async () => {
+      order.push("prices");
+      return { updated: 0, failed: [] };
+    });
+    refreshNews.mockImplementationOnce(async () => {
+      order.push("news");
+      return { updated: 0, failed: [] };
+    });
+    await startBackgroundJobs();
+    await vi.waitFor(() => expect(refreshNews).toHaveBeenCalledTimes(1));
+    expect(order).toEqual(["prices", "news"]);
+    expect(refreshNews).toHaveBeenCalledWith();
+  });
+
+  it("refreshes the news also when the price run failed, and only logs a failed news refresh", async () => {
+    delete process.env.NEXT_PHASE;
+    refreshPrices.mockRejectedValueOnce(new TypeError("fetch failed"));
+    refreshNews.mockRejectedValueOnce(new RangeError("db"));
+    await startBackgroundJobs();
+    await vi.waitFor(() => expect(error).toHaveBeenCalledWith("Prices: scheduled run failed (TypeError)"));
+    expect(refreshNews).toHaveBeenCalledTimes(1);
+    expect(error).toHaveBeenCalledWith("News: scheduled refresh failed (RangeError)");
   });
 
   it("starts one logo fetch run, even when called twice", async () => {
@@ -95,5 +127,6 @@ describe("startBackgroundJobs", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(refreshPrices).not.toHaveBeenCalled();
     expect(fetchMissingLogos).not.toHaveBeenCalled();
+    expect(refreshNews).not.toHaveBeenCalled();
   });
 });

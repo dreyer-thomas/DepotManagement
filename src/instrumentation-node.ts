@@ -15,15 +15,34 @@ export function checkAuthConfigOrExit(): void {
 const LOGO_START = Symbol.for("depotmanagement.logoStartupRun");
 type LogoStartGlobal = typeof globalThis & { [LOGO_START]?: boolean };
 
+/** A full news refresh after the scheduled price run (AD-11); a failure is only logged. */
+async function refreshNewsAfterPrices(): Promise<void> {
+  try {
+    const { refreshNews } = await import("@/modules/news");
+    await refreshNews();
+  } catch (error) {
+    console.error(`News: scheduled refresh failed (${error instanceof Error ? error.name : "unknown"})`);
+  }
+}
+
 /**
- * Starts the in-process background jobs (AD-13: the price scheduler; AD-19: one logo fetch run) unless
- * this is `next build`. The scheduler guards against a second start in the same process; the logo run
- * has its own globalThis guard and runs fire-and-forget (a failure is logged, never thrown).
+ * Starts the in-process background jobs (AD-13: the price scheduler, whose daily run also refreshes the
+ * news afterwards, even when the price run failed; AD-19: one logo fetch run) unless this is `next build`.
+ * The scheduler guards against a second start in the same process; the logo run has its own globalThis
+ * guard and runs fire-and-forget (a failure is logged, never thrown).
  */
 export async function startBackgroundJobs(): Promise<void> {
   if (process.env.NEXT_PHASE === "phase-production-build") return;
-  const { startPriceScheduler } = await import("@/modules/prices");
-  startPriceScheduler();
+  const { refreshPrices, startPriceScheduler } = await import("@/modules/prices");
+  startPriceScheduler({
+    run: async (today) => {
+      try {
+        return await refreshPrices(today);
+      } finally {
+        await refreshNewsAfterPrices();
+      }
+    },
+  });
   const global = globalThis as LogoStartGlobal;
   if (global[LOGO_START]) return;
   global[LOGO_START] = true;

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!-- Synthetic Google News RSS response without results. -->
+<rss version="2.0" xmlns:media="http://search.yahoo.com/mrss/">
+  <channel>
+    <generator>NFE/5.0</generator>
+    <title>"Muster Holding" when:14d - Google News</title>
+    <link>https://news.google.com/search?q=%22Muster%22+when:14d&amp;hl=de&amp;gl=DE&amp;ceid=DE:de</link>
+    <language>de</language>
+    <description>Google News</description>
+  </channel>
+</rss>

@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!-- Synthetic Google News RSS response (de edition) for the query "SAP" when:14d. Fictitious headlines. -->
+<rss version="2.0" xmlns:media="http://search.yahoo.com/mrss/">
+  <channel>
+    <generator>NFE/5.0</generator>
+    <title>"SAP" when:14d - Google News</title>
+    <link>https://news.google.com/search?q=%22SAP%22+when:14d&amp;hl=de&amp;gl=DE&amp;ceid=DE:de</link>
+    <language>de</language>
+    <description>Google News</description>
+    <item>
+      <title>SAP hebt Prognose an - Beispiel Zeitung</title>
+      <link>https://news.example.com/sap-prognose</link>
+      <guid isPermaLink="false">synthetic-1</guid>
+      <pubDate>Mon, 26 Oct 2026 07:30:00 GMT</pubDate>
+      <description>&lt;a href="https://news.example.com/sap-prognose"&gt;SAP hebt Prognose an&lt;/a&gt;</description>
+      <source url="https://news.example.com">Beispiel Zeitung</source>
+    </item>
+    <item>
+      <title>SAP &amp; Partner: Cloud-Umsatz w&#228;chst &#x2013; Analyse - Finanz Blatt</title>
+      <link>https://news.example.com/sap-cloud?id=1&amp;ref=rss</link>
+      <guid isPermaLink="false">synthetic-2</guid>
+      <pubDate>Sat, 24 Oct 2026 12:00:00 GMT</pubDate>
+      <source url="https://blatt.example.com">Finanz Blatt</source>
+    </item>
+    <item>
+      <title>SAP startet KI-Offensive - Tech Muster</title>
+      <link>https://news.example.com/sap-shared</link>
+      <guid isPermaLink="false">synthetic-3</guid>
+      <pubDate>Fri, 23 Oct 2026 15:00:00 GMT</pubDate>
+      <source url="https://tech.example.com">Tech Muster</source>
+    </item>
+    <item>
+      <title><![CDATA[SAP-Aktie: Was <Anleger> jetzt wissen müssen - Börse Muster]]></title>
+      <link>https://boerse.example.com/sap-anleger</link>
+      <guid isPermaLink="false">synthetic-4</guid>
+      <pubDate>Tue, 13 Oct 2026 09:00:00 GMT</pubDate>
+      <source url="https://boerse.example.com">Börse Muster</source>
+    </item>
+    <item>
+      <title>SAP vor drei Wochen - Archiv Muster</title>
+      <link>https://archiv.example.com/sap-alt</link>
+      <guid isPermaLink="false">synthetic-5</guid>
+      <pubDate>Tue, 06 Oct 2026 09:00:00 GMT</pubDate>
+      <source url="https://archiv.example.com">Archiv Muster</source>
+    </item>
+    <item>
+      <title>Schadlink - Unsicher Muster</title>
+      <link>javascript:alert(1)</link>
+      <guid isPermaLink="false">synthetic-6</guid>
+      <pubDate>Mon, 26 Oct 2026 06:00:00 GMT</pubDate>
+      <source url="https://unsicher.example.com">Unsicher Muster</source>
+    </item>
+    <item>
+      <title>Ohne Datum - Beispiel Zeitung</title>
+      <link>https://news.example.com/sap-ohne-datum</link>
+      <guid isPermaLink="false">synthetic-7</guid>
+      <source url="https://news.example.com">Beispiel Zeitung</source>
+    </item>
+    <item>
+      <title>   </title>
+      <link>https://news.example.com/sap-ohne-titel</link>
+      <guid isPermaLink="false">synthetic-8</guid>
+      <pubDate>Sun, 25 Oct 2026 06:00:00 GMT</pubDate>
+      <source url="https://news.example.com">Beispiel Zeitung</source>
+    </item>
+  </channel>
+</rss>
