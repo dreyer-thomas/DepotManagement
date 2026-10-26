@@ -10,6 +10,7 @@ const dbFile = await vi.hoisted(async () => {
 import { prisma } from "@/db";
 import { archiveDepot, createDepot, recordTrade } from "@/modules/ledger";
 import { ExportButton } from "../../_components/backup/ExportButton";
+import { RestoreButton } from "../../_components/backup/RestoreButton";
 import { CreateDepotButton } from "../../_components/depots/DepotDialogs";
 import { DepotGroups } from "../../_components/depots/DepotList";
 import SettingsPage from "./page";
@@ -69,6 +70,12 @@ describe("Settings page", () => {
     expect(section).toBeDefined();
     expect(renderText(section as never)).toContain("Datensicherung");
     expect(findElement(section, ExportButton)).toBeDefined();
+  });
+
+  it("offers the restore button beside the export button in the Datensicherung section", async () => {
+    const section = findBackupSection(await SettingsPage());
+    expect(findElement(section, RestoreButton)).toBeDefined();
+    expect(renderText(section as never)).toContain("wiederherstellen");
   });
 
   it("lists Depots with a rename button each", async () => {

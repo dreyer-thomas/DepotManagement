@@ -801,3 +801,22 @@ export async function discardImportBatchesOfDepot(
   for (const id of ids) deleteBatchDir(dir, id);
   return ids.length;
 }
+
+/**
+ * Restore (story 6.2): deletes every import item and batch (any status) inside the caller's transaction.
+ * The PDF directories stay until the caller commits and calls `removeFiles()`, so a rollback keeps them.
+ */
+export async function clearImportStaging(
+  db: ImportDb,
+  deps: Pick<ImportDeps, "env"> = {},
+): Promise<{ removeFiles: () => void }> {
+  const batches = await db.importBatch.findMany({ select: { id: true } });
+  await db.importItem.deleteMany();
+  await db.importBatch.deleteMany();
+  const dir = importsDir(deps.env ?? process.env);
+  return {
+    removeFiles: () => {
+      for (const batch of batches) deleteBatchDir(dir, batch.id);
+    },
+  };
+}

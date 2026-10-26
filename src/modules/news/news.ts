@@ -208,3 +208,9 @@ export async function newsNeedsRefresh(now: Date, db: NewsDb = prisma): Promise<
   const held = await listHeldSecurities(businessDate(now), db);
   return (await staleOf(held, now, db)).length > 0;
 }
+
+/** Restore (story 6.2): deletes every cached headline and refresh marker inside the caller's transaction. */
+export async function clearNews(db: NewsDb): Promise<void> {
+  await db.newsArticle.deleteMany();
+  await db.newsFetch.deleteMany();
+}

@@ -157,3 +157,11 @@ source_spec: `spec-6-1-export-all-data.md`
 severity: medium
 reason: @prisma/adapter-better-sqlite3 dist/index.mjs: the mutex is acquired only in startTransaction; plain queries use the same client and execute inside the open BEGIN. Pre-existing for every interactive transaction (ledger batch, logos, reconciliation); the export adds one more read-only transaction that rolls back only on a DB error.
 status: open
+
+### DW-18: The guard in replaceAllLogos that bumps the epoch instead of overwriting an existing logo file is never exercised by a test.
+origin: spec-deferred e7bf6b573f27
+location: src/modules/logos/restore.ts (replaceAllLogos)
+source_spec: `spec-6-2-restore-from-export.md`
+severity: low
+reason: restore.test.ts fixes `now` and pre-creates sec-b-1.png, sec-b-7.png and other-sec-5.png; none collides with <securityId>-<NOW epoch>, so the while(existsSync) loop body never runs. A collision needs the same millisecond epoch, which is unlikely in practice.
+status: open

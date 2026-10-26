@@ -1,5 +1,6 @@
 // The news module owns NewsArticle and NewsFetch (AD-11). Other code uses only this entry point.
 export {
+  clearNews,
   listNews,
   NEWS_MAX_AGE_HOURS,
   NEWS_PER_SECURITY_LIMIT,

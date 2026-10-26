@@ -58,3 +58,4 @@ export { binancePrices } from "./providers/binance";
 export type { YahooChart } from "./providers/yahoo";
 export { exportPriceData } from "./export";
 export type { PriceExport } from "./export";
+export { replaceAllPrices } from "./restore";

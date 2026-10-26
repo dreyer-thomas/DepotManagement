@@ -13,3 +13,5 @@ export { FETCH_MAX_BYTES, UPLOAD_MAX_BYTES } from "./image";
 export { CERTIFICATE_ISSUERS, issuerIsin } from "./issuers";
 export { exportManualLogos } from "./export";
 export type { ManualLogoExport } from "./export";
+export { checkManualLogos, replaceAllLogos } from "./restore";
+export type { LogoRestoreFiles } from "./restore";

@@ -1,9 +1,11 @@
 import Box from "@mui/material/Box";
 import Card from "@mui/material/Card";
 import CardContent from "@mui/material/CardContent";
+import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import type { Metadata } from "next";
 import { ExportButton } from "@/app/_components/backup/ExportButton";
+import { RestoreButton } from "@/app/_components/backup/RestoreButton";
 import { CreateDepotButton } from "@/app/_components/depots/DepotDialogs";
 import { DepotGroups } from "@/app/_components/depots/DepotList";
 import { ParqetMigrationLink } from "@/app/_components/migration/ParqetMigrationLink";
@@ -48,9 +50,13 @@ export default async function SettingsPage() {
           Datensicherung
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Lade alle Daten als JSON-Datei herunter: Depots, Buchungen, Kurse und hochgeladene Logos.
+          Lade alle Daten als JSON-Datei herunter: Depots, Buchungen, Kurse und hochgeladene Logos. Aus einer
+          solchen Datei kannst du alle Daten wiederherstellen; dabei werden die vorhandenen Daten ersetzt.
         </Typography>
-        <ExportButton />
+        <Stack direction={{ xs: "column", sm: "row" }} spacing={2} sx={{ alignItems: "flex-start" }}>
+          <ExportButton />
+          <RestoreButton />
+        </Stack>
       </Box>
     </>
   );

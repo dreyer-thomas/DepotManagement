@@ -124,7 +124,19 @@ Top-level keys, in this order (the zod schema in [src/modules/backup/schema.ts](
 
 Not exported: caches and anything that can be fetched again or is temporary: fetched logos and their "nothing found" markers, news headlines, PDF import staging (batches, items, stored PDFs). A manual logo whose file is missing, empty or otherwise unusable on disk is skipped with a warning in the log.
 
-`schemaVersion` changes only when the format changes incompatibly. Restore (story 6.2) will read older versions by upgrading them step by step to the current one.
+`schemaVersion` changes only when the format changes incompatibly. Restore reads older versions by upgrading them step by step to the current one.
+
+### Restore
+
+Settings → "Datensicherung" → "Wiederherstellen" replaces **all** data with the content of an export file. Choose the file and type `WIEDERHERSTELLEN` to enable the button. Restore never merges: afterwards the database holds exactly the rows of the file.
+
+- Replaced: Depots, Securities, Transactions, corporate actions, reconciliation runs, provider mappings, Prices and manual logos, with their IDs, sequences, decimals and dates exactly as in the file.
+- Cleared: PDF import staging (batches and their stored PDFs), news headlines and fetched logos. They are fetched or uploaded again as needed.
+- Before anything is replaced, an automatic export of the current data is written to `BACKUP_DIR` (empty = `~/.depotmanagement/backups`; the directory is created if missing) as `depotmanagement-export-<YYYYMMDD-HHMMSS>.json`. The success message names this file. To undo a restore, restore that file.
+- The file is checked completely before anything is written: at most 50 MB, valid JSON, a supported `schemaVersion` (older versions are upgraded step by step, newer ones are rejected), the schema above, consistent references and unique keys, and valid logo images. A rejected file shows the reason (and, for schema or consistency errors, the field path) and leaves every row and file unchanged.
+- The replacement runs in one database transaction; if it fails, the old data stays as it was.
+
+Moving data from a local instance to production: export on the local instance, then restore that file on the production instance (after its first start and login). The production instance's previous content, if any, is kept as the automatic pre-restore export in its `BACKUP_DIR`.
 
 ## Definition of Done (UI stories)
 
