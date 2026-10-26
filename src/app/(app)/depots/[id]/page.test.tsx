@@ -56,6 +56,14 @@ function heroHtml(html: string): string {
   return html.slice(start, end);
 }
 
+/** The accessible name of the value chart in the hero card (either attribute order), decoded. */
+function chartLabel(html: string): string | undefined {
+  const hero = heroHtml(html);
+  const tag = hero.match(/<div[^>]*role="figure"[^>]*>/)?.[0];
+  const label = tag?.match(/aria-label="([^"]*)"/)?.[1];
+  return label?.replace(/&nbsp;|&#160;/g, "\u00a0").replace(/&amp;/g, "&");
+}
+
 async function depot() {
   const result = await createDepot({ name: "Hauptdepot", broker: "COMDIRECT" });
   if (!result.ok) throw new Error("setup failed");
@@ -535,6 +543,15 @@ describe("Depot detail page", () => {
     expect(lists[1]).toContain("Steuern gezahlt");
     // The summary sits above the tabs.
     expect(text.indexOf("Gesamtwert")).toBeLessThan(text.indexOf("Positionen"));
+    // The value chart in the hero names the Period and the first/last series values; its last value
+    // is the "Gesamtwert" text.
+    const label = chartLabel(html);
+    expect(label).toBe(
+      "Wertentwicklung 01.01.2026 – 30.06.2026: Wert von 0,00\u00a0€ auf 1.731,10\u00a0€, " +
+        "investiertes Kapital von 0,00\u00a0€ auf 1.005,00\u00a0€",
+    );
+    const gesamtwert = text.match(/Gesamtwert (\S+\u00a0€)/)?.[1];
+    expect(label).toContain(`auf ${gesamtwert!}, investiertes Kapital`);
   });
 
   it("shows a Period loss with the loss tone, a downward arrow and a minus sign", async () => {
@@ -626,6 +643,10 @@ describe("Depot detail page", () => {
     expect(text).toContain("Dividenden · Max 0,00\u00a0€");
     expect(html).not.toMatch(/<button[^>]*>Neue Buchung/);
     expect(html).not.toContain("bearbeiten");
+    // The archived Depot shows the value chart too.
+    expect(chartLabel(html)).toMatch(
+      /^Wertentwicklung 05\.01\.2026 – \d{2}\.\d{2}\.\d{4}: Wert von 500,00\u00a0€ auf 0,00\u00a0€, investiertes Kapital von 0,00\u00a0€ auf 0,00\u00a0€$/,
+    );
   });
 
   it("shows no summary and no Period selector for an empty Depot", async () => {

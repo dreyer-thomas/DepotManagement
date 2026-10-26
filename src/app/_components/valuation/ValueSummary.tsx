@@ -8,9 +8,12 @@ import CardContent from "@mui/material/CardContent";
 import Divider from "@mui/material/Divider";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
+import { ValueChart } from "@/app/_components/charts/ValueChart";
+import { toChartPoints } from "@/app/_components/charts/value-chart";
 import { GainLossPill } from "@/app/_components/positions/GainLossPill";
 import { formatDate, formatMoney, formatPercent } from "@/core/format";
 import type { PeriodPerformance } from "@/core/returns";
+import type { ValuationPoint } from "@/core/valuation";
 
 export type ValueSummaryProps = {
   /** Series point at the Period end (decimal strings). */
@@ -27,6 +30,8 @@ export type ValueSummaryProps = {
   today: string;
   /** Period Gain/Loss, its split, TTWROR and XIRR (`core/returns`). */
   performance: PeriodPerformance;
+  /** The Period's daily valuation series (same call as the figures); renders the value chart when given. */
+  series?: readonly ValuationPoint[];
 };
 
 /** `XIRR +10,87 %`, or `XIRR –` when it could not be solved. */
@@ -119,7 +124,7 @@ function Kpi({ label, value, color, note }: { label: string; value: string; colo
 }
 
 /**
- * Hero card ("Gesamtwert" at the Period end, gain/loss pill with TTWROR, XIRR, "Aufschlüsselung") and
+ * Hero card ("Gesamtwert" at the Period end, gain/loss pill with TTWROR, XIRR, value chart, "Aufschlüsselung") and
  * KPI row: invested capital, dividends in the Period, cash, taxes paid in the Period. Renders the
  * figures it is given; computes nothing.
  */
@@ -133,6 +138,7 @@ export function ValueSummary({
   to,
   today,
   performance,
+  series,
 }: ValueSummaryProps) {
   return (
     <Box component="section" aria-label="Depotwert" sx={{ mb: 2 }}>
@@ -155,6 +161,7 @@ export function ValueSummary({
               {xirrText(performance.xirr)}
             </Typography>
           </Stack>
+          {series && series.length > 0 ? <ValueChart points={toChartPoints(series)} /> : null}
           <Breakdown performance={performance} />
         </CardContent>
       </Card>

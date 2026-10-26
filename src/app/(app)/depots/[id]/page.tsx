@@ -159,6 +159,7 @@ export default async function DepotDetailPage({ params, searchParams }: Props) {
           to={valuation.to}
           today={today}
           performance={valuation.performance}
+          series={valuation.series}
         />
       ) : null}
       <DepotTabs depotId={depot.id} value={tab} />

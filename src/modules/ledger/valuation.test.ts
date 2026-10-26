@@ -59,6 +59,45 @@ describe("depotValuation", () => {
     expect(valuation.taxesPaid).toBe("-5");
   });
 
+  it("gives the chart point of every date the figures of a Period ending on that date", async () => {
+    await book({ type: "DEPOSIT", date: "2026-01-05", amount: "5000" });
+    await book({ type: "BUY", date: "2026-01-10", quantity: "10", price: "100", fee: "5", security: { id: appleId } });
+    await book({ type: "BUY", date: "2026-04-15", quantity: "5", price: "130.333", security: { id: appleId } });
+    await book({ type: "SELL", date: "2026-07-01", quantity: "8", price: "140", fee: "2.5", security: { id: appleId } });
+    await book({ type: "DIVIDEND", date: "2026-08-01", amount: "12.34", tax: "3", security: { id: appleId } });
+    const stored: PriceObservation[] = ["2026-02-02:111.11", "2026-03-31:95.5", "2026-06-15:150.125", "2026-09-30:160.007"].map(
+      (entry, index) => {
+        const [date, price] = entry.split(":");
+        return { id: `p${index}`, securityId: appleId, date, sequence: 0, price, source: "provider" };
+      },
+    );
+    const storedPrices = async (_ids: string[], upTo: string) => stored.filter((p) => p.date <= upTo);
+    const chart = await depotValuation(depotId, { kind: "preset", preset: "1J" }, TODAY, db(), { storedPrices });
+    expect(chart.series).toHaveLength(366);
+    const dates = chart.series.filter((_, index) => index % 5 === 0 || index === chart.series.length - 1).map((p) => p.date);
+    dates.push("2026-01-10", "2026-02-02", "2026-03-31", "2026-04-15", "2026-06-15", "2026-07-01", "2026-08-01", "2026-09-30");
+    for (const date of dates) {
+      const kpi = await depotValuation(depotId, { kind: "custom", from: chart.from, to: date }, TODAY, db(), { storedPrices });
+      const end = kpi.series.at(-1)!;
+      const point = chart.series.find((p) => p.date === date)!;
+      expect({ date, value: point.value, investedCapital: point.investedCapital }).toEqual({
+        date: end.date,
+        value: end.value,
+        investedCapital: end.investedCapital,
+      });
+    }
+    // KPI Periods with a different start end on the same figures: MAX (starts on the first ledger
+    // date) and a one-day Period from = to = d.
+    const max = await depotValuation(depotId, { kind: "preset", preset: "MAX" }, TODAY, db(), { storedPrices });
+    expect(max.from).not.toBe(chart.from);
+    expect(max.series.at(-1)).toEqual(chart.series.at(-1));
+    for (const date of ["2026-02-02", "2026-04-15", "2026-07-01", "2026-09-30"]) {
+      const day = await depotValuation(depotId, { kind: "custom", from: date, to: date }, TODAY, db(), { storedPrices });
+      expect(day.series).toHaveLength(1);
+      expect(day.series[0]).toEqual(chart.series.find((p) => p.date === date));
+    }
+  });
+
   it("uses injected stored Prices up to the Period end and starts MAX on the first ledger date", async () => {
     await book({ type: "DEPOSIT", date: "2026-01-05", amount: "1000" });
     await book({ type: "BUY", date: "2026-01-10", quantity: "10", price: "100", security: { id: appleId } });
