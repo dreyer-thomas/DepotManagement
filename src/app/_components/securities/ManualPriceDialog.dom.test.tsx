@@ -6,7 +6,12 @@ import { formEntries, registerDomCleanup } from "../../../../test/helpers/dom";
 import { saveManualPriceAction } from "@/app/_actions/prices";
 import { ManualPriceButton } from "./ManualPriceDialog";
 
-vi.mock("@/app/_actions/prices", () => ({ refreshPricesAction: vi.fn(), saveManualPriceAction: vi.fn() }));
+vi.mock("@/app/_actions/prices", () => ({
+  refreshPricesAction: vi.fn(),
+  saveManualPriceAction: vi.fn(),
+  updateManualPriceAction: vi.fn(),
+  deleteManualPriceAction: vi.fn(),
+}));
 
 registerDomCleanup();
 

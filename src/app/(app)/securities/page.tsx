@@ -9,17 +9,21 @@ import { MappingAutoResolver } from "@/app/_components/securities/MappingAutoRes
 import { PriceRefreshButton } from "@/app/_components/securities/PriceRefreshButton";
 import { SecurityList } from "@/app/_components/securities/SecurityList";
 import { businessDate } from "@/core/dates";
-import { listSecuritiesWithMappings, securityPriceInfo } from "@/modules/prices";
+import { listManualPrices, listSecuritiesWithMappings, securityPriceInfo } from "@/modules/prices";
 
 export const metadata: Metadata = { title: "Wertpapiere" };
 
 /**
- * All Securities with their price source and latest price date. Missing mappings are resolved and
+ * All Securities with their price source, latest price date and manual Prices. Missing mappings are resolved and
  * Prices refreshed by the client after render (never during render or `next build`).
  */
 export default async function SecuritiesPage() {
   const today = businessDate(new Date());
-  const [securities, prices] = await Promise.all([listSecuritiesWithMappings(), securityPriceInfo(today)]);
+  const [securities, prices, manualPrices] = await Promise.all([
+    listSecuritiesWithMappings(),
+    securityPriceInfo(today),
+    listManualPrices(),
+  ]);
   const pending = securities.filter((security) => security.mapping === null).length;
   return (
     <>
@@ -36,7 +40,7 @@ export default async function SecuritiesPage() {
           <Box sx={{ display: "flex", justifyContent: "flex-end", mb: 2 }}>
             <PriceRefreshButton />
           </Box>
-          <SecurityList securities={securities} prices={prices} today={today} />
+          <SecurityList securities={securities} prices={prices} manualPrices={manualPrices} today={today} />
         </>
       )}
       <Typography variant="caption" color="text.secondary" component="p" sx={{ mt: 3 }}>

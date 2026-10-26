@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { fetchErrorText, priceDateText, priceSourceText, providerLabel, refreshResultText } from "./price-labels";
+import {
+  deleteManualPriceConfirmText,
+  fetchErrorText,
+  manualPriceErrorMessage,
+  manualPriceInputText,
+  manualPriceText,
+  priceDateText,
+  priceSourceText,
+  providerLabel,
+  refreshResultText,
+} from "./price-labels";
 
 describe("price labels", () => {
   it("formats the date line, stale with an en dash", () => {
@@ -21,5 +31,15 @@ describe("price labels", () => {
     expect(fetchErrorText("YAHOO")).toBe("Kurs konnte nicht von Yahoo Finance geladen werden.");
     expect(refreshResultText([])).toBe("Kurse aktualisiert.");
     expect(refreshResultText(["SAP SE", "NVIDIA"])).toBe("Kurse aktualisiert. Fehlgeschlagen: SAP SE, NVIDIA");
+  });
+
+  it("formats manual Prices with all stored decimals and the delete confirmation", () => {
+    expect(manualPriceText("1234.5")).toBe("1.234,5\u00a0€");
+    expect(manualPriceText("0.123456789")).toBe("0,123456789\u00a0€");
+    expect(manualPriceText("1234567")).toBe("1.234.567\u00a0€");
+    expect(manualPriceInputText("1234.5")).toBe("1234,5");
+    expect(manualPriceInputText("12")).toBe("12");
+    expect(deleteManualPriceConfirmText("2026-10-20", "SAP SE")).toBe("Manuellen Kurs vom 20.10.2026 für SAP SE löschen?");
+    expect(manualPriceErrorMessage("date-taken")).toBe("Für dieses Datum gibt es bereits einen manuellen Kurs.");
   });
 });

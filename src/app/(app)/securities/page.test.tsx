@@ -15,7 +15,12 @@ vi.mock("@/app/_actions/securities", () => ({
   setMappingAction: vi.fn(),
   changeSecurityTypeAction: vi.fn(),
 }));
-vi.mock("@/app/_actions/prices", () => ({ refreshPricesAction: vi.fn(), saveManualPriceAction: vi.fn() }));
+vi.mock("@/app/_actions/prices", () => ({
+  refreshPricesAction: vi.fn(),
+  saveManualPriceAction: vi.fn(),
+  updateManualPriceAction: vi.fn(),
+  deleteManualPriceAction: vi.fn(),
+}));
 
 import { prisma } from "@/db";
 import { createDepot, ensureSecurity, recordTrade } from "@/modules/ledger";
@@ -126,11 +131,16 @@ describe("Securities page", () => {
       expect(findElement(tree, PriceRefreshButton)).toBeDefined();
       const text = renderText(tree);
       expect(text).toContain("Kurse aktualisieren");
-      expect(text).toContain("Apple US0378331005 Aktie Kursquelle noch nicht ermittelt Kurs vom 01.10.2026 ");
+      expect(text).toContain("Apple US0378331005 Aktie Kursquelle noch nicht ermittelt Kurs vom 01.10.2026 Manuelle Kurse 01.10.2026 150\u00a0€ Bearbeiten Löschen");
       expect(text).toContain("Yahoo Finance · EUNL.DE Kurs vom 22.10.2026 – veraltet Kurs konnte nicht von Yahoo Finance geladen werden. Kurs manuell eintragen");
       expect(text).toContain("Yahoo Finance · SAP.DE Kurs vom 24.10.2026 Kursquelle bearbeiten");
       expect(text.match(/veraltet/g)).toHaveLength(1);
-      expect(text.match(/Kurs manuell eintragen/g)).toHaveLength(1);
+      // One "Kurs manuell eintragen" per card (the failed card has it only in its Alert).
+      expect(text.match(/Kurs manuell eintragen/g)).toHaveLength(3);
+      expect(text.match(/Manuelle Kurse/g)).toHaveLength(1);
+      expect(findElement(tree, SecurityList)?.props.manualPrices).toEqual({
+        [idle.id]: [{ id: expect.any(String), date: "2026-10-01", price: "150" }],
+      });
     } finally {
       vi.useRealTimers();
     }

@@ -6,29 +6,34 @@ import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import { securityTypeLabel } from "@/app/_components/migration/labels";
 import { allowedAssetTypes } from "@/modules/ledger";
-import type { SecurityPriceInfo, SecurityWithMapping } from "@/modules/prices";
+import type { ManualPriceRow, SecurityPriceInfo, SecurityWithMapping } from "@/modules/prices";
 import { fetchErrorText } from "../prices/price-labels";
 import { PriceDate } from "../prices/StaleBadge";
 import { mappingLabel } from "./labels";
 import { ManualPriceButton } from "./ManualPriceDialog";
+import { ManualPriceList } from "./ManualPriceList";
 import { MappingDialogButton, ResolveMappingButton } from "./MappingDialog";
 import { SecurityLogo } from "./SecurityLogo";
 import { TypeDialogButton } from "./TypeDialog";
 
 /**
  * Securities with logo placeholder, name, ISIN or crypto symbol, type chip, price source and latest
- * price date (stale badge for held Securities), plus "Kursquelle bearbeiten", "Typ ändern" and (after a
- * miss) "Automatisch suchen". A failed last fetch shows an error naming the provider with
- * "Kurs manuell eintragen".
+ * price date (stale badge for held Securities), its manual Prices ("Manuelle Kurse" with edit/delete),
+ * plus "Kursquelle bearbeiten", "Typ ändern", "Kurs manuell eintragen" and (after a miss) "Automatisch
+ * suchen". A failed last fetch shows an error naming the provider; there "Kurs manuell eintragen" is
+ * the Alert's action instead (one per card).
  */
 export function SecurityList({
   securities,
   prices = {},
+  manualPrices = {},
   today,
 }: {
   securities: SecurityWithMapping[];
   /** Latest price info per Security id (`securityPriceInfo`); absent ids have no price. */
   prices?: Record<string, SecurityPriceInfo>;
+  /** Manual Prices per Security id, newest first (`listManualPrices`). */
+  manualPrices?: Record<string, ManualPriceRow[]>;
   /** Today's business date (default date of a manual Price). */
   today: string;
 }) {
@@ -77,9 +82,11 @@ export function SecurityList({
                         {fetchErrorText(security.mapping?.provider ?? null)}
                       </Alert>
                     ) : null}
+                    <ManualPriceList security={security} prices={manualPrices[security.id] ?? []} today={today} />
                     <Stack direction="row" sx={{ gap: 1, flexWrap: "wrap", mt: 1, alignItems: "flex-start" }}>
                       <MappingDialogButton security={security} />
                       <TypeDialogButton security={security} allowedTypes={allowedAssetTypes(security)} />
+                      {fetchFailed ? null : <ManualPriceButton security={security} today={today} />}
                       {notFound ? <ResolveMappingButton security={security} /> : null}
                     </Stack>
                   </Stack>

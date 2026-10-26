@@ -23,7 +23,7 @@ vi.mock("@/modules/prices", async (importOriginal) => ({
 
 import { prisma } from "@/db";
 import { ensureSecurity } from "@/modules/ledger";
-import { refreshPricesAction, saveManualPriceAction } from "./prices";
+import { deleteManualPriceAction, refreshPricesAction, saveManualPriceAction, updateManualPriceAction } from "./prices";
 
 const SECRET = "test-secret-with-at-least-32-characters";
 const HASH = "$2b$04$Raf6EM460q2HE2THwTzIR.5Uk58FNzZG7FhlOvTFD.sbuFp.We4pO";
@@ -114,5 +114,66 @@ describe("saveManualPriceAction", () => {
       reason: "unauthorized",
     });
     expect(await prisma.price.count()).toBe(0);
+  });
+});
+
+describe("updateManualPriceAction and deleteManualPriceAction", () => {
+  async function manualPrice() {
+    const result = await ensureSecurity({ isin: "DE0007164600" }, { name: "SAP SE", assetType: "STOCK" });
+    if (!result.ok) throw new Error("setup failed");
+    const row = await prisma.price.create({
+      data: { securityId: result.security.id, date: "2026-10-20", source: "MANUAL", price: "12.34", fetchedAt: "2026-10-20T10:00:00.000Z" },
+    });
+    return row.id;
+  }
+  const stored = () => prisma.price.findMany({ select: { date: true, price: true } });
+
+  it("updates date and price with today's Berlin date as the limit and revalidates", async () => {
+    const priceId = await manualPrice();
+    expect(await updateManualPriceAction(null, form({ priceId, date: "2026-10-26", price: "13,5" }))).toEqual({ ok: true });
+    expect(await stored()).toEqual([{ date: "2026-10-26", price: "13.5" }]);
+    expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
+  });
+
+  it("returns a validation failure without revalidating", async () => {
+    const priceId = await manualPrice();
+    expect(await updateManualPriceAction(null, form({ priceId, date: "2026-10-27", price: "1" }))).toEqual({
+      ok: false,
+      reason: "date-invalid",
+    });
+    expect(revalidatePath).not.toHaveBeenCalled();
+    expect(await stored()).toEqual([{ date: "2026-10-20", price: "12.34" }]);
+  });
+
+  it("revalidates on not-found so a row deleted elsewhere drops from the list", async () => {
+    await manualPrice();
+    expect(await updateManualPriceAction(null, form({ priceId: "missing", date: "2026-10-20", price: "1" }))).toEqual({
+      ok: false,
+      reason: "not-found",
+    });
+    expect(revalidatePath).toHaveBeenCalledExactlyOnceWith("/", "layout");
+    revalidatePath.mockClear();
+    expect(await deleteManualPriceAction("missing")).toEqual({ ok: false, reason: "not-found" });
+    expect(revalidatePath).toHaveBeenCalledExactlyOnceWith("/", "layout");
+    expect(await stored()).toEqual([{ date: "2026-10-20", price: "12.34" }]);
+  });
+
+  it("deletes the MANUAL Price and revalidates", async () => {
+    const priceId = await manualPrice();
+    expect(await deleteManualPriceAction(priceId)).toEqual({ ok: true });
+    expect(await prisma.price.count()).toBe(0);
+    expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
+  });
+
+  it("refuses without a session and writes nothing", async () => {
+    const priceId = await manualPrice();
+    signOut();
+    expect(await updateManualPriceAction(null, form({ priceId, date: "2026-10-20", price: "1" }))).toEqual({
+      ok: false,
+      reason: "unauthorized",
+    });
+    expect(await deleteManualPriceAction(priceId)).toEqual({ ok: false, reason: "unauthorized" });
+    expect(await stored()).toEqual([{ date: "2026-10-20", price: "12.34" }]);
+    expect(revalidatePath).not.toHaveBeenCalled();
   });
 });

@@ -392,6 +392,25 @@ export type SaveManualPriceFailureReason = "not-found" | "date-invalid" | "price
 
 export type SaveManualPriceResult = { ok: true } | { ok: false; reason: SaveManualPriceFailureReason };
 
+type ManualPriceInput = { date: unknown; price: unknown };
+
+/**
+ * Shared validation of a manual Price: a business date on or before `today` and German or plain decimal
+ * text > 0, returned as canonical TEXT decimal.
+ */
+function validateManualPrice(
+  input: ManualPriceInput,
+  today: string,
+): { ok: true; date: string; price: string } | { ok: false; reason: "date-invalid" | "price-invalid" } {
+  const date = typeof input.date === "string" ? input.date.trim() : "";
+  if (!isBusinessDate(date) || date > today) return { ok: false, reason: "date-invalid" };
+  const parsed = typeof input.price === "string" ? parseDecimalInput(input.price) : { ok: false as const };
+  if (!parsed.ok || parsed.value === "" || !new ExactDecimal(parsed.value).greaterThan(0)) {
+    return { ok: false, reason: "price-invalid" };
+  }
+  return { ok: true, date, price: parsed.value };
+}
+
 /**
  * Stores a manual Price of `securityId` on `input.date` (a business date on or before `today`), replacing
  * an existing MANUAL row of that date. `input.price` is German or plain decimal text, > 0. PROVIDER rows
@@ -399,23 +418,86 @@ export type SaveManualPriceResult = { ok: true } | { ok: false; reason: SaveManu
  */
 export async function saveManualPrice(
   securityId: unknown,
-  input: { date: unknown; price: unknown },
+  input: ManualPriceInput,
   today: string,
   db: PricesDb = prisma,
 ): Promise<SaveManualPriceResult> {
   const security = typeof securityId === "string" && securityId ? await getSecurity(securityId, db) : null;
   if (!security) return { ok: false, reason: "not-found" };
-  const date = typeof input.date === "string" ? input.date.trim() : "";
-  if (!isBusinessDate(date) || date > today) return { ok: false, reason: "date-invalid" };
-  const parsed = typeof input.price === "string" ? parseDecimalInput(input.price) : { ok: false as const };
-  if (!parsed.ok || parsed.value === "" || !new ExactDecimal(parsed.value).greaterThan(0)) {
-    return { ok: false, reason: "price-invalid" };
-  }
+  const valid = validateManualPrice(input, today);
+  if (!valid.ok) return valid;
+  const { date, price } = valid;
   const fetchedAt = new Date().toISOString();
   await db.price.upsert({
     where: { securityId_date_source: { securityId: security.id, date, source: "MANUAL" } },
-    create: { securityId: security.id, date, source: "MANUAL", price: parsed.value, fetchedAt },
-    update: { price: parsed.value, fetchedAt },
+    create: { securityId: security.id, date, source: "MANUAL", price, fetchedAt },
+    update: { price, fetchedAt },
   });
   return { ok: true };
+}
+
+/** One manual Price of a Security as listed on the Securities page. */
+export type ManualPriceRow = { id: string; date: string; price: string };
+
+/** Per Security id its MANUAL Prices, newest date first; Securities without any are absent. Read-only. */
+export async function listManualPrices(db: PricesDb = prisma): Promise<Record<string, ManualPriceRow[]>> {
+  const rows = await db.price.findMany({
+    where: { source: "MANUAL" },
+    orderBy: [{ securityId: "asc" }, { date: "desc" }],
+    select: { id: true, securityId: true, date: true, price: true },
+  });
+  const result: Record<string, ManualPriceRow[]> = {};
+  for (const { securityId, id, date, price } of rows) (result[securityId] ??= []).push({ id, date, price });
+  return result;
+}
+
+export type UpdateManualPriceFailureReason = "not-found" | "date-invalid" | "price-invalid" | "date-taken";
+
+export type UpdateManualPriceResult = { ok: true } | { ok: false; reason: UpdateManualPriceFailureReason };
+
+/** The MANUAL Price row `priceId`, or null (unknown id, PROVIDER row or not a string). */
+async function findManualRow(priceId: unknown, db: PricesDb) {
+  if (typeof priceId !== "string" || !priceId) return null;
+  return db.price.findFirst({ where: { id: priceId, source: "MANUAL" }, select: { id: true, securityId: true, date: true } });
+}
+
+/**
+ * Changes date and price of the MANUAL Price `priceId` (validated like `saveManualPrice`). Moving it to a
+ * date that already has another MANUAL Price of the same Security is `date-taken` (nothing written).
+ * PROVIDER rows and the mapping are never touched.
+ */
+export async function updateManualPrice(
+  priceId: unknown,
+  input: ManualPriceInput,
+  today: string,
+  db: PricesDb = prisma,
+): Promise<UpdateManualPriceResult> {
+  const row = await findManualRow(priceId, db);
+  if (!row) return { ok: false, reason: "not-found" };
+  const valid = validateManualPrice(input, today);
+  if (!valid.ok) return valid;
+  const { date, price } = valid;
+  return inTransaction(db, async (tx): Promise<UpdateManualPriceResult> => {
+    if (date !== row.date) {
+      const taken = await tx.price.findFirst({
+        where: { securityId: row.securityId, date, source: "MANUAL", id: { not: row.id } },
+        select: { id: true },
+      });
+      if (taken) return { ok: false, reason: "date-taken" };
+    }
+    const { count } = await tx.price.updateMany({
+      where: { id: row.id, source: "MANUAL" },
+      data: { date, price, fetchedAt: new Date().toISOString() },
+    });
+    return count === 0 ? { ok: false, reason: "not-found" } : { ok: true };
+  });
+}
+
+export type DeleteManualPriceResult = { ok: true } | { ok: false; reason: "not-found" };
+
+/** Deletes exactly the MANUAL Price `priceId`; a PROVIDER or unknown id is `not-found`. */
+export async function deleteManualPrice(priceId: unknown, db: PricesDb = prisma): Promise<DeleteManualPriceResult> {
+  if (typeof priceId !== "string" || !priceId) return { ok: false, reason: "not-found" };
+  const { count } = await db.price.deleteMany({ where: { id: priceId, source: "MANUAL" } });
+  return count === 0 ? { ok: false, reason: "not-found" } : { ok: true };
 }

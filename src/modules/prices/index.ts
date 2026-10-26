@@ -24,20 +24,27 @@ export type {
 } from "./mappings";
 export {
   backfillHeldPrices,
+  deleteManualPrice,
   latestStoredPrices,
+  listManualPrices,
   REFRESH_OVERLAP_DAYS,
   refetchPriceHistory,
   refreshPrices,
   saveManualPrice,
   securityPriceInfo,
+  updateManualPrice,
 } from "./prices";
 export type {
+  DeleteManualPriceResult,
+  ManualPriceRow,
   PriceDeps,
   PriceRunFailure,
   PriceRunResult,
   SaveManualPriceFailureReason,
   SaveManualPriceResult,
   SecurityPriceInfo,
+  UpdateManualPriceFailureReason,
+  UpdateManualPriceResult,
 } from "./prices";
 export { startPriceScheduler, stopPriceScheduler } from "./scheduler";
 export type { PriceSchedulerDeps } from "./scheduler";
