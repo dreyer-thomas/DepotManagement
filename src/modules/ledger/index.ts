@@ -89,6 +89,7 @@ export type {
   BatchSplitEntry,
   BatchTransactionEntry,
   RecordBatchInput,
+  RecordBatchOptions,
   RecordBatchResult,
 } from "./batch";
 export { listCashBookings } from "./cash";

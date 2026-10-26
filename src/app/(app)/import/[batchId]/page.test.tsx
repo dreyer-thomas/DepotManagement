@@ -17,12 +17,14 @@ vi.mock("next/navigation", () => ({
     throw new NotFoundError("NEXT_NOT_FOUND");
   },
   redirect: vi.fn(),
+  useRouter: () => ({ refresh: vi.fn() }),
+  unstable_rethrow: vi.fn(),
 }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 import { prisma } from "@/db";
 import { createImportBatch, type Parser, UNRECOGNIZED_REASON } from "@/modules/import";
-import { createDepot } from "@/modules/ledger";
+import { createDepot, ensureSecurity, recordTransaction } from "@/modules/ledger";
 import { ImportBatchView } from "../../../_components/import/ImportBatchView";
 import ImportBatchPage from "./page";
 
@@ -31,6 +33,8 @@ let dataDir: string;
 beforeEach(async () => {
   dataDir = mkdtempSync(join(tmpdir(), "depot-import-batch-page-"));
   await prisma.importBatch.deleteMany();
+  await prisma.transaction.deleteMany();
+  await prisma.security.deleteMany();
   await prisma.depot.deleteMany();
 });
 
@@ -69,14 +73,57 @@ describe("Import batch page", () => {
     const text = renderText(tree);
     const html = renderHtml(tree);
     expect(text).toContain("Import prüfen ROBIN · Deutsche Bank · hochgeladen am 26.10.2026, 11:00");
-    expect(text).toContain("3 Dateien · 2 erkannt · 1 fehlgeschlagen");
+    expect(text).toContain("3 Dateien: 0 erkannt, 2 mehrdeutig, 1 fehlgeschlagen · 2 Entscheidungen offen");
     expect(findElement(tree, ImportBatchView)?.props.batch).toMatchObject({ id: staged.batchId, status: "OPEN" });
     expect(html).toMatch(/<button[^>]*>Verwerfen<\/button>/);
-    expect(text).toMatch(/kauf\.pdf erkannt .*Kauf 08\.10\.2026 Beispiel ETF IE00BK5BQT80 12 1\.482,36\s€ 1,50\s€ 0,00\s€/);
+    expect(text).toMatch(/kauf\.pdf mehrdeutig .*Kauf 08\.10\.2026 B?E? ?Beispiel ETF IE00BK5BQT80 12 1\.482,36\s€ 1,50\s€ 0,00\s€ Buchen Verwerfen Bearbeiten/);
+    expect(text).toContain("Gleiche Buchung mehrfach in diesem Import. Bitte entscheiden.");
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>0 Buchungen buchen<\/button>/);
+    expect(text).toContain("Manuell erfassen");
     expect(text).toContain(`auszug.pdf fehlgeschlagen ${UNRECOGNIZED_REASON}`);
-    expect(text).toMatch(/kauf-kopie\.pdf erkannt Diese Datei wurde bereits hochgeladen\./);
+    expect(text).toMatch(/kauf-kopie\.pdf mehrdeutig Diese Datei wurde bereits hochgeladen\./);
     expect((text.match(/Diese Datei wurde bereits hochgeladen\./g) ?? []).length).toBe(1);
-    expect(html).toContain('data-import-status="PARSED"');
+    expect(html).toContain('data-import-status="AMBIGUOUS"');
     expect(html).toContain('data-import-status="FAILED"');
+  });
+
+  it("shows a re-imported booked document as Duplikat and books nothing", async () => {
+    const depot = await createDepot({ name: "ROBIN", broker: "DEUTSCHE_BANK" });
+    if (!depot.ok) throw new Error("setup failed");
+    const security = await ensureSecurity({ isin: BUY.isin }, { name: "Beispiel ETF", assetType: "ETF" });
+    if (!security.ok) throw new Error("setup failed");
+    const recorded = await recordTransaction({ depotId: depot.depot.id, type: "BUY", date: BUY.date, quantity: BUY.quantity, price: BUY.price, amount: BUY.amount, fee: BUY.fee, security: { id: security.security.id } });
+    expect(recorded.ok).toBe(true);
+    const staged = await createImportBatch(depot.depot.id, [pdf("kauf.pdf", "Kauf")], {
+      env: { DATA_DIR: dataDir },
+      extract: async (bytes) => new TextDecoder().decode(bytes),
+      registry: { COMDIRECT: [], DEUTSCHE_BANK: [{ documentType: "trade", parse: stub }], FINANZEN_ZERO: [] },
+    });
+    if (!staged.ok) throw new Error(staged.reason);
+    const tree = await page(staged.batchId);
+    const text = renderText(tree);
+    expect(text).toContain("1 Datei: 0 erkannt, 1 Duplikat");
+    expect(text).toContain("kauf.pdf Duplikat");
+    expect(text).toContain("Bereits gebucht am 08.10.2026. Wird nicht erneut gebucht.");
+    expect(renderHtml(tree)).toMatch(/<button[^>]*disabled=""[^>]*>0 Buchungen buchen<\/button>/);
+  });
+
+  it("shows a BOOKED batch read-only with a link to the Depot", async () => {
+    const depot = await createDepot({ name: "ROBIN", broker: "DEUTSCHE_BANK" });
+    if (!depot.ok) throw new Error("setup failed");
+    const staged = await createImportBatch(depot.depot.id, [pdf("kauf.pdf", "Kauf")], {
+      env: { DATA_DIR: dataDir },
+      extract: async (bytes) => new TextDecoder().decode(bytes),
+      registry: { COMDIRECT: [], DEUTSCHE_BANK: [{ documentType: "trade", parse: stub }], FINANZEN_ZERO: [] },
+    });
+    if (!staged.ok) throw new Error(staged.reason);
+    await prisma.importBatch.update({ where: { id: staged.batchId }, data: { status: "BOOKED" } });
+    const html = renderHtml(await page(staged.batchId));
+    const text = renderText(await page(staged.batchId));
+    expect(text).toContain("Dieser Import wurde gebucht. Zum Depot");
+    expect(html).toContain(`href="/depots/${depot.depot.id}"`);
+    expect(text).not.toContain("Buchungen buchen");
+    expect(text).not.toContain("Verwerfen");
+    expect(text).not.toContain("Bearbeiten");
   });
 });

@@ -191,4 +191,44 @@ describe("recordBatch", () => {
     expect(again).toMatchObject({ ok: false, ref: "dup", failure: { reason: "possible-duplicate", status: "duplicate" } });
     expect((await recordBatch({ depotId, securities: SECURITIES, entries: [buy("a2", "2024-01-02")] }, db())).ok).toBe(true);
   });
+
+  describe("beforeEntries", () => {
+    it("runs first inside the batch's DB transaction and commits with it", async () => {
+      const seen: number[] = [];
+      const result = await recordBatch({ depotId, securities: SECURITIES, entries: [buy("a", "2024-01-02")] }, db(), {
+        beforeEntries: async (tx) => {
+          seen.push(await tx.security.count());
+          await tx.depot.update({ where: { id: depotId }, data: { name: "Umbenannt" } });
+        },
+      });
+      expect(result.ok).toBe(true);
+      expect(seen).toEqual([0]);
+      expect((await db().depot.findUniqueOrThrow({ where: { id: depotId } })).name).toBe("Umbenannt");
+    });
+
+    it("is rolled back with the batch when an entry fails", async () => {
+      const result = await recordBatch(
+        { depotId, securities: SECURITIES, entries: [buy("a", "2024-01-02"), { kind: "transaction", ref: "bad", securityRef: "old", input: { type: "BUY", date: "nope", quantity: "1", price: "1" } }] },
+        db(),
+        { beforeEntries: async (tx) => void (await tx.depot.update({ where: { id: depotId }, data: { name: "Umbenannt" } })) },
+      );
+      expect(result).toMatchObject({ ok: false, ref: "bad" });
+      expect((await db().depot.findUniqueOrThrow({ where: { id: depotId } })).name).toBe("Hauptdepot");
+      expect(await counts()).toEqual({ securities: 0, transactions: 0, corporateActions: 0 });
+    });
+
+    it("rolls back Securities and Transactions and propagates its throw", async () => {
+      class Claimed extends Error {}
+      await expect(
+        recordBatch({ depotId, securities: SECURITIES, entries: [buy("a", "2024-01-02")] }, db(), {
+          beforeEntries: async (tx) => {
+            await tx.depot.update({ where: { id: depotId }, data: { name: "Umbenannt" } });
+            throw new Claimed("claim failed");
+          },
+        }),
+      ).rejects.toBeInstanceOf(Claimed);
+      expect((await db().depot.findUniqueOrThrow({ where: { id: depotId } })).name).toBe("Hauptdepot");
+      expect(await counts()).toEqual({ securities: 0, transactions: 0, corporateActions: 0 });
+    });
+  });
 });

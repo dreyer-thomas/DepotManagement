@@ -94,7 +94,18 @@ class BatchAbort extends Error {
   }
 }
 
-async function apply(input: RecordBatchInput, tx: LedgerDb) {
+/** Options of `recordBatch`. */
+export type RecordBatchOptions = {
+  /**
+   * Runs first inside the batch's DB transaction, before the Depot check and any ledger write, with the
+   * transaction client (e.g. import claims its batch OPEN→BOOKED here so claim and booking commit together).
+   * A throw rolls back everything and propagates to the caller unchanged.
+   */
+  beforeEntries?: (tx: LedgerDb) => Promise<void>;
+};
+
+async function apply(input: RecordBatchInput, tx: LedgerDb, options: RecordBatchOptions) {
+  if (options.beforeEntries) await options.beforeEntries(tx);
   const depot = await tx.depot.findUnique({ where: { id: input.depotId }, select: { archived: true } });
   if (!depot) throw new BatchAbort("depot", { ok: false, reason: "depot-not-found" });
   if (depot.archived) throw new BatchAbort("depot", { ok: false, reason: "depot-archived" });
@@ -157,12 +168,17 @@ async function apply(input: RecordBatchInput, tx: LedgerDb) {
  * per date). All in one DB transaction with a long timeout: the first failing item aborts and rolls back
  * everything and is returned by its `ref`. Duplicate handling is the entry's `allowDuplicate`. Called with
  * a transaction client, it runs inside it and a failure throws so the caller's transaction rolls back.
+ * `options.beforeEntries` runs first inside the same DB transaction; its throw rolls back and propagates.
  */
-export async function recordBatch(input: RecordBatchInput, db: LedgerDb = prisma): Promise<RecordBatchResult> {
+export async function recordBatch(
+  input: RecordBatchInput,
+  db: LedgerDb = prisma,
+  options: RecordBatchOptions = {},
+): Promise<RecordBatchResult> {
   const client = db as LedgerDb & Partial<Pick<typeof prisma, "$transaction">>;
-  if (typeof client.$transaction !== "function") return apply(input, db);
+  if (typeof client.$transaction !== "function") return apply(input, db, options);
   try {
-    return await client.$transaction((tx) => apply(input, tx), { timeout: BATCH_TIMEOUT_MS, maxWait: 10_000 });
+    return await client.$transaction((tx) => apply(input, tx, options), { timeout: BATCH_TIMEOUT_MS, maxWait: 10_000 });
   } catch (error) {
     if (error instanceof BatchAbort) return { ok: false, ref: error.ref, failure: error.failure };
     throw error;

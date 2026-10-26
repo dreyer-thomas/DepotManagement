@@ -270,6 +270,10 @@ model ImportItem {
   /// German reason of a FAILED item.
   reason          String?
   proposals       String           @default("[]")
+  /// JSON array aligned with `proposals`: the review decision per proposal, `"book" | "discard" | null`.
+  decisions       String           @default("[]")
+  /// First readable `dd.mm.yyyy` date of a parser-failed file as `YYYY-MM-DD` (prefills manual entry).
+  documentDate    String?
 
   @@unique([batchId, position])
   @@index([fileHash])
