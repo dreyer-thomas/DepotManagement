@@ -1,0 +1,16 @@
+Deutsche Bank AG
+Max Mustermann
+Musterweg 1
+12345 Beispielstadt
+Abrechnung: Kauf von Wertpapieren
+Filialnummer Depotnummer Wertpapierbezeichnung Seite
+100 1234567 00 MUSTER TECHNOLOGIES INC. REGISTERED SHARES DL -,01 1/1
+WKN ISIN
+MUS005 US00MUST0054
+Nominal ST 10
+Schlusstag/-zeit MEZ 06.10.2026 / 16:45
+Ausführungsplatz NEW YORK
+Kurs USD 100,00
+Kurswert USD 1.000,00
+Provision USD 9,90
+Buchung auf Kontonummer 1234567 41 mit Wertstellung 08.10.2026 USD 1.009,90

@@ -1,0 +1,18 @@
+Deutsche Bank AG
+Max Mustermann
+Musterweg 1
+12345 Beispielstadt
+Abrechnung: Kauf von Wertpapieren
+Filialnummer Depotnummer Wertpapierbezeichnung Seite
+100 1234567 00 BEISPIEL EMERGING MARKETS UCITS ETF 1/1
+WKN ISIN
+MUS004 LU00MUST0044
+Nominal ST 3,1415
+Schlusstag/-zeit MEZ 09.10.2026 / 10:15 Auftraggeber Max Mustermann
+Ausführungsplatz XETRA Depot-Nr. 100 1234567 00
+Kurs EUR 159,15
+Kurswert EUR 499,97
+Provision EUR 5,00
+Ausgekehrte Zuwendungen EUR -1,25
+Buchung auf Kontonummer 1234567 40 mit Wertstellung 13.10.2026 EUR 503,72
+Dieser Beleg wird maschinell erstellt und nicht unterschrieben.

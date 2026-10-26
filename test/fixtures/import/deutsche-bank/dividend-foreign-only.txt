@@ -1,0 +1,13 @@
+Deutsche Bank AG
+Max Mustermann
+Musterweg 1
+12345 Beispielstadt
+Dividendengutschrift
+Stück WKN ISIN
+65 MUS005 US00MUST0054
+MUSTER TECHNOLOGIES INC. REGISTERED SHARES DL -,01
+Zahlbar 16.10.2026
+Bruttoertrag 98,80 USD 87,13 EUR
+Quellensteuer 15 % 14,82 USD 13,07 EUR
+Gutschrift mit Wert 16.10.2026 83,98 USD
+Gutschrift auf Fremdwährungskonto

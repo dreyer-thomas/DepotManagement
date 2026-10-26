@@ -79,7 +79,7 @@ development_status:
 
   epic-5: backlog
   5-1-upload-documents-into-a-review-batch: done
-  5-2-deutsche-bank-robin-parser: backlog
+  5-2-deutsche-bank-robin-parser: awaiting-operator
   5-3-review-and-book-imported-transactions: backlog
   5-4-comdirect-cominvest-parser: backlog
   epic-5-retrospective: optional

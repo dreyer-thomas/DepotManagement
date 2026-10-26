@@ -29,9 +29,12 @@ afterEach(() => {
 });
 
 describe("parseDocument", () => {
-  it("has no production parsers yet: every document is unrecognized", () => {
-    expect(Object.values(PARSERS).every((entries) => entries.length === 0)).toBe(true);
+  it("registers the Deutsche Bank parsers only; other documents stay unrecognized", () => {
+    expect(PARSERS.DEUTSCHE_BANK.map((entry) => entry.documentType)).toEqual(["trade", "dividend"]);
+    expect(PARSERS.COMDIRECT).toEqual([]);
+    expect(PARSERS.FINANZEN_ZERO).toEqual([]);
     expect(parseDocument("DEUTSCHE_BANK", "Kauf")).toEqual({ status: "FAILED", reason: UNRECOGNIZED_REASON });
+    expect(parseDocument("COMDIRECT", "Abrechnung: Kauf von Wertpapieren")).toEqual({ status: "FAILED", reason: UNRECOGNIZED_REASON });
     expect(UNRECOGNIZED_REASON).toBe("Layout nicht erkannt. Buchung bitte manuell erfassen.");
   });
 

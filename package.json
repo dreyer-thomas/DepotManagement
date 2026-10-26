@@ -15,7 +15,8 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "postinstall": "prisma generate",
-    "hash-password": "node scripts/hash-password.mjs"
+    "hash-password": "node scripts/hash-password.mjs",
+    "extract-pdf-text": "node scripts/extract-pdf-text.mjs"
   },
   "dependencies": {
     "@emotion/cache": "11.14.0",

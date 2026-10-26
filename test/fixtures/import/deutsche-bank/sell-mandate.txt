@@ -1,0 +1,18 @@
+Deutsche Bank AG
+Max Mustermann
+Musterweg 1
+12345 Beispielstadt
+Vermögensverwaltungsmandat ROBIN
+Abrechnung: Verkauf von Wertpapieren
+Filialnummer Depotnummer Wertpapierbezeichnung Seite
+100 7654321 00 MUSTER GLOBAL BOND UCITS ETF 1/1
+WKN ISIN
+MUS001 IE00MUST0023
+Nominal ST 2,2450
+Schlusstag 12.10.2026
+Ausführungsplatz XETRA
+Kurs EUR 45,10
+Kurswert EUR 101,25
+Buchung auf Kontonummer 7654321 40 mit Wertstellung
+14.10.2026 EUR 101,25
+Die Order wurde im Rahmen Ihres Vermögensverwaltungsmandats ausgeführt.

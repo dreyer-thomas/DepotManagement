@@ -108,3 +108,11 @@ source_spec: `spec-5-1-upload-documents-into-a-review-batch.md`
 severity: low
 reason: discardImportBatch filters status OPEN (src/modules/import/batches.ts) and ImportBatchView hides Verwerfen for non-OPEN batches, but BOOKED is unreachable until story 5.3 adds booking; test there.
 status: open
+
+### DW-13: Parser fixtures are synthetic; nothing verifies the regexes against real unpdf output of ROBIN PDFs.
+origin: spec-deferred 83a67129a04d
+location: src/modules/import/parsers/deutsche-bank/trade.ts, dividend.ts
+source_spec: `spec-5-2-deutsche-bank-robin-parser.md`
+severity: medium
+reason: All parser tests read hand-written .txt fixtures modelled on public Deutsche Bank samples; the only unpdf tests use a one-line minimal PDF. Real line breaks, column joins or umlaut normalisation may differ. Settled by anonymised real samples (operator action) added as fixtures.
+status: open

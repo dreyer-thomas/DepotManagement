@@ -1,7 +1,9 @@
 // The parser registry (AD-4): broker parsers per Broker, tried in order. `parseDocument` is the single
-// decision point between a document's text and an item status. Stories 5.2 and 5.4 add the real parsers.
+// decision point between a document's text and an item status. Story 5.4 adds the comdirect parsers.
 import type { Broker } from "@/modules/ledger";
 import { type Parser, proposalListSchema, type TransactionProposal } from "../proposal";
+import { parseDeutscheBankDividend } from "./deutsche-bank/dividend";
+import { parseDeutscheBankTrade } from "./deutsche-bank/trade";
 
 /** One registered parser and the document type it reads (e.g. `"trade"`, `"dividend"`). */
 export type ParserEntry = { documentType: string; parse: Parser };
@@ -9,10 +11,16 @@ export type ParserEntry = { documentType: string; parse: Parser };
 /** Parsers per Broker, in the order they are tried. */
 export type ParserRegistry = Record<Broker, readonly ParserEntry[]>;
 
-/** The production registry. No broker parser exists yet (story 5.1): every document is unrecognized. */
+/**
+ * The production registry. Deutsche Bank / ROBIN reads settlements and dividend credits (story 5.2);
+ * comdirect follows in story 5.4 and finanzen.net zero stays manual: their documents are unrecognized.
+ */
 export const PARSERS: ParserRegistry = {
   COMDIRECT: [],
-  DEUTSCHE_BANK: [],
+  DEUTSCHE_BANK: [
+    { documentType: "trade", parse: parseDeutscheBankTrade },
+    { documentType: "dividend", parse: parseDeutscheBankDividend },
+  ],
   FINANZEN_ZERO: [],
 };
 

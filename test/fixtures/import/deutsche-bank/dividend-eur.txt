@@ -1,0 +1,17 @@
+Deutsche Bank AG
+Max Mustermann
+Musterweg 1
+12345 Beispielstadt
+Ertragsgutschrift
+Stück WKN ISIN
+40 MUS004 LU00MUST0044
+BEISPIEL EURO DIVIDEND UCITS ETF DIS
+Depot-Nr. 100 1234567 00
+Ex-Tag 08.10.2026
+Zahlbar 15.10.2026
+Ausschüttung je Stück 1,25 EUR
+Bruttoertrag 50,00 EUR
+Kapitalertragsteuer (KESt) 12,50 EUR
+Solidaritätszuschlag auf KESt 0,69 EUR
+Gutschrift mit Wert 15.10.2026 36,81 EUR
+Dieser Beleg wird maschinell erstellt und nicht unterschrieben.

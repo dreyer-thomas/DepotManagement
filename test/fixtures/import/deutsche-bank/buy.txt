@@ -1,0 +1,17 @@
+Deutsche Bank AG
+Max Mustermann
+Musterweg 1
+12345 Beispielstadt
+Abrechnung: Kauf von Wertpapieren
+Filialnummer Depotnummer Wertpapierbezeichnung Seite
+100 1234567 00 MUSTER WORLD EQUITY UCITS ETF 1/1
+WKN ISIN
+MUS001 IE00MUST0015
+Nominal ST 12,5
+Schlusstag/-zeit MEZ 08.10.2026 / 09:04 Auftraggeber Max Mustermann
+Ausführungsplatz XETRA Depot-Nr. 100 1234567 00
+Kurs EUR 80,40
+Kurswert EUR 1.005,00
+Provision EUR 7,90
+Buchung auf Kontonummer 1234567 40 mit Wertstellung 12.10.2026 EUR 1.012,90
+Dieser Beleg wird maschinell erstellt und nicht unterschrieben.

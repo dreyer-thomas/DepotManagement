@@ -1,0 +1,14 @@
+Deutsche Bank AG
+Max Mustermann
+Musterweg 1
+12345 Beispielstadt
+Vorabpauschale
+Stück WKN ISIN
+40 MUS001 IE00MUST0015
+MUSTER WORLD EQUITY UCITS ETF
+Stichtag 02.01.2026
+Vorabpauschale je Stück 0,4321 EUR
+Steuerpflichtige Vorabpauschale 17,28 EUR
+Kapitalertragsteuer (KESt) 4,32 EUR
+Solidaritätszuschlag auf KESt 0,23 EUR
+Belastung mit Wert 02.01.2026 4,55 EUR

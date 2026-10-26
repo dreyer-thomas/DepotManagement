@@ -1,0 +1,21 @@
+Deutsche Bank AG
+Max Mustermann
+Musterweg 1
+12345 Beispielstadt
+Abrechnung: Verkauf von Wertpapieren
+Filialnummer Depotnummer Wertpapierbezeichnung Seite
+100 1234567 00 MUSTER INDUSTRIE AG NAMENS-AKTIEN O.N. 1/1
+WKN ISIN
+MUS003 DE000MUST034
+Nominal ST 20
+Schlusstag/-zeit MEZ 05.10.2026 / 14:32 Auftraggeber Max Mustermann
+Ausführungsplatz XETRA Depot-Nr. 100 1234567 00
+Kurs EUR 50,00
+Kurswert EUR 1.000,00
+Provision EUR -7,90
+Berechnungsgrundlage für die Kapitalertragsteuer EUR 49,36
+Kapitalertragsteuer EUR -12,34
+Solidaritätszuschlag auf Kapitalertragsteuer EUR -0,67
+Kirchensteuer auf Kapitalertragsteuer EUR -1,00
+Buchung auf Kontonummer 1234567 40 mit Wertstellung 07.10.2026 EUR 978,09
+Dieser Beleg wird maschinell erstellt und nicht unterschrieben.
