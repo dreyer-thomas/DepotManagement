@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { registerDomCleanup } from "../../../../test/helpers/dom";
 import type { SecurityWithMapping } from "@/modules/prices";
+import { LogoProvider } from "./LogoContext";
 import { SecurityList } from "./SecurityList";
 
 vi.mock("@/app/_actions/securities", () => ({
@@ -18,6 +19,8 @@ vi.mock("@/app/_actions/prices", () => ({
   updateManualPriceAction: vi.fn(),
   deleteManualPriceAction: vi.fn(),
 }));
+
+vi.mock("@/app/_actions/logos", () => ({ uploadLogoAction: vi.fn() }));
 
 registerDomCleanup();
 
@@ -100,5 +103,16 @@ describe("SecurityList", () => {
     expect(within(items[0]).getByRole("button", { name: "Manuellen Kurs vom 22.10.2026 bearbeiten – SAP" })).toBeTruthy();
     expect(within(items[0]).getByRole("button", { name: "Manuellen Kurs vom 22.10.2026 löschen – SAP" })).toBeTruthy();
     expect(screen.getAllByRole("button", { name: /^Kurs manuell eintragen/ })).toHaveLength(2);
+  });
+
+  it("shows stored logos from the app route and offers 'Logo hochladen' / 'Logo ersetzen'", () => {
+    const { container } = render(
+      <LogoProvider versions={{ s2: "1761472800000" }}>
+        <SecurityList securities={securities} today="2026-10-26" />
+      </LogoProvider>,
+    );
+    expect([...container.querySelectorAll("img")].map((img) => img.getAttribute("src"))).toEqual(["/api/logos/s2?v=1761472800000"]);
+    expect(screen.getByRole("button", { name: "Logo hochladen – Bitcoin" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Logo ersetzen – SAP" })).toBeTruthy();
   });
 });

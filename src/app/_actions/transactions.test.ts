@@ -6,6 +6,8 @@ const fakes = vi.hoisted(() => ({}) as { current: ReturnType<typeof createReques
 const revalidatePath = vi.hoisted(() => vi.fn());
 /** `after()` from next/server: callbacks are captured, never run (no provider call in tests). */
 const after = vi.hoisted(() => vi.fn());
+/** The logo fetch that follows the price backfill in the same `after()` callback. */
+const logos = vi.hoisted(() => ({ fetchMissingLogos: vi.fn() }));
 const dbFile = await vi.hoisted(async () => {
   const { useMigratedDatabaseForSingleton } = await import("../../../test/helpers/migrated-db-file");
   return useMigratedDatabaseForSingleton();
@@ -17,6 +19,7 @@ vi.mock("next/headers", () => ({
 }));
 vi.mock("next/cache", () => ({ revalidatePath }));
 vi.mock("next/server", () => ({ after }));
+vi.mock("@/modules/logos", () => logos);
 
 import { prisma } from "@/db";
 import { archiveDepot, createDepot, listCashBookings, listPositions, listSecurities, listTransactions, recordTransaction } from "@/modules/ledger";
@@ -71,7 +74,7 @@ describe("saveTransactionAction", () => {
     expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
     const [security] = await listSecurities();
     expect(security).toMatchObject({ isin: "US0378331005", name: "Apple Inc.", assetType: "STOCK" });
-    // A price backfill for the new held Security runs after the response.
+    // A price backfill, then a logo fetch, for the new Security run after the response.
     expect(after).toHaveBeenCalledTimes(1);
     expect(after).toHaveBeenCalledWith(expect.any(Function));
 

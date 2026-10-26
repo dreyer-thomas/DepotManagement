@@ -3,6 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } fr
 // The real scheduler runs with a fake price run: no provider call and no database in this test.
 const refreshPrices = vi.hoisted(() => vi.fn(async () => ({ updated: 0, failed: [] })));
 vi.mock("@/modules/prices/prices", () => ({ refreshPrices }));
+// The start-up logo run is a fake too: no provider call, no database, no file.
+const fetchMissingLogos = vi.hoisted(() => vi.fn(async () => ({ stored: 0, notFound: 0, failed: 0 })));
+vi.mock("@/modules/logos", () => ({ fetchMissingLogos }));
+
+const LOGO_START = Symbol.for("depotmanagement.logoStartupRun");
 
 import { stopPriceScheduler } from "@/modules/prices";
 import { checkAuthConfigOrExit, startBackgroundJobs } from "./instrumentation-node";
@@ -58,6 +63,8 @@ describe("checkAuthConfigOrExit", () => {
 describe("startBackgroundJobs", () => {
   beforeEach(() => {
     refreshPrices.mockClear();
+    fetchMissingLogos.mockClear();
+    delete (globalThis as Record<symbol, unknown>)[LOGO_START];
   });
 
   it("starts one price scheduler with one immediate run, even when called twice", async () => {
@@ -68,10 +75,25 @@ describe("startBackgroundJobs", () => {
     expect(refreshPrices.mock.calls[0]).toEqual([expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/)]);
   });
 
+  it("starts one logo fetch run, even when called twice", async () => {
+    delete process.env.NEXT_PHASE;
+    await startBackgroundJobs();
+    await startBackgroundJobs();
+    await vi.waitFor(() => expect(fetchMissingLogos).toHaveBeenCalledTimes(1));
+  });
+
+  it("logs a failing start-up logo run without throwing", async () => {
+    delete process.env.NEXT_PHASE;
+    fetchMissingLogos.mockRejectedValueOnce(new TypeError("fetch failed"));
+    await expect(startBackgroundJobs()).resolves.toBeUndefined();
+    await vi.waitFor(() => expect(error).toHaveBeenCalledWith("Logos: start-up fetch failed (TypeError)"));
+  });
+
   it("starts nothing during next build", async () => {
     process.env.NEXT_PHASE = "phase-production-build";
     await startBackgroundJobs();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(refreshPrices).not.toHaveBeenCalled();
+    expect(fetchMissingLogos).not.toHaveBeenCalled();
   });
 });

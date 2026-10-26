@@ -6,6 +6,8 @@ const fakes = vi.hoisted(() => ({}) as { current: ReturnType<typeof createReques
 const revalidatePath = vi.hoisted(() => vi.fn());
 /** `after()` from next/server: callbacks are captured, never run (no provider call in tests). */
 const after = vi.hoisted(() => vi.fn());
+/** The logo fetch that follows the price backfill in the same `after()` callback. */
+const logos = vi.hoisted(() => ({ fetchMissingLogos: vi.fn() }));
 const dbFile = await vi.hoisted(async () => {
   const { useMigratedDatabaseForSingleton } = await import("../../../test/helpers/migrated-db-file");
   return useMigratedDatabaseForSingleton();
@@ -17,6 +19,7 @@ vi.mock("next/headers", () => ({
 }));
 vi.mock("next/cache", () => ({ revalidatePath }));
 vi.mock("next/server", () => ({ after }));
+vi.mock("@/modules/logos", () => logos);
 
 import { prisma } from "@/db";
 import { readFileSync } from "node:fs";

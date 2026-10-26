@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { registerDomCleanup } from "../../../../test/helpers/dom";
 import type { PositionRecord } from "@/modules/ledger";
+import { LogoProvider } from "../securities/LogoContext";
 import { PositionsTable } from "./PositionsTable";
 
 registerDomCleanup();
@@ -32,5 +33,19 @@ describe("PositionsTable stale badge", () => {
     for (let tabs = 0; tabs < 20 && document.activeElement !== badge; tabs++) await user.tab();
     expect(document.activeElement).toBe(badge);
     expect((await screen.findByRole("tooltip")).textContent).toBe("Yahoo Finance · abgerufen 22.10.2026, 20:05");
+  });
+});
+
+describe("PositionsTable logos", () => {
+  it("loads the Position's stored logo by its Security id in the desktop and phone layouts", () => {
+    const { container } = render(
+      <LogoProvider versions={{ s1: "1" }}>
+        <PositionsTable positions={[stale]} cashBalance="0" today="2026-10-26" readOnly />
+      </LogoProvider>,
+    );
+    const table = container.querySelector("table") as HTMLElement;
+    const logos = [...container.querySelectorAll('img[src="/api/logos/s1?v=1"]')];
+    expect(logos).toHaveLength(2);
+    expect(logos.filter((img) => table.contains(img))).toHaveLength(1);
   });
 });

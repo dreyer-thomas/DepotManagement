@@ -12,12 +12,23 @@ export function checkAuthConfigOrExit(): void {
   }
 }
 
+const LOGO_START = Symbol.for("depotmanagement.logoStartupRun");
+type LogoStartGlobal = typeof globalThis & { [LOGO_START]?: boolean };
+
 /**
- * Starts the in-process background jobs (AD-13: the price scheduler) unless this is `next build`.
- * The scheduler itself guards against a second start in the same process.
+ * Starts the in-process background jobs (AD-13: the price scheduler; AD-19: one logo fetch run) unless
+ * this is `next build`. The scheduler guards against a second start in the same process; the logo run
+ * has its own globalThis guard and runs fire-and-forget (a failure is logged, never thrown).
  */
 export async function startBackgroundJobs(): Promise<void> {
   if (process.env.NEXT_PHASE === "phase-production-build") return;
   const { startPriceScheduler } = await import("@/modules/prices");
   startPriceScheduler();
+  const global = globalThis as LogoStartGlobal;
+  if (global[LOGO_START]) return;
+  global[LOGO_START] = true;
+  const { fetchMissingLogos } = await import("@/modules/logos");
+  fetchMissingLogos().catch((error: unknown) => {
+    console.error(`Logos: start-up fetch failed (${error instanceof Error ? error.name : "unknown"})`);
+  });
 }

@@ -1,7 +1,19 @@
 import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 import { getSession } from "@/modules/auth";
+import { listLogoVersions } from "@/modules/logos";
 import { AppShell } from "../_components/AppShell";
+import { LogoProvider } from "../_components/securities/LogoContext";
+
+/** Stored-logo versions for `SecurityLogo`; a read failure only means initials everywhere. */
+async function logoVersions(): Promise<Record<string, string>> {
+  try {
+    return await listLogoVersions();
+  } catch (error) {
+    console.error(`Logos: listing logo versions failed (${error instanceof Error ? error.name : "unknown"})`);
+    return {};
+  }
+}
 
 // Every page in this group needs a session. The proxy is the first gate; this re-check keeps a
 // matcher mistake from exposing a page.
@@ -10,5 +22,10 @@ export default async function ProtectedLayout({ children }: { children: ReactNod
   if (!session) {
     redirect("/login");
   }
-  return <AppShell>{children}</AppShell>;
+  const versions = await logoVersions();
+  return (
+    <LogoProvider versions={versions}>
+      <AppShell>{children}</AppShell>
+    </LogoProvider>
+  );
 }

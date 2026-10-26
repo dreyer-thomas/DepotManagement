@@ -49,7 +49,7 @@ export function CashBookings({ balance, bookings }: { balance: string; bookings:
                 <TableCell>
                   {booking.security ? (
                     <Stack direction="row" spacing={1.5} sx={{ alignItems: "center", minWidth: 160 }}>
-                      <SecurityLogo name={booking.security.name} />
+                      <SecurityLogo securityId={booking.security.id} name={booking.security.name} />
                       <span>{booking.security.name}</span>
                     </Stack>
                   ) : null}

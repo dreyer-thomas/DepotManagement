@@ -60,6 +60,7 @@ model Security {
   isinChangeSources CorporateAction[] @relation("IsinChangeTarget")
   providerMapping   ProviderMapping?
   prices            Price[]
+  logo              SecurityLogo?
 }
 
 // Canonical Transaction shape (AD-14). Decimal values are TEXT strings; ordered by (date, sequence).
@@ -160,4 +161,31 @@ model Price {
   fetchedAt  String
 
   @@unique([securityId, date, source])
+}
+
+enum LogoSource {
+  FETCHED
+  MANUAL
+}
+
+enum LogoProvider {
+  LOGO_DEV
+  ELBSTREAM
+  COINGECKO
+}
+
+// Owned by the logos module (AD-19). At most one row per Security. A row either names a stored file under
+// `<DATA_DIR>/logos` (fileName + contentType both set) or is a FETCHED "nothing found" marker (both null).
+// MANUAL rows (uploads) are never replaced by a fetch.
+model SecurityLogo {
+  id          String        @id @default(cuid())
+  securityId  String        @unique
+  security    Security      @relation(fields: [securityId], references: [id], onDelete: Cascade)
+  source      LogoSource
+  /// Provider of a fetched file; null for MANUAL rows and for the "nothing found" marker.
+  provider    LogoProvider?
+  fileName    String?
+  contentType String?
+  /// UTC ISO timestamp of the fetch (or upload).
+  fetchedAt   String
 }

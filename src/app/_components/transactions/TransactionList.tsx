@@ -169,7 +169,7 @@ export function TransactionList({
                         <TableCell>
                           {transaction.security ? (
                             <Stack direction="row" spacing={1.5} sx={{ alignItems: "center", minWidth: 160 }}>
-                              <SecurityLogo name={name} />
+                              <SecurityLogo securityId={transaction.security.id} name={name} />
                               <span>{name}</span>
                             </Stack>
                           ) : null}

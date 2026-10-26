@@ -2,9 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const after = vi.hoisted(() => vi.fn());
 const prices = vi.hoisted(() => ({ backfillHeldPrices: vi.fn(), refetchPriceHistory: vi.fn() }));
+const logos = vi.hoisted(() => ({ fetchMissingLogos: vi.fn() }));
 
 vi.mock("next/server", () => ({ after }));
 vi.mock("@/modules/prices", () => prices);
+vi.mock("@/modules/logos", () => logos);
 
 import { schedulePriceBackfill, schedulePriceRefetch } from "./price-refresh";
 
@@ -19,6 +21,8 @@ beforeEach(() => {
   after.mockReset();
   prices.backfillHeldPrices.mockReset();
   prices.refetchPriceHistory.mockReset();
+  logos.fetchMissingLogos.mockReset();
+  logos.fetchMissingLogos.mockResolvedValue({ stored: 0, notFound: 0, failed: 0 });
   vi.useFakeTimers({ now: new Date("2026-10-25T23:30:00.000Z"), toFake: ["Date"] });
 });
 
@@ -52,6 +56,42 @@ describe("schedulePriceBackfill", () => {
     expect(warn).toHaveBeenCalledWith("Prices: backfill finished with 1 failed Securities");
   });
 
+  it("fetches logos in the same callback only after the backfill has finished", async () => {
+    const order: string[] = [];
+    let finishBackfill!: () => void;
+    prices.backfillHeldPrices.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishBackfill = () => {
+            order.push("backfill done");
+            resolve({ updated: 1, failed: [] });
+          };
+        }),
+    );
+    logos.fetchMissingLogos.mockImplementation(async () => {
+      order.push("logos start");
+      return { stored: 0, notFound: 0, failed: 0 };
+    });
+    schedulePriceBackfill();
+    const running = runScheduled();
+    await Promise.resolve();
+    expect(logos.fetchMissingLogos).not.toHaveBeenCalled();
+    finishBackfill();
+    await running;
+    expect(order).toEqual(["backfill done", "logos start"]);
+  });
+
+  it("still fetches logos when the backfill rejects, logging each failure separately", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    prices.backfillHeldPrices.mockRejectedValue(new Error("database locked"));
+    logos.fetchMissingLogos.mockRejectedValue(new TypeError("fetch failed"));
+    schedulePriceBackfill();
+    await expect(runScheduled()).resolves.toBeUndefined();
+    expect(logos.fetchMissingLogos).toHaveBeenCalledTimes(1);
+    expect(error).toHaveBeenCalledWith("Prices: backfill failed (Error)");
+    expect(error).toHaveBeenCalledWith("Logos: fetch failed (TypeError)");
+  });
+
   it("never throws when after() is unavailable", () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     after.mockImplementation(() => {
@@ -70,5 +110,6 @@ describe("schedulePriceRefetch", () => {
     await runScheduled();
     expect(prices.refetchPriceHistory).toHaveBeenCalledExactlyOnceWith("sec-1", "2026-10-26");
     expect(error).toHaveBeenCalledWith("Prices: refetch failed (Error)");
+    expect(logos.fetchMissingLogos).not.toHaveBeenCalled();
   });
 });

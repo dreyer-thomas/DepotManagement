@@ -61,3 +61,18 @@ export function resolveFailedMessage(names: readonly string[]): string {
     ? `Für ${list} konnte die Kursquelle gerade nicht ermittelt werden.`
     : `Für ${names.length} Wertpapiere konnte die Kursquelle gerade nicht ermittelt werden: ${list}.`;
 }
+
+export type LogoErrorReason = "not-found" | "file-missing" | "file-too-large" | "file-type" | "unauthorized";
+
+const LOGO_ERROR_MESSAGES: Record<LogoErrorReason, string> = {
+  "not-found": "Wertpapier nicht gefunden.",
+  "file-missing": "Bitte eine Bilddatei wählen.",
+  "file-too-large": "Die Datei ist größer als 1 MB.",
+  "file-type": "Bitte eine PNG-, JPEG- oder WebP-Datei wählen.",
+  unauthorized: "Sitzung abgelaufen. Bitte erneut anmelden.",
+};
+
+/** German message for a failed logo upload. */
+export function logoErrorMessage(reason: LogoErrorReason): string {
+  return LOGO_ERROR_MESSAGES[reason];
+}

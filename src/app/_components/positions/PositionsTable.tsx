@@ -66,10 +66,10 @@ function PositionPriceDate({ position, today }: { position: PositionRecord; toda
   return info ? <PriceDate info={info} /> : null;
 }
 
-function SecurityName({ name }: { name: string }) {
+function SecurityName({ securityId, name }: { securityId: string; name: string }) {
   return (
     <Stack direction="row" spacing={1.5} sx={{ alignItems: "center", minWidth: 0 }}>
-      <SecurityLogo name={name} />
+      <SecurityLogo securityId={securityId} name={name} />
       <Typography component="span" variant="body2" sx={{ fontWeight: 500, overflowWrap: "anywhere" }}>
         {name}
       </Typography>
@@ -218,7 +218,7 @@ function DesktopTable({
           {rows.map((position) => (
             <TableRow key={position.security.id} sx={{ "& td": { py: 1 } }}>
               <TableCell>
-                <SecurityName name={position.security.name} />
+                <SecurityName securityId={position.security.id} name={position.security.name} />
               </TableCell>
               <TableCell sx={numeric}>{formatQuantity(position.quantity)}</TableCell>
               <TableCell sx={numeric}>{formatMoney(position.costBasis)}</TableCell>
@@ -321,7 +321,7 @@ function PhoneList({
                 borderColor: "divider",
               }}
             >
-              <SecurityLogo name={position.security.name} />
+              <SecurityLogo securityId={position.security.id} name={position.security.name} />
               <Box sx={{ flex: 1, minWidth: 0 }}>
                 <Typography variant="body2" sx={{ fontWeight: 500, overflowWrap: "anywhere" }}>
                   {position.security.name}

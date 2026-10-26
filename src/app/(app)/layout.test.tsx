@@ -2,9 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createRequestFakes, expectRedirect, findElement, RedirectError } from "../../../test/helpers/next-mocks";
 import { createSessionToken, SESSION_COOKIE } from "@/modules/auth";
 import { AppShell } from "../_components/AppShell";
+import { LogoProvider } from "../_components/securities/LogoContext";
 import ProtectedLayout from "./layout";
 
 const fakes = vi.hoisted(() => ({}) as { current: ReturnType<typeof createRequestFakes> });
+const listLogoVersions = vi.hoisted(() => vi.fn());
+
+vi.mock("@/modules/logos", () => ({ listLogoVersions }));
 
 vi.mock("next/headers", () => ({
   cookies: async () => fakes.current.cookieStore,
@@ -23,6 +27,8 @@ const savedEnv = { ...process.env };
 
 beforeEach(() => {
   fakes.current = createRequestFakes();
+  listLogoVersions.mockReset();
+  listLogoVersions.mockResolvedValue({ s1: "1761472800000" });
   process.env.AUTH_USERNAME = "tester";
   process.env.AUTH_PASSWORD_HASH = HASH;
   process.env.SESSION_SECRET = SECRET;
@@ -30,13 +36,15 @@ beforeEach(() => {
 
 afterEach(() => {
   process.env = { ...savedEnv };
+  vi.restoreAllMocks();
 });
 
 const render = () => ProtectedLayout({ children: "page" });
 
 describe("(app) layout", () => {
-  it("redirects to /login without a cookie", async () => {
+  it("redirects to /login without a cookie, before reading logos", async () => {
     expect(await expectRedirect(render)).toBe("/login");
+    expect(listLogoVersions).not.toHaveBeenCalled();
   });
 
   it("redirects to /login with an invalid cookie", async () => {
@@ -55,5 +63,15 @@ describe("(app) layout", () => {
     const tree = await render();
     const shell = findElement(tree, AppShell);
     expect(shell?.props.children).toBe("page");
+    expect(findElement(tree, LogoProvider)?.props.versions).toEqual({ s1: "1761472800000" });
+  });
+
+  it("renders with initials only when the logo versions cannot be read", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    listLogoVersions.mockRejectedValue(new Error("database locked"));
+    fakes.current.state.incoming.set(SESSION_COOKIE, await createSessionToken("tester", SECRET));
+    const tree = await render();
+    expect(findElement(tree, LogoProvider)?.props.versions).toEqual({});
+    expect(findElement(tree, AppShell)?.props.children).toBe("page");
   });
 });

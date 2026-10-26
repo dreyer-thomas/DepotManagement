@@ -7,6 +7,7 @@ import BottomNavigationAction from "@mui/material/BottomNavigationAction";
 import Box from "@mui/material/Box";
 import Drawer from "@mui/material/Drawer";
 import IconButton from "@mui/material/IconButton";
+import MuiLink from "@mui/material/Link";
 import List from "@mui/material/List";
 import ListItemButton from "@mui/material/ListItemButton";
 import ListItemIcon from "@mui/material/ListItemIcon";
@@ -24,6 +25,24 @@ import { activeBottomHref, bottomItems, drawerItems, isActive } from "./navigati
 
 const DRAWER_WIDTH = 240;
 const BOTTOM_NAV_HEIGHT = 56;
+
+const ATTRIBUTION_LINK = { target: "_blank", rel: "noopener noreferrer", color: "inherit" } as const;
+
+/** Visible logo-provider attribution on every page (required by Elbstream's free tier). */
+function LogoAttribution() {
+  return (
+    <Typography component="p" color="text.secondary" sx={{ fontSize: 16, mt: 4, mb: 1 }}>
+      Logos:{" "}
+      <MuiLink href="https://logo.dev" {...ATTRIBUTION_LINK}>
+        Logo.dev
+      </MuiLink>
+      {" · "}
+      <MuiLink href="https://elbstream.com" {...ATTRIBUTION_LINK}>
+        Elbstream
+      </MuiLink>
+    </Typography>
+  );
+}
 
 /**
  * Responsive app shell: top AppBar; permanent drawer from md (900px) up,
@@ -118,6 +137,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           }}
         >
           {children}
+          <LogoAttribution />
         </Box>
       </Box>
 

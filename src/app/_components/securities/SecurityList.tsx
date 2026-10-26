@@ -10,6 +10,7 @@ import type { ManualPriceRow, SecurityPriceInfo, SecurityWithMapping } from "@/m
 import { fetchErrorText } from "../prices/price-labels";
 import { PriceDate } from "../prices/StaleBadge";
 import { mappingLabel } from "./labels";
+import { LogoUploadButton } from "./LogoUploadDialog";
 import { ManualPriceButton } from "./ManualPriceDialog";
 import { ManualPriceList } from "./ManualPriceList";
 import { MappingDialogButton, ResolveMappingButton } from "./MappingDialog";
@@ -17,10 +18,10 @@ import { SecurityLogo } from "./SecurityLogo";
 import { TypeDialogButton } from "./TypeDialog";
 
 /**
- * Securities with logo placeholder, name, ISIN or crypto symbol, type chip, price source and latest
+ * Securities with logo, name, ISIN or crypto symbol, type chip, price source and latest
  * price date (stale badge for held Securities), its manual Prices ("Manuelle Kurse" with edit/delete),
- * plus "Kursquelle bearbeiten", "Typ ändern", "Kurs manuell eintragen" and (after a miss) "Automatisch
- * suchen". A failed last fetch shows an error naming the provider; there "Kurs manuell eintragen" is
+ * plus "Kursquelle bearbeiten", "Typ ändern", "Kurs manuell eintragen", (after a miss) "Automatisch
+ * suchen" and "Logo hochladen" / "Logo ersetzen". A failed last fetch shows an error naming the provider; there "Kurs manuell eintragen" is
  * the Alert's action instead (one per card).
  */
 export function SecurityList({
@@ -49,7 +50,7 @@ export function SecurityList({
             <Card>
               <CardContent sx={{ "&:last-child": { pb: 2 } }}>
                 <Stack direction="row" sx={{ alignItems: "flex-start", gap: 2 }}>
-                  <SecurityLogo name={security.name} />
+                  <SecurityLogo securityId={security.id} name={security.name} />
                   <Stack sx={{ flexGrow: 1, minWidth: 0, gap: 0.5 }}>
                     <Typography component="p" variant="subtitle1" sx={{ fontWeight: 600, overflowWrap: "anywhere" }}>
                       {security.name}
@@ -88,6 +89,7 @@ export function SecurityList({
                       <TypeDialogButton security={security} allowedTypes={allowedAssetTypes(security)} />
                       {fetchFailed ? null : <ManualPriceButton security={security} today={today} />}
                       {notFound ? <ResolveMappingButton security={security} /> : null}
+                      <LogoUploadButton security={security} />
                     </Stack>
                   </Stack>
                 </Stack>
