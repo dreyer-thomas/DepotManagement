@@ -1,9 +1,10 @@
 // Review rules of an import batch (story 5.3): duplicate classification of every proposal against the
 // Depot's ledger and the rest of the batch (AD-15 via `core/duplicates`), the effective decision per
-// proposal and the batch counts. Pure: no Prisma, no I/O; the shell loads the inputs.
+// proposal and the batch counts; the status of ISIN-change proposals (story 5-6). Pure: no Prisma, no I/O;
+// the shell loads the inputs.
 import type { IsinChange } from "@/core/corporate-actions";
 import { type DuplicateCandidate, matchDuplicates } from "@/core/duplicates";
-import type { TransactionProposal } from "./proposal";
+import type { IsinChangeProposal, TransactionProposal } from "./proposal";
 
 /** A stored review decision of one proposal; `null` = none yet. */
 export type ReviewDecision = "book" | "discard";
@@ -14,16 +15,22 @@ export type ProposalReviewStatus = "unique" | "duplicate" | "ambiguous";
 /** What happens to a proposal on "Buchen": booked, not booked, or not yet decided (blocks booking). */
 export type EffectiveDecision = "book" | "discard" | "open";
 
-/** File status shown by the chip: erkannt, mehrdeutig, Duplikat, keine Buchung, fehlgeschlagen. */
-export type ItemReviewStatus = "PARSED" | "AMBIGUOUS" | "DUPLICATE" | "NO_BOOKING" | "FAILED";
+/** File status shown by the chip: erkannt, mehrdeutig, Duplikat, keine Buchung, Kapitalmaßnahme, fehlgeschlagen. */
+export type ItemReviewStatus = "PARSED" | "AMBIGUOUS" | "DUPLICATE" | "NO_BOOKING" | "CORPORATE_ACTION" | "FAILED";
 
 /** Stored status of a file (Prisma `ImportItemStatus`). */
-export type StoredItemStatus = "PARSED" | "FAILED" | "NO_BOOKING";
+export type StoredItemStatus = "PARSED" | "FAILED" | "NO_BOOKING" | "CORPORATE_ACTION";
+
+/**
+ * Status of an ISIN-change proposal: `recorded` (the same change is in the ledger), `duplicate` (an earlier
+ * file of the batch proposes the same change) or `unique`.
+ */
+export type IsinChangeReviewStatus = "unique" | "duplicate" | "recorded";
 
 /** A ledger row of the Depot as `core/duplicates` compares it (`securityId` of the stored Security). */
 export type ReviewLedgerRow = DuplicateCandidate & { id: string };
 
-/** One file of the batch: FAILED and NO_BOOKING items have no proposals. */
+/** One file of the batch: only PARSED items have Transaction proposals. */
 export type ReviewItemInput = { id: string; status: StoredItemStatus; proposals: readonly TransactionProposal[] };
 
 export type ProposalClassification<T> = {
@@ -117,12 +124,13 @@ export function effectiveDecision(status: ProposalReviewStatus, stored: ReviewDe
 }
 
 /**
- * The chip of a file: FAILED; NO_BOOKING; a PARSED file without proposals → FAILED; any ambiguous
- * proposal → AMBIGUOUS; all duplicate → DUPLICATE; else PARSED.
+ * The chip of a file: FAILED; NO_BOOKING; CORPORATE_ACTION; a PARSED file without proposals → FAILED; any
+ * ambiguous proposal → AMBIGUOUS; all duplicate → DUPLICATE; else PARSED.
  */
 export function itemReviewStatus(status: StoredItemStatus, proposals: readonly ProposalReviewStatus[]): ItemReviewStatus {
   if (status === "FAILED") return "FAILED";
   if (status === "NO_BOOKING") return "NO_BOOKING";
+  if (status === "CORPORATE_ACTION") return "CORPORATE_ACTION";
   if (proposals.length === 0) return "FAILED";
   if (proposals.includes("ambiguous")) return "AMBIGUOUS";
   if (proposals.every((proposal) => proposal === "duplicate")) return "DUPLICATE";
@@ -139,21 +147,64 @@ export type ReviewCounts = {
   bookKeys: string[];
 };
 
-/** Counts of a reviewed batch. */
+type CountedProposal = { key: string; effective: EffectiveDecision };
+
+/** Counts of a reviewed batch; an item's ISIN change counts like a proposal. */
 export function reviewCounts(
-  items: readonly { reviewStatus: ItemReviewStatus; proposals: readonly { key: string; effective: EffectiveDecision }[] }[],
+  items: readonly {
+    reviewStatus: ItemReviewStatus;
+    proposals: readonly CountedProposal[];
+    isinChange?: CountedProposal | null;
+  }[],
 ): ReviewCounts {
-  const files: Record<ItemReviewStatus, number> = { PARSED: 0, AMBIGUOUS: 0, DUPLICATE: 0, NO_BOOKING: 0, FAILED: 0 };
+  const files: Record<ItemReviewStatus, number> = { PARSED: 0, AMBIGUOUS: 0, DUPLICATE: 0, NO_BOOKING: 0, CORPORATE_ACTION: 0, FAILED: 0 };
   let openDecisions = 0;
   const bookKeys: string[] = [];
   for (const item of items) {
     files[item.reviewStatus] += 1;
-    for (const proposal of item.proposals) {
+    for (const proposal of item.isinChange ? [...item.proposals, item.isinChange] : item.proposals) {
       if (proposal.effective === "open") openDecisions += 1;
       if (proposal.effective === "book") bookKeys.push(proposal.key);
     }
   }
   return { fileCount: items.length, files, openDecisions, bookKeys };
+}
+
+/** One ISIN-change proposal of the batch: the file id and the proposal (`null` for every other file). */
+export type IsinChangeItemInput = { id: string; isinChange: IsinChangeProposal | null };
+
+/**
+ * Classifies the ISIN changes of `items` (aligned; `null` for items without one): `recorded` when both ISINs
+ * are stored Securities and `recorded` has a change with exactly that old Security, new Security and date;
+ * `duplicate` when an earlier item proposes the same change (ISINs, date and both quantities); else `unique`.
+ */
+export function classifyIsinChanges(
+  items: readonly IsinChangeItemInput[],
+  securityIdByIsin: ReadonlyMap<string, string>,
+  recorded: readonly Pick<IsinChange, "oldSecurityId" | "newSecurityId" | "date">[],
+): (IsinChangeReviewStatus | null)[] {
+  const seen = new Set<string>();
+  return items.map(({ isinChange }) => {
+    if (!isinChange) return null;
+    const oldId = securityIdByIsin.get(isinChange.oldIsin);
+    const newId = securityIdByIsin.get(isinChange.newIsin);
+    const key = [isinChange.oldIsin, isinChange.newIsin, isinChange.date, isinChange.oldQuantity, isinChange.newQuantity].join("|");
+    const earlier = seen.has(key);
+    seen.add(key);
+    if (
+      oldId !== undefined &&
+      newId !== undefined &&
+      recorded.some((change) => change.oldSecurityId === oldId && change.newSecurityId === newId && change.date === isinChange.date)
+    ) {
+      return "recorded";
+    }
+    return earlier ? "duplicate" : "unique";
+  });
+}
+
+/** `unique` → the stored decision, default book; `recorded` and `duplicate` → never booked. */
+export function isinChangeEffectiveDecision(status: IsinChangeReviewStatus, stored: ReviewDecision | null): EffectiveDecision {
+  return status === "unique" ? (stored ?? "book") : "discard";
 }
 
 /** A stored decisions JSON aligned to `length` proposals; anything unreadable counts as no decision. */

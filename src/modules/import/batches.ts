@@ -2,6 +2,7 @@
 // writes the ledger; Depots are read only through the ledger's exported services. The module's only
 // writes are ImportBatch / ImportItem rows and files under `<DATA_DIR>/imports/<batchId>/`.
 import { createHash } from "node:crypto";
+import { z } from "zod";
 import { prisma } from "@/db";
 import type { ImportBatchStatus, ImportItemStatus, Prisma } from "@/db/generated/prisma/client";
 import type { IsinChange } from "@/core/corporate-actions";
@@ -25,11 +26,21 @@ import { IMPORT_MAX_BATCH_BYTES, IMPORT_MAX_FILE_BYTES, IMPORT_MAX_FILES } from 
 import { DATE_PATTERN, germanDate } from "./parsers/german";
 import { linkDocuments } from "./parsers/link";
 import { PARSERS, type ParseOutcome, parseDocument, type ParserRegistry } from "./parsers/registry";
-import { type ProposalType, proposalListSchema, type TransactionProposal, transactionProposalSchema } from "./proposal";
+import {
+  type IsinChangeProposal,
+  isinChangeProposalSchema,
+  type ProposalType,
+  proposalListSchema,
+  type TransactionProposal,
+  transactionProposalSchema,
+} from "./proposal";
 import {
   classifyBatch,
+  classifyIsinChanges,
   type EffectiveDecision,
   effectiveDecision,
+  isinChangeEffectiveDecision,
+  type IsinChangeReviewStatus,
   type ItemReviewStatus,
   itemReviewStatus,
   type ProposalReviewStatus,
@@ -97,14 +108,30 @@ export type ProposalReviewView = {
   securityName: string | null;
 };
 
+/** The ISIN change of a corporate-action file (story 5-6): not editable, booked or discarded as a whole. */
+export type IsinChangeReviewView = {
+  /** `"<itemId>:0"`, stable within the batch. */
+  key: string;
+  proposal: IsinChangeProposal;
+  /** `recorded` ("Bereits erfasst"), `duplicate` ("Bereits in diesem Import.") or `unique`. */
+  status: IsinChangeReviewStatus;
+  /** The stored decision; `null` = none. */
+  decision: ReviewDecision | null;
+  effective: EffectiveDecision;
+};
+
+/** Document type of a corporate-action notice, also stored on an unreadable one (no manual Transaction entry). */
+export const CORPORATE_ACTION_DOCUMENT_TYPE = "corporate-action";
+
 /** One file of a batch, as shown in review. */
 export type ImportItemView = {
   id: string;
   position: number;
   fileName: string;
   status: ImportItemStatus;
-  /** The chip: erkannt, mehrdeutig, Duplikat, keine Buchung or fehlgeschlagen. */
+  /** The chip: erkannt, mehrdeutig, Duplikat, keine Buchung, Kapitalmaßnahme or fehlgeschlagen. */
   reviewStatus: ItemReviewStatus;
+  /** `"corporate-action"` also on a FAILED corporate-action notice (never offered for manual entry). */
   documentType: string | null;
   /** German text: failure reason (FAILED), review note (PARSED, optional) or info (NO_BOOKING). */
   reason: string | null;
@@ -113,6 +140,8 @@ export type ImportItemView = {
   /** First readable date of a parser-failed file (`YYYY-MM-DD`), prefills manual entry. */
   documentDate: string | null;
   proposals: ProposalReviewView[];
+  /** The ISIN change of a CORPORATE_ACTION file; `null` for every other file. */
+  isinChange: IsinChangeReviewView | null;
 };
 
 /** A batch with its Depot and its items in upload order. */
@@ -151,8 +180,11 @@ export type UpdateProposalResult =
 export type BookImportBatchResult =
   | { ok: true; booked: number; depotId: string }
   | { ok: false; reason: "not-found" | "decisions-open" | "review-changed" | "nothing-to-book" }
-  /** The ledger rejected an entry: nothing was booked. `fileName`/`type` name the failing proposal (null for a Depot failure). */
-  | { ok: false; reason: "ledger-rejected"; fileName: string | null; type: ProposalType | null; failure: BatchFailure };
+  /**
+   * The ledger rejected an entry: nothing was booked. `fileName`/`type` name the failing proposal
+   * (`"ISIN_CHANGE"` for an ISIN change; null for a Depot failure).
+   */
+  | { ok: false; reason: "ledger-rejected"; fileName: string | null; type: ProposalType | "ISIN_CHANGE" | null; failure: BatchFailure };
 
 /** An open batch in the list on `/import`. */
 export type OpenImportBatch = {
@@ -227,8 +259,9 @@ function displayName(name: string, position: number): string {
 
 /**
  * Stages `files` for Depot `depotId`: one OPEN batch, one item per file in upload order, each PARSED (with
- * validated proposals and an optional review note), NO_BOOKING (with an info) or FAILED (with a German
- * reason). The outcomes of all files are linked first (`linkDocuments`: a comdirect Steuermitteilung is
+ * validated proposals and an optional review note), NO_BOOKING (with an info), CORPORATE_ACTION (with its
+ * ISIN-change proposal stored as `[isinChange]`) or FAILED (with a German reason; a corporate-action notice
+ * keeps document type `"corporate-action"`). The outcomes of all files are linked first (`linkDocuments`: a comdirect Steuermitteilung is
  * merged into its Ertragsgutschrift). A hash already stored on another item, or seen
  * earlier in this upload, only flags `duplicateUpload`. Rejects (nothing written) an empty upload, more than
  * `IMPORT_MAX_FILES` files, more than `IMPORT_MAX_BATCH_BYTES` in total and an unknown or archived Depot.
@@ -274,9 +307,13 @@ export async function createImportBatch(
             fileHash: item.fileHash,
             duplicateUpload: seen.has(item.fileHash),
             status: outcome.status,
-            documentType: outcome.status === "FAILED" ? null : outcome.documentType,
-            reason: outcome.status === "PARSED" ? (outcome.note ?? null) : outcome.reason,
-            proposals: JSON.stringify(outcome.status === "PARSED" ? outcome.proposals : []),
+            documentType:
+              outcome.status === "FAILED" ? (outcome.corporateAction ? CORPORATE_ACTION_DOCUMENT_TYPE : null) : outcome.documentType,
+            reason:
+              outcome.status === "PARSED" ? (outcome.note ?? null) : outcome.status === "CORPORATE_ACTION" ? null : outcome.reason,
+            proposals: JSON.stringify(
+              outcome.status === "PARSED" ? outcome.proposals : outcome.status === "CORPORATE_ACTION" ? [outcome.isinChange] : [],
+            ),
             // First readable date of a file that failed after extraction (prefills manual entry).
             documentDate: outcome.status === "FAILED" && item.text !== null ? firstDocumentDate(item.text) : null,
           },
@@ -302,6 +339,18 @@ function readProposals(json: string): TransactionProposal[] | null {
   try {
     const parsed = proposalListSchema.safeParse(JSON.parse(json));
     return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
+const storedIsinChangeSchema = z.tuple([isinChangeProposalSchema]);
+
+/** The stored ISIN change of a CORPORATE_ACTION item (`[isinChange]`); `null` when it does not validate. */
+function readIsinChange(json: string): IsinChangeProposal | null {
+  try {
+    const parsed = storedIsinChangeSchema.safeParse(JSON.parse(json));
+    return parsed.success ? parsed.data[0] : null;
   } catch {
     return null;
   }
@@ -343,12 +392,20 @@ async function reviewItems(depotId: string, rows: readonly ItemRow[], db: Import
   const ledgerRows = transactions.map((row) => ({ ...row, securityId: row.security?.id ?? null }));
 
   const read = rows.map((item) => {
-    const proposals = readProposals(item.proposals);
-    const broken = proposals === null || (item.status === "PARSED" && proposals.length === 0);
+    const corporateAction = item.status === "CORPORATE_ACTION";
+    const isinChange = corporateAction ? readIsinChange(item.proposals) : null;
+    const proposals = corporateAction ? [] : readProposals(item.proposals);
+    const broken =
+      corporateAction ? isinChange === null : proposals === null || (item.status === "PARSED" && proposals.length === 0);
     if (broken) console.warn("Import: stored proposals of an item failed validation");
     const status: ImportItemStatus = broken ? "FAILED" : item.status;
-    return { item, status, broken, proposals: status === "PARSED" ? (proposals ?? []) : [] };
+    return { item, status, broken, proposals: status === "PARSED" ? (proposals ?? []) : [], isinChange: broken ? null : isinChange };
   });
+  const changeStatuses = classifyIsinChanges(
+    read.map(({ item, isinChange }) => ({ id: item.id, isinChange })),
+    securityIdByIsin,
+    isinChanges,
+  );
   const classified = classifyBatch(
     depotId,
     read.map(({ item, status, proposals }) => ({ id: item.id, status, proposals })),
@@ -356,8 +413,8 @@ async function reviewItems(depotId: string, rows: readonly ItemRow[], db: Import
     securityIdByIsin,
     isinChanges,
   );
-  const items = read.map(({ item, status, broken, proposals }, itemIndex): ImportItemView => {
-    const decisions = readDecisions(item.decisions, proposals.length);
+  const items = read.map(({ item, status, broken, proposals, isinChange }, itemIndex): ImportItemView => {
+    const decisions = readDecisions(item.decisions, isinChange ? 1 : proposals.length);
     const classes = classified[itemIndex] ?? [];
     const views = proposals.map((proposal, index): ProposalReviewView => {
       const result = classes[index] ?? { status: "unique" as const, ledgerMatches: [], siblingMatch: false };
@@ -391,9 +448,20 @@ async function reviewItems(depotId: string, rows: readonly ItemRow[], db: Import
       duplicateUpload: item.duplicateUpload,
       documentDate: item.documentDate,
       proposals: views,
+      isinChange: isinChangeView(item.id, isinChange, changeStatuses[itemIndex] ?? null, decisions[0] ?? null),
     };
   });
   return { items, ...reviewCounts(items) };
+}
+
+function isinChangeView(
+  itemId: string,
+  proposal: IsinChangeProposal | null,
+  status: IsinChangeReviewStatus | null,
+  decision: ReviewDecision | null,
+): IsinChangeReviewView | null {
+  if (!proposal || !status) return null;
+  return { key: proposalKey(itemId, 0), proposal, status, decision, effective: isinChangeEffectiveDecision(status, decision) };
 }
 
 const ITEM_ORDER = { orderBy: { position: "asc" } } as const;
@@ -437,13 +505,31 @@ async function openItem(tx: ImportDb, batchId: string, itemId: string) {
   return { id: item.id, proposals, decisions: readDecisions(item.decisions, proposals.length) };
 }
 
+/**
+ * The decidable item `itemId` of OPEN batch `batchId` read inside `tx`: a PARSED item with valid proposals
+ * or a CORPORATE_ACTION item with a valid ISIN change (one decision, index 0); `null` otherwise.
+ */
+async function decidableItem(tx: ImportDb, batchId: string, itemId: string) {
+  if (!batchId || !itemId) return null;
+  const item = await tx.importItem.findFirst({
+    where: { id: itemId, batchId, status: { in: ["PARSED", "CORPORATE_ACTION"] }, batch: { status: "OPEN" } },
+    select: { id: true, status: true, proposals: true, decisions: true },
+  });
+  if (!item) return null;
+  const length =
+    item.status === "CORPORATE_ACTION" ? (readIsinChange(item.proposals) ? 1 : 0) : (readProposals(item.proposals)?.length ?? 0);
+  if (length === 0) return null;
+  return { id: item.id, length, decisions: readDecisions(item.decisions, length) };
+}
+
 function validIndex(index: number, length: number): boolean {
   return Number.isInteger(index) && index >= 0 && index < length;
 }
 
 /**
- * Stores the review decision (`"book"`, `"discard"` or `null` = none) of proposal `index` of item `itemId`.
- * Only OPEN batches; an unknown batch, item or index is `not-found`.
+ * Stores the review decision (`"book"`, `"discard"` or `null` = none) of proposal `index` of item `itemId`
+ * (index 0 of a CORPORATE_ACTION item is its ISIN change). Only OPEN batches; an unknown batch, item or
+ * index is `not-found`.
  */
 export async function decideProposal(
   batchId: string,
@@ -454,8 +540,8 @@ export async function decideProposal(
 ): Promise<DecideProposalResult> {
   if (decision !== null && decision !== "book" && decision !== "discard") return { ok: false, reason: "not-found" };
   return inTransaction(db, async (tx) => {
-    const item = await openItem(tx, batchId, itemId);
-    if (!item || !validIndex(index, item.proposals.length)) return { ok: false as const, reason: "not-found" as const };
+    const item = await decidableItem(tx, batchId, itemId);
+    if (!item || !validIndex(index, item.length)) return { ok: false as const, reason: "not-found" as const };
     const decisions = [...item.decisions];
     decisions[index] = decision;
     await tx.importItem.update({ where: { id: item.id }, data: { decisions: JSON.stringify(decisions) } });
@@ -516,8 +602,9 @@ function sameKeys(a: readonly string[], b: readonly string[]): boolean {
  * decisions (`decisions-open`), a set of proposals to book other than `expectedKeys` (`review-changed`, the
  * user saw another set) and an empty set (`nothing-to-book`). Then, in ONE DB transaction through
  * `ledger.recordBatch`, claims the batch OPEN→BOOKED (fails → `not-found`, nothing booked), clears the
- * items' stored files, ensures the Securities and books the accepted proposals ordered by (date, item
- * position, index) with `allowDuplicate` (the review decided). A ledger failure rolls back everything
+ * items' stored files, ensures the Securities and books the accepted proposals ordered by date, ISIN
+ * changes before Transactions of the same date (AD-8), then item position and index: Transactions with
+ * `allowDuplicate` (the review decided), ISIN changes as `isin-change` entries (story 5-6). A ledger failure rolls back everything
  * (batch stays OPEN, PDFs kept). After the commit the batch's PDFs are deleted; item rows stay.
  */
 export async function bookImportBatch(
@@ -534,34 +621,61 @@ export async function bookImportBatch(
   if (!sameKeys(review.bookKeys, expectedKeys)) return { ok: false, reason: "review-changed" };
   if (review.bookKeys.length === 0) return { ok: false, reason: "nothing-to-book" };
 
-  type Accepted = { fileName: string; position: number; view: ProposalReviewView };
-  const accepted: Accepted[] = review.items.flatMap((item) =>
-    item.proposals
-      .filter((view) => view.effective === "book")
-      .map((view) => ({ fileName: item.fileName, position: item.position, view })),
+  type Accepted = { fileName: string; position: number; index: number; key: string; date: string } & (
+    | { kind: "transaction"; proposal: TransactionProposal }
+    | { kind: "isin-change"; change: IsinChangeProposal }
   );
+  const accepted: Accepted[] = review.items.flatMap((item): Accepted[] => {
+    const base = { fileName: item.fileName, position: item.position };
+    const transactions = item.proposals
+      .filter((view) => view.effective === "book")
+      .map((view): Accepted => ({ ...base, index: view.index, key: view.key, date: view.proposal.date, kind: "transaction", proposal: view.proposal }));
+    const change = item.isinChange;
+    return change?.effective === "book"
+      ? [...transactions, { ...base, index: 0, key: change.key, date: change.proposal.date, kind: "isin-change", change: change.proposal }]
+      : transactions;
+  });
+  const kindOrder = (entry: Accepted) => (entry.kind === "isin-change" ? 0 : 1);
   accepted.sort(
     (a, b) =>
-      (a.view.proposal.date < b.view.proposal.date ? -1 : a.view.proposal.date > b.view.proposal.date ? 1 : 0) ||
-      a.position - b.position ||
-      a.view.index - b.view.index,
+      (a.date < b.date ? -1 : a.date > b.date ? 1 : 0) || kindOrder(a) - kindOrder(b) || a.position - b.position || a.index - b.index,
   );
   const securities = new Map<string, BatchSecurity>();
-  for (const { view } of accepted) {
-    const { isin, name } = view.proposal;
-    if (!isin || securities.has(isin)) continue;
-    const securityName = name ?? isin;
-    securities.set(isin, {
-      ref: isin,
-      identifier: { isin },
-      details: { name: securityName, assetType: classifySecurityName(securityName) },
-    });
+  // A successor keeps the asset type of its stored predecessor (an ETF stays an ETF); else it is estimated by name.
+  const storedAssetType = new Map(
+    (await listSecurities(db)).flatMap((security) => (security.isin ? [[security.isin, security.assetType] as const] : [])),
+  );
+  const addSecurity = (isin: string, name: string, assetType?: string) => {
+    if (securities.has(isin)) return;
+    securities.set(isin, { ref: isin, identifier: { isin }, details: { name, assetType: assetType ?? classifySecurityName(name) } });
+  };
+  for (const entry of accepted) {
+    if (entry.kind === "transaction") {
+      const { isin, name } = entry.proposal;
+      if (isin) addSecurity(isin, name ?? isin);
+    } else {
+      // Existing Securities keep their name and type (`ensureSecurity` is idempotent).
+      addSecurity(entry.change.oldIsin, entry.change.oldName ?? entry.change.oldIsin);
+      addSecurity(entry.change.newIsin, entry.change.newName, storedAssetType.get(entry.change.oldIsin));
+    }
   }
-  const entries: BatchEntry[] = accepted.map(({ view }) => {
-    const { proposal } = view;
+  const entries: BatchEntry[] = accepted.map((entry): BatchEntry => {
+    if (entry.kind === "isin-change") {
+      const { change } = entry;
+      return {
+        kind: "isin-change",
+        ref: entry.key,
+        oldSecurityRef: change.oldIsin,
+        newSecurityRef: change.newIsin,
+        date: change.date,
+        oldQuantity: change.oldQuantity,
+        newQuantity: change.newQuantity,
+      };
+    }
+    const { proposal } = entry;
     return {
       kind: "transaction",
-      ref: view.key,
+      ref: entry.key,
       securityRef: proposal.isin ?? null,
       input: {
         type: proposal.type,
@@ -593,13 +707,17 @@ export async function bookImportBatch(
     throw error;
   }
   if (!result.ok) {
-    const failing = accepted.find(({ view }) => view.key === result.ref) ?? accepted.find(({ view }) => view.proposal.isin === result.ref);
+    const usesSecurity = (entry: Accepted) =>
+      entry.kind === "transaction"
+        ? entry.proposal.isin === result.ref
+        : entry.change.oldIsin === result.ref || entry.change.newIsin === result.ref;
+    const failing = accepted.find((entry) => entry.key === result.ref) ?? accepted.find(usesSecurity);
     console.warn(`Import: booking a batch was rejected by the ledger (${result.failure.reason})`);
     return {
       ok: false,
       reason: "ledger-rejected",
       fileName: failing?.fileName ?? null,
-      type: failing?.view.proposal.type ?? null,
+      type: failing ? (failing.kind === "isin-change" ? "ISIN_CHANGE" : failing.proposal.type) : null,
       failure: result.failure,
     };
   }
@@ -619,7 +737,8 @@ export async function listOpenBatches(db: ImportDb = prisma): Promise<OpenImport
   return batches.flatMap((batch) => {
     const depot = depots.get(batch.depotId);
     if (!depot) return [];
-    const parsedCount = batch.items.filter((item) => item.status === "PARSED").length;
+    // A corporate-action file read as an ISIN change counts as recognised.
+    const parsedCount = batch.items.filter((item) => item.status === "PARSED" || item.status === "CORPORATE_ACTION").length;
     const failedCount = batch.items.filter((item) => item.status === "FAILED").length;
     return [
       {

@@ -3,15 +3,19 @@
 // (`dividend-credit` link) of the same Referenz-Nummer, so review and booking see an ordinary DIVIDEND.
 // Links are consumed here and never stored; merging never crosses uploads.
 import { canonicalDecimal, ExactDecimal } from "@/core/decimal";
-import type { DocumentLink, TransactionProposal } from "../proposal";
+import type { DocumentLink, IsinChangeProposal, TransactionProposal } from "../proposal";
 import { linkMismatchReason, NOTICE_WITHOUT_CREDIT_REASON, noticeMergedInfo } from "./comdirect/reasons";
 import type { ParseOutcome } from "./registry";
 
-/** What an item stores: proposals (with an optional review note), a failure, or a document needing no booking. */
+/**
+ * What an item stores: proposals (with an optional review note), a failure (`corporateAction`: an unreadable
+ * corporate-action notice), a document needing no booking, or an ISIN change (passed through unchanged).
+ */
 export type LinkedOutcome =
   | { status: "PARSED"; documentType: string; proposals: TransactionProposal[]; note?: string }
   | { status: "NO_BOOKING"; documentType: string; reason: string }
-  | { status: "FAILED"; reason: string };
+  | { status: "CORPORATE_ACTION"; documentType: string; isinChange: IsinChangeProposal }
+  | { status: "FAILED"; reason: string; corporateAction?: true };
 
 /** One file of an upload: its display name and parse outcome. */
 export type LinkInput = { fileName: string; outcome: ParseOutcome };
@@ -42,7 +46,7 @@ export function linkDocuments(inputs: readonly LinkInput[]): LinkedOutcome[] {
   }
 
   const result: LinkedOutcome[] = inputs.map(({ outcome }): LinkedOutcome => {
-    if (outcome.status === "FAILED" || outcome.status === "NO_BOOKING") return outcome;
+    if (outcome.status === "FAILED" || outcome.status === "NO_BOOKING" || outcome.status === "CORPORATE_ACTION") return outcome;
     if (outcome.status === "LINK_ONLY") return { status: "FAILED", reason: NOTICE_WITHOUT_CREDIT_REASON };
     return {
       status: "PARSED",

@@ -84,7 +84,7 @@ development_status:
   5-3-review-and-book-imported-transactions: done
   5-4-comdirect-cominvest-parser: awaiting-operator
   5-5-finanzen-net-zero-baader-bank-parser: done
-  5-6-isin-changes-from-broker-documents: backlog
+  5-6-isin-changes-from-broker-documents: done
   epic-5-retrospective: optional
 
   epic-6: backlog

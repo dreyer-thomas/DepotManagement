@@ -282,6 +282,8 @@ enum ImportItemStatus {
   FAILED
   /// The document needs no booking (e.g. a comdirect Steuermitteilung merged into its Ertragsgutschrift).
   NO_BOOKING
+  /// A corporate-action notice read as an ISIN-change proposal (story 5-6); `proposals` holds `[isinChange]`.
+  CORPORATE_ACTION
 }
 
 // Owned by the import module (AD-4). Staging only: nothing here is ledger data. One batch per upload for
@@ -302,7 +304,8 @@ model ImportBatch {
 // Owned by the import module (AD-4). One row per uploaded file, in upload order (`position`, 0-based).
 // `storedFile` is the generated file name (`<id>.pdf`) under `<DATA_DIR>/imports/<batchId>/`, null when
 // the file was not kept (too large, not a PDF). `proposals` is a JSON array of AD-14-shaped Transaction
-// proposals (decimal strings), validated with the proposal schema on read.
+// proposals (decimal strings), validated with the proposal schema on read; a CORPORATE_ACTION item holds
+// exactly one ISIN-change proposal there instead, validated with its own schema.
 model ImportItem {
   id              String           @id @default(cuid())
   batchId         String

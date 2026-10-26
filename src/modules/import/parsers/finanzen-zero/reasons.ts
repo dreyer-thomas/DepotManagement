@@ -7,8 +7,11 @@ export { foreignCurrencyReason, implausibleReason, missingFieldReason, STORNO_RE
 /** Info of a document that changes no account (tax-pot notice). */
 export const NO_BOOKING_INFO = "Keine Buchung erforderlich.";
 
-/** A corporate-action notice (ISIN change, split, merger, …): never booked as a trade. */
-export const CORPORATE_ACTION_REASON = "Kapitalmaßnahme bitte als Corporate Action erfassen.";
+/**
+ * A corporate-action notice that is not a readable ISIN change (split, merger, cash compensation, …): never
+ * booked as a trade; it points to the Corporate Action form of the Position instead of manual entry.
+ */
+export const CORPORATE_ACTION_REASON = "Kapitalmaßnahme bitte in der Position unter „Corporate Action“ erfassen.";
 
 /** A position line whose label is neither a known fee nor a known tax. */
 export function unsupportedPositionReason(label: string): string {

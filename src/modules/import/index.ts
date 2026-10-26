@@ -3,6 +3,7 @@
 // `./limits` and `./edit-fields` directly).
 export {
   bookImportBatch,
+  CORPORATE_ACTION_DOCUMENT_TYPE,
   countOpenBatches,
   createImportBatch,
   decideProposal,
@@ -28,22 +29,25 @@ export type {
   ImportDeps,
   ImportItemStatus,
   ImportItemView,
+  IsinChangeReviewView,
   OpenImportBatch,
   ProposalEdit,
   ProposalReviewView,
   UpdateProposalResult,
   UploadedFile,
 } from "./batches";
-export type { EffectiveDecision, ItemReviewStatus, ProposalReviewStatus, ReviewDecision } from "./review";
+export type { EffectiveDecision, IsinChangeReviewStatus, ItemReviewStatus, ProposalReviewStatus, ReviewDecision } from "./review";
 export { EDITABLE_PROPOSAL_FIELDS, editableFields } from "./edit-fields";
 export type { EditableProposalField } from "./edit-fields";
 export { IMPORT_MAX_BATCH_BYTES, IMPORT_MAX_FILE_BYTES, IMPORT_MAX_FILES } from "./limits";
 export { PARSERS, parseDocument, UNRECOGNIZED_REASON } from "./parsers/registry";
 export type { ParseOutcome, ParserEntry, ParserRegistry } from "./parsers/registry";
 export type { LinkedOutcome } from "./parsers/link";
-export { PROPOSAL_TYPES, transactionProposalSchema } from "./proposal";
+export { isinChangeProposalSchema, PROPOSAL_TYPES, transactionProposalSchema } from "./proposal";
 export type {
   DocumentLink,
+  IsinChangeProposal,
+  IsinChangeProposalInput,
   ParsedDocument,
   ParseError,
   Parser,

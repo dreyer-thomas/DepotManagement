@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { TransactionProposal } from "./proposal";
+import type { IsinChangeProposal, TransactionProposal } from "./proposal";
 import {
   candidateSecurityId,
   classifyBatch,
+  classifyIsinChanges,
   effectiveDecision,
+  isinChangeEffectiveDecision,
   itemReviewStatus,
   proposalKey,
   readDecisions,
@@ -154,6 +156,7 @@ describe("itemReviewStatus", () => {
     expect(itemReviewStatus("PARSED", ["duplicate", "unique"])).toBe("PARSED");
     expect(itemReviewStatus("PARSED", ["unique"])).toBe("PARSED");
     expect(itemReviewStatus("NO_BOOKING", [])).toBe("NO_BOOKING");
+    expect(itemReviewStatus("CORPORATE_ACTION", [])).toBe("CORPORATE_ACTION");
   });
 });
 
@@ -166,12 +169,14 @@ describe("reviewCounts", () => {
       { reviewStatus: "FAILED", proposals: [] },
       { reviewStatus: "PARSED", proposals: [{ key: "e:0", effective: "book" }] },
       { reviewStatus: "NO_BOOKING", proposals: [] },
+      { reviewStatus: "CORPORATE_ACTION", proposals: [], isinChange: { key: "g:0", effective: "book" } },
+      { reviewStatus: "CORPORATE_ACTION", proposals: [], isinChange: { key: "h:0", effective: "discard" } },
     ]);
     expect(counts).toEqual({
-      fileCount: 6,
-      files: { PARSED: 2, AMBIGUOUS: 1, DUPLICATE: 1, NO_BOOKING: 1, FAILED: 1 },
+      fileCount: 8,
+      files: { PARSED: 2, AMBIGUOUS: 1, DUPLICATE: 1, NO_BOOKING: 1, CORPORATE_ACTION: 2, FAILED: 1 },
       openDecisions: 1,
-      bookKeys: ["a:0", "e:0"],
+      bookKeys: ["a:0", "e:0", "g:0"],
     });
   });
 });
@@ -183,5 +188,61 @@ describe("readDecisions / proposalKey", () => {
     expect(readDecisions("nope", 1)).toEqual([null]);
     expect(readDecisions('{"a":1}', 1)).toEqual([null]);
     expect(proposalKey("i1", 2)).toBe("i1:2");
+  });
+});
+
+describe("classifyIsinChanges / isinChangeEffectiveDecision", () => {
+  const CHANGE: IsinChangeProposal = {
+    kind: "isin-change",
+    date: "2026-08-13",
+    oldIsin: "DE0007236101",
+    oldName: "Siemens AG",
+    oldQuantity: "12",
+    newIsin: "DE000ENER6Y0",
+    newName: "Siemens Energy AG",
+    newQuantity: "12",
+  };
+  const ids = new Map([
+    ["DE0007236101", "old"],
+    ["DE000ENER6Y0", "new"],
+  ]);
+  const recorded = [{ oldSecurityId: "old", newSecurityId: "new", date: "2026-08-13" }];
+
+  it("marks a change with the same old and new Security and date as recorded", () => {
+    expect(classifyIsinChanges([{ id: "a", isinChange: CHANGE }], ids, recorded)).toEqual(["recorded"]);
+  });
+
+  it("needs both Securities stored and the exact Securities and date", () => {
+    expect(classifyIsinChanges([{ id: "a", isinChange: CHANGE }], new Map([["DE0007236101", "old"]]), recorded)).toEqual(["unique"]);
+    expect(classifyIsinChanges([{ id: "a", isinChange: { ...CHANGE, date: "2026-08-14" } }], ids, recorded)).toEqual(["unique"]);
+    expect(classifyIsinChanges([{ id: "a", isinChange: CHANGE }], ids, [{ ...recorded[0]!, newSecurityId: "other" }])).toEqual(["unique"]);
+    expect(classifyIsinChanges([{ id: "a", isinChange: CHANGE }], ids, [])).toEqual(["unique"]);
+  });
+
+  it("marks a later file with the same change duplicate and leaves items without a change null", () => {
+    const items = [
+      { id: "a", isinChange: CHANGE },
+      { id: "x", isinChange: null },
+      { id: "b", isinChange: CHANGE },
+      { id: "c", isinChange: { ...CHANGE, date: "2026-08-14" } },
+    ];
+    expect(classifyIsinChanges(items, new Map(), [])).toEqual(["unique", null, "duplicate", "unique"]);
+    expect(classifyIsinChanges(items, ids, recorded)).toEqual(["recorded", null, "recorded", "unique"]);
+  });
+
+  it("keeps two notices of the same ISINs and date with different quantities unique", () => {
+    const items = [
+      { id: "a", isinChange: CHANGE },
+      { id: "b", isinChange: { ...CHANGE, newQuantity: "6" } },
+      { id: "c", isinChange: { ...CHANGE, oldQuantity: "24", newQuantity: "24" } },
+    ];
+    expect(classifyIsinChanges(items, new Map(), [])).toEqual(["unique", "unique", "unique"]);
+  });
+
+  it("books a unique change by default and never a recorded or duplicate one", () => {
+    expect(isinChangeEffectiveDecision("unique", null)).toBe("book");
+    expect(isinChangeEffectiveDecision("unique", "discard")).toBe("discard");
+    expect(isinChangeEffectiveDecision("recorded", "book")).toBe("discard");
+    expect(isinChangeEffectiveDecision("duplicate", null)).toBe("discard");
   });
 });

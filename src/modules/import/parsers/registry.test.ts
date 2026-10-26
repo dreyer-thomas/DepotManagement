@@ -167,6 +167,62 @@ describe("parseDocument", () => {
     }
   });
 
+  const CHANGE = {
+    kind: "isin-change",
+    date: "2026-08-13",
+    oldIsin: "de0007236101",
+    oldName: "Siemens AG",
+    oldQuantity: "12.0",
+    newIsin: "DE000ENER6Y0",
+    newName: " Siemens Energy AG ",
+    newQuantity: "12",
+  } as const;
+
+  it("returns an ISIN change as CORPORATE_ACTION with the validated proposal", () => {
+    const parse: Parser = () => ({ proposals: [], isinChange: CHANGE });
+    expect(parseDocument("DEUTSCHE_BANK", "x", registry([{ documentType: "corporate-action", parse }]))).toEqual({
+      status: "CORPORATE_ACTION",
+      documentType: "corporate-action",
+      isinChange: { ...CHANGE, oldIsin: "DE0007236101", oldQuantity: "12", newName: "Siemens Energy AG" },
+    });
+    const withoutOldName: Parser = () => ({ proposals: [], isinChange: { ...CHANGE, oldName: undefined } });
+    expect(parseDocument("DEUTSCHE_BANK", "x", registry([{ documentType: "c", parse: withoutOldName }]))).toMatchObject({
+      status: "CORPORATE_ACTION",
+      isinChange: { newIsin: "DE000ENER6Y0" },
+    });
+  });
+
+  it("fails an ISIN change next to proposals, a note, a link or an info, and an invalid ISIN change", () => {
+    const link = { kind: "dividend-credit", reference: "R1", beforeTax: "21" } as const;
+    const results: Parser[] = [
+      () => ({ proposals: [BUY], isinChange: CHANGE }),
+      () => ({ proposals: [], note: "Bitte prüfen.", isinChange: CHANGE }),
+      () => ({ proposals: [], link, isinChange: CHANGE }),
+      () => ({ proposals: [], noBooking: "Keine Buchung erforderlich.", isinChange: CHANGE }),
+      () => ({ proposals: [], isinChange: { ...CHANGE, newIsin: "DE0007236101" } }),
+      () => ({ proposals: [], isinChange: { ...CHANGE, oldQuantity: "0" } }),
+      () => ({ proposals: [], isinChange: { ...CHANGE, newQuantity: "1.123456789" } }),
+      () => ({ proposals: [], isinChange: { ...CHANGE, newIsin: "DE000ENER6Y1" } }),
+      () => ({ proposals: [], isinChange: { ...CHANGE, date: "2026-02-30" } }),
+      () => ({ proposals: [], isinChange: { ...CHANGE, newName: "x".repeat(101) } }),
+    ];
+    for (const parse of results) {
+      expect(parseDocument("DEUTSCHE_BANK", "x", registry([{ documentType: "t", parse }]))).toEqual({
+        status: "FAILED",
+        reason: INVALID_OUTPUT_REASON,
+      });
+    }
+  });
+
+  it("keeps the corporate-action mark of an invalid error", () => {
+    const parse: Parser = () => ({ error: "invalid", message: "Kapitalmaßnahme.", corporateAction: true });
+    expect(parseDocument("DEUTSCHE_BANK", "x", registry([{ documentType: "corporate-action", parse }]))).toEqual({
+      status: "FAILED",
+      reason: "Kapitalmaßnahme.",
+      corporateAction: true,
+    });
+  });
+
   it("fails a parsed document without proposals and without tax-notice link, or with an invalid shape", () => {
     const empty: Parser = () => ({ proposals: [], note: "x" });
     expect(parseDocument("DEUTSCHE_BANK", "x", registry([{ documentType: "t", parse: empty }]))).toEqual({

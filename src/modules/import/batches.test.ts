@@ -4,7 +4,16 @@ import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { minimalPdf } from "../../../test/helpers/pdf";
 import { createTestDatabase, type TestDatabase } from "../../../test/helpers/test-db";
-import { archiveDepot, createDepot, ensureSecurity, listTransactions, recordIsinChange, recordTransaction } from "@/modules/ledger";
+import {
+  archiveDepot,
+  createDepot,
+  ensureSecurity,
+  listIsinChanges,
+  listPositions,
+  listTransactions,
+  recordIsinChange,
+  recordTransaction,
+} from "@/modules/ledger";
 import {
   countOpenBatches,
   createImportBatch,
@@ -716,7 +725,7 @@ describe("comdirect upload (story 5.4)", () => {
       },
     ]);
     expect(batch.items[1]?.proposals).toEqual([]);
-    expect(batch.files).toEqual({ PARSED: 1, AMBIGUOUS: 0, DUPLICATE: 0, NO_BOOKING: 1, FAILED: 0 });
+    expect(batch.files).toEqual({ PARSED: 1, AMBIGUOUS: 0, DUPLICATE: 0, NO_BOOKING: 1, CORPORATE_ACTION: 0, FAILED: 0 });
     expect(batch.bookKeys).toHaveLength(1);
     expect(await listOpenBatches(db())).toEqual([expect.objectContaining({ fileCount: 2, parsedCount: 1, failedCount: 0 })]);
 
@@ -761,31 +770,207 @@ describe("comdirect upload (story 5.4)", () => {
 describe("finanzen.net zero upload (story 5.5)", () => {
   const zero = (name: string) => readFileSync(resolve(__dirname, "../../../test/fixtures/import/finanzen-zero", name), "utf8");
 
-  it("stages a buy, a tax refund, a tax-pot notice and an ISIN change and books only the BUY and the TAX", async () => {
+  it("stages a buy, a tax refund, a tax-pot notice and an ISIN change and books the BUY, the TAX and the change in one booking", async () => {
     const { id } = await depot("FINANZEN_ZERO", "finanzen.net zero");
     const batchId = await create(id, [
+      pdf("umtausch.pdf", zero("isin-change.txt")),
       pdf("kauf.pdf", zero("buy.txt")),
       pdf("erstattung.pdf", zero("tax-refund.txt")),
       pdf("topf.pdf", zero("tax-pot-no-booking.txt")),
-      pdf("umtausch.pdf", zero("isin-change.txt")),
     ]);
     const batch = await review(batchId);
     expect(batch.items.map((item) => [item.fileName, item.status, item.reviewStatus, item.documentType, item.reason])).toEqual([
+      ["umtausch.pdf", "CORPORATE_ACTION", "CORPORATE_ACTION", "corporate-action", null],
       ["kauf.pdf", "PARSED", "PARSED", "trade", null],
       ["erstattung.pdf", "PARSED", "PARSED", "tax-refund", null],
       ["topf.pdf", "NO_BOOKING", "NO_BOOKING", "tax-pot", "Keine Buchung erforderlich."],
-      ["umtausch.pdf", "FAILED", "FAILED", null, "Kapitalmaßnahme bitte als Corporate Action erfassen."],
     ]);
-    expect(batch.items[2]?.proposals).toEqual([]);
-    expect(batch.items[3]?.proposals).toEqual([]);
-    expect(batch.files).toEqual({ PARSED: 2, AMBIGUOUS: 0, DUPLICATE: 0, NO_BOOKING: 1, FAILED: 1 });
-    expect(batch.bookKeys).toHaveLength(2);
+    const change = batch.items[0]!;
+    expect(change.proposals).toEqual([]);
+    expect(change.isinChange).toEqual({
+      key: `${change.id}:0`,
+      proposal: {
+        kind: "isin-change",
+        date: "2026-08-13",
+        oldIsin: "DE0007236101",
+        oldName: "Siemens AG",
+        oldQuantity: "12",
+        newIsin: "DE000ENER6Y0",
+        newName: "Siemens Energy AG",
+        newQuantity: "12",
+      },
+      status: "unique",
+      decision: null,
+      effective: "book",
+    });
+    expect(batch.items[1]?.isinChange).toBeNull();
+    expect(batch.files).toEqual({ PARSED: 2, AMBIGUOUS: 0, DUPLICATE: 0, NO_BOOKING: 1, CORPORATE_ACTION: 1, FAILED: 0 });
+    expect(batch.bookKeys).toEqual([`${change.id}:0`, `${batch.items[1]!.id}:0`, `${batch.items[2]!.id}:0`]);
+    expect(await listOpenBatches(db())).toEqual([expect.objectContaining({ fileCount: 4, parsedCount: 3, failedCount: 0 })]);
 
-    expect(await book(batchId)).toEqual({ ok: true, booked: 2, depotId: id });
+    // The BUY (2026-04-15) is booked before the change (2026-08-13) although its file comes later.
+    expect(await book(batchId)).toEqual({ ok: true, booked: 3, depotId: id });
     const rows = await listTransactions(id, db());
     expect(rows.reverse().map((row) => [row.date, row.type, row.security?.isin ?? null, row.quantity, row.price, row.amount, row.fee, row.tax])).toEqual([
       ["2026-04-15", "BUY", "DE0007236101", "12", "180.5", "2166", "0", "0"],
       ["2026-08-29", "TAX", null, null, null, "0", "0", "-18.99"],
     ]);
+    const changes = await listIsinChanges(db());
+    expect(changes.map((entry) => [entry.oldSecurity.isin, entry.newSecurity.isin, entry.date, entry.oldQuantity, entry.newQuantity])).toEqual([
+      ["DE0007236101", "DE000ENER6Y0", "2026-08-13", "12", "12"],
+    ]);
+    expect(changes[0]?.newSecurity).toMatchObject({ name: "Siemens Energy AG", assetType: "STOCK" });
+    const positions = await listPositions(id, "2026-10-26", db());
+    expect(positions.map((position) => [position.security.isin, position.quantity, position.costBasis])).toEqual([["DE000ENER6Y0", "12", "2166"]]);
+  });
+});
+
+describe("ISIN changes from broker documents (story 5-6)", () => {
+  const zero = (name: string) => readFileSync(resolve(__dirname, "../../../test/fixtures/import/finanzen-zero", name), "utf8");
+  const OLD = "DE0007236101";
+  const NEW = "DE000ENER6Y0";
+
+  async function zeroDepot() {
+    return (await depot("FINANZEN_ZERO", "finanzen.net zero")).id;
+  }
+
+  it("books an ISIN change for a BUY of the old ISIN booked earlier: the position moves to the new ISIN", async () => {
+    const id = await zeroDepot();
+    expect(await book(await create(id, [pdf("kauf.pdf", zero("buy.txt"))]))).toMatchObject({ ok: true, booked: 1 });
+    const oldSecurity = await db().security.findUniqueOrThrow({ where: { isin: OLD } });
+    // Stored as an ETF: the successor takes over the stored asset type instead of a name estimate (STOCK).
+    await db().security.update({ where: { id: oldSecurity.id }, data: { name: "Siemens (gespeichert)", assetType: "ETF" } });
+
+    const batchId = await create(id, [pdf("umtausch.pdf", zero("isin-change.txt"))]);
+    const batch = await review(batchId);
+    expect(batch.items[0]).toMatchObject({ reviewStatus: "CORPORATE_ACTION", isinChange: { status: "unique", effective: "book" } });
+    expect(await book(batchId)).toEqual({ ok: true, booked: 1, depotId: id });
+    expect(await db().transaction.count()).toBe(1);
+    const positions = await listPositions(id, "2026-10-26", db());
+    expect(positions.map((position) => [position.security.isin, position.quantity, position.costBasis])).toEqual([[NEW, "12", "2166"]]);
+    // The existing old Security keeps its stored name.
+    expect((await db().security.findUniqueOrThrow({ where: { isin: OLD } })).name).toBe("Siemens (gespeichert)");
+    expect(await db().security.findUniqueOrThrow({ where: { isin: NEW } })).toMatchObject({ name: "Siemens Energy AG", assetType: "ETF" });
+    expect((await db().importBatch.findUniqueOrThrow({ where: { id: batchId } })).status).toBe("BOOKED");
+  });
+
+  it("books the ISIN change before a SELL of the new ISIN on the same date, whatever the file order (AD-8)", async () => {
+    const id = await zeroDepot();
+    const old = await ensureSecurity({ isin: OLD }, { name: "Siemens AG", assetType: "STOCK" }, db());
+    if (!old.ok) throw new Error("setup failed");
+    const bought = await recordTransaction(
+      { depotId: id, type: "BUY", date: "2026-04-15", quantity: "40", price: "20", amount: "800", security: { id: old.security.id } },
+      db(),
+    );
+    expect(bought.ok).toBe(true);
+    // A SELL of 30 Siemens Energy on the effective date of the change (synthetic variant of sell.txt).
+    const sell = zero("sell.txt").replaceAll("DE0005557508", NEW).replaceAll("15.05.2026", "13.08.2026").replaceAll("Deutsche Telekom AG", "Siemens Energy AG");
+    const batchId = await create(id, [pdf("verkauf.pdf", sell), pdf("umtausch.pdf", zero("isin-change.txt"))]);
+    const batch = await review(batchId);
+    expect(batch.items[0]?.proposals.map((view) => [view.proposal.type, view.proposal.date, view.proposal.isin, view.proposal.quantity])).toEqual([
+      ["SELL", "2026-08-13", NEW, "30"],
+    ]);
+    expect(batch.items[1]?.isinChange?.status).toBe("unique");
+    expect(await book(batchId)).toEqual({ ok: true, booked: 2, depotId: id });
+    const positions = await listPositions(id, "2026-10-26", db());
+    expect(positions.map((position) => [position.security.isin, position.quantity, position.costBasis])).toEqual([[NEW, "10", "200"]]);
+  });
+
+  it("shows an already recorded change as recorded and books nothing", async () => {
+    const id = await zeroDepot();
+    const old = await ensureSecurity({ isin: OLD }, { name: "Siemens AG", assetType: "STOCK" }, db());
+    const successor = await ensureSecurity({ isin: NEW }, { name: "Siemens Energy AG", assetType: "STOCK" }, db());
+    if (!old.ok || !successor.ok) throw new Error("setup failed");
+    const recorded = await recordIsinChange(
+      { oldSecurityId: old.security.id, newSecurity: { id: successor.security.id }, date: "2026-08-13", oldQuantity: "12", newQuantity: "12" },
+      db(),
+    );
+    expect(recorded.ok).toBe(true);
+    const batchId = await create(id, [pdf("umtausch.pdf", zero("isin-change.txt"))]);
+    const batch = await review(batchId);
+    expect(batch.items[0]).toMatchObject({ reviewStatus: "CORPORATE_ACTION", isinChange: { status: "recorded", effective: "discard" } });
+    expect(batch.bookKeys).toEqual([]);
+    expect(await bookImportBatch(batchId, [], env(), db())).toEqual({ ok: false, reason: "nothing-to-book" });
+    expect(await listIsinChanges(db())).toHaveLength(1);
+  });
+
+  it("books the same change uploaded twice only once", async () => {
+    const id = await zeroDepot();
+    const batchId = await create(id, [pdf("a.pdf", zero("isin-change.txt")), pdf("b.pdf", zero("isin-change.txt"))]);
+    const batch = await review(batchId);
+    expect(batch.items.map((item) => [item.isinChange?.status, item.isinChange?.effective])).toEqual([
+      ["unique", "book"],
+      ["duplicate", "discard"],
+    ]);
+    expect(batch.bookKeys).toEqual([`${batch.items[0]!.id}:0`]);
+    expect(await book(batchId)).toEqual({ ok: true, booked: 1, depotId: id });
+    expect(await listIsinChanges(db())).toHaveLength(1);
+  });
+
+  it("discards an ISIN change by decision and never edits it", async () => {
+    const id = await zeroDepot();
+    const batchId = await create(id, [pdf("umtausch.pdf", zero("isin-change.txt")), pdf("kauf.pdf", zero("buy.txt"))]);
+    const [change, buy] = (await review(batchId)).items;
+    expect(await decideProposal(batchId, change!.id, 0, "discard", db())).toEqual({ ok: true });
+    let batch = await review(batchId);
+    expect(batch.items[0]?.isinChange).toMatchObject({ decision: "discard", effective: "discard" });
+    expect(batch.bookKeys).toEqual([`${buy!.id}:0`]);
+    expect(await decideProposal(batchId, change!.id, 1, "book", db())).toEqual({ ok: false, reason: "not-found" });
+    expect(await updateProposal(batchId, change!.id, 0, { date: "2026-08-14" }, db())).toEqual({ ok: false, reason: "not-found" });
+    expect(await decideProposal(batchId, change!.id, 0, null, db())).toEqual({ ok: true });
+    batch = await review(batchId);
+    expect(batch.items[0]?.isinChange).toMatchObject({ decision: null, effective: "book" });
+  });
+
+  it("names the file of a rejected ISIN change and books nothing", async () => {
+    const id = await zeroDepot();
+    const old = await ensureSecurity({ isin: OLD }, { name: "Siemens AG", assetType: "STOCK" }, db());
+    const other = await ensureSecurity({ isin: SAP }, { name: "SAP SE", assetType: "STOCK" }, db());
+    if (!old.ok || !other.ok) throw new Error("setup failed");
+    // Another change of the old Security on that date: not "recorded" (other new Security), but the ledger refuses it.
+    const recorded = await recordIsinChange(
+      { oldSecurityId: old.security.id, newSecurity: { id: other.security.id }, date: "2026-08-13", oldQuantity: "1", newQuantity: "1" },
+      db(),
+    );
+    expect(recorded.ok).toBe(true);
+    const batchId = await create(id, [pdf("kauf.pdf", zero("buy.txt")), pdf("umtausch.pdf", zero("isin-change.txt"))]);
+    expect((await review(batchId)).items[1]?.isinChange?.status).toBe("unique");
+    expect(await book(batchId)).toEqual({
+      ok: false,
+      reason: "ledger-rejected",
+      fileName: "umtausch.pdf",
+      type: "ISIN_CHANGE",
+      failure: { ok: false, reason: "isin-change-exists" },
+    });
+    expect(await db().transaction.count()).toBe(0);
+    expect(await db().security.count()).toBe(2);
+    expect((await db().importBatch.findUniqueOrThrow({ where: { id: batchId } })).status).toBe("OPEN");
+  });
+
+  it("stores an unreadable corporate-action notice as FAILED with document type corporate-action", async () => {
+    const id = await zeroDepot();
+    const split = zero("isin-change.txt").replaceAll("Obligatorischer Umtausch", "Aktiensplit");
+    const unreadable = zero("isin-change.txt").replace("Verhältnis: 1 : 1", "Verhältnis: 1 : 1\nBarausgleich EUR 3,50");
+    const batchId = await create(id, [pdf("split.pdf", split.replace(/Einbuchung\nStück[^\n]*\nISIN: [^\n]*\n/, "")), pdf("bar.pdf", unreadable), pdf("x.pdf", "Baader Bank\nWertpapierabrechnung: Kauf")]);
+    const batch = await review(batchId);
+    const reason = "Kapitalmaßnahme bitte in der Position unter „Corporate Action“ erfassen.";
+    expect(batch.items.map((item) => [item.status, item.reviewStatus, item.documentType, item.reason, item.isinChange])).toEqual([
+      ["FAILED", "FAILED", "corporate-action", reason, null],
+      ["FAILED", "FAILED", "corporate-action", reason, null],
+      ["FAILED", "FAILED", null, expect.stringContaining("Buchung bitte manuell erfassen."), null],
+    ]);
+    expect(batch.files.FAILED).toBe(3);
+  });
+
+  it("shows a CORPORATE_ACTION item whose stored change no longer validates as failed", async () => {
+    const id = await zeroDepot();
+    const batchId = await create(id, [pdf("umtausch.pdf", zero("isin-change.txt"))]);
+    await db().importItem.updateMany({ where: { batchId }, data: { proposals: '[{"kind":"isin-change"}]' } });
+    expect((await review(batchId)).items[0]).toMatchObject({
+      status: "FAILED",
+      reviewStatus: "FAILED",
+      reason: STORED_PROPOSALS_INVALID_REASON,
+      isinChange: null,
+    });
   });
 });

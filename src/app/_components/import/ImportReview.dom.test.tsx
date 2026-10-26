@@ -3,7 +3,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { registerDomCleanup } from "../../../../test/helpers/dom";
-import type { ImportBatchView, ImportItemView, ProposalReviewView } from "@/modules/import";
+import type { ImportBatchView, ImportItemView, IsinChangeReviewView, ProposalReviewView } from "@/modules/import";
 import { ImportReview } from "./ImportReview";
 
 const actions = vi.hoisted(() => ({
@@ -54,9 +54,34 @@ function item(id: string, overrides: Partial<ImportItemView> = {}): ImportItemVi
     duplicateUpload: false,
     documentDate: null,
     proposals: [proposal(id)],
+    isinChange: null,
     ...overrides,
   };
 }
+
+const CHANGE = {
+  kind: "isin-change",
+  date: "2026-08-13",
+  oldIsin: "DE0007236101",
+  oldName: "Siemens AG",
+  oldQuantity: "12",
+  newIsin: "DE000ENER6Y0",
+  newName: "Siemens Energy AG",
+  newQuantity: "12",
+} as const;
+
+/** A corporate-action file with its ISIN change. */
+function changeItem(id: string, overrides: Partial<IsinChangeReviewView> = {}): ImportItemView {
+  return item(id, {
+    status: "CORPORATE_ACTION",
+    reviewStatus: "CORPORATE_ACTION",
+    documentType: "corporate-action",
+    proposals: [],
+    isinChange: { key: `${id}:0`, proposal: { ...CHANGE }, status: "unique", decision: null, effective: "book", ...overrides },
+  });
+}
+
+const changeFiles = { PARSED: 0, AMBIGUOUS: 0, DUPLICATE: 0, NO_BOOKING: 0, CORPORATE_ACTION: 1, FAILED: 0 };
 
 function batch(overrides: Partial<ImportBatchView> = {}): ImportBatchView {
   return {
@@ -68,7 +93,7 @@ function batch(overrides: Partial<ImportBatchView> = {}): ImportBatchView {
     status: "OPEN",
     createdAt: "2026-10-26T10:00:00.000Z",
     items: [item("a")],
-    files: { PARSED: 1, AMBIGUOUS: 0, DUPLICATE: 0, NO_BOOKING: 0, FAILED: 0 },
+    files: { PARSED: 1, AMBIGUOUS: 0, DUPLICATE: 0, NO_BOOKING: 0, CORPORATE_ACTION: 0, FAILED: 0 },
     openDecisions: 0,
     bookKeys: ["a:0"],
     ...overrides,
@@ -87,7 +112,7 @@ const ambiguousBatch = () =>
         proposals: [proposal("b", { status: "ambiguous", siblingMatch: true, effective: "open" })],
       }),
     ],
-    files: { PARSED: 0, AMBIGUOUS: 2, DUPLICATE: 0, NO_BOOKING: 0, FAILED: 0 },
+    files: { PARSED: 0, AMBIGUOUS: 2, DUPLICATE: 0, NO_BOOKING: 0, CORPORATE_ACTION: 0, FAILED: 0 },
     openDecisions: 2,
     bookKeys: [],
   });
@@ -135,7 +160,7 @@ describe("ImportReview", () => {
     show(
       batch({
         items: [item("a", { reviewStatus: "DUPLICATE", proposals: [proposal("a", { status: "duplicate", effective: "discard", ledgerMatches: [match] })] })],
-        files: { PARSED: 0, AMBIGUOUS: 0, DUPLICATE: 1, NO_BOOKING: 0, FAILED: 0 },
+        files: { PARSED: 0, AMBIGUOUS: 0, DUPLICATE: 1, NO_BOOKING: 0, CORPORATE_ACTION: 0, FAILED: 0 },
         bookKeys: [],
       }),
     );
@@ -261,7 +286,7 @@ describe("ImportReview", () => {
     show(
       batch({
         items: [item("x", { status: "FAILED", reviewStatus: "FAILED", reason: "Layout nicht erkannt.", documentDate: "2026-10-15", proposals: [] })],
-        files: { PARSED: 0, AMBIGUOUS: 0, DUPLICATE: 0, NO_BOOKING: 0, FAILED: 1 },
+        files: { PARSED: 0, AMBIGUOUS: 0, DUPLICATE: 0, NO_BOOKING: 0, CORPORATE_ACTION: 0, FAILED: 1 },
         bookKeys: [],
       }),
     );
@@ -300,7 +325,7 @@ describe("ImportReview", () => {
             proposals: [],
           }),
         ],
-        files: { PARSED: 1, AMBIGUOUS: 0, DUPLICATE: 0, NO_BOOKING: 1, FAILED: 0 },
+        files: { PARSED: 1, AMBIGUOUS: 0, DUPLICATE: 0, NO_BOOKING: 1, CORPORATE_ACTION: 0, FAILED: 0 },
       }),
     );
     expect(screen.getByText("2 Dateien: 1 erkannt, 1 ohne Buchung")).toBeTruthy();
@@ -311,6 +336,85 @@ describe("ImportReview", () => {
     const parsed = screen.getByRole("region", { name: "a.pdf" });
     expect(within(parsed).getByText(/Keine Steuermitteilung im Dokument/).hasAttribute("data-import-note")).toBe(true);
     expect(screen.getByRole("button", { name: "1 Buchung buchen" })).toBeTruthy();
+  });
+
+  it("shows an ISIN change as Kapitalmaßnahme, booked by default, and books it with the batch", async () => {
+    actions.bookImportBatchAction.mockResolvedValue({ ok: true, booked: 1, depotId: "d1" });
+    actions.decideProposalAction.mockResolvedValue({ ok: true });
+    const user = userEvent.setup({ delay: null });
+    show(batch({ broker: "FINANZEN_ZERO", items: [changeItem("u")], files: changeFiles, bookKeys: ["u:0"] }));
+    expect(screen.getByText("1 Datei: 0 erkannt, 1 Kapitalmaßnahme")).toBeTruthy();
+    const card = screen.getByRole("region", { name: "u.pdf" });
+    expect(within(card).getByText("Kapitalmaßnahme").getAttribute("data-import-status")).toBe("CORPORATE_ACTION");
+    expect(within(card).getByText("ISIN-Wechsel DE0007236101 → DE000ENER6Y0, 12 St. am 13.08.2026")).toBeTruthy();
+    expect(within(card).getByText("Siemens AG → Siemens Energy AG")).toBeTruthy();
+    expect(within(card).getByRole("button", { name: "Als ISIN-Wechsel buchen" }).getAttribute("aria-pressed")).toBe("true");
+    expect(within(card).queryByRole("button", { name: "Bearbeiten" })).toBeNull();
+    expect(within(card).queryByRole("button", { name: "Manuell erfassen" })).toBeNull();
+    await user.click(within(card).getByRole("button", { name: "Verwerfen" }));
+    await waitFor(() => expect(actions.decideProposalAction).toHaveBeenCalledWith("b1", "u", 0, "discard"));
+    await user.click(screen.getByRole("button", { name: "1 Buchung buchen" }));
+    expect(actions.bookImportBatchAction).toHaveBeenCalledWith("b1", '["u:0"]');
+  });
+
+  it("shows differing quantities and an already recorded change without actions", () => {
+    const differing = changeItem("u");
+    differing.isinChange = { ...differing.isinChange!, proposal: { ...CHANGE, newQuantity: "6" } };
+    show(
+      batch({
+        items: [differing, changeItem("r", { status: "recorded", effective: "discard" }), changeItem("d", { status: "duplicate", effective: "discard" })],
+        files: { ...changeFiles, CORPORATE_ACTION: 3 },
+        bookKeys: ["u:0"],
+      }),
+    );
+    expect(screen.getByText("ISIN-Wechsel DE0007236101 → DE000ENER6Y0, 12 St. → 6 St. am 13.08.2026")).toBeTruthy();
+    const recorded = screen.getByRole("region", { name: "r.pdf" });
+    expect(within(recorded).getByText("Bereits erfasst")).toBeTruthy();
+    expect(within(recorded).queryByRole("button")).toBeNull();
+    const duplicate = screen.getByRole("region", { name: "d.pdf" });
+    expect(within(duplicate).getByText("Bereits in diesem Import.")).toBeTruthy();
+    expect(within(duplicate).queryByRole("button")).toBeNull();
+    expect(screen.getByRole("button", { name: "1 Buchung buchen" })).toBeTruthy();
+  });
+
+  it("offers no Manuell erfassen for an unreadable corporate-action notice", () => {
+    const reason = "Kapitalmaßnahme bitte in der Position unter „Corporate Action“ erfassen.";
+    show(
+      batch({
+        items: [item("x", { status: "FAILED", reviewStatus: "FAILED", documentType: "corporate-action", reason, proposals: [] })],
+        files: { ...changeFiles, CORPORATE_ACTION: 0, FAILED: 1 },
+        bookKeys: [],
+      }),
+    );
+    expect(screen.getByText("fehlgeschlagen")).toBeTruthy();
+    expect(screen.getByText(reason)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Manuell erfassen" })).toBeNull();
+  });
+
+  it("names the file and the ISIN-change failure when the ledger rejects an ISIN change", async () => {
+    actions.bookImportBatchAction.mockResolvedValue({
+      ok: false,
+      reason: "ledger-rejected",
+      fileName: "u.pdf",
+      type: "ISIN_CHANGE",
+      failure: { ok: false, reason: "later-sell-exceeds-holding", date: "2026-09-01" },
+    });
+    const user = userEvent.setup({ delay: null });
+    show(batch({ items: [changeItem("u")], files: changeFiles, bookKeys: ["u:0"] }));
+    await user.click(screen.getByRole("button", { name: "1 Buchung buchen" }));
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "u.pdf: Nicht möglich: Der Verkauf am 01.09.2026 würde den Bestand übersteigen. Es wurde nichts gebucht.",
+    );
+  });
+
+  it("shows the ISIN change of a BOOKED batch without actions or notes", () => {
+    show(batch({ status: "BOOKED", items: [changeItem("u", { status: "recorded", effective: "discard" })], files: changeFiles, bookKeys: [] }));
+    const card = screen.getByRole("region", { name: "u.pdf" });
+    expect(within(card).getByText("Kapitalmaßnahme").getAttribute("data-import-status")).toBe("CORPORATE_ACTION");
+    expect(within(card).getByText("ISIN-Wechsel DE0007236101 → DE000ENER6Y0, 12 St. am 13.08.2026")).toBeTruthy();
+    expect(within(card).queryByRole("button", { name: "Als ISIN-Wechsel buchen" })).toBeNull();
+    expect(within(card).queryByRole("button", { name: "Verwerfen" })).toBeNull();
+    expect(within(card).queryByText("Bereits erfasst")).toBeNull();
   });
 
   it("shows a BOOKED batch read-only", () => {

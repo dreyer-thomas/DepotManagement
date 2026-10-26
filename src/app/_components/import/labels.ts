@@ -5,9 +5,17 @@ import type {
   UpdateProposalActionState,
   UploadDocumentsActionState,
 } from "@/app/_actions/import";
+import { type IsinChangeErrorReason, isinChangeErrorMessage } from "@/app/_components/corporate-actions/labels";
 import { failureDetail, transactionErrorMessage, type TransactionErrorReason, transactionTypeLabel } from "@/app/_components/transactions/labels";
 import { formatDate, formatMoney, formatQuantity } from "@/core/format";
-import type { EditableProposalField, ItemReviewStatus, ProposalReviewView, ProposalType } from "@/modules/import";
+import type {
+  EditableProposalField,
+  IsinChangeProposal,
+  IsinChangeReviewStatus,
+  ItemReviewStatus,
+  ProposalReviewView,
+  ProposalType,
+} from "@/modules/import";
 import type { TransactionRecord } from "@/modules/ledger";
 
 /** Status chip text per file review status. */
@@ -16,6 +24,7 @@ export const ITEM_STATUS_LABELS: Record<ItemReviewStatus, string> = {
   AMBIGUOUS: "mehrdeutig",
   DUPLICATE: "Duplikat",
   NO_BOOKING: "keine Buchung",
+  CORPORATE_ACTION: "Kapitalmaßnahme",
   FAILED: "fehlgeschlagen",
 };
 
@@ -72,14 +81,17 @@ export function formatMegabytes(bytes: number): string {
 }
 
 /**
- * Review summary: "14 Dateien: 11 erkannt, 1 mehrdeutig, 1 Duplikat, 1 ohne Buchung, 1 fehlgeschlagen · 1 Entscheidung offen";
- * zero counts are left out except erkannt.
+ * Review summary: "14 Dateien: 11 erkannt, 1 mehrdeutig, 1 Duplikat, 1 ohne Buchung, 1 Kapitalmaßnahme, 1 fehlgeschlagen
+ * · 1 Entscheidung offen"; zero counts are left out except erkannt.
  */
 export function reviewSummary(fileCount: number, files: Record<ItemReviewStatus, number>, openDecisions: number): string {
   const parts = [`${files.PARSED} erkannt`];
   if (files.AMBIGUOUS > 0) parts.push(`${files.AMBIGUOUS} mehrdeutig`);
   if (files.DUPLICATE > 0) parts.push(files.DUPLICATE === 1 ? "1 Duplikat" : `${files.DUPLICATE} Duplikate`);
   if (files.NO_BOOKING > 0) parts.push(`${files.NO_BOOKING} ohne Buchung`);
+  if (files.CORPORATE_ACTION > 0) {
+    parts.push(files.CORPORATE_ACTION === 1 ? "1 Kapitalmaßnahme" : `${files.CORPORATE_ACTION} Kapitalmaßnahmen`);
+  }
   if (files.FAILED > 0) parts.push(`${files.FAILED} fehlgeschlagen`);
   const summary = `${fileCountLabel(fileCount)}: ${parts.join(", ")}`;
   return openDecisions > 0 ? `${summary} · ${openDecisionsLabel(openDecisions)}` : summary;
@@ -118,6 +130,30 @@ export function proposalNotes(view: Pick<ProposalReviewView, "status" | "ledgerM
   if (view.siblingMatch) notes.push("Gleiche Buchung mehrfach in diesem Import.");
   notes.push("Bitte entscheiden.");
   return notes;
+}
+
+/**
+ * Row text of an ISIN-change proposal: "ISIN-Wechsel <old> → <new>, <qty> St. am <dd.mm.yyyy>"; when the
+ * quantities differ "<old qty> St. → <new qty> St.".
+ */
+export function isinChangeText(change: Pick<IsinChangeProposal, "oldIsin" | "newIsin" | "oldQuantity" | "newQuantity" | "date">): string {
+  // Both quantities are canonical decimal strings.
+  const quantity = change.oldQuantity === change.newQuantity
+    ? `${formatQuantity(change.oldQuantity)} St.`
+    : `${formatQuantity(change.oldQuantity)} St. → ${formatQuantity(change.newQuantity)} St.`;
+  return `ISIN-Wechsel ${change.oldIsin} → ${change.newIsin}, ${quantity} am ${formatDate(change.date)}`;
+}
+
+/** The names below the ISIN-change row: "<old name> → <new name>", or only the new name. */
+export function isinChangeNames(change: Pick<IsinChangeProposal, "oldName" | "newName">): string {
+  return change.oldName ? `${change.oldName} → ${change.newName}` : change.newName;
+}
+
+/** Note of an ISIN change that is not booked; none for a unique one. */
+export function isinChangeNote(status: IsinChangeReviewStatus): string | null {
+  if (status === "recorded") return "Bereits erfasst";
+  if (status === "duplicate") return "Bereits in diesem Import.";
+  return null;
 }
 
 /** Fields of the inline edit with their German labels. */
@@ -181,12 +217,40 @@ const TRANSACTION_REASONS = new Set<string>([
   "later-sell-exceeds-holding",
 ]);
 
-/** "<Datei>: <ledger message>" for a booking the ledger rejected (nothing was booked). */
-export function ledgerRejectedMessage(result: { fileName: string | null; type: ProposalType | null; failure: { reason: string } }): string {
-  const { reason } = result.failure;
-  const message = TRANSACTION_REASONS.has(reason)
-    ? transactionErrorMessage(reason as TransactionErrorReason, failureDetail(result.failure), result.type ?? undefined)
+/** Ledger reasons `isinChangeErrorMessage` knows. */
+const ISIN_CHANGE_REASONS = new Set<string>([
+  "security-not-found",
+  "same-security",
+  "date-invalid",
+  "old-quantity-invalid",
+  "new-quantity-invalid",
+  "isin-change-exists",
+  "isin-invalid",
+  "crypto-symbol-invalid",
+  "security-name-invalid",
+  "asset-type-invalid",
+  "later-sell-exceeds-holding",
+]);
+
+function rejectionText(type: ProposalType | "ISIN_CHANGE" | null, failure: { reason: string }): string {
+  const { reason } = failure;
+  if (type === "ISIN_CHANGE") {
+    return ISIN_CHANGE_REASONS.has(reason)
+      ? isinChangeErrorMessage(reason as IsinChangeErrorReason, failureDetail(failure))
+      : "Buchung wurde abgelehnt.";
+  }
+  return TRANSACTION_REASONS.has(reason)
+    ? transactionErrorMessage(reason as TransactionErrorReason, failureDetail(failure), type ?? undefined)
     : "Buchung wurde abgelehnt.";
+}
+
+/** "<Datei>: <ledger message>" for a booking the ledger rejected (nothing was booked). */
+export function ledgerRejectedMessage(result: {
+  fileName: string | null;
+  type: ProposalType | "ISIN_CHANGE" | null;
+  failure: { reason: string };
+}): string {
+  const message = rejectionText(result.type, result.failure);
   const full = `${message} Es wurde nichts gebucht.`;
   return result.fileName ? `${result.fileName}: ${full}` : full;
 }

@@ -1,0 +1,4 @@
+-- Adds CORPORATE_ACTION to the ImportItemStatus enum (story 5-6): a broker corporate-action notice read as an
+-- ISIN-change proposal, stored as `[isinChange]` in `proposals`. SQLite stores Prisma enums as TEXT without a
+-- CHECK constraint, so the new value needs no schema change; `prisma migrate diff` yields an empty script.
+-- This migration only records the enum change.

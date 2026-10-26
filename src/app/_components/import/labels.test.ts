@@ -8,6 +8,9 @@ import {
   fileCountLabel,
   formatMegabytes,
   ITEM_STATUS_LABELS,
+  isinChangeNames,
+  isinChangeNote,
+  isinChangeText,
   ledgerMatchText,
   ledgerRejectedMessage,
   proposalNotes,
@@ -36,19 +39,39 @@ describe("import labels", () => {
   });
 
   it("summarises a review, leaving out zero counts except erkannt", () => {
-    expect(reviewSummary(14, { PARSED: 11, AMBIGUOUS: 1, DUPLICATE: 1, NO_BOOKING: 0, FAILED: 1 }, 1)).toBe(
+    expect(reviewSummary(14, { PARSED: 11, AMBIGUOUS: 1, DUPLICATE: 1, NO_BOOKING: 0, CORPORATE_ACTION: 0, FAILED: 1 }, 1)).toBe(
       "14 Dateien: 11 erkannt, 1 mehrdeutig, 1 Duplikat, 1 fehlgeschlagen · 1 Entscheidung offen",
     );
-    expect(reviewSummary(3, { PARSED: 0, AMBIGUOUS: 0, DUPLICATE: 2, NO_BOOKING: 0, FAILED: 1 }, 0)).toBe("3 Dateien: 0 erkannt, 2 Duplikate, 1 fehlgeschlagen");
-    expect(reviewSummary(2, { PARSED: 0, AMBIGUOUS: 2, DUPLICATE: 0, NO_BOOKING: 0, FAILED: 0 }, 2)).toBe("2 Dateien: 0 erkannt, 2 mehrdeutig · 2 Entscheidungen offen");
+    expect(reviewSummary(3, { PARSED: 0, AMBIGUOUS: 0, DUPLICATE: 2, NO_BOOKING: 0, CORPORATE_ACTION: 0, FAILED: 1 }, 0)).toBe("3 Dateien: 0 erkannt, 2 Duplikate, 1 fehlgeschlagen");
+    expect(reviewSummary(2, { PARSED: 0, AMBIGUOUS: 2, DUPLICATE: 0, NO_BOOKING: 0, CORPORATE_ACTION: 0, FAILED: 0 }, 2)).toBe("2 Dateien: 0 erkannt, 2 mehrdeutig · 2 Entscheidungen offen");
     expect(ITEM_STATUS_LABELS).toEqual({
       PARSED: "erkannt",
       AMBIGUOUS: "mehrdeutig",
       DUPLICATE: "Duplikat",
       NO_BOOKING: "keine Buchung",
+      CORPORATE_ACTION: "Kapitalmaßnahme",
       FAILED: "fehlgeschlagen",
     });
-    expect(reviewSummary(3, { PARSED: 1, AMBIGUOUS: 0, DUPLICATE: 0, NO_BOOKING: 2, FAILED: 0 }, 0)).toBe("3 Dateien: 1 erkannt, 2 ohne Buchung");
+    expect(reviewSummary(4, { PARSED: 1, AMBIGUOUS: 0, DUPLICATE: 0, NO_BOOKING: 0, CORPORATE_ACTION: 1, FAILED: 0 }, 0)).toBe(
+      "4 Dateien: 1 erkannt, 1 Kapitalmaßnahme",
+    );
+    expect(reviewSummary(4, { PARSED: 0, AMBIGUOUS: 0, DUPLICATE: 0, NO_BOOKING: 0, CORPORATE_ACTION: 2, FAILED: 0 }, 0)).toBe(
+      "4 Dateien: 0 erkannt, 2 Kapitalmaßnahmen",
+    );
+    expect(reviewSummary(3, { PARSED: 1, AMBIGUOUS: 0, DUPLICATE: 0, NO_BOOKING: 2, CORPORATE_ACTION: 0, FAILED: 0 }, 0)).toBe("3 Dateien: 1 erkannt, 2 ohne Buchung");
+  });
+
+  it("describes an ISIN change", () => {
+    const change = { date: "2026-08-13", oldIsin: "DE0007236101", newIsin: "DE000ENER6Y0", oldQuantity: "12", newQuantity: "12" };
+    expect(isinChangeText(change)).toBe("ISIN-Wechsel DE0007236101 → DE000ENER6Y0, 12 St. am 13.08.2026");
+    expect(isinChangeText({ ...change, oldQuantity: "10.5", newQuantity: "21" })).toBe(
+      "ISIN-Wechsel DE0007236101 → DE000ENER6Y0, 10,5 St. → 21 St. am 13.08.2026",
+    );
+    expect(isinChangeNames({ oldName: "Siemens AG", newName: "Siemens Energy AG" })).toBe("Siemens AG → Siemens Energy AG");
+    expect(isinChangeNames({ newName: "Siemens Energy AG" })).toBe("Siemens Energy AG");
+    expect(isinChangeNote("recorded")).toBe("Bereits erfasst");
+    expect(isinChangeNote("duplicate")).toBe("Bereits in diesem Import.");
+    expect(isinChangeNote("unique")).toBeNull();
   });
 
   it("counts bookings in singular and plural", () => {
@@ -89,6 +112,15 @@ describe("import labels", () => {
     );
     expect(ledgerRejectedMessage({ fileName: "x.pdf", type: "BUY", failure: { reason: "security-ref-unknown" } })).toBe(
       "x.pdf: Buchung wurde abgelehnt. Es wurde nichts gebucht.",
+    );
+    expect(ledgerRejectedMessage({ fileName: "u.pdf", type: "ISIN_CHANGE", failure: { reason: "isin-change-exists" } })).toBe(
+      "u.pdf: Für dieses Datum ist bereits ein ISIN-Wechsel dieser Security erfasst. Es wurde nichts gebucht.",
+    );
+    expect(
+      ledgerRejectedMessage({ fileName: "u.pdf", type: "ISIN_CHANGE", failure: { reason: "later-sell-exceeds-holding", date: "2026-09-01" } as never }),
+    ).toBe("u.pdf: Nicht möglich: Der Verkauf am 01.09.2026 würde den Bestand übersteigen. Es wurde nichts gebucht.");
+    expect(ledgerRejectedMessage({ fileName: "u.pdf", type: "ISIN_CHANGE", failure: { reason: "security-ref-unknown" } })).toBe(
+      "u.pdf: Buchung wurde abgelehnt. Es wurde nichts gebucht.",
     );
   });
 });

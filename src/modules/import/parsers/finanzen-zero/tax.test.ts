@@ -77,25 +77,3 @@ describe("finanzen.net zero tax-pot notice", () => {
     expect(parse(fixture("tax-pot-no-booking.txt").replaceAll("Baader Bank", "Musterbank"))).toEqual(failed(UNRECOGNIZED_REASON));
   });
 });
-
-describe("finanzen.net zero corporate action", () => {
-  const REASON = "Kapitalmaßnahme bitte als Corporate Action erfassen.";
-
-  it("fails an ISIN change with the Corporate Action hint", () => {
-    expect(parse(fixture("isin-change.txt"))).toEqual(failed(REASON));
-  });
-
-  it.each(["Aktiensplit", "Reverse Split", "Kapitalerhöhung", "Spin-off", "Verschmelzung"])("fails a %s notice", (title) => {
-    const text = fixture("isin-change.txt").replaceAll("Obligatorischer Umtausch", title).replace(/(Ein|Aus)buchung (in|aus) Depot/g, "Buchung");
-    expect(parse(text)).toEqual(failed(REASON));
-  });
-
-  it("fails any document with a depot posting, even under a trade title", () => {
-    const text = fixture("buy.txt").replace("Die Wertpapiere buchen wir zu Gunsten Ihres Depots.", "Einbuchung in Depot 1234567001 per 15.04.2026");
-    expect(parse(text)).toEqual(failed(REASON));
-  });
-
-  it("leaves Baader text without a known title unrecognized", () => {
-    expect(parse("Baader Bank AG\nKontoauszug")).toEqual(failed(UNRECOGNIZED_REASON));
-  });
-});

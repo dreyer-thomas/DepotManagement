@@ -127,6 +127,24 @@ describe("linkDocuments", () => {
     ]);
   });
 
+  it("passes an ISIN change and a corporate-action failure through unchanged", () => {
+    const change = {
+      status: "CORPORATE_ACTION",
+      documentType: "corporate-action",
+      isinChange: {
+        kind: "isin-change",
+        date: "2026-08-13",
+        oldIsin: "DE0007236101",
+        oldQuantity: "12",
+        newIsin: "DE000ENER6Y0",
+        newName: "Siemens Energy AG",
+        newQuantity: "12",
+      },
+    } as const;
+    const failed = { status: "FAILED", reason: "Kapitalmaßnahme.", corporateAction: true } as const;
+    expect(linkDocuments([{ fileName: "u.pdf", outcome: change }, { fileName: "s.pdf", outcome: failed }])).toEqual([change, failed]);
+  });
+
   it("passes other outcomes through without links", () => {
     const result = linkDocuments([file("buy.pdf", fixture("buy.txt")), file("x.pdf", "Kontoauszug")]);
     expect(result[0]).toMatchObject({ status: "PARSED", documentType: "trade" });

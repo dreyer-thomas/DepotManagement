@@ -18,6 +18,9 @@ const decimalString = z
   .refine(isDecimalString, { error: "decimal-invalid" })
   .transform((value) => canonicalDecimal(value));
 
+/** A Security name as a document states it. */
+const securityName = z.string().normalize("NFC").trim().min(1).max(SECURITY_NAME_MAX_LENGTH);
+
 /**
  * One proposed Transaction (AD-14): unsigned gross `amount`, `fee ≥ 0`, signed `tax`; the per-type rules
  * match the ledger's validation, so a PARSED proposal is bookable. `isin` is optional only on FEE and TAX.
@@ -27,7 +30,7 @@ export const transactionProposalSchema = z
     type: z.enum(PROPOSAL_TYPES),
     date: z.string().refine(isBusinessDate, { error: "date-invalid" }),
     isin: isinSchema.optional(),
-    name: z.string().normalize("NFC").trim().min(1).max(SECURITY_NAME_MAX_LENGTH).optional(),
+    name: securityName.optional(),
     quantity: decimalString.optional(),
     price: decimalString.optional(),
     amount: decimalString,
@@ -80,11 +83,46 @@ export type TransactionProposalInput = z.input<typeof transactionProposalSchema>
 /** A list of valid proposals: the shape of every parser result and of every stored item. */
 export const proposalListSchema = z.array(transactionProposalSchema);
 
+/** An ISIN-change quantity: a decimal > 0 with at most `QUANTITY_MAX_DECIMALS` places. */
+const changeQuantity = decimalString.refine(
+  (value) => {
+    const quantity = new Decimal(value);
+    return quantity.greaterThan(0) && quantity.decimalPlaces() <= QUANTITY_MAX_DECIMALS;
+  },
+  { error: "quantity-invalid" },
+);
+
+/**
+ * An ISIN change read from a broker's corporate-action notice (story 5-6): from `date` on, `oldQuantity`
+ * units of `oldIsin` are `newQuantity` units of `newIsin`. Booked as an ISIN-change CorporateAction (AD-7),
+ * never as a Transaction; proposals of this kind are not editable.
+ */
+export const isinChangeProposalSchema = z
+  .object({
+    kind: z.literal("isin-change"),
+    date: z.string().refine(isBusinessDate, { error: "date-invalid" }),
+    oldIsin: isinSchema,
+    oldName: securityName.optional(),
+    oldQuantity: changeQuantity,
+    newIsin: isinSchema,
+    newName: securityName,
+    newQuantity: changeQuantity,
+  })
+  .strict()
+  .refine((change) => change.oldIsin !== change.newIsin, { error: "same-security", path: ["newIsin"] });
+
+/** A validated ISIN-change proposal (ISINs upper-case, quantities canonical). */
+export type IsinChangeProposal = z.output<typeof isinChangeProposalSchema>;
+
+/** What a parser returns as ISIN change (validated and normalised by the registry). */
+export type IsinChangeProposalInput = z.input<typeof isinChangeProposalSchema>;
+
 /**
  * Why a parser produced no proposals: `unrecognized` lets the next parser try; `invalid` means the
- * parser recognised its layout but could not read it (`message` is a German reason).
+ * parser recognised its layout but could not read it (`message` is a German reason). `corporateAction`
+ * marks a corporate-action notice: it is never offered for manual Transaction entry.
  */
-export type ParseError = { error: "unrecognized" } | { error: "invalid"; message: string };
+export type ParseError = { error: "unrecognized" } | { error: "invalid"; message: string; corporateAction?: true };
 
 /**
  * Cross-file data of a document, merged by `linkDocuments` within one upload and never stored (story 5.4):
@@ -112,14 +150,17 @@ export const documentLinkSchema = z.discriminatedUnion("kind", [
 /**
  * A parser result with extras: `note` is a German review hint shown under the file name; `link` feeds
  * `linkDocuments`; `noBooking` is the German info of a document that needs no booking (story 5.5, e.g. a
- * finanzen.net zero tax-pot notice). Empty `proposals` are valid only with a `dividend-tax-notice` link or
- * with `noBooking`; `noBooking` is valid only with empty `proposals` and no `link`.
+ * finanzen.net zero tax-pot notice); `isinChange` is the ISIN change of a corporate-action notice (story
+ * 5-6). Empty `proposals` are valid only with a `dividend-tax-notice` link, with `noBooking` or with
+ * `isinChange`; `noBooking` is valid only with empty `proposals` and no `link`; `isinChange` only with empty
+ * `proposals` and no `note`, `link` or `noBooking`.
  */
 export type ParsedDocument = {
   proposals: readonly TransactionProposalInput[];
   note?: string;
   link?: DocumentLink;
   noBooking?: string;
+  isinChange?: IsinChangeProposalInput;
 };
 
 /** Validates a `ParsedDocument` (proposals as `proposalListSchema`). */
@@ -129,6 +170,7 @@ export const parsedDocumentSchema = z
     note: z.string().trim().min(1).optional(),
     link: documentLinkSchema.optional(),
     noBooking: z.string().trim().min(1).optional(),
+    isinChange: isinChangeProposalSchema.optional(),
   })
   .strict();
 

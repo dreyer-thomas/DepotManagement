@@ -25,7 +25,7 @@ import { SecurityLogo } from "@/app/_components/securities/SecurityLogo";
 import { TransactionDialog } from "@/app/_components/transactions/TransactionDialog";
 import { transactionTypeLabel } from "@/app/_components/transactions/labels";
 import { formatDate, formatMoney, formatQuantity } from "@/core/format";
-import type { ImportBatchView, ImportItemView, ItemReviewStatus, ProposalReviewView, ReviewDecision } from "@/modules/import";
+import type { ImportBatchView, ImportItemView, IsinChangeReviewView, ItemReviewStatus, ProposalReviewView, ReviewDecision } from "@/modules/import";
 import { type EditableProposalField, editableFields } from "@/modules/import/edit-fields";
 import type { SecuritySummary } from "@/modules/ledger";
 import { DiscardBatchButton } from "./DiscardBatchButton";
@@ -36,6 +36,9 @@ import {
   EDIT_FIELD_LABELS,
   editErrorMessage,
   ITEM_STATUS_LABELS,
+  isinChangeNames,
+  isinChangeNote,
+  isinChangeText,
   ledgerRejectedMessage,
   openDecisionsLabel,
   proposalNotes,
@@ -53,10 +56,11 @@ const CHIP_COLORS: Record<ItemReviewStatus, { bgcolor: string; color: string }> 
   // MUI's default (grey) chip.
   DUPLICATE: { bgcolor: "action.selected", color: "text.primary" },
   NO_BOOKING: { bgcolor: "action.selected", color: "text.primary" },
+  CORPORATE_ACTION: { bgcolor: "action.selected", color: "text.primary" },
   FAILED: { bgcolor: "loss.soft", color: "loss.main" },
 };
 
-/** Status chip (DESIGN.md `status-chip-import`): erkannt, mehrdeutig, Duplikat, keine Buchung, fehlgeschlagen. */
+/** Status chip (DESIGN.md `status-chip-import`): erkannt, mehrdeutig, Duplikat, keine Buchung, Kapitalmaßnahme, fehlgeschlagen. */
 export function ImportStatusChip({ status }: { status: ItemReviewStatus }) {
   return (
     <Box
@@ -91,7 +95,8 @@ type Review = {
   batchId: string;
   /** A decision or the booking is pending: row controls are disabled. */
   busy: boolean;
-  decide: (item: ImportItemView, view: ProposalReviewView, decision: ReviewDecision) => void;
+  /** Stores the decision of proposal `view.index` (index 0 of a corporate-action file is its ISIN change). */
+  decide: (item: ImportItemView, view: Pick<ProposalReviewView, "key" | "index">, decision: ReviewDecision) => void;
   editingKey: string | null;
   setEditingKey: (key: string | null) => void;
 };
@@ -306,6 +311,55 @@ function ProposalTable({ review, item }: { review: Review; item: ImportItemView 
   );
 }
 
+/** The ISIN change of a corporate-action file: row text, names, and "Als ISIN-Wechsel buchen"/"Verwerfen" or its note. */
+function IsinChangeRow({ review, item, change }: { review: Review; item: ImportItemView; change: IsinChangeReviewView }) {
+  const { proposal } = change;
+  // Like proposal notes, only while the batch is open (a BOOKED batch's own change would read "Bereits erfasst").
+  const note = review.editable ? isinChangeNote(change.status) : null;
+  const selected = change.effective === "open" ? null : change.effective;
+  return (
+    <Stack
+      data-isin-change={change.key}
+      data-review-status={change.status}
+      direction="row"
+      useFlexGap
+      sx={{ mt: 1, gap: 1.5, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}
+    >
+      <Box>
+        <Typography variant="body2" sx={NUMERIC}>
+          {isinChangeText(proposal)}
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          {isinChangeNames(proposal)}
+        </Typography>
+      </Box>
+      {note !== null ? (
+        <Typography variant="body2" color="text.secondary">
+          {note}
+        </Typography>
+      ) : review.editable ? (
+        <ToggleButtonGroup
+          exclusive
+          size="small"
+          value={selected}
+          disabled={review.busy}
+          aria-label="Entscheidung"
+          onChange={(_event, value: ReviewDecision | null) => {
+            if (value !== null && value !== selected) review.decide(item, { key: change.key, index: 0 }, value);
+          }}
+        >
+          <ToggleButton value="book" sx={TOUCH_TARGET}>
+            Als ISIN-Wechsel buchen
+          </ToggleButton>
+          <ToggleButton value="discard" sx={TOUCH_TARGET}>
+            Verwerfen
+          </ToggleButton>
+        </ToggleButtonGroup>
+      ) : null}
+    </Stack>
+  );
+}
+
 /** "Manuell erfassen": the Transaction dialog for the batch Depot, Datum = the file's readable date or today. */
 export function ManualEntryButton({
   depot,
@@ -363,7 +417,10 @@ function ItemCard({
           <Typography id={titleId} component="h2" variant="subtitle1" sx={{ fontWeight: 600, wordBreak: "break-all" }}>
             {item.fileName}
           </Typography>
-          {review.editable || item.reviewStatus === "FAILED" || item.reviewStatus === "NO_BOOKING" ? (
+          {review.editable ||
+          item.reviewStatus === "FAILED" ||
+          item.reviewStatus === "NO_BOOKING" ||
+          item.reviewStatus === "CORPORATE_ACTION" ? (
             <ImportStatusChip status={item.reviewStatus} />
           ) : null}
         </Stack>
@@ -389,7 +446,8 @@ function ItemCard({
                 {item.reason}
               </Typography>
             ) : null}
-            {batch.status === "OPEN" && !batch.depotArchived ? (
+            {/* A corporate-action notice is recorded in the Position ("Corporate Action"), never as a Transaction. */}
+            {batch.status === "OPEN" && !batch.depotArchived && item.documentType !== "corporate-action" ? (
               <ManualEntryButton
                 depot={{ id: batch.depotId, name: batch.depotName }}
                 securities={securities}
@@ -399,6 +457,7 @@ function ItemCard({
           </Stack>
         ) : null}
         {item.proposals.length > 0 ? <ProposalTable review={review} item={item} /> : null}
+        {item.isinChange ? <IsinChangeRow review={review} item={item} change={item.isinChange} /> : null}
       </CardContent>
     </Card>
   );
@@ -408,7 +467,8 @@ function ItemCard({
  * The review of an import batch (`mockups/import-review.html`): summary with "Verwerfen" and
  * "N Buchungen buchen" (disabled while a decision is open or nothing is to be booked), one card per file
  * with its chip, proposals with Buchen/Verwerfen and inline "Bearbeiten", notes on duplicates and ambiguous
- * matches, and "Manuell erfassen" on failed files. Every change goes through a server action and the page
+ * matches, ISIN changes with "Als ISIN-Wechsel buchen"/"Verwerfen" (or "Bereits erfasst"), and "Manuell
+ * erfassen" on failed files other than corporate-action notices. Every change goes through a server action and the page
  * refreshes from the server (no optimistic UI). A BOOKED batch is read-only with a link to its Depot.
  */
 export function ImportReview({
@@ -429,7 +489,7 @@ export function ImportReview({
   const [snackbar, setSnackbar] = useState<string | null>(null);
   const open = batch.status === "OPEN";
 
-  const decide = async (item: ImportItemView, view: ProposalReviewView, decision: ReviewDecision) => {
+  const decide = async (item: ImportItemView, view: Pick<ProposalReviewView, "key" | "index">, decision: ReviewDecision) => {
     setBusyKey(view.key);
     setError(null);
     try {

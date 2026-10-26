@@ -142,3 +142,10 @@ location: src/modules/import/parsers/finanzen-zero/tax-pot.ts:349
 source_spec: `spec-5-5-finanzen-net-zero-baader-bank-parser.md`
 reason: Only the anonymised fixture tax-pot-no-booking.txt (no posting) is known; refunds come as Steuerausgleichsrechnung, which the tax-refund parser claims first. Settled by a real Baader tax-pot notice that also moves cash, or by confirming such notices never move cash.
 status: open
+
+### DW-16: A Deutsche Bank/ROBIN or comdirect corporate-action notice is not recognized as one, so it fails with "Layout nicht erkannt" and still offers "Manuell erfassen" (the trade form).
+origin: spec-deferred 2812839677d3
+location: src/modules/import/parsers/registry.ts
+source_spec: `spec-5-6-isin-changes-from-broker-documents.md`
+reason: Only finanzen.net zero has a corporate-action parser; the Deutsche Bank and comdirect parsers contain no corporate-action detection and no fixtures of such notices exist. Settled by an anonymised real corporate-action notice from either broker (then add detection that fails it with the Corporate Action hint or reads it as an ISIN change).
+status: open
