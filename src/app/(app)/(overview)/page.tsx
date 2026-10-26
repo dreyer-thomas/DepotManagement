@@ -6,6 +6,8 @@ import Typography from "@mui/material/Typography";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { readPeriod } from "@/app/_actions/period-cookie";
+import { CompositionCard } from "@/app/_components/composition/CompositionCard";
+import { COMPOSITION_LABELS, compositionHoldings } from "@/app/_components/composition/labels";
 import { CreateDepotButton } from "@/app/_components/depots/DepotDialogs";
 import { AppLink } from "@/app/_components/depots/DepotLink";
 import { ParqetMigrationLink } from "@/app/_components/migration/ParqetMigrationLink";
@@ -18,6 +20,7 @@ import { TopPositions } from "@/app/_components/overview/TopPositions";
 import { PeriodSelector } from "@/app/_components/period/PeriodSelector";
 import { PageTitle } from "@/app/_components/Placeholder";
 import { ValueSummary } from "@/app/_components/valuation/ValueSummary";
+import { compositionByAssetType, compositionByDepot, compositionByPosition } from "@/core/composition";
 import { businessDate } from "@/core/dates";
 import { periodLabel } from "@/core/period";
 import { listDepots, listPositions, listSecurities, portfolioValuation } from "@/modules/ledger";
@@ -49,9 +52,11 @@ function Header({ children }: { children?: ReactNode }) {
 }
 
 /**
- * The Portfolio (non-archived Depots, AD-17) for the stored Period: hero and KPI row, top Positions,
- * latest headlines and the Depots with their Period figures. Every figure comes from `core` via
- * `portfolioValuation` (AD-10); no provider call during render.
+ * The Portfolio (non-archived Depots, AD-17) for the stored Period: hero and KPI row, then two rows
+ * (md+: 1.5fr | 1fr) — Top-Positionen | Zusammensetzung and Depots (Period figures) | latest headlines.
+ * Zusammensetzung is a today snapshot (Positions-tab values plus cash, `core/composition`), independent
+ * of the Period. Every other figure comes from `core` via `portfolioValuation` (AD-10); no provider call
+ * during render.
  */
 export default async function OverviewPage() {
   const all = await listDepots();
@@ -130,6 +135,16 @@ export default async function OverviewPage() {
     positionsByDepot[index].map((position) => ({ depotName: depot.name, position })),
   );
   const end = portfolio.series.at(-1) ?? portfolio.start;
+  // Composition is a today snapshot (Positions-tab values plus each Depot's Cash Account), independent of the Period.
+  const holdings = portfolio.depots.flatMap((depot, index) => compositionHoldings(depot, positionsByDepot[index]));
+  const cashById = new Map(depots.map((depot) => [depot.id, depot.cashBalance]));
+  const cash = portfolio.depots.map((depot) => cashById.get(depot.id) ?? "0");
+  const row = {
+    display: "grid",
+    gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "minmax(0, 1.5fr) minmax(0, 1fr)" },
+    gap: 1.5,
+    mb: 2,
+  } as const;
 
   return (
     <>
@@ -150,18 +165,21 @@ export default async function OverviewPage() {
         performance={portfolio.performance}
         series={portfolio.series}
       />
-      <Box
-        sx={{
-          display: "grid",
-          gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "minmax(0, 1.5fr) minmax(0, 1fr)" },
-          gap: 1.5,
-          mb: 2,
-        }}
-      >
+      <Box sx={row}>
         <TopPositions entries={topPositions(held)} today={today} />
+        <CompositionCard
+          headingId="overview-composition"
+          views={[
+            { view: "position", segments: compositionByPosition(holdings, cash, COMPOSITION_LABELS) },
+            { view: "type", segments: compositionByAssetType(holdings, cash, COMPOSITION_LABELS) },
+            { view: "depot", segments: compositionByDepot(holdings, cash, COMPOSITION_LABELS) },
+          ]}
+        />
+      </Box>
+      <Box sx={row}>
+        {depotsCard}
         <LatestNews articles={news.articles.slice(0, LATEST_NEWS)} />
       </Box>
-      {depotsCard}
       {fab}
     </>
   );

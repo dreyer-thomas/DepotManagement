@@ -16,10 +16,13 @@ import { readPeriod } from "@/app/_actions/period-cookie";
 import { PeriodSelector } from "@/app/_components/period/PeriodSelector";
 import { ValueSummary } from "@/app/_components/valuation/ValueSummary";
 import { CashBookings } from "@/app/_components/cash/CashBookings";
+import { CompositionCard } from "@/app/_components/composition/CompositionCard";
+import { COMPOSITION_LABELS, compositionHoldings } from "@/app/_components/composition/labels";
 import { NewTransactionButton } from "@/app/_components/transactions/TransactionDialog";
 import { PositionsTable } from "@/app/_components/positions/PositionsTable";
 import { TransactionList } from "@/app/_components/transactions/TransactionList";
 import { businessDate } from "@/core/dates";
+import { compositionByAssetType, compositionByPosition } from "@/core/composition";
 import { formatMoney } from "@/core/format";
 import { periodLabel } from "@/core/period";
 import {
@@ -69,10 +72,12 @@ export default async function DepotDetailPage({ params, searchParams }: Props) {
   const [transactions, securities, splits, isinChanges, positions, cashBookings] = await Promise.all([
     listTransactions(depot.id),
     listSecurities(),
-    tab === "cash" ? Promise.resolve([]) : listSplits(),
+    tab === "cash" || tab === "composition" ? Promise.resolve([]) : listSplits(),
     tab === "positions" ? listIsinChanges() : Promise.resolve([]),
     // Stored manual / provider Prices win over Transaction prices (resolver); no provider call here.
-    tab === "positions" ? listPositions(depot.id, today, undefined, { storedPrices: latestStoredPrices }) : Promise.resolve([]),
+    tab === "positions" || tab === "composition"
+      ? listPositions(depot.id, today, undefined, { storedPrices: latestStoredPrices })
+      : Promise.resolve([]),
     tab === "cash" ? listCashBookings(depot.id) : Promise.resolve([]),
   ]);
   const dialogDepot = { id: depot.id, name: depot.name };
@@ -118,6 +123,18 @@ export default async function DepotDetailPage({ params, searchParams }: Props) {
         isinChanges={isinChanges}
         securities={securities}
         readOnly={readOnly}
+      />
+    );
+  } else if (tab === "composition") {
+    // A today snapshot like the Positions tab: priced Positions plus the Cash Account (story 4-5).
+    const holdings = compositionHoldings(depot, positions);
+    content = (
+      <CompositionCard
+        headingId="depot-composition"
+        views={[
+          { view: "position", segments: compositionByPosition(holdings, depot.cashBalance, COMPOSITION_LABELS) },
+          { view: "type", segments: compositionByAssetType(holdings, depot.cashBalance, COMPOSITION_LABELS) },
+        ]}
       />
     );
   } else {

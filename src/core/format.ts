@@ -57,6 +57,11 @@ export function formatPercent(ratio: DecimalInput): string {
   return `${formatDecimal(toDecimal(ratio).times(100), 2, { sign: true })}${NBSP}%`;
 }
 
+/** Takes a ratio, unsigned with one decimal: `"0.618"` → `"61,8 %"` (a share of a whole). */
+export function formatShare(ratio: DecimalInput): string {
+  return `${formatDecimal(toDecimal(ratio).times(100), 1, {})}${NBSP}%`;
+}
+
 /** Up to 8 decimals, trailing zeros trimmed: `"10.50000000"` → `"10,5"`, `"1234"` → `"1.234"`. */
 export function formatQuantity(value: DecimalInput): string {
   return formatDecimal(toDecimal(value), QUANTITY_MAX_DECIMALS, { trimZeros: true });

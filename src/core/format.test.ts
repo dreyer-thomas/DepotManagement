@@ -1,6 +1,6 @@
 import Decimal from "decimal.js";
 import { describe, expect, it } from "vitest";
-import { formatDate, formatDateTime, formatMonth, formatMoney, formatPercent, formatQuantity } from "./format";
+import { formatDate, formatDateTime, formatMonth, formatMoney, formatPercent, formatQuantity, formatShare } from "./format";
 
 const NBSP = " ";
 
@@ -54,6 +54,20 @@ describe("formatPercent", () => {
   it("shows zero without a sign", () => {
     expect(formatPercent("0")).toBe(`0,00${NBSP}%`);
     expect(formatPercent("-0.00001")).toBe(`0,00${NBSP}%`);
+  });
+});
+
+describe("formatShare", () => {
+  it("takes a ratio, one decimal, unsigned, NBSP before %", () => {
+    expect(formatShare("0.618")).toBe(`61,8${NBSP}%`);
+    expect(formatShare("1")).toBe(`100,0${NBSP}%`);
+    expect(formatShare("0")).toBe(`0,0${NBSP}%`);
+    expect(formatShare("0.00049")).toBe(`0,0${NBSP}%`);
+    expect(formatShare("0.3335")).toBe(`33,4${NBSP}%`);
+  });
+
+  it("keeps the minus of a negative share", () => {
+    expect(formatShare("-0.01")).toBe(`-1,0${NBSP}%`);
   });
 });
 

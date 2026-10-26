@@ -26,13 +26,16 @@ import {
   createDepot,
   depotValuation,
   ensureSecurity,
+  listDepots,
+  listPositions,
   portfolioValuation,
   recordTrade,
   recordTransaction,
   type RecordTransactionInput,
 } from "@/modules/ledger";
 import { hasValidIsinCheckDigit } from "@/modules/ledger/securities";
-import { storedPriceHistory } from "@/modules/prices";
+import { latestStoredPrices, storedPriceHistory } from "@/modules/prices";
+import { CompositionCard, type CompositionCardProps } from "../../_components/composition/CompositionCard";
 import { CreateDepotButton } from "../../_components/depots/DepotDialogs";
 import { NewTransactionFab } from "../../_components/overview/NewTransactionFab";
 import { PeriodSelector } from "../../_components/period/PeriodSelector";
@@ -209,7 +212,7 @@ describe("Overview page", () => {
     expect(hero).toContain(`TTWROR ${formatPercent(portfolio.performance.ttwror!)}`.replace(/\u00a0/g, " "));
     expect(hero).toContain(`XIRR ${formatPercent(portfolio.performance.xirr!)}`.replace(/\u00a0/g, " "));
     // Top-Positionen value Apple with the stored price (10 × 181,4), not the trade price.
-    expect(text(section(html, 'id="overview-top-positions"', 'id="overview-news"'))).toContain("1.814,00 €");
+    expect(text(section(html, 'id="overview-top-positions"', 'id="overview-composition"'))).toContain("1.814,00 €");
     expect(heroHtml(html)).toContain('role="figure"');
     const kpis = text(section(html, "Aufschlüsselung", 'id="overview-top-positions"'));
     expect(kpis).toContain(`Investiertes Kapital ${formatMoney(sum(ea.investedCapital, eb.investedCapital))}`.replace(/ /g, " "));
@@ -219,7 +222,7 @@ describe("Overview page", () => {
     expect(kpis).toContain("Steuern gezahlt · 1J 7,50 €");
 
     // Depots card: table (md+) with headers and row links, plus the stacked phone list.
-    const depots = html.slice(html.indexOf('id="overview-depots"'));
+    const depots = section(html, 'id="overview-depots"', 'id="overview-news"');
     expect(depots).toContain("<table");
     expect(text(depots)).toContain("Depot Wert G/V · 1J TTWROR XIRR");
     for (const [id, name, valuation] of [
@@ -240,12 +243,50 @@ describe("Overview page", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it("shows Zusammensetzung beside Top-Positionen: Typ by default, three views, Positions-tab values plus cash", async () => {
+    const { a, b } = await twoDepots();
+    cookieJar.set(PERIOD_COOKIE, "1M");
+    const tree = await OverviewPage();
+    const html = renderHtml(tree);
+    // Row order per mockup: Top-Positionen | Zusammensetzung, then Depots | Nachrichten.
+    const order = ["overview-top-positions", "overview-composition", "overview-depots", "overview-news"].map((id) => html.indexOf(`id="${id}"`));
+    expect(order.every((index, i) => index > 0 && (i === 0 || index > order[i - 1]))).toBe(true);
+    const card = section(html, 'id="overview-composition"', 'id="overview-depots"');
+    const buttons = card.match(/<button[^>]*value="(position|type|depot)"[^>]*>/g) ?? [];
+    expect(buttons).toHaveLength(3);
+    expect(card).toContain('aria-label="Aufteilung"');
+    expect(card).toMatch(/<button[^>]*aria-pressed="true"[^>]*value="type"|<button[^>]*value="type"[^>]*aria-pressed="true"/);
+
+    const depots = (await listDepots()).filter((d) => !d.archived);
+    const positions = (await Promise.all([a, b].map((id) => listPositions(id, TODAY, undefined, { storedPrices: latestStoredPrices })))).flat();
+    const value = (name: string) => positions.find((p) => p.security.name === name)!.value!;
+    const cash = sum(...depots.map((d) => d.cashBalance));
+    const legend = text(card);
+    const rows = [...legend.matchAll(/(ETF|Aktie|Guthaben) (\d+,\d) % ([\d.,]+) €/g)];
+    expect(rows.map((r) => r[1])).toEqual(["ETF", "Aktie", "Guthaben"]);
+    expect(rows.map((r) => r[3])).toEqual(
+      [value("Welt ETF"), value("Apple Inc."), cash].map((amount) => formatMoney(amount).replace(/\u00a0€$/, "")),
+    );
+    const percent = sum(...rows.map((r) => r[2].replace(",", ".")));
+    expect(percent).toBe("100");
+    expect(card).toMatch(/role="img"[^>]*aria-label="Zusammensetzung nach Typ: ETF /);
+
+    const views = (findElement(tree, CompositionCard)!.props as CompositionCardProps).views;
+    expect(views.map((v) => v.view)).toEqual(["position", "type", "depot"]);
+    const total = sum(value("Welt ETF"), value("Apple Inc."), cash);
+    for (const v of views) {
+      expect(sum(...v.segments.map((s) => s.amount))).toBe(total);
+      expect(v.segments.at(-1)).toMatchObject({ kind: "cash", label: "Guthaben", amount: cash });
+    }
+    expect(views[2].segments.map((s) => s.label)).toEqual(["Zweitdepot", "Hauptdepot", "Guthaben"]);
+  });
+
   it("uses the stored Period: with MAX the Depot rows equal each Depot's MAX figures", async () => {
     const { a, b } = await twoDepots();
     cookieJar.set(PERIOD_COOKIE, "MAX");
     const max: PeriodSelection = { kind: "preset", preset: "MAX" };
     const html = renderHtml(await OverviewPage());
-    const depots = text(html.slice(html.indexOf('id="overview-depots"')));
+    const depots = text(section(html, 'id="overview-depots"', 'id="overview-news"'));
     expect(depots).toContain("Depot Wert G/V · Max TTWROR XIRR");
     const ratio = (value: string | null) => (value === null ? "–" : formatPercent(value));
     for (const [id, name] of [
@@ -278,7 +319,7 @@ describe("Overview page", () => {
     expect(html.slice(alert, html.indexOf('aria-label="Portfoliowert"'))).toMatch(
       /^Kurse für 2 Wertpapiere veraltet\. (<style[^>]*>[^<]*<\/style>)*<a[^>]*href="\/securities"[^>]*>Wertpapiere ansehen<\/a>/,
     );
-    const top = section(html, 'id="overview-top-positions"', 'id="overview-news"');
+    const top = section(html, 'id="overview-top-positions"', 'id="overview-composition"');
     expect((top.match(/data-stale-badge/g) ?? []).length).toBe(2);
     expect(text(top)).toMatch(/SAP SE Kurs vom \d\d\.\d\d\.2026 – veraltet/);
     expect(text(top)).toMatch(/Mercedes AG Kurs vom \d\d\.\d\d\.2026 – veraltet/);
@@ -302,6 +343,32 @@ describe("Overview page", () => {
     expect(page).not.toContain("Altdepot");
     expect(html).not.toContain(`href="/depots/${old}"`);
     expect(text(heroHtml(html))).toContain("Gesamtwert 1.000,00 €");
+    expect(text(section(html, 'id="overview-composition"', 'id="overview-depots"'))).toMatch(/Aktie 10,0 % 100,00 € Guthaben 90,0 % 900,00 €/);
+  });
+
+  it("leaves archived Depots out of every composition view", async () => {
+    const a = await depot("Hauptdepot");
+    const old = await depot("Altdepot");
+    await book({ depotId: a, type: "DEPOSIT", date: "2026-01-02", amount: "1000" });
+    await buy(a, await security("US0378331005", "Apple Inc."), TODAY, "1", "100");
+    await book({ depotId: old, type: "DEPOSIT", date: "2026-01-02", amount: "10000" });
+    await buy(old, await security("DE0007164600", "SAP SE", "ETF"), TODAY, "10", "500");
+    await prisma.depot.update({ where: { id: old }, data: { archived: true } });
+    const views = (findElement(await OverviewPage(), CompositionCard)!.props as CompositionCardProps).views;
+    expect(views.map((v) => v.segments.map((s) => [s.label, s.amount]))).toEqual([
+      [
+        ["Apple Inc.", "100"],
+        ["Guthaben", "900"],
+      ],
+      [
+        ["Aktie", "100"],
+        ["Guthaben", "900"],
+      ],
+      [
+        ["Hauptdepot", "100"],
+        ["Guthaben", "900"],
+      ],
+    ]);
   });
 
   it("has no stale Alert when every held price is fresh", async () => {
@@ -333,13 +400,13 @@ describe("Overview page", () => {
     const shared = await prisma.security.findFirstOrThrow({ where: { name: "Gamma AG" } });
     await buy(b, shared.id, TODAY, "2", "100");
     const html = renderHtml(await OverviewPage());
-    const top = text(html.slice(html.indexOf('id="overview-top-positions"'), html.indexOf('id="overview-news"')));
+    const top = text(section(html, 'id="overview-top-positions"', 'id="overview-composition"'));
     expect(top).toMatch(
       /Beta AG Aktie · Zweitdepot · 1 Stück 900,00 € .*Delta AG Aktie · Zweitdepot · 1 Stück 700,00 € .*Epsilon AG Aktie · Hauptdepot · 1 Stück 500,00 € .*Alpha AG Aktie · Hauptdepot · 1 Stück 300,00 € .*Gamma AG Aktie · Zweitdepot · 2 Stück 200,00 €/,
     );
     expect(top).not.toContain("Zeta AG");
     expect(top).not.toContain("Gamma AG Aktie · Hauptdepot");
-    expect(html.slice(html.indexOf('id="overview-top-positions"'), html.indexOf('id="overview-news"'))).not.toContain("<a");
+    expect(section(html, 'id="overview-top-positions"', 'id="overview-composition"')).not.toContain("<a");
   });
 
   it("shows the three newest headlines with external links and a link to all news", async () => {
@@ -359,7 +426,7 @@ describe("Overview page", () => {
       })),
     });
     const html = renderHtml(await OverviewPage());
-    const news = html.slice(html.indexOf('id="overview-news"'), html.indexOf('id="overview-depots"'));
+    const news = section(html, 'id="overview-news"', "</section>");
     expect(text(news)).toMatch(/Meldung 5 .*Meldung 4 .*Meldung 3 /);
     expect(text(news)).not.toContain("Meldung 2");
     expect(news).toMatch(/<a[^>]*href="https:\/\/news\.example\/5"[^>]*target="_blank"[^>]*rel="noopener noreferrer"/);

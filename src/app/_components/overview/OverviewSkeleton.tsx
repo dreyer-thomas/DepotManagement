@@ -21,7 +21,17 @@ function CardSkeleton({ lines }: { lines: number }) {
   );
 }
 
-/** Skeleton of the Overview in its layout: header, hero, KPI row, two cards and the Depots card. */
+const ROW = {
+  display: "grid",
+  gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "minmax(0, 1.5fr) minmax(0, 1fr)" },
+  gap: 1.5,
+  mb: 2,
+} as const;
+
+/**
+ * Skeleton of the Overview in its layout: header, hero, KPI row, then Top-Positionen | Zusammensetzung
+ * and Depots | Nachrichten.
+ */
 export function OverviewSkeleton() {
   return (
     <Box role="status" aria-busy="true" aria-label="Übersicht wird geladen">
@@ -54,11 +64,30 @@ export function OverviewSkeleton() {
           </Card>
         ))}
       </Box>
-      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "minmax(0, 1.5fr) minmax(0, 1fr)" }, gap: 1.5, mb: 2 }}>
+      <Box sx={ROW}>
         <CardSkeleton lines={5} />
+        <Card sx={{ minWidth: 0 }}>
+          <CardContent>
+            <Skeleton variant="text" width={140} />
+            <Stack
+              direction={{ xs: "column", sm: "row", md: "column", lg: "row" }}
+              spacing={2}
+              sx={{ alignItems: { xs: "center", sm: "flex-start", md: "center", lg: "flex-start" }, mt: 1 }}
+            >
+              <Skeleton variant="circular" width={132} height={132} sx={{ flexShrink: 0 }} />
+              <Stack sx={{ flex: 1, width: "100%" }}>
+                {Array.from({ length: 4 }, (_, index) => (
+                  <Skeleton key={index} variant="text" height={32} />
+                ))}
+              </Stack>
+            </Stack>
+          </CardContent>
+        </Card>
+      </Box>
+      <Box sx={ROW}>
+        <CardSkeleton lines={3} />
         <CardSkeleton lines={3} />
       </Box>
-      <CardSkeleton lines={3} />
     </Box>
   );
 }

@@ -49,15 +49,15 @@ export function ReturnValue({ ratio }: { ratio: string | null }) {
 }
 
 /**
- * "Depots" card: per Depot value, Period Gain/Loss, TTWROR and XIRR. From `md` a table whose name link
- * covers the row; below `md` one stacked link row per Depot. Each row opens the Depot detail page.
+ * "Depots" card: per Depot value, Period Gain/Loss, TTWROR and XIRR. From `lg` a table whose name link
+ * covers the row; below `lg` (incl. the narrow md column beside Nachrichten) one stacked link row per Depot. Each row opens the Depot detail page.
  */
 export function DepotPerformance({ rows, periodLabel }: { rows: readonly DepotPerformanceRow[]; periodLabel: string }) {
   return (
     <Card component="section" aria-labelledby="overview-depots" sx={{ minWidth: 0 }}>
       <CardContent>
         <CardHeading id="overview-depots">Depots</CardHeading>
-        <Table size="small" aria-labelledby="overview-depots" sx={{ display: { xs: "none", md: "table" } }}>
+        <Table size="small" aria-labelledby="overview-depots" sx={{ display: { xs: "none", lg: "table" } }}>
           <TableHead>
             <TableRow>
               <TableCell>Depot</TableCell>
@@ -105,7 +105,7 @@ export function DepotPerformance({ rows, periodLabel }: { rows: readonly DepotPe
             ))}
           </TableBody>
         </Table>
-        <Box component="ul" aria-label="Depots" sx={{ display: { xs: "block", md: "none" }, listStyle: "none", m: 0, p: 0 }}>
+        <Box component="ul" aria-label="Depots" sx={{ display: { xs: "block", lg: "none" }, listStyle: "none", m: 0, p: 0 }}>
           {rows.map((row) => (
             <Box component="li" key={row.id} sx={{ borderBottom: 1, borderColor: "divider", "&:last-child": { borderBottom: 0 } }}>
               <MuiLink

@@ -3,6 +3,7 @@ export const DEPOT_TABS = [
   { value: "positions", label: "Positionen" },
   { value: "cash", label: "Cash-Konto" },
   { value: "transactions", label: "Buchungen" },
+  { value: "composition", label: "Zusammensetzung" },
 ] as const;
 
 export type DepotTab = (typeof DEPOT_TABS)[number]["value"];

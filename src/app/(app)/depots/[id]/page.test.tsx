@@ -84,9 +84,9 @@ describe("Depot detail page", () => {
     expect(text).toContain("Hauptdepot");
     expect(text).toContain("comdirect");
     expect(text).toContain("Cash-Konto 0,00\u00a0€");
-    expect(text).toMatch(/Positionen .*Cash-Konto .*Buchungen/);
+    expect(text).toMatch(/Positionen .*Cash-Konto .*Buchungen .*Zusammensetzung/);
     expect(html).toMatch(selectedTab("Positionen"));
-    for (const tab of ["positions", "cash", "transactions"]) {
+    for (const tab of ["positions", "cash", "transactions", "composition"]) {
       expect(html).toContain(`href="/depots/${id}?tab=${tab}"`);
     }
     expect(text).toContain("Noch keine Buchungen.");
@@ -219,6 +219,27 @@ describe("Depot detail page", () => {
     expect(text).toContain("Dividende AI Apple Inc. 01.03.2026 50,00\u00a0€ +37,50\u00a0€");
     expect(text).toContain("Kauf AI Apple Inc. 10.01.2026 10 Stück 1.000,00\u00a0€ -1.005,00\u00a0€");
     expect(text).toContain("Einzahlung 05.01.2026 2.000,00\u00a0€ +2.000,00\u00a0€");
+  });
+
+  it("shows the Zusammensetzung tab with Position and Typ only, Typ by default, Positions plus cash", async () => {
+    const { id } = await depot();
+    await bookMatrix(id);
+    const tree = await DepotDetailPage(props(id, "composition"));
+    const html = renderHtml(tree);
+    const text = renderText(tree);
+    expect(html).toMatch(selectedTab("Zusammensetzung"));
+    expect(html).toContain('id="depot-composition"');
+    expect(html.match(/<button[^>]*value="(position|type|depot)"[^>]*>/g)?.map((tag) => tag.match(/value="(\w+)"/)?.[1])).toEqual(["position", "type"]);
+    expect(text).toContain("Aktie 57,8\u00a0% 1.000,00\u00a0€ Guthaben 42,2\u00a0% 731,10\u00a0€");
+    expect(html).toMatch(/role="img"[^>]*aria-label="Zusammensetzung nach Typ: Aktie 57,8(&nbsp;|\u00a0)% \(1\.000,00(&nbsp;|\u00a0)€\), Guthaben 42,2(&nbsp;|\u00a0)% \(731,10(&nbsp;|\u00a0)€\)"/);
+  });
+
+  it("shows the empty state on the Zusammensetzung tab of an empty Depot", async () => {
+    const { id } = await depot();
+    const tree = await DepotDetailPage(props(id, "composition"));
+    expect(renderText(tree)).toContain("Noch keine Buchungen.");
+    expect(renderHtml(tree)).toMatch(selectedTab("Zusammensetzung"));
+    expect(renderText(tree)).not.toContain("Keine Werte vorhanden.");
   });
 
   it("falls back to the Positionen tab for an unknown tab value", async () => {
@@ -389,7 +410,7 @@ describe("Depot detail page", () => {
     }
     expect(await archiveDepot(id)).toMatchObject({ ok: true });
 
-    for (const tab of ["positions", "cash", "transactions"]) {
+    for (const tab of ["positions", "cash", "transactions", "composition"]) {
       const tree = await DepotDetailPage(props(id, tab));
       const text = renderText(tree);
       const html = renderHtml(tree);
@@ -399,6 +420,7 @@ describe("Depot detail page", () => {
       expect(html).not.toMatch(/<button[^>]*>Neue Buchung/);
       expect(html).not.toContain("bearbeiten");
     }
+    expect(renderText(await DepotDetailPage(props(id, "composition")))).toContain("Keine Werte vorhanden.");
     const transactions = renderHtml(await DepotDetailPage(props(id, "transactions")));
     expect(transactions).toContain("<table");
     expect(transactions).not.toContain("Aktionen");
