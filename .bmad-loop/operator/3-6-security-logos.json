@@ -1,9 +1,0 @@
-{
-  "actions": [
-    "Create a free logo.dev account, copy its publishable key (pk_\u2026) and set it as LOGO_DEV_API_KEY in the production .env, then restart the app."
-  ],
-  "parked_at": "2026-10-26",
-  "run_id": "20261025-235923-8f84",
-  "spec_file": "_bmad-output/implementation-artifacts/spec-3-6-security-logos.md",
-  "story_key": "3-6-security-logos"
-}

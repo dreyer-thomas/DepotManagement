@@ -2,7 +2,7 @@
 title: 'Security logos'
 type: 'feature'
 created: '2026-10-26'
-status: 'awaiting-operator'
+status: done
 operator_actions:
   - 'Create a free logo.dev account, copy its publishable key (pk_…) and set it as LOGO_DEV_API_KEY in the production .env, then restart the app.'
 baseline_revision: 'd107a2ff8b8e77e6d30cb75158e5e345c6dc9200'
@@ -184,3 +184,11 @@ Status: awaiting-operator
 **Operator actions:** see frontmatter `operator_actions` (logo.dev publishable key).
 
 **Residual risks:** logo.dev/Elbstream behaviour verified only from their docs (Elbstream's unknown-id response undocumented); Elbstream's free tier lists storing as a paid feature — the AD-19 decision to store stays the operator's call; a background-fetched logo shows after the next reload or write; orphan files remain when a Security is deleted; a "nothing found" marker blocks re-tries for 30 days even after a mapping change.
+
+## Operator Confirmation
+
+Confirmed 2026-10-26: the external actions this story owed were carried out.
+
+- Create a free logo.dev account, copy its publishable key (pk_…) and set it as LOGO_DEV_API_KEY in the production .env, then restart the app.
+
+_Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._
