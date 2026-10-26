@@ -28,6 +28,8 @@ describe("cashPreview", () => {
     ["DEPOSIT", { amount: "2.000" }, "+2.000,00 €"],
     ["WITHDRAWAL", { amount: "300" }, "-300,00 €"],
     ["DEPOSIT", { amount: "0" }, "0,00 €"],
+    ["ADJUSTMENT", { quantity: "2", price: "100" }, "+0,00 €"],
+    ["ADJUSTMENT", {}, "+0,00 €"],
   ])("%s %j → %s", (type, fields, expected) => {
     expect(cashPreview(type, inputs(fields))).toBe(expected);
   });

@@ -92,11 +92,32 @@ export type {
   RecordBatchOptions,
   RecordBatchResult,
 } from "./batch";
+export {
+  bookReconciliationCorrection,
+  finishReconciliation,
+  getReconciliation,
+  openReconciliation,
+  RECONCILIATION_NOTE,
+  saveReconciliationRow,
+} from "./reconciliation";
+export type {
+  BookReconciliationCorrectionResult,
+  FinishReconciliationResult,
+  OpenReconciliationResult,
+  ReconciliationFailureReason,
+  ReconciliationOverview,
+  ReconciliationRowRecord,
+  ReconciliationRunView,
+  SaveReconciliationRowInput,
+  SaveReconciliationRowResult,
+} from "./reconciliation";
+export type { ReconciliationRowStatus } from "@/core/reconciliation";
 export { listCashBookings } from "./cash";
 export type { CashBookingRecord } from "./cash";
 export {
   deleteTransaction,
   listTransactions,
+  NOTE_MAX_LENGTH,
   QUANTITY_MAX_DECIMALS,
   recordTrade,
   recordTransaction,

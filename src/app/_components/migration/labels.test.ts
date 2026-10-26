@@ -211,6 +211,7 @@ describe("migration confirm labels", () => {
       amount: "1500",
       fee: "0",
       tax: "0",
+      note: null,
       security: null,
     } as const;
     expect(openingBalanceSuccess({ ok: true, transaction, balance: "300" }, "2024-05-02")).toBe(

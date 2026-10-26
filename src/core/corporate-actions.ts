@@ -87,7 +87,10 @@ export function splitAdjustment(
 /** An action event in replay order. */
 export type ActionEvent = { kind: "split"; split: Split } | { kind: "isin-change"; change: IsinChange };
 
-/** A row the replay consumes: BUY/SELL with a Security take part, everything else is skipped. */
+/**
+ * A row the replay consumes: BUY/SELL/ADJUSTMENT with a Security take part, everything else is skipped.
+ * An ADJUSTMENT carries a signed quantity (+ adds a lot, − consumes the oldest units, never a sale).
+ */
 export type ReplayRow = LedgerOrdered & { securityId: string | null; type: string; quantity: string | null };
 
 export type ReplayEvent<T extends ReplayRow> = ActionEvent | { kind: "trade"; row: T };
@@ -127,9 +130,22 @@ function stableSort<T>(items: readonly T[], compare: (a: T, b: T) => number): T[
     .map(({ item }) => item);
 }
 
+/** Transaction types that change FIFO lots (`ADJUSTMENT` = holding correction, story 2.9). */
+export const LOT_TYPES = ["BUY", "SELL", "ADJUSTMENT"] as const;
+
+/** True for a row that takes part in a replay: a BUY/SELL/ADJUSTMENT with a Security. */
+export function isLotRow(row: { securityId: string | null; type: string }): boolean {
+  return row.securityId !== null && (row.type === "BUY" || row.type === "SELL" || row.type === "ADJUSTMENT");
+}
+
+/** True when `row` takes units away like a SELL: a SELL or a negative ADJUSTMENT. */
+export function removesUnits(row: { type: string; quantity: string | null }): boolean {
+  return row.type === "SELL" || (row.type === "ADJUSTMENT" && new ExactDecimal(row.quantity ?? "0").isNegative());
+}
+
 /**
- * The chronological event stream of one Depot: actions and BUY/SELL rows with a Security, both dated
- * on or before `asOf`, ordered by date, then splits, ISIN changes, Transactions (by sequence).
+ * The chronological event stream of one Depot: actions and BUY/SELL/ADJUSTMENT rows with a Security,
+ * both dated on or before `asOf`, ordered by date, then splits, ISIN changes, Transactions (by sequence).
  */
 export function replayEvents<T extends ReplayRow>(
   rows: readonly T[],
@@ -137,7 +153,7 @@ export function replayEvents<T extends ReplayRow>(
   asOf: string,
 ): ReplayEvent<T>[] {
   const trades = rows
-    .filter((row) => row.securityId !== null && (row.type === "BUY" || row.type === "SELL") && row.date <= asOf)
+    .filter((row) => isLotRow(row) && row.date <= asOf)
     .map((row) => ({ kind: "trade" as const, row }));
   return stableSort<ReplayEvent<T>>([...actionEvents(actions, asOf), ...trades], compareEvents);
 }
@@ -264,6 +280,20 @@ export class LotBook {
   apply(event: ActionEvent): void {
     if (event.kind === "split") this.split(event.split);
     else this.isinChange(event.change);
+  }
+
+  /**
+   * Applies a replayed row by quantity only (lots at zero cost; for holding checks): BUY adds, SELL
+   * consumes, ADJUSTMENT adds (+) or consumes (−) |quantity|.
+   */
+  applyQuantity(row: ReplayRow): void {
+    const securityId = row.securityId as string;
+    const quantity = new ExactDecimal(row.quantity ?? "0");
+    if (row.type === "BUY" || (row.type === "ADJUSTMENT" && quantity.isPositive())) {
+      this.buy(securityId, row.date, row.sequence, quantity.toFixed(), new ExactDecimal(0));
+    } else {
+      this.sell(securityId, quantity.abs().toFixed());
+    }
   }
 }
 

@@ -63,7 +63,7 @@ describe("import labels", () => {
     expect(ledgerMatchText(match)).toBe("Kauf 15.10.2026, 3,412871 Stück, 150,00\u00a0€");
     expect(ledgerMatchText({ ...match, type: "DIVIDEND", quantity: null, amount: "84.12" })).toBe("Dividende 15.10.2026, 84,12\u00a0€");
     expect(ledgerMatchText({ ...match, type: "FEE", quantity: null, amount: "0", fee: "2.5" })).toBe("Gebühr 15.10.2026, 2,50\u00a0€");
-    const record = { ...match, id: "t", depotId: "d", sequence: 0, price: "1", security: null };
+    const record = { ...match, id: "t", depotId: "d", sequence: 0, price: "1", note: null, security: null };
     expect(proposalNotes({ status: "duplicate", ledgerMatches: [record], siblingMatch: false })).toEqual([
       "Bereits gebucht am 15.10.2026. Wird nicht erneut gebucht.",
     ]);

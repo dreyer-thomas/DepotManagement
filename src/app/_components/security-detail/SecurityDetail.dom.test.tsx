@@ -6,13 +6,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { formEntries, registerDomCleanup } from "../../../../test/helpers/dom";
 import { saveTransactionAction } from "@/app/_actions/transactions";
 import type { SecurityTotal as SecurityTotalFigures } from "@/core/security";
-import type { SecuritySummary } from "@/modules/ledger";
+import type { SecuritySummary, SecurityTransactionRecord } from "@/modules/ledger";
 import { theme } from "@/theme/theme";
 import { DepotSwitcher } from "./DepotSwitcher";
 import { PriceLine } from "./PriceLine";
 import { SecurityActions } from "./SecurityActions";
 import { SecurityChart } from "./SecurityChart";
 import { SecurityTotal } from "./SecurityTotal";
+import { SecurityTransactions } from "./SecurityTransactions";
 
 vi.mock("@/app/_actions/transactions", () => ({
   saveTransactionAction: vi.fn(),
@@ -241,5 +242,38 @@ describe("SecurityTotal", () => {
     expect(byLabel["Rendite auf Investiert"]).toBe("–");
     expect(byLabel["XIRR"]).toBe("–");
     expect(byLabel["Realisiert"]).toBe("+198,00\u00a0€");
+  });
+});
+
+describe("SecurityTransactions", () => {
+  const row = (id: string, overrides: Partial<SecurityTransactionRecord> = {}): SecurityTransactionRecord => ({
+    id,
+    depotId: "d1",
+    depotName: "Hauptdepot",
+    type: "BUY",
+    date: "2026-10-01",
+    sequence: 1,
+    quantity: "10",
+    price: "100",
+    amount: "1000",
+    fee: "0",
+    tax: "0",
+    note: null,
+    security,
+    ...overrides,
+  });
+
+  it("marks rows another row may repeat as mögliches Duplikat, through ISIN changes", () => {
+    const old: SecuritySummary = { ...security, id: "s0", isin: "IE00B4L5Y984", name: "Welt ETF alt" };
+    const transactions = [
+      row("t1"),
+      row("t2", { sequence: 2, amount: "1000.01", security: old }),
+      row("t3", { date: "2026-10-02", quantity: "5", amount: "500" }),
+    ];
+    const isinChanges = [{ id: "c1", oldSecurity: old, newSecurity: security, date: "2026-10-05", oldQuantity: "1", newQuantity: "1" }];
+    render(<SecurityTransactions securityId="s1" transactions={transactions} splits={[]} isinChanges={isinChanges} today="2026-10-26" />);
+    expect(screen.getAllByText("mögliches Duplikat")).toHaveLength(2);
+    const unique = screen.getByText("02.10.2026").closest("tr")!;
+    expect(within(unique).queryByText("mögliches Duplikat")).toBeNull();
   });
 });

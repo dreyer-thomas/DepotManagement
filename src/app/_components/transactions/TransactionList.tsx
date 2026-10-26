@@ -20,7 +20,7 @@ import { SecurityLink } from "../security-detail/SecurityLink";
 import { SecurityLogo } from "../securities/SecurityLogo";
 import { type DialogDepot, TransactionDialog } from "./TransactionDialog";
 import { eventValue } from "./transaction-form";
-import { CashEffectText, TransactionTypeLabel } from "./TransactionType";
+import { CashEffectText, NoteCaption, TransactionTypeLabel } from "./TransactionType";
 
 type MonthGroup = { key: string; label: string; transactions: TransactionRecord[] };
 
@@ -61,22 +61,27 @@ const actionCell = {
 
 const numeric = { textAlign: "right", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" } as const;
 
+/** A quantity as the "Stück" cell shows it; an ADJUSTMENT's always carries its sign (`+2`, `-5`). */
+function quantityText(type: TransactionRecord["type"], quantity: string): string {
+  return formatQuantity(quantity, { sign: type === "ADJUSTMENT" });
+}
+
 /**
- * The "Stück" cell: a BUY/SELL quantity split-adjusted as of `today`, with the booked quantity as a
- * caption when a split applies. The stored row (and the edit dialog) keep the booked value.
+ * The "Stück" cell: a BUY/SELL/ADJUSTMENT quantity split-adjusted as of `today`, with the booked
+ * quantity as a caption when a split applies. The stored row (and the edit dialog) keep the booked value.
  */
 export function QuantityText({ transaction, splits, today }: { transaction: TransactionRecord; splits: Split[]; today: string }) {
   if (!transaction.quantity) return null;
   const adjusted =
-    transaction.security && (transaction.type === "BUY" || transaction.type === "SELL")
+    transaction.security && (transaction.type === "BUY" || transaction.type === "SELL" || transaction.type === "ADJUSTMENT")
       ? splitAdjustment(transaction.security.id, transaction.date, transaction.quantity, splits, today)
       : null;
-  if (adjusted === null) return <>{formatQuantity(transaction.quantity)} Stück</>;
+  if (adjusted === null) return <>{quantityText(transaction.type, transaction.quantity)} Stück</>;
   return (
     <>
-      {formatQuantity(adjusted)} Stück
+      {quantityText(transaction.type, adjusted)} Stück
       <Typography component="span" variant="caption" color="text.secondary" sx={{ display: "block" }}>
-        split-bereinigt (gebucht: {formatQuantity(transaction.quantity)} Stück)
+        split-bereinigt (gebucht: {quantityText(transaction.type, transaction.quantity)} Stück)
       </Typography>
     </>
   );
@@ -166,6 +171,7 @@ export function TransactionList({
                       >
                         <TableCell>
                           <TransactionTypeLabel type={transaction.type} />
+                          <NoteCaption note={transaction.note} />
                         </TableCell>
                         <TableCell>
                           {transaction.security ? (

@@ -55,7 +55,7 @@ development_status:
   2-6-funding-for-exports-without-cash-rows-and-depot-deletion: done
   2-7-robust-cash-pairing-and-rounding-tolerance-in-the-parqet-mig: done
   2-8-missing-deposits-and-fee-aware-gain-comparison-in-the-parqet: done
-  2-9-depot-reconciliation-and-holding-corrections: backlog
+  2-9-depot-reconciliation-and-holding-corrections: done
   epic-2-retrospective: optional
 
   epic-3: backlog

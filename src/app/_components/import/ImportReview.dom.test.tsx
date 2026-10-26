@@ -131,7 +131,7 @@ describe("ImportReview", () => {
   });
 
   it("shows a duplicate without a decision control and the existing booking's date", () => {
-    const match = { id: "t1", depotId: "d1", type: "BUY", date: "2026-09-30", sequence: 0, quantity: "3.412871", price: "43.95", amount: "150", fee: "0", tax: "0", security: null } as const;
+    const match = { id: "t1", depotId: "d1", type: "BUY", date: "2026-09-30", sequence: 0, quantity: "3.412871", price: "43.95", amount: "150", fee: "0", tax: "0", note: null, security: null } as const;
     show(
       batch({
         items: [item("a", { reviewStatus: "DUPLICATE", proposals: [proposal("a", { status: "duplicate", effective: "discard", ledgerMatches: [match] })] })],
@@ -146,7 +146,7 @@ describe("ImportReview", () => {
   });
 
   it("names each ledger match of an ambiguous proposal", () => {
-    const match = { id: "t1", depotId: "d1", type: "BUY", date: "2026-10-15", sequence: 0, quantity: "3.412871", price: "43.95", amount: "150", fee: "0", tax: "0", security: null } as const;
+    const match = { id: "t1", depotId: "d1", type: "BUY", date: "2026-10-15", sequence: 0, quantity: "3.412871", price: "43.95", amount: "150", fee: "0", tax: "0", note: null, security: null } as const;
     show(
       batch({
         items: [item("a", { reviewStatus: "AMBIGUOUS", proposals: [proposal("a", { status: "ambiguous", effective: "open", ledgerMatches: [match, { ...match, id: "t2" }] })] })],

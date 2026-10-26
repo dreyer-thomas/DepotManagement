@@ -8,7 +8,7 @@ import { actionEvents, adjustedPrice, type CorporateActions, eventDate, LotBook,
 import { type CashRow, cashEffect } from "./cash";
 import { addDays } from "./dates";
 import { canonicalDecimal, ExactDecimal } from "./decimal";
-import { applyTrade, type FifoRow } from "./fifo";
+import { applyAdjustment, applyTrade, type FifoRow } from "./fifo";
 import { compareObservations, type PriceObservation } from "./prices";
 
 type Decimal = InstanceType<typeof ExactDecimal>;
@@ -23,6 +23,14 @@ export type ValuationPoint = {
   positionsValue: string;
   cash: string;
   investedCapital: string;
+  /**
+   * Signed market value of the day's ADJUSTMENTs (holding corrections): Σ quantity × the price the series
+   * uses for that Security that day (0 without a price). An external flow for the returns (AD-10).
+   * Absent = "0" (set only on days with an ADJUSTMENT).
+   */
+  adjustmentValue?: string;
+  /** Signed Cost Basis the day's ADJUSTMENTs added (+) or removed (−). Absent = "0". */
+  adjustmentCost?: string;
 };
 
 type Holding = { securityId: string; quantity: Decimal; costBasis: Decimal };
@@ -138,7 +146,8 @@ class PriceCursor {
  * provider > Transaction, carried forward, adjusted to that day's units); an open Position without any
  * price counts 0. Cash is the Cash Account balance, invested capital the open Positions' FIFO Cost
  * Basis. Equivalent per day to `computePositions(rows, observations, day, actions)` + `cashBalance`.
- * Empty when `from > to`.
+ * A day with ADJUSTMENT rows carries their market value (`adjustmentValue`, priced like the Positions
+ * that day) and the Cost Basis they moved (`adjustmentCost`). Empty when `from > to`.
  */
 export function valuationSeries(
   rows: readonly ValuationRow[],
@@ -163,8 +172,22 @@ export function valuationSeries(
   let dirty = true;
   const points: ValuationPoint[] = [];
   for (let day = from; day <= to; day = addDays(day, 1)) {
+    let adjustmentValue: Decimal | null = null;
+    let adjustmentCost = new ExactDecimal(0);
     while (nextEvent < events.length && eventDate(events[nextEvent]) <= day) {
-      applyEvent(book, events[nextEvent++]);
+      const event = events[nextEvent++];
+      if (event.kind === "trade" && event.row.type === "ADJUSTMENT") {
+        const cost = applyAdjustment(book, event.row);
+        // Only the day's own corrections are flows (earlier rows are replayed on the first day).
+        if (event.row.date === day) {
+          const price = prices.priceOn(event.row.securityId as string, day);
+          const value = price === null ? new ExactDecimal(0) : new ExactDecimal(event.row.quantity ?? "0").times(price);
+          adjustmentValue = (adjustmentValue ?? new ExactDecimal(0)).plus(value);
+          adjustmentCost = adjustmentCost.plus(cost);
+        }
+      } else {
+        applyEvent(book, event);
+      }
       dirty = true;
     }
     while (nextCash < cashRows.length && cashRows[nextCash].date <= day) {
@@ -186,6 +209,9 @@ export function valuationSeries(
       positionsValue: canonicalDecimal(positionsValue),
       cash: canonicalDecimal(cash),
       investedCapital: invested,
+      ...(adjustmentValue === null
+        ? {}
+        : { adjustmentValue: canonicalDecimal(adjustmentValue), adjustmentCost: canonicalDecimal(adjustmentCost) }),
     });
   }
   return points;
@@ -212,7 +238,8 @@ export function periodFlows(
 
 /**
  * Pointwise sum of valuation series over the same dates (the Portfolio series, AD-10): per date the
- * sum of `value`, `positionsValue`, `cash` and `investedCapital`. Throws when the series differ in
+ * sum of `value`, `positionsValue`, `cash` and `investedCapital`, and of `adjustmentValue` /
+ * `adjustmentCost` when any part has them (absent = "0"). Throws when the series differ in
  * length or dates; empty input gives `[]`.
  */
 export function sumValuationSeries(parts: readonly (readonly ValuationPoint[])[]): ValuationPoint[] {
@@ -228,6 +255,9 @@ export function sumValuationSeries(parts: readonly (readonly ValuationPoint[])[]
     let positionsValue = new ExactDecimal(0);
     let cash = new ExactDecimal(0);
     let invested = new ExactDecimal(0);
+    let adjustmentValue = new ExactDecimal(0);
+    let adjustmentCost = new ExactDecimal(0);
+    let adjusted = false;
     for (const part of parts) {
       const point = part[index];
       if (point.date !== date) throw new Error(`valuation series differ in dates: ${point.date} vs ${date}`);
@@ -235,6 +265,11 @@ export function sumValuationSeries(parts: readonly (readonly ValuationPoint[])[]
       positionsValue = positionsValue.plus(point.positionsValue);
       cash = cash.plus(point.cash);
       invested = invested.plus(point.investedCapital);
+      if (point.adjustmentValue !== undefined || point.adjustmentCost !== undefined) {
+        adjusted = true;
+        adjustmentValue = adjustmentValue.plus(point.adjustmentValue ?? "0");
+        adjustmentCost = adjustmentCost.plus(point.adjustmentCost ?? "0");
+      }
     }
     points.push({
       date,
@@ -242,6 +277,9 @@ export function sumValuationSeries(parts: readonly (readonly ValuationPoint[])[]
       positionsValue: canonicalDecimal(positionsValue),
       cash: canonicalDecimal(cash),
       investedCapital: canonicalDecimal(invested),
+      ...(adjusted
+        ? { adjustmentValue: canonicalDecimal(adjustmentValue), adjustmentCost: canonicalDecimal(adjustmentCost) }
+        : {}),
     });
   }
   return points;

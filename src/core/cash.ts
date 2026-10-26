@@ -42,6 +42,8 @@ function effect(row: Pick<CashRow, "type" | "amount" | "fee" | "tax">): Decimal 
       return amount;
     case "WITHDRAWAL":
       return amount.negated();
+    case "ADJUSTMENT":
+      return new ExactDecimal(0);
     default:
       throw new TypeError(`Unknown transaction type: ${row.type}`);
   }
@@ -49,7 +51,8 @@ function effect(row: Pick<CashRow, "type" | "amount" | "fee" | "tax">): Decimal 
 
 /**
  * Signed cash effect: BUY −(amount+fee+tax); SELL/DIVIDEND +amount−fee−tax; FEE −fee; TAX −tax;
- * DEPOSIT +amount; WITHDRAWAL −amount. A negative tax (refund) raises cash.
+ * DEPOSIT +amount; WITHDRAWAL −amount; ADJUSTMENT 0 (holding correction). A negative tax (refund)
+ * raises cash.
  */
 export function cashEffect(row: Pick<CashRow, "type" | "amount" | "fee" | "tax">): string {
   return canonicalDecimal(effect(row));

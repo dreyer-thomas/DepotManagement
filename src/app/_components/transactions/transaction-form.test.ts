@@ -29,6 +29,7 @@ describe("transaction form layout", () => {
     ["TAX", ["amount", "security", "date"], ["type", "amount", ...SECURITY_FIELDS, "date"], "optional"],
     ["DEPOSIT", ["amount", "date"], ["type", "amount", "date"], "none"],
     ["WITHDRAWAL", ["amount", "date"], ["type", "amount", "date"], "none"],
+    ["ADJUSTMENT", ["security", "date", "quantityPrice"], ["type", ...SECURITY_FIELDS, "date", "quantity", "price"], "required"],
   ])("%s shows its sections and fields only", (type, sections, fields, security) => {
     expect(FORM_SECTIONS[type]).toEqual(sections);
     expect([...visibleFields(type)]).toEqual(fields);
@@ -85,6 +86,7 @@ function record(overrides: Partial<TransactionRecord> = {}): TransactionRecord {
     amount: "1234.5",
     fee: "4.9",
     tax: "0",
+    note: null,
     security: apple,
     ...overrides,
   };
@@ -130,6 +132,19 @@ describe("initialValues", () => {
       tax: "12,5",
       quantity: "",
       price: "",
+    });
+  });
+
+  it("prefills an ADJUSTMENT's signed quantity and unit cost", () => {
+    expect(initialValues(record({ type: "ADJUSTMENT", quantity: "-2.5", price: null, amount: "0", fee: "0" }))).toMatchObject({
+      type: "ADJUSTMENT",
+      quantity: "-2,5",
+      price: "",
+      amount: "",
+    });
+    expect(initialValues(record({ type: "ADJUSTMENT", quantity: "2", price: "99.5", amount: "0", fee: "0" }))).toMatchObject({
+      quantity: "2",
+      price: "99,5",
     });
   });
 

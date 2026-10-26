@@ -10,7 +10,7 @@ import Typography from "@mui/material/Typography";
 import { formatDate, formatMoney } from "@/core/format";
 import type { CashBookingRecord } from "@/modules/ledger";
 import { SecurityLogo } from "../securities/SecurityLogo";
-import { CashEffectText, TransactionTypeLabel } from "../transactions/TransactionType";
+import { CashEffectText, NoteCaption, TransactionTypeLabel } from "../transactions/TransactionType";
 
 const numeric = { textAlign: "right", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" } as const;
 
@@ -45,6 +45,7 @@ export function CashBookings({ balance, bookings }: { balance: string; bookings:
                 <TableCell sx={{ whiteSpace: "nowrap" }}>{formatDate(booking.date)}</TableCell>
                 <TableCell>
                   <TransactionTypeLabel type={booking.type} />
+                  <NoteCaption note={booking.note} />
                 </TableCell>
                 <TableCell>
                   {booking.security ? (

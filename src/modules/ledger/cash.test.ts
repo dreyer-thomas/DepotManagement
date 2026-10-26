@@ -58,6 +58,7 @@ describe("listCashBookings", () => {
       security: null,
       cashEffect: "2000",
       balance: "2000",
+      note: null,
     });
     expect(bookings[4].id).toBe(dividend.id);
     expect(bookings[4].security).toMatchObject({ name: "Apple Inc.", isin: "US0378331005" });

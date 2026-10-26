@@ -127,7 +127,13 @@ export default async function SecurityDetailPage({ params, searchParams }: Props
           <SecurityKpis snapshot={detail.snapshot} dividends={detail.performance.dividends} periodLabel={periodLabel(period)} />
           <SecurityTotal total={detail.total} />
           <FifoLots groups={detail.lots} />
-          <SecurityTransactions securityId={security.id} transactions={detail.transactions} splits={splits} today={today} />
+          <SecurityTransactions
+            securityId={security.id}
+            transactions={detail.transactions}
+            splits={splits}
+            isinChanges={isinChanges}
+            today={today}
+          />
           <Box component="section" aria-labelledby="security-news">
             <CardHeading id="security-news">Nachrichten · 14 Tage</CardHeading>
             <NewsList articles={articles} />

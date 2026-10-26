@@ -127,3 +127,11 @@ describe("formatDateTime", () => {
     expect(() => formatDateTime("2026-13-23T10:00:00Z")).toThrow(TypeError);
   });
 });
+
+describe("formatQuantity with sign", () => {
+  it("prefixes positives with + and keeps zero unsigned", () => {
+    expect(formatQuantity("2", { sign: true })).toBe("+2");
+    expect(formatQuantity("-5.5", { sign: true })).toBe("-5,5");
+    expect(formatQuantity("0", { sign: true })).toBe("0");
+  });
+});

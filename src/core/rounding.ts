@@ -62,6 +62,11 @@ export function clampRoundingOversells<T extends ReplayRow>(
     }
 
     const { row } = event;
+    if (row.type === "ADJUSTMENT") {
+      // A holding correction is never clamped and never takes a carried shortfall.
+      book.applyQuantity(row);
+      continue;
+    }
     const securityId = row.securityId as string;
     const quantity = new ExactDecimal(row.quantity ?? "0");
     if (row.type === "BUY") {

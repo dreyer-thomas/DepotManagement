@@ -858,7 +858,7 @@ So that my data is never locked into the app.
 
 **Given** data in the ledger
 **When** I click "Exportieren" in Settings
-**Then** I download one JSON file `depotmanagement-export-<YYYYMMDD-HHMMSS>.json` with a `schemaVersion`, containing Depots, Securities, ProviderMappings, Transactions, CorporateActions, all stored Prices (manual and fetched) and manual logos as base64 (AD-12)
+**Then** I download one JSON file `depotmanagement-export-<YYYYMMDD-HHMMSS>.json` with a `schemaVersion`, containing Depots, Securities, ProviderMappings, Transactions (including ADJUSTMENT rows and their notes), CorporateActions, ReconciliationRuns with their rows, all stored Prices (manual and fetched) and manual logos as base64 (AD-12)
 **And** caches, import staging, news and fetched logos are excluded
 **And** decimals and dates are strings exactly as stored; IDs and intra-day sequences are kept
 **And** the export schema is defined with zod and documented in the README.

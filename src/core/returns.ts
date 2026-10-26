@@ -80,9 +80,33 @@ function inOutByDate(rows: readonly FlowRow[], from: string, to: string): Map<st
   return flows;
 }
 
+/** The signed market value of a point's holding corrections (ADJUSTMENT, an external flow); absent = 0. */
+export function adjustmentValueOf(point: ValuationPoint): Exact {
+  return new ExactDecimal(point.adjustmentValue ?? "0");
+}
+
+/** Σ `adjustmentValue − adjustmentCost` of a point: the unrealized jump its corrections cause. */
+function adjustmentMarkup(point: ValuationPoint): Exact {
+  return adjustmentValueOf(point).minus(point.adjustmentCost ?? "0");
+}
+
+/**
+ * The parts of the identity a series' holding corrections move: Σ `adjustmentValue` (external flows) and
+ * Σ (`adjustmentValue − adjustmentCost`) (their unrealized jump, taken out of `unrealized`).
+ */
+export function adjustmentTotals(series: readonly ValuationPoint[]): { flows: Exact; markup: Exact } {
+  let flows = new ExactDecimal(0);
+  let markup = new ExactDecimal(0);
+  for (const point of series) {
+    flows = flows.plus(adjustmentValueOf(point));
+    markup = markup.plus(adjustmentMarkup(point));
+  }
+  return { flows, markup };
+}
+
 /**
  * True time-weighted rate of return over `series` (not annualised). Inflows count at the start of their
- * day, outflows at its end: for each day `d` with previous point `p` (`start` first) `numerator = V(d) +
+ * day, outflows at its end (a point's positive `adjustmentValue` is an inflow, a negative one an outflow): for each day `d` with previous point `p` (`start` first) `numerator = V(d) +
  * out(d)`, `denominator = V(p) + in(d)`; when `denominator > 0` and `numerator ≥ 0` the chain is
  * multiplied by `numerator / denominator`, otherwise the day is skipped (nothing invested, e.g. after a
  * full Withdrawal, or an overdrawn Depot) — the chain is never reset. `null` when no day was multiplied.
@@ -95,8 +119,11 @@ export function ttwror(start: ValuationPoint, series: readonly ValuationPoint[],
   let previous = start;
   for (const point of series) {
     const flow = flows.get(point.date);
-    const numerator = new ExactDecimal(point.value).plus(flow?.outflow ?? 0);
-    const denominator = new ExactDecimal(previous.value).plus(flow?.inflow ?? 0);
+    const adjustment = adjustmentValueOf(point);
+    const adjustmentIn = adjustment.isPositive() ? adjustment : new ExactDecimal(0);
+    const adjustmentOut = adjustment.isNegative() ? adjustment.negated() : new ExactDecimal(0);
+    const numerator = new ExactDecimal(point.value).plus(flow?.outflow ?? 0).plus(adjustmentOut);
+    const denominator = new ExactDecimal(previous.value).plus(flow?.inflow ?? 0).plus(adjustmentIn);
     if (denominator.greaterThan(0) && !numerator.isNegative()) {
       chain = chain.times(new ReturnDecimal(numerator.toFixed()).dividedBy(new ReturnDecimal(denominator.toFixed())));
       multiplied = true;
@@ -212,14 +239,20 @@ export function xirr(flows: readonly CashFlow[]): string | null {
 /**
  * The XIRR cash flows of the Period covered by `series` (investor's view): the start value paid in on
  * `start.date`, the net external flows of rows dated in the Period per date (Deposits paid in,
- * Withdrawals and net taxes received), and the end value received on the Period end.
+ * Withdrawals and net taxes received) plus each point's `adjustmentValue` (a correction's market value),
+ * and the end value received on the Period end.
  */
 export function periodCashFlows(rows: readonly FlowRow[], start: ValuationPoint, series: readonly ValuationPoint[]): CashFlow[] {
   const end = series.length > 0 ? series[series.length - 1] : start;
   const from = series.length > 0 ? series[0].date : addDays(start.date, 1);
   const to = end.date;
   const cashFlows: CashFlow[] = [{ date: start.date, amount: canonicalDecimal(new ExactDecimal(start.value).negated()) }];
-  for (const [date, flow] of [...flowsByDate(rows, from, to)].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+  const byDate = flowsByDate(rows, from, to);
+  for (const point of series) {
+    const adjustment = adjustmentValueOf(point);
+    if (!adjustment.isZero()) byDate.set(point.date, (byDate.get(point.date) ?? new ExactDecimal(0)).plus(adjustment));
+  }
+  for (const [date, flow] of [...byDate].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
     if (!flow.isZero()) cashFlows.push({ date, amount: canonicalDecimal(flow.negated()) });
   }
   cashFlows.push({ date: to, amount: end.value });
@@ -232,7 +265,10 @@ export type PeriodPerformance = {
   gain: string;
   /** FIFO gains of SELLs dated in the Period. */
   realized: string;
-  /** Change of (Positions value − invested capital) from start to the Period end. */
+  /**
+   * Change of (Positions value − invested capital) from start to the Period end, less the jump holding
+   * corrections cause (Σ `adjustmentValue − adjustmentCost`).
+   */
   unrealized: string;
   /** Gross DIVIDEND amounts. */
   dividends: string;
@@ -242,7 +278,7 @@ export type PeriodPerformance = {
   feesContribution: string;
   /** Net taxes (paid minus refunds); external, not part of the gain. */
   taxesPaid: string;
-  /** Σ external flows (Deposits − Withdrawals − net taxes). */
+  /** Σ external flows (Deposits − Withdrawals − net taxes + holding corrections' market value). */
   netExternalFlows: string;
   /** Not annualised; `null` when nothing was invested. */
   ttwror: string | null;
@@ -267,7 +303,8 @@ export function periodPerformance(
   const to = end.date;
   const inPeriod = rows.filter((row) => row.date >= from && row.date <= to);
 
-  let netExternalFlows = new ExactDecimal(0);
+  const adjustments = adjustmentTotals(series);
+  let netExternalFlows = adjustments.flows;
   let fees = new ExactDecimal(0);
   for (const row of inPeriod) {
     netExternalFlows = netExternalFlows.plus(flowOf(row));
@@ -282,7 +319,7 @@ export function periodPerformance(
     }
   }
   const unrealizedOf = (point: ValuationPoint) => new ExactDecimal(point.positionsValue).minus(point.investedCapital);
-  const unrealized = unrealizedOf(end).minus(unrealizedOf(start));
+  const unrealized = unrealizedOf(end).minus(unrealizedOf(start)).minus(adjustments.markup);
   const gain = new ExactDecimal(end.value).minus(start.value).minus(netExternalFlows);
   const { dividends, taxesPaid } = periodFlows(rows, from, to);
 

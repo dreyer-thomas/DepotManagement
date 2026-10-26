@@ -162,6 +162,26 @@ describe("saveTransactionAction", () => {
     expect(await listTransactions(depotId)).toHaveLength(6);
   });
 
+  it("books a holding correction from Stück (±) and Einstandskurs; no cash effect", async () => {
+    await saveTransactionAction(null, form({ ...newApple, quantity: "10", price: "100" }));
+    const [security] = await listSecurities();
+    const plus = await saveTransactionAction(
+      null,
+      form({ type: "ADJUSTMENT", securityId: security.id, quantity: "2", price: "100,00", amount: "5", fee: "1" }),
+    );
+    expect(plus).toMatchObject({ ok: true, transaction: { type: "ADJUSTMENT", quantity: "2", price: "100", amount: "0", fee: "0" } });
+    const minus = await saveTransactionAction(null, form({ type: "ADJUSTMENT", securityId: security.id, quantity: "-1,5", price: "" }));
+    expect(minus).toMatchObject({ ok: true, transaction: { quantity: "-1.5", price: null } });
+    expect(await saveTransactionAction(null, form({ type: "ADJUSTMENT", securityId: security.id, quantity: "-20" }))).toEqual({
+      ok: false,
+      reason: "sell-exceeds-holding",
+      available: "10.5",
+    });
+    const [position] = await listPositions(depotId, "2026-10-26");
+    expect(position).toMatchObject({ quantity: "10.5" });
+    expect((await listCashBookings(depotId))[0].balance).toBe("-1000");
+  });
+
   it.each([
     [{ type: "DIVIDEND", amount: "50" }, "security-required"],
     [{ type: "DIVIDEND", ...newApple, amount: "" }, "amount-invalid"],

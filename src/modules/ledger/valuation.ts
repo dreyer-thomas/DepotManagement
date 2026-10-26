@@ -32,7 +32,7 @@ type DepotRow = ValuationRow & { securityId: string | null };
 function loadRows(depotId: string, db: LedgerDb): Promise<DepotRow[]> {
   return db.transaction.findMany({
     where: { depotId },
-    select: { securityId: true, type: true, date: true, sequence: true, quantity: true, amount: true, fee: true, tax: true },
+    select: { securityId: true, type: true, date: true, sequence: true, quantity: true, price: true, amount: true, fee: true, tax: true },
   });
 }
 

@@ -62,9 +62,12 @@ export function formatShare(ratio: DecimalInput): string {
   return `${formatDecimal(toDecimal(ratio).times(100), 1, {})}${NBSP}%`;
 }
 
-/** Up to 8 decimals, trailing zeros trimmed: `"10.50000000"` → `"10,5"`, `"1234"` → `"1.234"`. */
-export function formatQuantity(value: DecimalInput): string {
-  return formatDecimal(toDecimal(value), QUANTITY_MAX_DECIMALS, { trimZeros: true });
+/**
+ * Up to 8 decimals, trailing zeros trimmed: `"10.50000000"` → `"10,5"`, `"1234"` → `"1.234"`; with
+ * `{ sign: true }` positives get "+".
+ */
+export function formatQuantity(value: DecimalInput, options: SignOptions = {}): string {
+  return formatDecimal(toDecimal(value), QUANTITY_MAX_DECIMALS, { trimZeros: true, sign: options.sign });
 }
 
 /** Business date `YYYY-MM-DD` → `DD.MM.YYYY`. Throws `TypeError` on malformed or impossible dates. */

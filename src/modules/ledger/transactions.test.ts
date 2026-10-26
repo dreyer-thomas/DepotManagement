@@ -69,6 +69,7 @@ describe("recordTrade", () => {
         amount: "1234.5",
         fee: "4.9",
         tax: "0",
+        note: null,
         security: { id: appleId, name: "Apple Inc.", isin: "US0378331005", cryptoSymbol: null, assetType: "STOCK" },
       },
     });
@@ -264,6 +265,7 @@ describe("recordTransaction", () => {
       amount: "50",
       fee: "0",
       tax: "12.5",
+      note: null,
       security: apple(),
     });
     expect((await book({ type: "DIVIDEND", date: "2026-10-02", amount: "50", tax: "-2", fee: "1", security: { id: appleId } }))).toMatchObject({
@@ -560,3 +562,113 @@ async function book(input: Omit<RecordTransactionInput, "depotId">) {
   if (!result.ok) throw new Error(`setup failed: ${result.reason}`);
   return result.transaction;
 }
+
+describe("ADJUSTMENT (holding correction)", () => {
+  const adjustment = (overrides: Partial<RecordTransactionInput> = {}): RecordTransactionInput => ({
+    depotId,
+    type: "ADJUSTMENT",
+    date: "2026-10-05",
+    quantity: "2",
+    price: "100",
+    security: { id: appleId },
+    ...overrides,
+  });
+
+  it("books a positive correction: Position and Cost Basis grow, cash and realized gain stay", async () => {
+    await record({ quantity: "10", price: "100", fee: "0" });
+    const result = await recordTransaction(adjustment(), db());
+    expect(result).toMatchObject({
+      ok: true,
+      transaction: { type: "ADJUSTMENT", quantity: "2", price: "100", amount: "0", fee: "0", tax: "0", note: null },
+    });
+    const [position] = await listPositions(depotId, "2026-10-26", db());
+    expect(position).toMatchObject({ quantity: "12", costBasis: "1200" });
+    const { listCashBookings, listRealizedSales } = await import("./index");
+    expect((await listCashBookings(depotId, db()))[0].balance).toBe("-1000");
+    expect(await listRealizedSales(depotId, "2026-10-26", db())).toEqual([]);
+  });
+
+  it("books a negative correction without price (stored null) at the oldest lots' Cost Basis", async () => {
+    await record({ quantity: "10", price: "100", fee: "0" });
+    await record({ date: "2026-10-02", quantity: "10", price: "120", fee: "0" });
+    const result = await recordTransaction(adjustment({ quantity: "-15", price: "999" }), db());
+    expect(result).toMatchObject({ ok: true, transaction: { quantity: "-15", price: null } });
+    const [position] = await listPositions(depotId, "2026-10-26", db());
+    expect(position).toMatchObject({ quantity: "5", costBasis: "600" });
+  });
+
+  it("rejects a negative correction beyond the holding with the available quantity", async () => {
+    await record({ quantity: "5" });
+    expect(await recordTransaction(adjustment({ quantity: "-6" }), db())).toEqual({
+      ok: false,
+      reason: "sell-exceeds-holding",
+      available: "5",
+    });
+    expect(await listTransactions(depotId, db())).toHaveLength(1);
+  });
+
+  it("validates quantity, price, zero amounts and the Security", async () => {
+    const reason = async (overrides: Partial<RecordTransactionInput>) => {
+      const result = await recordTransaction(adjustment(overrides), db());
+      return result.ok ? "ok" : result.reason;
+    };
+    expect(await reason({ quantity: "0" })).toBe("quantity-invalid");
+    expect(await reason({ quantity: "1.123456789" })).toBe("quantity-invalid");
+    expect(await reason({ price: undefined })).toBe("price-invalid");
+    expect(await reason({ price: "-1" })).toBe("price-invalid");
+    expect(await reason({ amount: "5" })).toBe("amount-invalid");
+    expect(await reason({ fee: "1" })).toBe("fee-invalid");
+    expect(await reason({ tax: "1" })).toBe("tax-invalid");
+    expect(await reason({ security: null })).toBe("security-required");
+    expect(await reason({ price: "0" })).toBe("ok");
+  });
+
+  it("can be edited and deleted; an edit or delete that breaks a later sell is refused", async () => {
+    const buy = await record({ quantity: "5" });
+    const correction = await recordTransaction(adjustment({ quantity: "5", date: "2026-10-02" }), db());
+    if (!correction.ok) throw new Error("setup failed");
+    await record({ type: "SELL", date: "2026-10-03", quantity: "8" });
+    expect(await updateTransaction(correction.transaction.id, adjustment({ quantity: "2", date: "2026-10-02" }), db())).toEqual({
+      ok: false,
+      reason: "later-sell-exceeds-holding",
+      date: "2026-10-03",
+    });
+    expect(await deleteTransaction(correction.transaction.id, db())).toMatchObject({ ok: false, reason: "later-sell-exceeds-holding" });
+    expect(await updateTransaction(correction.transaction.id, adjustment({ quantity: "4", date: "2026-10-02" }), db())).toMatchObject({
+      ok: true,
+      transaction: { quantity: "4" },
+    });
+    expect(await deleteTransaction(buy.id, db())).toMatchObject({ ok: false, reason: "later-sell-exceeds-holding" });
+  });
+
+  it("an edit that turns a later negative correction into an oversell is refused", async () => {
+    const buy = await record({ quantity: "5" });
+    expect((await recordTransaction(adjustment({ quantity: "-5", date: "2026-10-04" }), db())).ok).toBe(true);
+    expect(await updateTransaction(buy.id, trade({ quantity: "4" }), db())).toEqual({
+      ok: false,
+      reason: "later-sell-exceeds-holding",
+      date: "2026-10-04",
+    });
+  });
+});
+
+describe("Transaction note", () => {
+  it("stores a trimmed note, empty as null, and rejects one over 200 characters", async () => {
+    const noted = await recordTransaction({ depotId, type: "DEPOSIT", date: "2026-10-01", amount: "10", note: "  Kontoabgleich " }, db());
+    expect(noted).toMatchObject({ ok: true, transaction: { note: "Kontoabgleich" } });
+    const empty = await recordTransaction({ depotId, type: "DEPOSIT", date: "2026-10-02", amount: "10", note: "   " }, db());
+    expect(empty).toMatchObject({ ok: true, transaction: { note: null } });
+    const long = await recordTransaction({ depotId, type: "DEPOSIT", date: "2026-10-03", amount: "10", note: "x".repeat(201) }, db());
+    expect(long).toEqual({ ok: false, reason: "note-invalid" });
+    expect(await recordTransaction({ depotId, type: "DEPOSIT", date: "2026-10-03", amount: "10", note: "x".repeat(200) }, db())).toMatchObject({ ok: true });
+  });
+
+  it("keeps the stored note on an edit without a note; an explicit empty note clears it", async () => {
+    const noted = await recordTransaction({ depotId, type: "DEPOSIT", date: "2026-10-01", amount: "10", note: "Kontoabgleich" }, db());
+    if (!noted.ok) throw new Error("setup failed");
+    const kept = await updateTransaction(noted.transaction.id, { depotId, type: "DEPOSIT", date: "2026-10-01", amount: "12" }, db());
+    expect(kept).toMatchObject({ ok: true, transaction: { amount: "12", note: "Kontoabgleich" } });
+    const cleared = await updateTransaction(noted.transaction.id, { depotId, type: "DEPOSIT", date: "2026-10-01", amount: "12", note: "" }, db());
+    expect(cleared).toMatchObject({ ok: true, transaction: { note: null } });
+  });
+});

@@ -420,3 +420,24 @@ describe("deleteDepot", () => {
     expect(await deleteDepot(depot.id, db())).toEqual({ ok: false, reason: "not-found" });
   });
 });
+
+describe("listHeldSecurities with holding corrections", () => {
+  it("drops a Security corrected to 0 and includes one held only via a positive ADJUSTMENT", async () => {
+    const depot = await create("A");
+    const ids: string[] = [];
+    for (const [isin, name] of [["DE000SYNCA09", "Synthetic Alpha AG"], ["DE000SYNCB08", "Synthetic Beta AG"]]) {
+      const result = await ensureSecurity({ isin }, { name, assetType: "STOCK" }, db());
+      if (!result.ok) throw new Error("setup failed");
+      ids.push(result.security.id);
+    }
+    const [alpha, beta] = ids;
+    const book = async (input: Omit<RecordTransactionInput, "depotId">) => {
+      const result = await recordTransaction({ depotId: depot.id, ...input }, db());
+      if (!result.ok) throw new Error(`setup failed: ${result.reason}`);
+    };
+    await book({ type: "BUY", date: "2026-01-01", quantity: "5", price: "10", security: { id: alpha } });
+    await book({ type: "ADJUSTMENT", date: "2026-02-01", quantity: "-5", security: { id: alpha } });
+    await book({ type: "ADJUSTMENT", date: "2026-02-01", quantity: "3", price: "10", security: { id: beta } });
+    expect(await listHeldSecurities("2026-10-25", db())).toEqual([beta]);
+  });
+});

@@ -22,6 +22,7 @@ describe("CashBookings logos", () => {
               security: { id: "s1", name: "SAP SE", isin: "DE0007164600", cryptoSymbol: null, assetType: "STOCK" },
               cashEffect: "10",
               balance: "10",
+              note: null,
             },
           ]}
         />

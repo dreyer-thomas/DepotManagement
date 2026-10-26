@@ -10,7 +10,15 @@ import { canonicalDecimal, ExactDecimal } from "./decimal";
 import { fifo, type FifoLot } from "./fifo";
 import { computePositions, type Position } from "./positions";
 import { compareObservations, type PriceObservation, type ResolvedPrice, resolvePrice } from "./prices";
-import { type CashFlow, type PeriodPerformance, periodCashFlows, portfolioPerformance, ttwror, xirr } from "./returns";
+import {
+  adjustmentTotals,
+  type CashFlow,
+  type PeriodPerformance,
+  periodCashFlows,
+  portfolioPerformance,
+  ttwror,
+  xirr,
+} from "./returns";
 import { periodFlows, type ValuationPoint, type ValuationRow } from "./valuation";
 
 type Decimal = InstanceType<typeof ExactDecimal>;
@@ -94,7 +102,8 @@ function signedFlow(row: ValuationRow): Decimal {
  * of the chain (all dates). realized = FIFO gains of SELLs in the Period; unrealized = Δ(positions value −
  * invested capital); dividends = Σ DIVIDEND `amount`; fees = Σ `fee` of DIVIDEND/FEE rows; taxesPaid =
  * Σ signed `tax` (separate); gain = `V(end) − V(start) − netFlows` = realized + unrealized + dividends −
- * fees. TTWROR and XIRR over the Security flows (`securityFlowRows`).
+ * fees. TTWROR and XIRR over the Security flows (`securityFlowRows`). Holding corrections count at their
+ * market value (`adjustmentValue` of the series) as flows and leave the unrealized part unchanged.
  */
 export function securityPerformance(
   rows: readonly ValuationRow[],
@@ -108,7 +117,9 @@ export function securityPerformance(
   const inPeriod = rows.filter((row) => row.date >= from && row.date <= to);
   const flows = securityFlowRows(inPeriod);
 
-  let netFlows = new ExactDecimal(0);
+  // Holding corrections (ADJUSTMENT) are flows at their market value, carried by the series points.
+  const adjustments = adjustmentTotals(series);
+  let netFlows = adjustments.flows;
   for (const flow of flows) netFlows = netFlows.plus(signedFlow(flow));
   let fees = new ExactDecimal(0);
   for (const row of inPeriod) {
@@ -123,7 +134,7 @@ export function securityPerformance(
     }
   }
   const unrealizedOf = (point: ValuationPoint) => new ExactDecimal(point.positionsValue).minus(point.investedCapital);
-  const unrealized = unrealizedOf(end).minus(unrealizedOf(start));
+  const unrealized = unrealizedOf(end).minus(unrealizedOf(start)).minus(adjustments.markup);
   const gain = new ExactDecimal(end.value).minus(start.value).minus(netFlows);
   const { dividends, taxesPaid } = periodFlows(rows, from, to);
 
@@ -251,7 +262,7 @@ export type SecurityTotal = {
   taxesPaid: string;
   /** realized + unrealized + dividends − fees; `null` without a value. */
   total: string | null;
-  /** Σ BUY `amount + fee`. */
+  /** Σ BUY `amount + fee` plus the Cost Basis positive ADJUSTMENTs add (`quantity × price`). */
   totalInvested: string;
   /** `total / totalInvested`; `null` without a total or when nothing was invested. */
   returnRatio: string | null;
@@ -263,10 +274,25 @@ export type SecurityTotal = {
 
 /**
  * Investor-view cash flows of the Security rows: BUY −(amount + fee), FEE −fee, SELL and DIVIDEND
- * +(amount − fee); taxes are ignored.
+ * +(amount − fee); taxes are ignored. An ADJUSTMENT is −(quantity × the resolver price as of its date,
+ * adjusted like `computePositions`; 0 without a price).
  */
-function investorFlows(rows: readonly ValuationRow[]): CashFlow[] {
-  return securityFlowRows(rows).map((flow) => ({ date: flow.date, amount: canonicalDecimal(signedFlow(flow).negated()) }));
+function investorFlows(
+  rows: readonly ValuationRow[],
+  observations: readonly PriceObservation[],
+  actions: CorporateActions,
+): CashFlow[] {
+  const flows = securityFlowRows(rows).map((flow) => ({
+    date: flow.date,
+    amount: canonicalDecimal(signedFlow(flow).negated()),
+  }));
+  for (const row of rows) {
+    if (row.type !== "ADJUSTMENT" || row.securityId === null) continue;
+    const price = securityPrice(observations, row.securityId, actions, row.date);
+    if (price === null) continue;
+    flows.push({ date: row.date, amount: canonicalDecimal(new ExactDecimal(row.quantity ?? "0").times(price.price).negated()) });
+  }
+  return flows;
 }
 
 /**
@@ -302,9 +328,12 @@ export function securityTotal(
       if (row.type === "DIVIDEND") dividends = dividends.plus(row.amount);
       if (row.type === "DIVIDEND" || row.type === "FEE") fees = fees.plus(row.fee);
       if (row.type === "BUY") invested = invested.plus(row.amount).plus(row.fee);
+      if (row.type === "ADJUSTMENT" && new ExactDecimal(row.quantity ?? "0").isPositive()) {
+        invested = invested.plus(new ExactDecimal(row.quantity as string).times(row.price ?? "0"));
+      }
       taxesPaid = taxesPaid.plus(row.tax);
     }
-    flows.push(...investorFlows(upToToday));
+    flows.push(...investorFlows(upToToday, observations, actions));
   }
 
   let unrealized: Decimal | null = null;

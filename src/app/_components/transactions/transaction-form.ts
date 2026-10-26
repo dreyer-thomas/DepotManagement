@@ -14,6 +14,7 @@ export const FORM_SECTIONS: Record<TransactionType, FormSection[]> = {
   TAX: ["amount", "security", "date"],
   DEPOSIT: ["amount", "date"],
   WITHDRAWAL: ["amount", "date"],
+  ADJUSTMENT: ["security", "date", "quantityPrice"],
 };
 
 const SECTION_FIELDS: Record<FormSection, TransactionField[]> = {
@@ -25,7 +26,7 @@ const SECTION_FIELDS: Record<FormSection, TransactionField[]> = {
   tax: ["tax"],
 };
 
-const SECURITY_REQUIRED: ReadonlySet<TransactionType> = new Set(["BUY", "SELL", "DIVIDEND"]);
+const SECURITY_REQUIRED: ReadonlySet<TransactionType> = new Set(["BUY", "SELL", "DIVIDEND", "ADJUSTMENT"]);
 
 /** Fields the form shows for `type` (the type selector always). */
 export function visibleFields(type: TransactionType): Set<TransactionField> {
@@ -105,6 +106,8 @@ export function initialValues(transaction: TransactionRecord): FormValues {
       };
     case "DIVIDEND":
       return { ...values, amount: inputDecimal(transaction.amount), tax: inputDecimal(transaction.tax) };
+    case "ADJUSTMENT":
+      return { ...values, quantity: inputDecimal(transaction.quantity), price: inputDecimal(transaction.price) };
     default:
       return { ...values, amount: inputDecimal(eventValue(transaction)) };
   }

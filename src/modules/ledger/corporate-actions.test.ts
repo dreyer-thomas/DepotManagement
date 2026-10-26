@@ -450,3 +450,21 @@ describe("ISIN changes", () => {
     expect(repeat).toMatchObject({ ok: false, reason: "possible-duplicate", status: "duplicate" });
   });
 });
+
+describe("split guard with holding corrections", () => {
+  it("refuses a split when an earlier negative ADJUSTMENT makes a later SELL oversell", async () => {
+    await trade({ quantity: "20", price: "10" });
+    const correction = await recordTransaction(
+      { depotId, type: "ADJUSTMENT", date: "2024-02-01", quantity: "-12", security: { id: appleId } },
+      db(),
+    );
+    if (!correction.ok) throw new Error("setup failed");
+    await trade({ type: "SELL", date: "2024-05-01", quantity: "6", price: "10" });
+    // 8 held × 1/2 = 4 < 6 (without the correction 10 would cover the SELL).
+    expect(await recordSplit({ securityId: appleId, date: "2024-03-01", ratio: "2:1" }, db())).toEqual({
+      ok: false,
+      reason: "later-sell-exceeds-holding",
+      date: "2024-05-01",
+    });
+  });
+});

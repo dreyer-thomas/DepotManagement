@@ -1,5 +1,5 @@
 /**
- * Held quantities from BUY/SELL rows of one Depot, replayed with every corporate action
+ * Held quantities from BUY/SELL/ADJUSTMENT rows of one Depot, replayed with every corporate action
  * (`core/corporate-actions`, `ALL_ACTIONS`): splits scale holdings, ISIN changes move them to the new
  * Security. Pure, decimal strings only. Quantities are compared exactly (scaled basis, divided once on
  * output); results are in the units of the queried position.
@@ -9,6 +9,7 @@ import {
   type CorporateActions,
   LotBook,
   type ReplayEvent,
+  removesUnits,
   replayEvents,
 } from "./corporate-actions";
 import { canonicalDecimal, ExactDecimal } from "./decimal";
@@ -25,14 +26,8 @@ export type TradeRow = {
 };
 
 function applyEvent(book: LotBook, event: ReplayEvent<TradeRow>): void {
-  if (event.kind !== "trade") {
-    book.apply(event);
-    return;
-  }
-  const { row } = event;
-  const quantity = row.quantity ?? "0";
-  if (row.type === "BUY") book.buy(row.securityId as string, row.date, row.sequence, quantity, new ExactDecimal(0));
-  else book.sell(row.securityId as string, quantity);
+  if (event.kind !== "trade") book.apply(event);
+  else book.applyQuantity(event.row);
 }
 
 /** True when `event` lies before `position` (actions dated on or before its date come first). */
@@ -103,14 +98,14 @@ export function sellableAt(
 }
 
 /**
- * The first SELL (any Security), in replay order with every corporate action, after which its
- * Security's net held quantity is negative; else `null`. Returns the row as passed in.
+ * The first SELL or negative ADJUSTMENT (any Security), in replay order with every corporate action,
+ * after which its Security's net held quantity is negative; else `null`. Returns the row as passed in.
  */
 export function firstOversell<T extends TradeRow>(trades: readonly T[], actions: CorporateActions): T | null {
   const book = new LotBook();
   for (const event of replayEvents(trades, actions, ALL_ACTIONS)) {
     applyEvent(book, event);
-    if (event.kind === "trade" && event.row.type === "SELL" && book.net(event.row.securityId as string).scaled.isNegative()) {
+    if (event.kind === "trade" && removesUnits(event.row) && book.net(event.row.securityId as string).scaled.isNegative()) {
       return event.row;
     }
   }

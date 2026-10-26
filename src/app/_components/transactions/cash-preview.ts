@@ -47,11 +47,15 @@ function figures(type: TransactionType, inputs: CashPreviewInputs): { amount: st
       const amount = value(inputs.amount, true);
       return amount === null ? null : { amount, fee: "0", tax: "0" };
     }
+    case "ADJUSTMENT":
+      return { amount: "0", fee: "0", tax: "0" };
   }
 }
 
 /** Live cash effect of the form's inputs as signed money (`+50,00 €`), or "–" while incomplete. */
 export function cashPreview(type: TransactionType, inputs: CashPreviewInputs): string {
+  // A holding correction never moves cash: always "+0,00 €".
+  if (type === "ADJUSTMENT") return `+${formatMoney("0")}`;
   const row = figures(type, inputs);
   return row ? formatMoney(cashEffect({ type, ...row }), { sign: true }) : NO_PREVIEW;
 }

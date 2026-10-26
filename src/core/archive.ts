@@ -7,7 +7,7 @@ import { ExactDecimal } from "./decimal";
 
 type Decimal = InstanceType<typeof ExactDecimal>;
 
-/** A BUY/SELL-relevant ledger row: its Security and quantity (other types carry none). */
+/** A BUY/SELL/ADJUSTMENT-relevant ledger row: its Security and quantity (other types carry none). */
 export type QuantityRow = {
   securityId: string | null;
   type: string;
@@ -32,9 +32,7 @@ function netQuantities(rows: readonly QuantityRow[], asOf: string, actions: Corp
       book.apply(event);
       continue;
     }
-    const { row } = event;
-    if (row.type === "BUY") book.buy(row.securityId as string, row.date, row.sequence, row.quantity ?? "0", new ExactDecimal(0));
-    else book.sell(row.securityId as string, row.quantity ?? "0");
+    book.applyQuantity(event.row);
   }
   return new Map(book.securityIds().map((securityId) => [securityId, book.net(securityId).scaled]));
 }

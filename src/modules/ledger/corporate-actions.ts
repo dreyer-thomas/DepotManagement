@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { prisma } from "@/db";
 import { Prisma } from "@/db/generated/prisma/client";
-import { type CorporateActions, type IsinChange, parseSplitRatio, type Split } from "@/core/corporate-actions";
+import { type CorporateActions, type IsinChange, LOT_TYPES, parseSplitRatio, type Split } from "@/core/corporate-actions";
 import { isBusinessDate } from "@/core/dates";
 import { canonicalDecimal, ExactDecimal, isDecimalString } from "@/core/decimal";
 import { firstOversell, type TradeRow } from "@/core/holdings";
@@ -139,7 +139,7 @@ export async function checkActionHoldings(
   after: CorporateActions,
 ): Promise<{ ok: true } | LaterSellFailure> {
   const trades = await db.transaction.findMany({
-    where: { type: { in: ["BUY", "SELL"] } },
+    where: { type: { in: [...LOT_TYPES] } },
     select: { depotId: true, securityId: true, type: true, date: true, sequence: true, quantity: true },
   });
   const byDepot = new Map<string, TradeRow[]>();

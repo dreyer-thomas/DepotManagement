@@ -21,11 +21,12 @@ vi.mock("next/headers", () => ({
 }));
 
 import { prisma } from "@/db";
-import { archiveDepot, createDepot, recordIsinChange, recordSplit, recordTrade, recordTransaction, type RecordTransactionInput, updateTransaction } from "@/modules/ledger";
+import { archiveDepot, createDepot, finishReconciliation, openReconciliation, recordIsinChange, recordSplit, recordTrade, recordTransaction, type RecordTransactionInput, updateTransaction } from "@/modules/ledger";
 import DepotDetailPage, { generateMetadata } from "./page";
 
 beforeEach(async () => {
   cookieJar.clear();
+  await prisma.reconciliationRun.deleteMany();
   await prisma.price.deleteMany();
   await prisma.corporateAction.deleteMany();
   await prisma.transaction.deleteMany();
@@ -706,5 +707,30 @@ describe("Depot detail page", () => {
     const tree = await DepotDetailPage(props(id));
     expect(renderText(tree)).not.toContain("Gesamtwert");
     expect(renderHtml(tree)).not.toContain('aria-label="Zeitraum"');
+  });
+});
+
+describe("Depot detail reconciliation", () => {
+  it("offers ⋮ Depot abgleichen, then shows the open run and the last finished statement date", async () => {
+    const { id } = await depot();
+    let html = renderHtml(await DepotDetailPage(props(id)));
+    expect(html).toContain('aria-label="Depot-Aktionen"');
+    expect(renderText(await DepotDetailPage(props(id)))).not.toContain("Zuletzt abgeglichen");
+
+    const opened = await openReconciliation(id, "2026-10-20", "2026-10-26");
+    if (!opened.ok) throw new Error("setup failed");
+    html = renderHtml(await DepotDetailPage(props(id)));
+    expect(html).toMatch(new RegExp(`<a[^>]*href="/depots/${id}/reconcile"[^>]*>Abgleich fortsetzen \\(Stichtag 20\\.10\\.2026\\)`));
+
+    await finishReconciliation(opened.runId, "2026-10-26T10:00:00.000Z");
+    const text = renderText(await DepotDetailPage(props(id)));
+    expect(text).toContain("Zuletzt abgeglichen am 20.10.2026");
+    expect(text).not.toContain("Abgleich fortsetzen");
+  });
+
+  it("has no Depot-Aktionen menu on an archived Depot", async () => {
+    const { id } = await depot();
+    await archiveDepot(id);
+    expect(renderHtml(await DepotDetailPage(props(id)))).not.toContain("Depot-Aktionen");
   });
 });

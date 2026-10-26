@@ -24,6 +24,7 @@ const buy: TransactionRecord = {
   amount: "1000",
   fee: "0",
   tax: "0",
+  note: null,
   security,
 };
 
@@ -39,5 +40,27 @@ describe("TransactionList Security link", () => {
     // A click elsewhere in the row still opens the edit dialog.
     fireEvent.click(screen.getByText("01.10.2026"));
     expect(screen.getByRole("dialog", { name: "Buchung bearbeiten" })).toBeTruthy();
+  });
+});
+
+describe("TransactionList holding corrections and notes", () => {
+  it("shows a Bestandskorrektur with its signed quantity and a note as caption", () => {
+    const correction: TransactionRecord = { ...buy, id: "t2", type: "ADJUSTMENT", quantity: "-2", price: null, amount: "0" };
+    const deposit: TransactionRecord = {
+      ...buy,
+      id: "t3",
+      type: "DEPOSIT",
+      quantity: null,
+      price: null,
+      amount: "12.34",
+      note: "Kontoabgleich",
+      security: null,
+    };
+    render(
+      <TransactionList transactions={[correction, deposit]} depot={{ id: "d1", name: "Hauptdepot" }} securities={[security]} today="2026-10-26" />,
+    );
+    expect(screen.getByText("Bestandskorrektur")).toBeTruthy();
+    expect(screen.getByText("-2 Stück")).toBeTruthy();
+    expect(screen.getByText("Kontoabgleich")).toBeTruthy();
   });
 });

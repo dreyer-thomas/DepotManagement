@@ -286,3 +286,21 @@ describe("portfolioValuation", () => {
     expect(portfolio.performance).toMatchObject({ gain: "0", ttwror: null, xirr: null });
   });
 });
+
+describe("valuation with a holding correction", () => {
+  it("depotValuation and portfolioValuation carry the correction as a flow: gain 0", async () => {
+    await book({ type: "DEPOSIT", date: "2026-01-05", amount: "1000" });
+    await book({ type: "BUY", date: "2026-01-10", quantity: "10", price: "100", security: { id: appleId } });
+    await book({ type: "ADJUSTMENT", date: "2026-01-12", quantity: "2", price: "80", security: { id: appleId } });
+    const period = { kind: "custom", from: "2026-01-11", to: "2026-01-31" } as const;
+
+    const depot = await depotValuation(depotId, period, TODAY, db());
+    const day = depot.series.find((point) => point.date === "2026-01-12");
+    expect(day).toMatchObject({ value: "1200", adjustmentValue: "200", adjustmentCost: "160" });
+    expect(depot.performance).toMatchObject({ gain: "0", unrealized: "0", netExternalFlows: "200", ttwror: "0" });
+
+    const portfolio = await portfolioValuation(period, TODAY, db());
+    expect(portfolio.series.find((point) => point.date === "2026-01-12")).toMatchObject({ adjustmentValue: "200", adjustmentCost: "160" });
+    expect(portfolio.performance).toMatchObject({ gain: "0", ttwror: "0" });
+  });
+});

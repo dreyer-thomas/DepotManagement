@@ -114,3 +114,25 @@ describe("TransactionDialog", () => {
     expect(formEntries(save.mock.calls[0][1])).toMatchObject({ depotId: "d1", type: "BUY", securityId: "s1" });
   }, 20_000);
 });
+
+describe("TransactionDialog holding correction", () => {
+  it("offers Bestandskorrektur last with signed Stück, Einstandskurs and no cash effect", async () => {
+    save.mockResolvedValue({ ok: false, reason: "quantity-invalid" });
+    const user = userEvent.setup({ delay: null });
+    render(<TransactionDialog open onClose={() => {}} formKey={1} depot={depot} securities={securities} today="2024-03-01" security={securities[0]} />);
+    const dialog = await screen.findByRole("dialog", { name: "Neue Buchung" });
+    const typeButtons = within(dialog)
+      .getAllByRole("button")
+      .map((button) => button.textContent)
+      .filter((text) => text === "Auszahlung" || text === "Bestandskorrektur");
+    expect(typeButtons).toEqual(["Auszahlung", "Bestandskorrektur"]);
+    await user.click(within(dialog).getByRole("button", { name: "Bestandskorrektur" }));
+    await user.type(input("Stück (±)"), "-2");
+    expect(input("Einstandskurs je Stück")).toBeTruthy();
+    expect(within(dialog).queryByRole("textbox", { name: "Gebühren" })).toBeNull();
+    expect(within(dialog).getByText(/^Cash-Effekt: \+0,00\s€$/)).toBeTruthy();
+    await user.click(within(dialog).getByRole("button", { name: "Buchen" }));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(formEntries(save.mock.calls[0][1])).toMatchObject({ type: "ADJUSTMENT", securityId: "s1", quantity: "-2" });
+  }, 20_000);
+});

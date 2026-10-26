@@ -11,29 +11,66 @@ import { CardHeading } from "@/app/_components/overview/CardHeading";
 import { QuantityText } from "@/app/_components/transactions/TransactionList";
 import { TransactionTypeLabel } from "@/app/_components/transactions/TransactionType";
 import { eventValue } from "@/app/_components/transactions/transaction-form";
-import type { Split } from "@/core/corporate-actions";
+import type { IsinChange, Split } from "@/core/corporate-actions";
+import { matchDuplicates } from "@/core/duplicates";
 import { formatDate, formatMoney } from "@/core/format";
-import type { SecurityTransactionRecord, SplitRecord } from "@/modules/ledger";
+import type { IsinChangeRecord, SecurityTransactionRecord, SplitRecord } from "@/modules/ledger";
 
 const numeric = { textAlign: "right", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" } as const;
+
+/** The ids of rows that `core/duplicates` finds another matching row for (ISIN changes followed). */
+export function possibleDuplicateIds(
+  transactions: readonly SecurityTransactionRecord[],
+  isinChanges: readonly IsinChange[],
+): Set<string> {
+  const candidates = transactions.map((transaction) => ({
+    id: transaction.id,
+    depotId: transaction.depotId,
+    date: transaction.date,
+    type: transaction.type,
+    securityId: transaction.security?.id ?? null,
+    quantity: transaction.quantity,
+    amount: transaction.amount,
+    fee: transaction.fee,
+    tax: transaction.tax,
+  }));
+  const ids = new Set<string>();
+  for (const candidate of candidates) {
+    if (matchDuplicates(candidate, candidates, isinChanges).status !== "unique") ids.add(candidate.id);
+  }
+  return ids;
+}
 
 /**
  * "Buchungen": the scope's Transactions of the Security chain as given (newest first), read-only: Datum,
  * Art, Depot, Stück (split-adjusted as of `today`), Betrag. A row of another chain Security names it
- * under the type.
+ * under the type; a row another row may repeat (`core/duplicates`) gets the caption "mögliches Duplikat".
  */
 export function SecurityTransactions({
   securityId,
   transactions,
   splits,
+  isinChanges = [],
   today,
 }: {
   /** The page's Security; rows of other chain Securities get a caption. */
   securityId: string;
   transactions: readonly SecurityTransactionRecord[];
   splits: readonly SplitRecord[];
+  /** Recorded ISIN changes (any Security), for the duplicate match. */
+  isinChanges?: readonly IsinChangeRecord[];
   today: string;
 }) {
+  const duplicates = possibleDuplicateIds(
+    transactions,
+    isinChanges.map((change) => ({
+      oldSecurityId: change.oldSecurity.id,
+      newSecurityId: change.newSecurity.id,
+      date: change.date,
+      oldQuantity: change.oldQuantity,
+      newQuantity: change.newQuantity,
+    })),
+  );
   const coreSplits: Split[] = splits.map((split) => ({
     securityId: split.security.id,
     date: split.date,
@@ -64,6 +101,16 @@ export function SecurityTransactions({
                     {transaction.security && transaction.security.id !== securityId ? (
                       <Typography component="span" variant="caption" color="text.secondary" sx={{ display: "block" }}>
                         {transaction.security.name}
+                      </Typography>
+                    ) : null}
+                    {duplicates.has(transaction.id) ? (
+                      <Typography component="span" variant="caption" color="warning.main" sx={{ display: "block" }}>
+                        mögliches Duplikat
+                      </Typography>
+                    ) : null}
+                    {transaction.note ? (
+                      <Typography component="span" variant="caption" color="text.secondary" sx={{ display: "block" }}>
+                        {transaction.note}
                       </Typography>
                     ) : null}
                   </TableCell>

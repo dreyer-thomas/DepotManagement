@@ -3,7 +3,7 @@ import { prisma } from "@/db";
 import { Broker, Prisma } from "@/db/generated/prisma/client";
 import { type ArchiveRow, canArchive, heldSecurities } from "@/core/archive";
 import { cashBalance } from "@/core/cash";
-import { type CorporateActions, NO_CORPORATE_ACTIONS } from "@/core/corporate-actions";
+import { type CorporateActions, LOT_TYPES, NO_CORPORATE_ACTIONS } from "@/core/corporate-actions";
 import { businessDate } from "@/core/dates";
 import { loadCorporateActions } from "./corporate-actions";
 
@@ -210,7 +210,7 @@ export async function listHeldSecurities(asOf: string, db: LedgerDb = prisma): P
   const [depots, trades, actions] = await Promise.all([
     db.depot.findMany({ select: { id: true, archived: true } }),
     db.transaction.findMany({
-      where: { type: { in: ["BUY", "SELL"] } },
+      where: { type: { in: [...LOT_TYPES] } },
       select: { depotId: true, securityId: true, type: true, date: true, quantity: true },
     }),
     loadCorporateActions(db),

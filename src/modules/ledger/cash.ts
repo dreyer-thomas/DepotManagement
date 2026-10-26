@@ -15,6 +15,8 @@ export type CashBookingRecord = {
   cashEffect: string;
   /** Running balance after this booking. */
   balance: string;
+  /** The Transaction's note, e.g. "Kontoabgleich"; `null` without one. */
+  note: string | null;
 };
 
 const SECURITY_SELECT = { id: true, name: true, isin: true, cryptoSymbol: true, assetType: true } as const;
@@ -31,12 +33,13 @@ export async function listCashBookings(depotId: string, db: LedgerDb = prisma): 
       amount: true,
       fee: true,
       tax: true,
+      note: true,
       security: { select: SECURITY_SELECT },
     },
   });
   return cashBookings(rows)
     .reverse()
-    .map(({ id, type, date, sequence, security, cashEffect, balance }) => ({
+    .map(({ id, type, date, sequence, security, cashEffect, balance, note }) => ({
       id,
       type,
       date,
@@ -44,5 +47,6 @@ export async function listCashBookings(depotId: string, db: LedgerDb = prisma): 
       security,
       cashEffect,
       balance,
+      note,
     }));
 }

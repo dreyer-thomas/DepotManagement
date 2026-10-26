@@ -4,7 +4,7 @@
 
 ## Goal
 
-Tommy can record stock splits and ISIN changes, and bring his complete Transaction history from Parqet CSV exports into DepotManagement (one file per Depot) without making decisions row by row. Positions, invested capital and Cash Account balances must match Parqet at the export date. Every trade must be booked even when Parqet's cash rows do not match the trade figures or Parqet rounds fractional sell quantities. Money that Parqet never recorded as a deposit is booked as a deposit, so the Cash Account never goes negative. A Depot can be deleted so that a failed migration can be run again. After this epic he works with real data, so correctness and reconciliation matter more than features.
+Tommy can record stock splits and ISIN changes, and bring his complete Transaction history from Parqet CSV exports into DepotManagement (one file per Depot) without making decisions row by row. Positions, invested capital and Cash Account balances must match Parqet at the export date. Every trade must be booked even when Parqet's cash rows do not match the trade figures or Parqet rounds fractional sell quantities. Money that Parqet never recorded as a deposit is booked as a deposit, so the Cash Account never goes negative. A Depot can be deleted so that a failed migration can be run again. Finally, he can reconcile any Depot against his broker statement position by position and fix genuine errors with holding corrections that neither touch cash nor fake a sale. After this epic he works with real data, so correctness and reconciliation matter more than features.
 
 ## Stories
 
@@ -16,6 +16,7 @@ Tommy can record stock splits and ISIN changes, and bring his complete Transacti
 - Story 2.6: Funding for Exports without Cash Rows and Depot Deletion
 - Story 2.7: Robust Cash Pairing and Rounding Tolerance in the Parqet Migration
 - Story 2.8: Missing Deposits and Fee-Aware Gain Comparison in the Parqet Migration
+- Story 2.9: Depot Reconciliation and Holding Corrections
 
 ## Requirements & Constraints
 
@@ -36,6 +37,15 @@ Tommy can record stock splits and ISIN changes, and bring his complete Transacti
   - Larger oversells still stop booking with "Verkauf übersteigt Bestand".
 - **Depot deletion** removes the Depot, its Transactions, import staging and caches. Securities and Prices shared with other Depots stay. Afterwards, the same export can be migrated again into a new Depot.
 - **Duplicates:** later document imports of migrated Transactions must be detected as duplicates. Re-running the same file books only non-duplicates.
+- **Depot reconciliation (2.9):**
+  - A run per non-archived Depot is opened for a statement date and lists every Position held on that date plus the Cash Account, with the app's quantity/balance on that date, the entered statement value and a "stimmt" check.
+  - Matching or checked rows count as reconciled; differing rows show the difference. Progress "x von y abgeglichen".
+  - At most one open run per Depot; checks and entered values persist across sessions until "Abgleich abschließen" (asks once if rows are still open). The next run starts empty; the Depot shows "Zuletzt abgeglichen am <statement date>".
+  - Holding correction = new Transaction type `ADJUSTMENT` ("Bestandskorrektur") on the statement date with the signed quantity difference. A positive difference adds a FIFO lot at a unit cost defaulting to the Position's average purchase price (editable); a negative one removes the oldest FIFO units at their Cost Basis. No cash effect, no realized Gain/Loss. Editable and deletable like any Transaction.
+  - In TTWROR and XIRR the correction's market value is an external flow (inflow for +, outflow for −), so returns are not distorted.
+  - Cash correction = DEPOSIT or WITHDRAWAL for the difference on the statement date, note "Kontoabgleich".
+  - Reconciliation runs and their statement values are user-entered data (not derived), stored by `ledger`, and included in export/restore.
+  - Unit tests for ADJUSTMENT in FIFO, cash and returns.
 - **EUR only:** non-EUR rows are flagged, never booked.
 - **Test data:** the repo is public, so tests use only synthetic, anonymised fixtures (`test/fixtures/*.csv.txt`). Real Parqet exports are never committed or read by agents.
 
@@ -49,9 +59,9 @@ Tommy can record stock splits and ISIN changes, and bring his complete Transacti
   - CorporateAction rows are scoped to the Security and apply in every Depot. Stored Transactions and Prices are never rewritten; core applies splits on read.
   - An ISIN change links the old and new Security. Core moves the open FIFO lots (dates and Cost Basis) to the new Security, scaled by the ratio.
   - On the same date, corporate actions apply before Transactions.
-- **Canonical Transaction shape:** types BUY/SELL/DIVIDEND/FEE/TAX/DEPOSIT/WITHDRAWAL.
+- **Canonical Transaction shape:** types BUY/SELL/DIVIDEND/FEE/TAX/DEPOSIT/WITHDRAWAL/ADJUSTMENT.
   - `amount` is the unsigned gross value; `fee ≥ 0`; `tax` is signed (negative = refund).
-  - Only BUY/SELL carry quantity and price.
+  - Only BUY/SELL carry quantity and price, except `ADJUSTMENT`: signed `quantity`, `price` = unit cost (for a positive quantity), `amount`/`fee`/`tax` = 0, cash effect 0. FIFO adds a lot (+) or removes the oldest units at Cost Basis without realized Gain/Loss (−); returns treat its market value as an external flow. Schema changes for the new type go into a new Prisma migration.
   - Cash effect, defined once in `core/cash`: BUY −(amount+fee+tax); SELL/DIVIDEND +amount−fee−tax; FEE −fee; TAX −tax; DEPOSIT +amount; WITHDRAWAL −amount.
 - **Parqet mapping:**
   - Parsing: semicolons, decimal comma, newest rows first. Rows are submitted oldest-first, and `datetime` becomes a Europe/Berlin business date (synthetic times dropped).
@@ -75,6 +85,7 @@ Tommy can record stock splits and ISIN changes, and bring his complete Transacti
   - A pure core classifier works by name, checking in order: ETF/ETC/ETN/UCITS ETF or an ETF issuer → ETF; Turbo/Knock-Out/Mini Future/Optionsschein/Open End → CERTIFICATE; SICAV/Fund/Funds/Fonds → FUND; otherwise STOCK.
   - Crypto rows stay CRYPTO, keyed by an upper-case symbol.
 - **Duplicates:** one advisory `core/duplicates` returns `unique | duplicate | ambiguous` on the key (depotId, date, type, securityId, quantity, amount ±€0.01). Old ISINs resolve to the current Security via ISIN-change actions. Migration matches only against the existing ledger, never within its own file. Matches are shown for a decision, never auto-dropped.
+- **Reconciliation storage:** runs (Depot, statement date, open/finished, per-row statement value and check) are owned and written by the `ledger` module. It is ledger data, not a cache: never derived, part of the AD-12 export/restore. App values per row are computed on read by core for the statement date. Corrections go through the ledger service like any write; archived Depots are read-only.
 - **Data formats:** money, quantity and price are TEXT decimal strings computed with decimal.js only, with no SQL arithmetic. Dates are `YYYY-MM-DD`, ordered by `(date, sequence)`. "Today" is passed into core. Expected failures return `{ ok: false, reason }`.
 - **Migrations:** never edit a committed Prisma migration; add a new one.
 
@@ -94,6 +105,7 @@ Tommy can record stock splits and ISIN changes, and bring his complete Transacti
      - the resulting Positions and cash balance at export date
   3. One-click "Übernehmen".
   4. The summary shows the comparison with Parqet, the per-sale realized check and the skipped items.
+- Depot reconciliation: Depot detail ⋮ "Depot abgleichen" → statement date → rows per Position plus Cash Account (app value, statement input, "stimmt" check, ✅ "abgeglichen" when matched). Differing rows show the difference, "Buchungen ansehen" (the Security detail history in this Depot, possible duplicates marked via `core/duplicates`) and "Korrektur buchen". Header shows "x von y abgeglichen"; "Abgleich abschließen" ends the run; Depot detail shows "Zuletzt abgeglichen am …". Corrections appear in the history as "Bestandskorrektur".
 - Settings → Depots → "Depot löschen": confirm by typing the Depot's name. The dialog states how many Transactions will be deleted and that this cannot be undone.
 - General rules: German microcopy, de-DE formats. No optimistic writes, no hover-only actions, modal depth ≤ 1. Gain/loss is never shown by color alone. Desktop is the primary surface for migration.
 
@@ -107,7 +119,9 @@ Tommy can record stock splits and ISIN changes, and bring his complete Transacti
   - 2.7 reworks cash pairing and oversell handling (removes `cash-pair-mismatch`; group differences become TAX).
   - 2.8 refines 2.6/2.7: inflow-side differences become DEPOSITs, minimal funding applies to every export, and the gain comparison becomes fee-aware.
 - **Operator verification:** Story 2.4 stays at operator verification; its real-data checks run after 2.5–2.8. After 2.8, a throwaway end-to-end run should show no negative cash, no negative TAX from contributions and only non-fee gain deviations. Tommy then migrates all three Depots, aligns each Cash Account to the broker balance and confirms 2.4.
+- **Story 2.9** is independent of the migration stories (2.3–2.8, all done) but builds on Epic 1 (ledger service, FIFO, `core/cash`, `core/duplicates`, Transaction form/history, Depot detail), Epic 4 (returns per AD-10; Security detail page from 4.6 for "Buchungen ansehen") and must keep Epic 6 export/restore (still backlog) in mind: runs and the ADJUSTMENT type must be exported and restored. Trigger: holding differences against brokers came from trades after the Parqet exports and a cominvest export ending early, not from app errors; the run lets Tommy verify every holding and fix genuine errors.
 - **Downstream:**
   - Epic 3 (classification UI) and Epic 4 (composition "Fonds" segment) must handle FUND.
   - Epic 5 document import must detect migrated Transactions as duplicates.
-  - Epic 4 returns treat delivery, funding and contribution deposits as external inflows.
+  - Epic 4 returns treat delivery, funding and contribution deposits as external inflows, and ADJUSTMENT market value as an external flow.
+  - Epic 6 export/restore must carry reconciliation runs and ADJUSTMENT Transactions.

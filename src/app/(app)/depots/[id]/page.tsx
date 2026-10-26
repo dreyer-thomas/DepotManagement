@@ -10,7 +10,9 @@ import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
 import { type DepotTab, depotTab, depotTabId, depotTabPanelId } from "@/app/_components/depots/depot-tabs";
 import { AppLink } from "@/app/_components/depots/DepotLink";
+import { DepotActionsMenu } from "@/app/_components/depots/DepotActionsMenu";
 import { DepotTabs } from "@/app/_components/depots/DepotTabs";
+import { continueText, lastReconciledText } from "@/app/_components/reconciliation/labels";
 import { brokerLabel } from "@/app/_components/depots/labels";
 import { readPeriod } from "@/app/_actions/period-cookie";
 import { PeriodSelector } from "@/app/_components/period/PeriodSelector";
@@ -29,6 +31,7 @@ import { periodLabel } from "@/core/period";
 import {
   depotValuation,
   getDepot,
+  getReconciliation,
   listCashBookings,
   listIsinChanges,
   listPositions,
@@ -70,7 +73,7 @@ export default async function DepotDetailPage({ params, searchParams }: Props) {
   const tab = depotTab((await searchParams)?.tab);
   const today = businessDate(new Date());
   const period = await readPeriod(today);
-  const [transactions, securities, splits, isinChanges, positions, cashBookings] = await Promise.all([
+  const [transactions, securities, splits, isinChanges, positions, cashBookings, reconciliation] = await Promise.all([
     listTransactions(depot.id),
     listSecurities(),
     tab === "cash" || tab === "composition" ? Promise.resolve([]) : listSplits(),
@@ -80,6 +83,7 @@ export default async function DepotDetailPage({ params, searchParams }: Props) {
       ? listPositions(depot.id, today, undefined, { storedPrices: latestStoredPrices })
       : Promise.resolve([]),
     tab === "cash" ? listCashBookings(depot.id) : Promise.resolve([]),
+    getReconciliation(depot.id),
   ]);
   const dialogDepot = { id: depot.id, name: depot.name };
   // An archived Depot is read-only (AD-17): no write action anywhere on the page.
@@ -152,9 +156,12 @@ export default async function DepotDetailPage({ params, searchParams }: Props) {
         direction="row"
         sx={{ mb: 2, flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", columnGap: 2, rowGap: 1 }}
       >
-        <Typography variant="pageTitle" component="h1">
-          {depot.name}
-        </Typography>
+        <Stack direction="row" spacing={0.5} sx={{ alignItems: "center" }}>
+          <Typography variant="pageTitle" component="h1">
+            {depot.name}
+          </Typography>
+          {readOnly ? null : <DepotActionsMenu depotId={depot.id} />}
+        </Stack>
         {emptyState ? null : <PeriodSelector period={period} today={today} />}
       </Stack>
       <Stack direction="row" spacing={3} sx={{ mb: 2, flexWrap: "wrap", alignItems: "center", rowGap: 1 }}>
@@ -163,6 +170,12 @@ export default async function DepotDetailPage({ params, searchParams }: Props) {
         <Typography>
           Cash-Konto <Typography component="span" variant="figure">{formatMoney(depot.cashBalance)}</Typography>
         </Typography>
+        {reconciliation.lastReconciled ? (
+          <Typography color="text.secondary">{lastReconciledText(reconciliation.lastReconciled)}</Typography>
+        ) : null}
+        {reconciliation.run ? (
+          <AppLink href={`/depots/${encodeURIComponent(depot.id)}/reconcile`}>{continueText(reconciliation.run.statementDate)}</AppLink>
+        ) : null}
         {emptyState || !newTransaction ? null : <Box sx={{ ml: "auto !important" }}>{newTransaction}</Box>}
       </Stack>
       {readOnly ? (

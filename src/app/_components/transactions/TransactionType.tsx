@@ -5,8 +5,10 @@ import PaymentsOutlined from "@mui/icons-material/PaymentsOutlined";
 import ReceiptLongOutlined from "@mui/icons-material/ReceiptLongOutlined";
 import SellOutlined from "@mui/icons-material/SellOutlined";
 import ShoppingCartOutlined from "@mui/icons-material/ShoppingCartOutlined";
+import TuneOutlined from "@mui/icons-material/TuneOutlined";
 import Box from "@mui/material/Box";
 import Stack from "@mui/material/Stack";
+import Typography from "@mui/material/Typography";
 import type { SvgIconProps } from "@mui/material/SvgIcon";
 import type { ComponentType } from "react";
 import { formatMoney } from "@/core/format";
@@ -22,6 +24,7 @@ const ICONS: Record<TransactionType, { Icon: ComponentType<SvgIconProps>; color:
   TAX: { Icon: AccountBalanceOutlined, color: "action" },
   DEPOSIT: { Icon: ArrowCircleDownOutlined, color: "primary" },
   WITHDRAWAL: { Icon: ArrowCircleUpOutlined, color: "secondary" },
+  ADJUSTMENT: { Icon: TuneOutlined, color: "action" },
 };
 
 /** Type icon (decorative) plus German label. */
@@ -32,6 +35,16 @@ export function TransactionTypeLabel({ type }: { type: TransactionType }) {
       <Icon fontSize="small" aria-hidden color={color} />
       <span>{transactionTypeLabel(type)}</span>
     </Stack>
+  );
+}
+
+/** A Transaction's note (e.g. "Kontoabgleich") as a caption under its type; nothing without one. */
+export function NoteCaption({ note }: { note: string | null }) {
+  if (!note) return null;
+  return (
+    <Typography component="span" variant="caption" color="text.secondary" sx={{ display: "block" }}>
+      {note}
+    </Typography>
   );
 }
 

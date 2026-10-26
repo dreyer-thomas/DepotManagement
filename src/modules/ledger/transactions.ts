@@ -3,6 +3,7 @@ import type { TransactionType } from "@/db/generated/prisma/client";
 import { isBusinessDate } from "@/core/dates";
 import { canonicalDecimal, ExactDecimal, isDecimalString } from "@/core/decimal";
 import { matchDuplicates } from "@/core/duplicates";
+import { LOT_TYPES } from "@/core/corporate-actions";
 import { firstOversell, sellableAt, type TradeRow } from "@/core/holdings";
 import { loadCorporateActions } from "./corporate-actions";
 import { inTransaction, type LedgerDb } from "./depots";
@@ -21,6 +22,9 @@ export type TradeType = (typeof TRADE_TYPES)[number];
 
 export const QUANTITY_MAX_DECIMALS = 8;
 
+/** Maximum length of a Transaction note (after trimming). */
+export const NOTE_MAX_LENGTH = 200;
+
 /** A ledger row in the canonical AD-14 shape; decimal values are canonical strings. */
 export type TransactionRecord = {
   id: string;
@@ -33,6 +37,8 @@ export type TransactionRecord = {
   amount: string;
   fee: string;
   tax: string;
+  /** Optional user note (≤ 200 characters), e.g. "Kontoabgleich". */
+  note: string | null;
   security: SecuritySummary | null;
 };
 
@@ -46,6 +52,7 @@ export type TradeFailureReason =
   | "fee-invalid"
   | "tax-invalid"
   | "amount-invalid"
+  | "note-invalid"
   | "security-required"
   | "security-not-found"
   | "sell-exceeds-holding"
@@ -66,7 +73,10 @@ export type TransactionFailureReason =
 /** Reasons whose failure carries extra data. */
 type DetailedReason = "sell-exceeds-holding" | "possible-duplicate" | "later-sell-exceeds-holding";
 
-/** A SELL beyond the quantity sellable at its position; `available` is that quantity. */
+/**
+ * A SELL (or a negative ADJUSTMENT) beyond the quantity sellable at its position; `available` is that
+ * quantity.
+ */
 export type SellExceedsHoldingFailure = { ok: false; reason: "sell-exceeds-holding"; available: string };
 
 /**
@@ -118,9 +128,12 @@ export type RecordTransactionInput = {
   depotId: unknown;
   type: unknown;
   date: unknown;
-  /** BUY/SELL only; ignored (stored as null) for other types. */
+  /** BUY/SELL (> 0) and ADJUSTMENT (signed, ≠ 0); ignored (stored as null) for other types. */
   quantity?: unknown;
-  /** BUY/SELL only; ignored (stored as null) for other types. */
+  /**
+   * BUY/SELL: price per unit. ADJUSTMENT: unit cost (≥ 0), required for a positive quantity, stored as
+   * null for a negative one. Ignored (stored as null) for other types.
+   */
   price?: unknown;
   /**
    * Gross value. BUY/SELL: defaults to quantity × price (exact). DIVIDEND/DEPOSIT/WITHDRAWAL: required,
@@ -129,6 +142,11 @@ export type RecordTransactionInput = {
   amount?: unknown;
   fee?: unknown;
   tax?: unknown;
+  /**
+   * Optional note, ≤ 200 characters after trimming; empty → null. On `updateTransaction`, `undefined`
+   * keeps the stored note.
+   */
+  note?: unknown;
   security?: SecurityRefInput;
   /** Book even when the duplicate check finds a possible duplicate (the user confirmed it). */
   allowDuplicate?: boolean;
@@ -140,7 +158,16 @@ export const TRANSACTION_INCLUDE = {
   security: { select: { id: true, name: true, isin: true, cryptoSymbol: true, assetType: true } },
 } as const;
 
-export const TRANSACTION_TYPES = ["BUY", "SELL", "DIVIDEND", "FEE", "TAX", "DEPOSIT", "WITHDRAWAL"] as const satisfies readonly TransactionType[];
+export const TRANSACTION_TYPES = [
+  "BUY",
+  "SELL",
+  "DIVIDEND",
+  "FEE",
+  "TAX",
+  "DEPOSIT",
+  "WITHDRAWAL",
+  "ADJUSTMENT",
+] as const satisfies readonly TransactionType[];
 
 type ValidationFailure = { ok: false; reason: Exclude<RecordReason, DetailedReason> };
 type Decimalish = InstanceType<typeof ExactDecimal>;
@@ -164,6 +191,8 @@ type ValidTransaction = {
   amount: string;
   fee: string;
   tax: string;
+  /** `undefined` = not given (an edit keeps the stored note). */
+  note: string | null | undefined;
   security: ValidSecurity | null;
 };
 
@@ -189,6 +218,16 @@ function parseSecurity(security: unknown): { ok: true; value: ValidSecurity | nu
 function isZeroOrAbsent(value: unknown): boolean {
   const parsed = decimal(value, "0");
   return parsed !== null && parsed.isZero();
+}
+
+/** Parses the optional note: trimmed, empty → null, ≤ 200 characters; `undefined` stays `undefined`. */
+function parseNote(value: unknown): { ok: true; value: string | null | undefined } | ValidationFailure {
+  if (value === undefined) return { ok: true, value: undefined };
+  if (value === null) return { ok: true, value: null };
+  if (typeof value !== "string") return { ok: false, reason: "note-invalid" };
+  const note = value.normalize("NFC").trim();
+  if (note.length > NOTE_MAX_LENGTH) return { ok: false, reason: "note-invalid" };
+  return { ok: true, value: note === "" ? null : note };
 }
 
 function validateTransaction(input: RecordTransactionInput): { ok: true; value: ValidTransaction } | ValidationFailure {
@@ -217,6 +256,21 @@ function validateTransaction(input: RecordTransactionInput): { ok: true; value: 
     const parsedAmount = decimal(input.amount, quantity.times(price).toFixed());
     if (!parsedAmount || parsedAmount.isNegative()) return { ok: false, reason: "amount-invalid" };
     [fee, tax, amount] = [parsedFee, parsedTax, parsedAmount];
+  } else if (type === "ADJUSTMENT") {
+    quantity = decimal(input.quantity);
+    if (!quantity || quantity.isZero() || quantity.decimalPlaces() > QUANTITY_MAX_DECIMALS) {
+      return { ok: false, reason: "quantity-invalid" };
+    }
+    if (quantity.isPositive()) {
+      price = decimal(input.price);
+      if (!price || price.isNegative()) return { ok: false, reason: "price-invalid" };
+    } else if (!(input.price === undefined || input.price === null || input.price === "" || decimal(input.price)?.isNegative() === false)) {
+      return { ok: false, reason: "price-invalid" };
+    }
+    if (!isZeroOrAbsent(input.amount)) return { ok: false, reason: "amount-invalid" };
+    if (!isZeroOrAbsent(input.fee)) return { ok: false, reason: "fee-invalid" };
+    if (!isZeroOrAbsent(input.tax)) return { ok: false, reason: "tax-invalid" };
+    [fee, tax, amount] = [new ExactDecimal(0), new ExactDecimal(0), new ExactDecimal(0)];
   } else if (type === "DIVIDEND") {
     const parsedAmount = decimal(input.amount);
     if (!parsedAmount || !parsedAmount.greaterThan(0)) return { ok: false, reason: "amount-invalid" };
@@ -245,9 +299,12 @@ function validateTransaction(input: RecordTransactionInput): { ok: true; value: 
     [fee, tax, amount] = [new ExactDecimal(0), new ExactDecimal(0), parsedAmount];
   }
 
+  const note = parseNote(input.note);
+  if (!note.ok) return note;
+
   const security = parseSecurity(input.security);
   if (!security.ok) return security;
-  const needsSecurity = type === "BUY" || type === "SELL" || type === "DIVIDEND";
+  const needsSecurity = type === "BUY" || type === "SELL" || type === "DIVIDEND" || type === "ADJUSTMENT";
   const forbidsSecurity = type === "DEPOSIT" || type === "WITHDRAWAL";
   if (needsSecurity && !security.value) return { ok: false, reason: "security-required" };
   if (forbidsSecurity && security.value) return { ok: false, reason: "security-not-allowed" };
@@ -263,6 +320,7 @@ function validateTransaction(input: RecordTransactionInput): { ok: true; value: 
       amount: canonicalDecimal(amount),
       fee: canonicalDecimal(fee),
       tax: canonicalDecimal(tax),
+      note: note.value,
       security: security.value,
     },
   };
@@ -309,30 +367,41 @@ type HoldingChange = {
   added: TradeRow | null;
 };
 
+/** The quantity a written row takes away like a SELL (a SELL, or |quantity| of a negative ADJUSTMENT); else `null`. */
+function removedQuantity(row: TradeRow): Decimalish | null {
+  if (row.type === "SELL") return new ExactDecimal(row.quantity as string);
+  if (row.type === "ADJUSTMENT" && new ExactDecimal(row.quantity as string).isNegative()) {
+    return new ExactDecimal(row.quantity as string).abs();
+  }
+  return null;
+}
+
 /**
- * Holding guard over the Depot's BUY/SELL rows (every Security) with the change applied, replayed with
- * every corporate action (splits and ISIN-change lineages): a written SELL beyond `sellableAt` its
- * position is `sell-exceeds-holding`; otherwise a SELL that the change makes oversell (and that did
- * not before) is `later-sell-exceeds-holding`. `available` is in the SELL's own units.
+ * Holding guard over the Depot's BUY/SELL/ADJUSTMENT rows (every Security) with the change applied,
+ * replayed with every corporate action (splits and ISIN-change lineages): a written SELL or negative
+ * ADJUSTMENT beyond `sellableAt` its position is `sell-exceeds-holding`; otherwise a SELL or negative
+ * ADJUSTMENT that the change makes oversell (and that did not before) is `later-sell-exceeds-holding`.
+ * `available` is in the written row's own units.
  */
 async function checkHoldings(
   change: HoldingChange,
   db: LedgerDb,
 ): Promise<{ ok: true } | SellExceedsHoldingFailure | LaterSellExceedsHoldingFailure> {
   const { added } = change;
-  if (added?.type === "SELL" && added.securityId === null) {
+  const removing = added ? removedQuantity(added) : null;
+  if (added && removing && added.securityId === null) {
     // A Security that does not exist yet is not held anywhere.
     return { ok: false, reason: "sell-exceeds-holding", available: "0" };
   }
   const before: TradeRowWithId[] = await db.transaction.findMany({
-    where: { depotId: change.depotId, type: { in: ["BUY", "SELL"] } },
+    where: { depotId: change.depotId, type: { in: [...LOT_TYPES] } },
     select: TRADE_SELECT,
   });
   const actions = await loadCorporateActions(db);
   const others = before.filter((row) => row.id !== change.removedId);
-  if (added?.type === "SELL" && added.securityId !== null) {
+  if (added && removing && added.securityId !== null) {
     const available = sellableAt(others, added.securityId, added, actions);
-    if (new ExactDecimal(added.quantity as string).greaterThan(available)) {
+    if (removing.greaterThan(available)) {
       return { ok: false, reason: "sell-exceeds-holding", available };
     }
   }
@@ -393,6 +462,8 @@ function rowData(transaction: ValidTransaction) {
     amount: transaction.amount,
     fee: transaction.fee,
     tax: transaction.tax,
+    // An edit without a note keeps the stored one.
+    ...(transaction.note === undefined ? {} : { note: transaction.note }),
   };
 }
 
@@ -445,7 +516,9 @@ async function writeTransaction(
  * Records a Transaction of any type in the AD-14 shape with the next intra-day sequence (appended at
  * the end of its date). BUY/SELL: quantity and price required, a SELL beyond the sellable quantity is
  * rejected. DIVIDEND: Security and amount > 0. FEE: fee > 0. TAX: tax ≠ 0 (negative = refund).
- * DEPOSIT/WITHDRAWAL: amount > 0, no Security. Cash may go negative. An archived Depot is
+ * DEPOSIT/WITHDRAWAL: amount > 0, no Security. ADJUSTMENT (holding correction): Security, signed
+ * quantity ≠ 0, unit cost `price` ≥ 0 for a positive quantity, no cash effect; a negative one beyond
+ * the sellable quantity is `sell-exceeds-holding`. An optional `note` is stored. Cash may go negative. An archived Depot is
  * `depot-archived`. After every other check, a
  * possible duplicate is `possible-duplicate` unless `allowDuplicate` is true. Expected failures never
  * throw; nothing is written on failure. Runs in one DB transaction (its own unless `db` already is one).
@@ -560,6 +633,7 @@ export function toRecord(row: {
   amount: string;
   fee: string;
   tax: string;
+  note: string | null;
   security: SecuritySummary | null;
 }): TransactionRecord {
   return {
@@ -573,6 +647,7 @@ export function toRecord(row: {
     amount: row.amount,
     fee: row.fee,
     tax: row.tax,
+    note: row.note,
     security: row.security,
   };
 }

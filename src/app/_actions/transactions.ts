@@ -58,6 +58,7 @@ type DecimalField = "quantity" | "price" | "fee" | "tax" | "amount";
 function usedFields(type: string): DecimalField[] {
   if (type === "BUY" || type === "SELL") return ["quantity", "price", "fee", "tax"];
   if (type === "DIVIDEND") return ["amount", "tax"];
+  if (type === "ADJUSTMENT") return ["quantity", "price"];
   return ["amount"];
 }
 
@@ -75,6 +76,8 @@ function figures(type: string, values: Partial<Record<DecimalField, string>>): P
       return { quantity: values.quantity, price: values.price, fee: values.fee, tax: values.tax };
     case "DIVIDEND":
       return { amount: values.amount, tax: values.tax };
+    case "ADJUSTMENT":
+      return { quantity: values.quantity, price: values.price };
     case "FEE":
       return { fee: values.amount };
     case "TAX":

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createTestDatabase, type TestDatabase } from "../../../test/helpers/test-db";
-import { createDepot, ensureSecurity, latestTradePrices, listPositions, listRealizedSales, recordIsinChange, recordTrade, type RecordTradeInput } from "./index";
+import { createDepot, ensureSecurity, latestTradePrices, listPositions, listRealizedSales, recordIsinChange, recordTrade, type RecordTradeInput, recordTransaction } from "./index";
 
 let testDb: TestDatabase;
 let depotId: string;
@@ -122,5 +122,32 @@ describe("listRealizedSales", () => {
       { securityId: newId, date: "2026-05-01", sequence: 1, gain: "58.8", fees: "1.2" },
     ]);
     expect(await listRealizedSales(depotId, "2026-04-30", db())).toHaveLength(1);
+  });
+});
+
+describe("holding corrections (ADJUSTMENT)", () => {
+  async function adjust(date: string, quantity: string, price?: string) {
+    const result = await recordTransaction({ depotId, type: "ADJUSTMENT", date, quantity, price, security: { id: appleId } }, db());
+    if (!result.ok) throw new Error(`setup failed: ${result.reason}`);
+    return result.transaction;
+  }
+
+  it("keeps the unit cost out of price observations", async () => {
+    await record({ date: "2026-01-10", quantity: "10", price: "100" });
+    await adjust("2026-02-01", "2", "80");
+    const [latest] = await latestTradePrices([appleId], TODAY, db());
+    expect(latest).toMatchObject({ date: "2026-01-10", price: "100" });
+    const [position] = await listPositions(depotId, TODAY, db());
+    expect(position).toMatchObject({ quantity: "12", costBasis: "1160", price: "100" });
+  });
+
+  it("listRealizedSales consumes lots after a negative correction: Cost Basis 600", async () => {
+    await record({ date: "2026-01-10", quantity: "10", price: "100" });
+    await record({ date: "2026-01-11", quantity: "10", price: "120" });
+    await adjust("2026-02-01", "-10");
+    await record({ type: "SELL", date: "2026-03-01", quantity: "5", price: "150" });
+    const sales = await listRealizedSales(depotId, TODAY, db());
+    // Proceeds 750 − Cost Basis 600 (5 × 120; the 100-lot was corrected away).
+    expect(sales).toMatchObject([{ date: "2026-03-01", gain: "150", fees: "0" }]);
   });
 });

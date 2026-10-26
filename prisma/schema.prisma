@@ -19,14 +19,16 @@ enum Broker {
 // Owned by the ledger module. The Cash Account is implicit (one per Depot); its balance is
 // computed on read and never stored.
 model Depot {
-  id            String        @id @default(cuid())
-  name          String        @unique
-  broker        Broker
+  id                 String              @id @default(cuid())
+  name               String              @unique
+  broker             Broker
   /// Archived Depots are read-only and left out of Portfolio figures (AD-17).
-  archived      Boolean       @default(false)
-  transactions  Transaction[]
+  archived           Boolean             @default(false)
+  transactions       Transaction[]
   /// Import staging of this Depot (owned by the import module; rows cascade with the Depot).
-  importBatches ImportBatch[]
+  importBatches      ImportBatch[]
+  /// Reconciliation runs against broker statements (owned by the ledger module; cascade with the Depot).
+  reconciliationRuns ReconciliationRun[]
 }
 
 enum AssetType {
@@ -38,7 +40,8 @@ enum AssetType {
   UNCLASSIFIED
 }
 
-// All AD-14 types are declared; story 1.4 writes only BUY and SELL.
+// All AD-14 types. ADJUSTMENT (holding correction, story 2.9): signed quantity, unit cost in `price`
+// for a positive quantity, amount/fee/tax 0, no cash effect.
 enum TransactionType {
   BUY
   SELL
@@ -47,24 +50,26 @@ enum TransactionType {
   TAX
   DEPOSIT
   WITHDRAWAL
+  ADJUSTMENT
 }
 
 // Owned by the ledger module; created only via ledger.ensureSecurity.
 model Security {
-  id                String            @id @default(cuid())
-  isin              String?           @unique
-  cryptoSymbol      String?           @unique
-  name              String
-  assetType         AssetType
-  transactions      Transaction[]
-  corporateActions  CorporateAction[] @relation("CorporateActionSecurity")
+  id                 String              @id @default(cuid())
+  isin               String?             @unique
+  cryptoSymbol       String?             @unique
+  name               String
+  assetType          AssetType
+  transactions       Transaction[]
+  corporateActions   CorporateAction[]   @relation("CorporateActionSecurity")
   /// ISIN changes whose new Security this is.
-  isinChangeSources CorporateAction[] @relation("IsinChangeTarget")
-  providerMapping   ProviderMapping?
-  prices            Price[]
-  logo              SecurityLogo?
-  newsArticles      NewsArticle[]
-  newsFetch         NewsFetch?
+  isinChangeSources  CorporateAction[]   @relation("IsinChangeTarget")
+  providerMapping    ProviderMapping?
+  prices             Price[]
+  logo               SecurityLogo?
+  newsArticles       NewsArticle[]
+  newsFetch          NewsFetch?
+  reconciliationRows ReconciliationRow[]
 }
 
 // Canonical Transaction shape (AD-14). Decimal values are TEXT strings; ordered by (date, sequence).
@@ -83,6 +88,8 @@ model Transaction {
   amount     String
   fee        String
   tax        String
+  /// Optional user note (≤ 200 characters), e.g. "Kontoabgleich" on a reconciliation cash correction.
+  note       String?
 
   @@unique([depotId, date, sequence])
   @@index([securityId])
@@ -113,6 +120,46 @@ model CorporateAction {
   @@unique([securityId, type, date])
   @@index([securityId])
   @@index([newSecurityId])
+}
+
+enum ReconciliationStatus {
+  OPEN
+  FINISHED
+}
+
+// Owned by the ledger module (story 2.9). A reconciliation run of one Depot against a broker statement:
+// user-entered data (statement values, checks), never derived; app values are computed on read. At most one
+// OPEN run per Depot (service-enforced). Part of the AD-12 export/restore.
+model ReconciliationRun {
+  id            String               @id @default(cuid())
+  depotId       String
+  depot         Depot                @relation(fields: [depotId], references: [id], onDelete: Cascade)
+  /// Business date YYYY-MM-DD (Europe/Berlin) of the broker statement.
+  statementDate String
+  status        ReconciliationStatus @default(OPEN)
+  /// UTC ISO timestamp of the start.
+  createdAt     String
+  /// UTC ISO timestamp of "Abgleich abschließen"; null while OPEN.
+  finishedAt    String?
+  rows          ReconciliationRow[]
+
+  @@index([depotId])
+}
+
+// Owned by the ledger module (story 2.9). One user-entered row of a run: a Position (securityId) or the
+// Cash Account (securityId null; SQLite NULLs are distinct, so the service looks the cash row up itself).
+// `statementValue` is a canonical decimal string (quantity or EUR balance).
+model ReconciliationRow {
+  id             String            @id @default(cuid())
+  runId          String
+  run            ReconciliationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  securityId     String?
+  security       Security?         @relation(fields: [securityId], references: [id], onDelete: Restrict)
+  statementValue String?
+  checked        Boolean           @default(false)
+
+  @@unique([runId, securityId])
+  @@index([securityId])
 }
 
 enum PriceProvider {

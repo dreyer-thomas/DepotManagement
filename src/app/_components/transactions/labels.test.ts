@@ -26,7 +26,16 @@ describe("transaction labels", () => {
       "Steuer",
       "Einzahlung",
       "Auszahlung",
+      "Bestandskorrektur",
     ]);
+  });
+
+  it("explains a correction beyond the holding and its own field rules", () => {
+    expect(transactionErrorMessage("sell-exceeds-holding", "5", "ADJUSTMENT")).toBe(
+      "Korrektur übersteigt den verfügbaren Bestand (höchstens 5 Stück, spätere Verkäufe eingerechnet).",
+    );
+    expect(transactionErrorMessage("sell-exceeds-holding", "5", "SELL")).toBe("Verkauf übersteigt Bestand (5 Stück).");
+    expect(transactionErrorMessage("price-invalid", undefined, "ADJUSTMENT")).toBe("Bitte einen Einstandskurs von mindestens 0 eingeben.");
   });
 
   it("explains a write to an archived Depot", () => {

@@ -63,6 +63,8 @@ import {
 const TOUCH_TARGET = { minHeight: 44 };
 
 const decimalInput = { htmlInput: { inputMode: "decimal" as const, autoComplete: "off" } };
+/** A signed figure: phone keypads of `inputMode="decimal"` may lack the minus sign. */
+const signedDecimalInput = { htmlInput: { inputMode: "text" as const, autoComplete: "off" } };
 
 /** Seven types wrap onto several rows, so each button gets its own border instead of the joined group look. */
 const TYPE_GROUP = {
@@ -226,7 +228,7 @@ function TransactionForm({
     label: string,
     value: string,
     set: (v: string) => void,
-    { required = false, helper }: { required?: boolean; helper?: string } = {},
+    { required = false, helper, signed = false }: { required?: boolean; helper?: string; signed?: boolean } = {},
   ) => (
     <TextField
       name={TRADE_FIELDS[field]}
@@ -237,7 +239,7 @@ function TransactionForm({
       helperText={errorFor(field) ?? helper}
       required={required}
       fullWidth
-      slotProps={decimalInput}
+      slotProps={signed ? signedDecimalInput : decimalInput}
     />
   );
 
@@ -344,8 +346,24 @@ function TransactionForm({
       case "quantityPrice":
         return (
           <Stack key="quantityPrice" direction={{ xs: "column", sm: "row" }} spacing={2}>
-            {decimalField("quantity", "Stück", quantity, setQuantity, { required: true })}
-            {decimalField("price", "Kurs", price, setPrice, { required: true })}
+            {type === "ADJUSTMENT" ? (
+              <>
+                {decimalField("quantity", "Stück (±)", quantity, setQuantity, {
+                  required: true,
+                  helper: "Negativ = Abgang",
+                  signed: true,
+                })}
+                {decimalField("price", "Einstandskurs je Stück", price, setPrice, {
+                  required: !quantity.trim().startsWith("-"),
+                  helper: "Bei negativer Stückzahl nicht nötig",
+                })}
+              </>
+            ) : (
+              <>
+                {decimalField("quantity", "Stück", quantity, setQuantity, { required: true })}
+                {decimalField("price", "Kurs", price, setPrice, { required: true })}
+              </>
+            )}
           </Stack>
         );
       case "feeTax":

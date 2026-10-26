@@ -10,10 +10,20 @@ export const TRANSACTION_TYPE_LABELS: Record<TransactionType, string> = {
   TAX: "Steuer",
   DEPOSIT: "Einzahlung",
   WITHDRAWAL: "Auszahlung",
+  ADJUSTMENT: "Bestandskorrektur",
 };
 
 /** All Transaction types in selection order. */
-export const TRANSACTION_TYPE_ORDER: TransactionType[] = ["BUY", "SELL", "DIVIDEND", "FEE", "TAX", "DEPOSIT", "WITHDRAWAL"];
+export const TRANSACTION_TYPE_ORDER: TransactionType[] = [
+  "BUY",
+  "SELL",
+  "DIVIDEND",
+  "FEE",
+  "TAX",
+  "DEPOSIT",
+  "WITHDRAWAL",
+  "ADJUSTMENT",
+];
 
 export function transactionTypeLabel(type: TransactionType): string {
   return TRANSACTION_TYPE_LABELS[type];
@@ -58,6 +68,7 @@ const MESSAGES: Record<MessageReason, string> = {
   "fee-invalid": "Gebühren dürfen nicht negativ sein.",
   "tax-invalid": "Bitte einen gültigen Steuerbetrag eingeben.",
   "amount-invalid": "Bitte einen Betrag größer 0 eingeben.",
+  "note-invalid": "Bitte eine Notiz mit höchstens 200 Zeichen eingeben.",
   "security-required": "Bitte eine Security wählen.",
   "security-not-found": "Security nicht gefunden.",
   "security-not-allowed": "Ein- und Auszahlungen haben keine Security.",
@@ -76,6 +87,10 @@ const TYPE_MESSAGES: Partial<Record<TransactionType, Partial<Record<MessageReaso
   SELL: { "amount-invalid": "Der Betrag darf nicht negativ sein." },
   FEE: { "fee-invalid": "Bitte einen Betrag größer 0 eingeben." },
   TAX: { "tax-invalid": "Bitte einen Betrag ungleich 0 eingeben." },
+  ADJUSTMENT: {
+    "quantity-invalid": "Bitte eine Stückzahl ungleich 0 mit höchstens 8 Nachkommastellen eingeben (negativ = Abgang).",
+    "price-invalid": "Bitte einen Einstandskurs von mindestens 0 eingeben.",
+  },
 };
 
 /**
@@ -84,7 +99,12 @@ const TYPE_MESSAGES: Partial<Record<TransactionType, Partial<Record<MessageReaso
  * depend on it).
  */
 export function transactionErrorMessage(reason: TransactionErrorReason, detail?: string, type?: TransactionType): string {
-  if (reason === "sell-exceeds-holding") return `Verkauf übersteigt Bestand (${formatQuantity(detail ?? "0")} Stück).`;
+  if (reason === "sell-exceeds-holding") {
+    if (type === "ADJUSTMENT") {
+      return `Korrektur übersteigt den verfügbaren Bestand (höchstens ${formatQuantity(detail ?? "0")} Stück, spätere Verkäufe eingerechnet).`;
+    }
+    return `Verkauf übersteigt Bestand (${formatQuantity(detail ?? "0")} Stück).`;
+  }
   if (reason === "later-sell-exceeds-holding") {
     return `Nicht möglich: Der Verkauf am ${detail ? formatDate(detail) : "?"} würde den Bestand übersteigen.`;
   }

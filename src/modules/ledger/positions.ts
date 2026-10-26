@@ -1,5 +1,5 @@
 import { prisma } from "@/db";
-import type { CorporateActions } from "@/core/corporate-actions";
+import { type CorporateActions, LOT_TYPES } from "@/core/corporate-actions";
 import { saleFees, saleKey } from "@/core/fee-attribution";
 import { fifo } from "@/core/fifo";
 import { computePositions, type Position } from "@/core/positions";
@@ -87,7 +87,7 @@ export async function listPositions(
 ): Promise<PositionRecord[]> {
   const rows = await db.transaction.findMany({
     where: { depotId },
-    select: { securityId: true, type: true, date: true, sequence: true, quantity: true, amount: true, fee: true },
+    select: { securityId: true, type: true, date: true, sequence: true, quantity: true, price: true, amount: true, fee: true },
   });
   const own = new Set(rows.flatMap((row) => (row.securityId ? [row.securityId] : [])));
   if (own.size === 0) return [];
@@ -150,8 +150,8 @@ export type RealizedSaleRecord = { securityId: string; date: string; sequence: n
  */
 export async function listRealizedSales(depotId: string, asOf: string, db: LedgerDb = prisma): Promise<RealizedSaleRecord[]> {
   const rows = await db.transaction.findMany({
-    where: { depotId, type: { in: ["BUY", "SELL"] } },
-    select: { securityId: true, type: true, date: true, sequence: true, quantity: true, amount: true, fee: true },
+    where: { depotId, type: { in: [...LOT_TYPES] } },
+    select: { securityId: true, type: true, date: true, sequence: true, quantity: true, price: true, amount: true, fee: true },
   });
   if (rows.length === 0) return [];
   const actions = await loadCorporateActions(db);
