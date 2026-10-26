@@ -1,8 +1,27 @@
-// CoinGecko search: crypto symbol → coin id (prices are fetched by id). Only the symbol leaves the server.
+// CoinGecko: search (crypto symbol → coin id) and daily EUR prices by coin id (`market_chart`, Demo API:
+// at most 365 days). Only the symbol, resp. the coin id and a day count, leave the server (AD-13).
 import { z } from "zod";
-import { ERROR, type FetchLike, type Lookup, NOT_FOUND, PROVIDER_TIMEOUT_MS, readJson } from "./shared";
+import { canonicalDecimal } from "@/core/decimal";
+import {
+  daysBetween,
+  ERROR,
+  type FetchLike,
+  getJson,
+  latestClose,
+  type Lookup,
+  NOT_FOUND,
+  PROVIDER_TIMEOUT_MS,
+  readJson,
+  sortedCloses,
+  utcDate,
+} from "./shared";
+import type { DailyClose, PriceAdapter, PriceFetch } from "./types";
 
 export const COINGECKO_SEARCH_URL = "https://api.coingecko.com/api/v3/search";
+export const COINGECKO_COINS_URL = "https://api.coingecko.com/api/v3/coins";
+
+/** The Demo API serves at most this many days of daily history. */
+export const COINGECKO_MAX_DAYS = 365;
 
 const COIN_ID = /^[A-Za-z0-9.^=_-]{1,40}$/;
 
@@ -43,4 +62,56 @@ export async function findCoinId(
     console.warn(`CoinGecko: network (${error instanceof Error ? error.name : "unknown"}) for ${wanted}`);
     return ERROR;
   }
+}
+
+const chartSchema = z.object({ prices: z.array(z.tuple([z.number(), z.number().nullable()])) }).loose();
+
+/**
+ * CoinGecko price adapter (symbol = coin id): daily EUR prices of the last `days` days, where `days`
+ * reaches back to `from` (UTC dates, 1..365). A point at epoch ms `t` is dated by the UTC date of `t − 1`:
+ * the 00:00 UTC point closes the previous UTC day, an intraday point is today's latest price. The last
+ * point of a date wins; closes are limited to the requested range.
+ */
+export function coingeckoPrices({
+  fetch,
+  apiKey,
+  now = () => new Date(),
+}: {
+  fetch: FetchLike;
+  apiKey?: string;
+  now?: () => Date;
+}): PriceAdapter {
+  async function fetchHistory(symbol: string, from: string, to: string): Promise<PriceFetch<DailyClose[]>> {
+    const today = utcDate(now().getTime());
+    const days = Math.min(COINGECKO_MAX_DAYS, Math.max(1, daysBetween(from, today) + 1));
+    const headers: Record<string, string> = apiKey ? { "x-cg-demo-api-key": apiKey } : {};
+    const reply = await getJson(
+      fetch,
+      `${COINGECKO_COINS_URL}/${encodeURIComponent(symbol)}/market_chart?vs_currency=eur&days=${days}&interval=daily`,
+      headers,
+    );
+    if (!reply) return { ok: false, reason: "network" };
+    if (reply.status === 404) return { ok: false, reason: "not-found" };
+    if (!reply.ok) return { ok: false, reason: "network" };
+    const parsed = chartSchema.safeParse(reply.body);
+    if (!parsed.success) return { ok: false, reason: "schema" };
+    try {
+      const byDate = new Map<string, string>();
+      for (const [ms, price] of parsed.data.prices) {
+        if (price === null || !(price > 0)) continue;
+        const date = utcDate(ms - 1);
+        if (date < from || date > to) continue;
+        byDate.set(date, canonicalDecimal(String(price)));
+      }
+      if (byDate.size === 0) return { ok: false, reason: "not-found" };
+      return { ok: true, value: sortedCloses(byDate) };
+    } catch {
+      return { ok: false, reason: "unexpected" };
+    }
+  }
+
+  return {
+    fetchHistory: (symbol, from, to) => fetchHistory(symbol, from, to),
+    fetchLatest: (symbol) => latestClose((from, to) => fetchHistory(symbol, from, to), now),
+  };
 }

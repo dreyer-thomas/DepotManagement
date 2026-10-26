@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestDatabase, type TestDatabase } from "../../../test/helpers/test-db";
-import { recorded } from "../../../test/helpers/providers";
+import { type FetchCall, fakeFetch, json, recorded } from "../../../test/helpers/providers";
 import { createDepot, ensureSecurity, listPositions, recordSplit, recordTrade, updateTransaction } from "@/modules/ledger";
 import {
   backfillHeldPrices,
@@ -47,7 +47,7 @@ async function buy(securityId: string, date: string, quantity = "10", price = "1
   return result.transaction.id;
 }
 
-async function mapTo(securityId: string, provider: "YAHOO" | "ONVISTA" | null, symbol: string | null) {
+async function mapTo(securityId: string, provider: "YAHOO" | "ONVISTA" | "COINGECKO" | null, symbol: string | null) {
   await db().providerMapping.create({ data: { securityId, provider, symbol, origin: "AUTO", updatedAt: NOW.toISOString() } });
 }
 
@@ -61,13 +61,15 @@ function charts(replies: Record<string, unknown>) {
   });
 }
 
-/** Deps that fail any mapping lookup (no network) and use `chart`. */
-function deps(chart: YahooChart): PriceDeps {
+/** Deps that fail any mapping lookup (no network) and use `chart`; `fetch` serves onvista/CoinGecko/Binance. */
+function deps(chart: YahooChart, fetch?: PriceDeps["fetch"]): PriceDeps {
   return {
     chart,
-    fetch: async () => {
-      throw new Error("no network in tests");
-    },
+    fetch:
+      fetch ??
+      (async () => {
+        throw new Error("no network in tests");
+      }),
     search: async () => {
       throw new Error("no network in tests");
     },
@@ -201,21 +203,21 @@ describe("refreshPrices", () => {
     expect(await db().price.count()).toBe(0);
   });
 
-  it("fetches only held Securities mapped to Yahoo; markers, other providers and sold-out ones are skipped", async () => {
+  it("fetches only held mapped Securities; markers and sold-out ones are skipped", async () => {
     const sap = await security(SAP, "SAP SE");
     const marker = await security("US0378331005", "Apple");
-    const turbo = await security("DE0005557508", "Telekom");
     const sold = await security(NVIDIA, "NVIDIA");
-    for (const id of [sap, marker, turbo, sold]) await buy(id, "2026-10-13");
+    for (const id of [sap, marker, sold]) await buy(id, "2026-10-13");
     const sell = await recordTrade({ depotId, type: "SELL", date: "2026-10-14", quantity: "10", price: "1", security: { id: sold } }, db());
     expect(sell.ok).toBe(true);
     await mapTo(sap, "YAHOO", "SAP.DE");
     await mapTo(marker, null, null);
-    await mapTo(turbo, "ONVISTA", "DE0005557508");
     await mapTo(sold, "YAHOO", "NVD.DE");
     const chart = charts({ "SAP.DE": recorded("yahoo-chart-sap-de") });
-    expect(await refreshPrices("2026-10-23", deps(chart), db())).toEqual({ updated: 1, failed: [] });
+    const { fetch, calls } = fakeFetch(new Error("unexpected fetch"));
+    expect(await refreshPrices("2026-10-23", deps(chart, fetch), db())).toEqual({ updated: 1, failed: [] });
     expect(chart).toHaveBeenCalledTimes(1);
+    expect(calls).toHaveLength(0);
   });
 
   it("resolves missing mappings first (a transient lookup failure leaves the Security unfetched)", async () => {
@@ -286,6 +288,180 @@ describe("refreshPrices", () => {
     ]);
     expect(chart).toHaveBeenCalledTimes(2);
     expect(maxActive).toBe(1);
+  });
+});
+
+describe("certificates and crypto", () => {
+  const GOLD = "DE000A0S9GB0";
+
+  async function cryptoSecurity(symbol: string, name: string) {
+    const result = await ensureSecurity({ cryptoSymbol: symbol }, { name, assetType: "CRYPTO" }, db());
+    if (!result.ok) throw new Error(`setup failed: ${result.reason}`);
+    return result.security.id;
+  }
+
+  async function certificate() {
+    const result = await ensureSecurity({ isin: GOLD }, { name: "Xetra-Gold", assetType: "CERTIFICATE" }, db());
+    if (!result.ok) throw new Error(`setup failed: ${result.reason}`);
+    return result.security.id;
+  }
+
+  /** Fake `fetch` routing by provider host; a missing route is an unexpected call. */
+  function providers(replies: { onvista?: Response | Error; onvistaEod?: Response | Error; coingecko?: Response | Error; binance?: Response | Error }) {
+    return fakeFetch((call: FetchCall) => {
+      const reply = call.url.startsWith("https://api.onvista.de/")
+        ? call.url.includes("/query?")
+          ? replies.onvista
+          : replies.onvistaEod
+        : call.url.startsWith("https://api.coingecko.com/")
+          ? replies.coingecko
+          : call.url.startsWith("https://api.binance.com/")
+            ? replies.binance
+            : undefined;
+      return reply ?? new Error(`unexpected fetch ${call.url}`);
+    });
+  }
+
+  const onvistaOk = () => ({ onvista: json(recorded("onvista-query-xetra-gold")), onvistaEod: json(recorded("onvista-eod-xetra-gold")) });
+  const coingeckoOk = () => json(recorded("coingecko-market-chart-bitcoin"));
+
+  it("stores the recorded onvista closes of a held certificate from its first activity date", async () => {
+    const gold = await certificate();
+    await buy(gold, "2026-10-01");
+    await mapTo(gold, "ONVISTA", GOLD);
+    const { fetch, calls } = providers(onvistaOk());
+    expect(await refreshPrices("2026-10-23", deps(charts({}), fetch), db())).toEqual({ updated: 1, failed: [] });
+    const rows = await providerRows(gold);
+    expect(rows).toHaveLength(17);
+    expect(rows[0]).toEqual({ date: "2026-10-01", price: "119.05", fetchedAt: NOW.toISOString() });
+    expect(rows[16]).toMatchObject({ date: "2026-10-23", price: "114.81" });
+    expect(await mapping(gold)).toMatchObject({ historyFrom: "2026-10-01", fetchedAt: NOW.toISOString(), fetchError: null });
+    expect(calls[1].url).toContain("startDate=2026-10-01");
+  });
+
+  it("stores CoinGecko closes of a recent crypto holding without calling Binance", async () => {
+    const btc = await cryptoSecurity("BTC", "Bitcoin");
+    await buy(btc, "2026-10-16", "1", "70000");
+    await mapTo(btc, "COINGECKO", "bitcoin");
+    const { fetch, calls } = providers({ coingecko: coingeckoOk() });
+    expect(await refreshPrices("2026-10-23", deps(charts({}), fetch), db())).toEqual({ updated: 1, failed: [] });
+    const rows = await providerRows(btc);
+    expect(rows.map((row) => row.date)).toEqual([
+      "2026-10-16",
+      "2026-10-17",
+      "2026-10-18",
+      "2026-10-19",
+      "2026-10-20",
+      "2026-10-21",
+      "2026-10-22",
+      "2026-10-23",
+    ]);
+    expect(rows[0].price).toBe("72537.3051996502");
+    expect(calls).toHaveLength(1);
+    expect(await mapping(btc)).toMatchObject({ historyFrom: "2026-10-16", fetchError: null });
+  });
+
+  it("sends the CoinGecko key from env with the price fetch only when set", async () => {
+    const btc = await cryptoSecurity("BTC", "Bitcoin");
+    await buy(btc, "2026-10-16", "1", "70000");
+    await mapTo(btc, "COINGECKO", "bitcoin");
+    const keyed = providers({ coingecko: coingeckoOk() });
+    await refreshPrices("2026-10-23", { ...deps(charts({}), keyed.fetch), env: { COINGECKO_API_KEY: "cg-key" } }, db());
+    const chartCall = keyed.calls.find((call) => call.url.includes("/market_chart?"))!;
+    expect(chartCall.headers["x-cg-demo-api-key"]).toBe("cg-key");
+
+    const blank = providers({ coingecko: coingeckoOk() });
+    await refreshPrices("2026-10-23", { ...deps(charts({}), blank.fetch), env: { COINGECKO_API_KEY: " " } }, db());
+    expect(blank.calls).toHaveLength(1);
+    expect(Object.keys(blank.calls[0].headers)).not.toContain("x-cg-demo-api-key");
+  });
+
+  it("backfills an old crypto holding once from Binance, then refreshes from CoinGecko only", async () => {
+    const btc = await cryptoSecurity("BTC", "Bitcoin");
+    await buy(btc, "2024-01-01", "1", "40000");
+    await mapTo(btc, "COINGECKO", "bitcoin");
+    const { fetch, calls } = providers({ coingecko: coingeckoOk(), binance: json(recorded("binance-klines-btceur")) });
+
+    expect(await refreshPrices("2026-10-23", deps(charts({}), fetch), db())).toEqual({ updated: 1, failed: [] });
+    expect(calls.map((call) => call.url)).toEqual([
+      "https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=eur&days=365&interval=daily",
+      // [first BUY, day before the first CoinGecko date]
+      `https://api.binance.com/api/v3/klines?symbol=BTCEUR&interval=1d&startTime=${Date.UTC(2024, 0, 1)}&endTime=${Date.UTC(2026, 9, 15)}&limit=1000`,
+    ]);
+    const rows = await providerRows(btc);
+    expect(rows).toHaveLength(13);
+    expect(rows[0]).toMatchObject({ date: "2024-01-01", price: "40113.43" });
+    expect(rows[4]).toMatchObject({ date: "2024-01-05", price: "40463.66" });
+    expect(rows[5]).toMatchObject({ date: "2026-10-16", price: "72537.3051996502" });
+    expect(await mapping(btc)).toMatchObject({ historyFrom: "2024-01-01", fetchError: null });
+
+    expect(await refreshPrices("2026-10-23", deps(charts({}), fetch), db())).toEqual({ updated: 1, failed: [] });
+    expect(calls).toHaveLength(3);
+    expect(calls[2].url).toContain("api.coingecko.com");
+    expect(await providerRows(btc)).toHaveLength(13);
+  });
+
+  it("completes the backfill with CoinGecko closes only when Binance does not know the pair", async () => {
+    const btc = await cryptoSecurity("BTC", "Bitcoin");
+    await buy(btc, "2024-01-01", "1", "40000");
+    await mapTo(btc, "COINGECKO", "bitcoin");
+    const { fetch, calls } = providers({ coingecko: coingeckoOk(), binance: json(recorded("binance-klines-invalid-symbol"), 400) });
+    expect(await refreshPrices("2026-10-23", deps(charts({}), fetch), db())).toEqual({ updated: 1, failed: [] });
+    expect(await providerRows(btc)).toHaveLength(8);
+    expect(await mapping(btc)).toMatchObject({ historyFrom: "2024-01-01", fetchError: null });
+    await refreshPrices("2026-10-23", deps(charts({}), fetch), db());
+    expect(calls.filter((call) => call.url.includes("binance"))).toHaveLength(1);
+  });
+
+  it("stores CoinGecko closes and retries the Binance backfill next run after a Binance network failure", async () => {
+    const btc = await cryptoSecurity("BTC", "Bitcoin");
+    await buy(btc, "2024-01-01", "1", "40000");
+    await mapTo(btc, "COINGECKO", "bitcoin");
+    const failing = providers({ coingecko: coingeckoOk(), binance: new TypeError("fetch failed") });
+    expect(await refreshPrices("2026-10-23", deps(charts({}), failing.fetch), db())).toEqual({ updated: 1, failed: [] });
+    expect(await providerRows(btc)).toHaveLength(8);
+    expect(await mapping(btc)).toMatchObject({ historyFrom: null, fetchError: null, fetchedAt: NOW.toISOString() });
+    expect(console.warn).toHaveBeenCalledWith("Prices: BINANCE BTCEUR backfill failed (network)");
+
+    const working = providers({ coingecko: coingeckoOk(), binance: json(recorded("binance-klines-btceur")) });
+    expect(await refreshPrices("2026-10-23", deps(charts({}), working.fetch), db())).toEqual({ updated: 1, failed: [] });
+    expect(working.calls.filter((call) => call.url.includes("binance"))).toHaveLength(1);
+    expect(await providerRows(btc)).toHaveLength(13);
+    expect(await mapping(btc)).toMatchObject({ historyFrom: "2024-01-01" });
+  });
+
+  it("reports onvista and CoinGecko failures with their own provider, keeps rows and still updates others", async () => {
+    const gold = await certificate();
+    const btc = await cryptoSecurity("BTC", "Bitcoin");
+    const sap = await security(SAP, "SAP SE");
+    for (const id of [gold, btc, sap]) await buy(id, "2026-10-13");
+    await mapTo(gold, "ONVISTA", GOLD);
+    await mapTo(btc, "COINGECKO", "bitcoin");
+    await mapTo(sap, "YAHOO", "SAP.DE");
+    await db().price.create({ data: { securityId: gold, date: "2026-10-13", source: "PROVIDER", price: "110", fetchedAt: NOW.toISOString() } });
+    const { fetch, calls } = providers({
+      onvista: new TypeError("fetch failed"),
+      coingecko: json(recorded("coingecko-market-chart-not-found"), 404),
+    });
+    const chart = charts({ "SAP.DE": recorded("yahoo-chart-sap-de") });
+
+    const result = await refreshPrices("2026-10-23", deps(chart, fetch), db());
+    expect(result.updated).toBe(1);
+    expect(result.failed).toEqual(
+      expect.arrayContaining([
+        { securityId: gold, name: "Xetra-Gold", provider: "ONVISTA", reason: "network" },
+        { securityId: btc, name: "Bitcoin", provider: "COINGECKO", reason: "not-found" },
+      ]),
+    );
+    expect(result.failed).toHaveLength(2);
+    expect(await providerRows(gold)).toEqual([expect.objectContaining({ date: "2026-10-13", price: "110" })]);
+    expect(await mapping(gold)).toMatchObject({ fetchError: "network", historyFrom: null });
+    expect(await mapping(btc)).toMatchObject({ fetchError: "not-found" });
+    expect(await providerRows(sap)).toHaveLength(9);
+    // No failover: no other provider was tried.
+    expect(calls.every((call) => !call.url.includes("binance"))).toBe(true);
+    expect(chart).toHaveBeenCalledTimes(1);
+    expect(console.warn).toHaveBeenCalledWith(`Prices: ONVISTA ${GOLD} failed (network)`);
   });
 });
 

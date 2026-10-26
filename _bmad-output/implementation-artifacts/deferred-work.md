@@ -93,3 +93,10 @@ reason: confirm.ts derives the file figure from preview.figures.cashBalance (pro
 status: done 2026-10-25
 resolution: closed by human decision: Operator confirmed the real migration (756b381) with no Verrechnungskonto Abweichung; the migration is one-off and the gap is the same as DW-9.
 decision: 2026-10-25 Close as moot after the confirmed real-data migration — Operator confirmed the real migration (756b381) with no Verrechnungskonto Abweichung; the migration is one-off and the gap is the same as DW-9.
+
+### DW-11: onvista eod_history entries with a null close or timestamp would make the whole certificate history a `schema` failure.
+origin: spec-deferred 9f0a2f38d247
+location: src/modules/prices/providers/onvista.ts:21
+source_spec: `spec-3-4-prices-for-certificates-and-crypto.md`
+reason: `eodSchema` requires `z.array(z.number())` for `datetimeLast` and `last`; the recorded Xetra-Gold response has no nulls and it is unknown whether onvista ever emits them. Settle by observing a live eod_history response with a gap day (e.g. a thinly traded turbo); if nulls occur, accept nullable entries and skip them as the Yahoo adapter does.
+status: open

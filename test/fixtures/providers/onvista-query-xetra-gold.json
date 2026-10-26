@@ -1,0 +1,29 @@
+{
+  "expires": 1792977404206,
+  "searchValue": "DE000A0S9GB0",
+  "list": [
+    {
+      "type": "Instrument",
+      "entityType": "DERIVATIVE",
+      "entitySubType": "ETC_ETN_CERTIFICATE",
+      "entityAttributes": [
+        "INSTRUMENT",
+        "HAS_SAVINGS_PLAN",
+        "HAS_NEWS",
+        "BROKER_LIST"
+      ],
+      "entityValue": "18869269",
+      "name": "Xetra Gold ETC",
+      "urls": {
+        "WEBSITE": "https://www.onvista.de/derivate/ETCs/18869269-A0S9GB-DE000A0S9GB0"
+      },
+      "instrumentType": "Instrument",
+      "isin": "DE000A0S9GB0",
+      "wkn": "A0S9GB",
+      "symbol": "4GLD",
+      "displayType": "ETC-/ETN-Zertifikat",
+      "urlName": "Xetra-Gold-ETC",
+      "tinyName": "Xetra Gold ETC"
+    }
+  ]
+}

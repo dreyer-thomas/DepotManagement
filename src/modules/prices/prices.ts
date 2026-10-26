@@ -18,7 +18,11 @@ import {
   listSplits,
 } from "@/modules/ledger";
 import { inTransaction, type MappingDeps, type PricesDb, resolveMissingMappings } from "./mappings";
-import type { DailyClose, PriceAdapter, PriceFetch, PriceFetchFailure } from "./providers/types";
+import { binancePrices } from "./providers/binance";
+import { COINGECKO_MAX_DAYS, coingeckoPrices } from "./providers/coingecko";
+import { onvistaPrices } from "./providers/onvista";
+import { daysBetween, envKey } from "./providers/shared";
+import type { DailyClose, PriceAdapter, PriceFetch, PriceFetchContext, PriceFetchFailure } from "./providers/types";
 import { type YahooChart, yahooPrices } from "./providers/yahoo";
 
 /** External dependencies of the price services; each defaults to the real thing (tests inject recorded responses). */
@@ -35,8 +39,11 @@ export type PriceRunResult = { updated: number; failed: PriceRunFailure[] };
 /** Incremental refreshes re-fetch this many days before the latest stored provider Price. */
 export const REFRESH_OVERLAP_DAYS = 7;
 
+/** Providers whose mapped Securities get Prices fetched. */
+const FETCHED_PROVIDERS: readonly PriceProvider[] = ["YAHOO", "ONVISTA", "COINGECKO"];
+
 /** One Security to fetch: `full` replaces all its PROVIDER rows and records `historyFrom = from`. */
-type Plan = { securityId: string; symbol: string; from: string; to: string; full: boolean };
+type Plan = { securityId: string; provider: PriceProvider; symbol: string; from: string; to: string; full: boolean };
 
 const EMPTY_RESULT: PriceRunResult = { updated: 0, failed: [] };
 
@@ -56,14 +63,19 @@ function nowIso(deps: PriceDeps): string {
   return (deps.now ?? (() => new Date()))().toISOString();
 }
 
-/** Securities of `securityIds` with a `YAHOO` mapping (other providers follow in story 3.4; markers are skipped). */
-async function yahooMappings(securityIds: string[], db: PricesDb) {
+/** Securities of `securityIds` mapped to one of `providers` (markers without provider/symbol are skipped). */
+async function mappingsOf(securityIds: string[], providers: readonly PriceProvider[], db: PricesDb) {
   if (securityIds.length === 0) return [];
   const rows = await db.providerMapping.findMany({
-    where: { securityId: { in: securityIds }, provider: "YAHOO", symbol: { not: null } },
-    select: { securityId: true, symbol: true, historyFrom: true },
+    where: { securityId: { in: securityIds }, provider: { in: [...providers] }, symbol: { not: null } },
+    select: { securityId: true, provider: true, symbol: true, historyFrom: true },
   });
-  return rows.map((row) => ({ securityId: row.securityId, symbol: row.symbol as string, historyFrom: row.historyFrom }));
+  return rows.map((row) => ({
+    securityId: row.securityId,
+    provider: row.provider as PriceProvider,
+    symbol: row.symbol as string,
+    historyFrom: row.historyFrom,
+  }));
 }
 
 async function loadSplits(db: PricesDb): Promise<Split[]> {
@@ -76,7 +88,7 @@ async function loadSplits(db: PricesDb): Promise<Split[]> {
 }
 
 /**
- * Plans for the held Securities mapped to Yahoo: a full backfill from the first activity date when
+ * Plans for the held Securities mapped to Yahoo, onvista or CoinGecko: a full backfill from the first activity date when
  * `historyFrom` is unset or later than it; otherwise (unless `backfillOnly`) an incremental refresh from
  * `REFRESH_OVERLAP_DAYS` before the latest stored provider Price.
  */
@@ -86,18 +98,18 @@ async function heldPlans(today: string, backfillOnly: boolean, deps: PriceDeps, 
   } catch (error) {
     console.warn(`Prices: mapping resolution failed (${error instanceof Error ? error.name : "unknown"})`);
   }
-  const mappings = await yahooMappings(await listHeldSecurities(today, db), db);
+  const mappings = await mappingsOf(await listHeldSecurities(today, db), FETCHED_PROVIDERS, db);
   if (mappings.length === 0) return [];
   const firstDates = await firstActivityDates(
     mappings.map((mapping) => mapping.securityId),
     db,
   );
   const plans: Plan[] = [];
-  for (const { securityId, symbol, historyFrom } of mappings) {
+  for (const { securityId, provider, symbol, historyFrom } of mappings) {
     const first = firstDates.get(securityId);
     if (!first || first > today) continue;
     if (historyFrom === null || historyFrom > first) {
-      plans.push({ securityId, symbol, from: first, to: today, full: true });
+      plans.push({ securityId, provider, symbol, from: first, to: today, full: true });
       continue;
     }
     if (backfillOnly) continue;
@@ -107,17 +119,26 @@ async function heldPlans(today: string, backfillOnly: boolean, deps: PriceDeps, 
       select: { date: true },
     });
     const overlap = latest ? addDays(latest.date, -REFRESH_OVERLAP_DAYS) : first;
-    plans.push({ securityId, symbol, from: overlap > first ? overlap : first, to: today, full: false });
+    plans.push({ securityId, provider, symbol, from: overlap > first ? overlap : first, to: today, full: false });
   }
   return plans;
 }
 
-/** Stores a fetched history in one DB transaction; false when the mapping changed meanwhile (nothing written). */
-async function storeHistory(plan: Plan, closes: DailyClose[], fetchedAt: string, db: PricesDb): Promise<boolean> {
+/**
+ * Stores a fetched history in one DB transaction; false when the mapping changed meanwhile (nothing
+ * written). A full plan records `historyFrom` (default `plan.from`; null keeps the backfill pending).
+ */
+async function storeHistory(
+  plan: Plan,
+  closes: DailyClose[],
+  fetchedAt: string,
+  db: PricesDb,
+  historyFrom: string | null = plan.from,
+): Promise<boolean> {
   return inTransaction(db, async (tx) => {
     const { count } = await tx.providerMapping.updateMany({
-      where: { securityId: plan.securityId, provider: "YAHOO", symbol: plan.symbol },
-      data: { fetchedAt, fetchError: null, ...(plan.full ? { historyFrom: plan.from } : {}) },
+      where: { securityId: plan.securityId, provider: plan.provider, symbol: plan.symbol },
+      data: { fetchedAt, fetchError: null, ...(plan.full ? { historyFrom } : {}) },
     });
     if (count === 0) return false;
     await tx.price.deleteMany({
@@ -141,10 +162,10 @@ async function storeHistory(plan: Plan, closes: DailyClose[], fetchedAt: string,
 }
 
 async function recordFailure(plan: Plan, reason: PriceFetchFailure, db: PricesDb): Promise<PriceRunFailure> {
-  console.warn(`Prices: YAHOO ${plan.symbol} failed (${reason})`);
+  console.warn(`Prices: ${plan.provider} ${plan.symbol} failed (${reason})`);
   try {
     await db.providerMapping.updateMany({
-      where: { securityId: plan.securityId, provider: "YAHOO", symbol: plan.symbol },
+      where: { securityId: plan.securityId, provider: plan.provider, symbol: plan.symbol },
       // A failed full fetch leaves stale history (e.g. old split un-adjustment): clear `historyFrom` so
       // the next backfill retries it.
       data: { fetchError: reason, ...(plan.full ? { historyFrom: null } : {}) },
@@ -153,31 +174,84 @@ async function recordFailure(plan: Plan, reason: PriceFetchFailure, db: PricesDb
     // The failure is still returned; recording it is best effort.
   }
   const security = await getSecurity(plan.securityId, db).catch(() => null);
-  return { securityId: plan.securityId, name: security?.name ?? plan.symbol, provider: "YAHOO", reason };
+  return { securityId: plan.securityId, name: security?.name ?? plan.symbol, provider: plan.provider, reason };
+}
+
+type Adapters = Record<PriceProvider, PriceAdapter> & { binance: PriceAdapter };
+
+function createAdapters(deps: PriceDeps): Adapters {
+  const fetch = deps.fetch ?? globalThis.fetch;
+  const env = deps.env ?? process.env;
+  const now = deps.now ? { now: deps.now } : {};
+  const apiKey = envKey(env.COINGECKO_API_KEY);
+  return {
+    YAHOO: yahooPrices({ ...(deps.chart ? { chart: deps.chart } : {}), ...now }),
+    ONVISTA: onvistaPrices({ fetch, ...now }),
+    COINGECKO: coingeckoPrices({ fetch, ...(apiKey ? { apiKey } : {}), ...now }),
+    binance: binancePrices({ fetch, ...now }),
+  };
+}
+
+/** `fetchHistory` that never throws (an adapter bug is an `unexpected` failure). */
+async function safeHistory(
+  adapter: PriceAdapter,
+  symbol: string,
+  from: string,
+  to: string,
+  ctx: PriceFetchContext,
+): Promise<PriceFetch<DailyClose[]>> {
+  try {
+    return await adapter.fetchHistory(symbol, from, to, ctx);
+  } catch {
+    return { ok: false, reason: "unexpected" };
+  }
+}
+
+/**
+ * The one-time Binance backfill of a full CoinGecko plan reaching back further than CoinGecko's window:
+ * the closes to store and the `historyFrom` to record. Binance `not-found` completes the backfill with
+ * CoinGecko closes only (older dates fall back to Transaction prices); any other Binance failure stores
+ * the CoinGecko closes but keeps `historyFrom` null, so the next run retries.
+ */
+async function withCryptoBackfill(
+  plan: Plan,
+  closes: DailyClose[],
+  adapters: Adapters,
+  ctx: PriceFetchContext,
+  db: PricesDb,
+): Promise<{ closes: DailyClose[]; historyFrom: string | null }> {
+  const complete = { closes, historyFrom: plan.from };
+  if (plan.provider !== "COINGECKO" || !plan.full) return complete;
+  if (daysBetween(plan.from, plan.to) < COINGECKO_MAX_DAYS || closes.length === 0 || closes[0].date <= plan.from) return complete;
+  const security = await getSecurity(plan.securityId, db);
+  if (!security?.cryptoSymbol) return complete;
+  const pair = `${security.cryptoSymbol.toUpperCase()}EUR`;
+  const older = await safeHistory(adapters.binance, pair, plan.from, addDays(closes[0].date, -1), ctx);
+  if (older.ok) return { closes: [...older.value.filter((close) => close.date < closes[0].date), ...closes], historyFrom: plan.from };
+  if (older.reason === "not-found") return complete;
+  console.warn(`Prices: BINANCE ${pair} backfill failed (${older.reason})`);
+  return { closes, historyFrom: null };
 }
 
 async function runPlans(plans: Plan[], deps: PriceDeps, db: PricesDb): Promise<PriceRunResult> {
   if (plans.length === 0) return { updated: 0, failed: [] };
-  const adapter: PriceAdapter = yahooPrices({ ...(deps.chart ? { chart: deps.chart } : {}), ...(deps.now ? { now: deps.now } : {}) });
+  const adapters = createAdapters(deps);
   const splits = await loadSplits(db);
   const result: PriceRunResult = { updated: 0, failed: [] };
   for (const plan of plans) {
     // A split dated after `to` has not happened yet, so the provider has not adjusted for it.
     const effective = splits.filter((split) => split.date <= plan.to);
-    let fetched: PriceFetch<DailyClose[]>;
-    try {
-      fetched = await adapter.fetchHistory(plan.symbol, plan.from, plan.to, { securityId: plan.securityId, splits: effective });
-    } catch {
-      fetched = { ok: false, reason: "unexpected" };
-    }
+    const ctx: PriceFetchContext = { securityId: plan.securityId, splits: effective };
+    const fetched = await safeHistory(adapters[plan.provider], plan.symbol, plan.from, plan.to, ctx);
     if (!fetched.ok) {
       result.failed.push(await recordFailure(plan, fetched.reason, db));
       continue;
     }
     try {
-      if (await storeHistory(plan, fetched.value, nowIso(deps), db)) result.updated++;
+      const { closes, historyFrom } = await withCryptoBackfill(plan, fetched.value, adapters, ctx, db);
+      if (await storeHistory(plan, closes, nowIso(deps), db, historyFrom)) result.updated++;
     } catch (error) {
-      console.warn(`Prices: storing YAHOO ${plan.symbol} failed (${error instanceof Error ? error.name : "unknown"})`);
+      console.warn(`Prices: storing ${plan.provider} ${plan.symbol} failed (${error instanceof Error ? error.name : "unknown"})`);
       result.failed.push(await recordFailure(plan, "unexpected", db));
     }
   }
@@ -185,7 +259,7 @@ async function runPlans(plans: Plan[], deps: PriceDeps, db: PricesDb): Promise<P
 }
 
 /**
- * Fetches Prices of every held Security mapped to Yahoo (after auto-resolving missing mappings): a full
+ * Fetches Prices of every held Security mapped to Yahoo, onvista or CoinGecko (after auto-resolving missing mappings): a full
  * backfill from its first activity date where needed, else the days since its latest stored provider
  * Price (with overlap) up to `today`. Never throws for a fetch failure; runs are serialized in-process.
  */
@@ -213,7 +287,8 @@ export function refetchPriceHistory(
   db: PricesDb = prisma,
 ): Promise<PriceRunResult> {
   return serialized(async () => {
-    const [mapping] = await yahooMappings([securityId], db);
+    // Splits only affect Yahoo's (split-adjusted) history.
+    const [mapping] = await mappingsOf([securityId], ["YAHOO"], db);
     if (!mapping) return EMPTY_RESULT;
     const held = (await listHeldSecurities(today, db)).includes(securityId);
     const earliest = await db.price.findFirst({
@@ -224,7 +299,7 @@ export function refetchPriceHistory(
     if (!held && !earliest) return EMPTY_RESULT;
     const from = (await firstActivityDates([securityId], db)).get(securityId) ?? earliest?.date;
     if (!from || from > today) return EMPTY_RESULT;
-    return runPlans([{ securityId, symbol: mapping.symbol, from, to: today, full: true }], deps, db);
+    return runPlans([{ securityId, provider: "YAHOO", symbol: mapping.symbol, from, to: today, full: true }], deps, db);
   });
 }
 

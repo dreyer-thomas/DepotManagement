@@ -44,4 +44,7 @@ export type { PriceSchedulerDeps } from "./scheduler";
 export { PRICE_FETCH_FAILURES } from "./providers/types";
 export type { DailyClose, PriceAdapter, PriceFetch, PriceFetchContext, PriceFetchFailure } from "./providers/types";
 export { yahooPrices } from "./providers/yahoo";
+export { onvistaPrices } from "./providers/onvista";
+export { coingeckoPrices } from "./providers/coingecko";
+export { binancePrices } from "./providers/binance";
 export type { YahooChart } from "./providers/yahoo";
