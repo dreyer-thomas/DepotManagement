@@ -1,6 +1,6 @@
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { minimalPdf } from "../../../test/helpers/pdf";
 import { createTestDatabase, type TestDatabase } from "../../../test/helpers/test-db";
@@ -688,5 +688,72 @@ describe("bookImportBatch", () => {
   it("returns not-found for an unknown batch", async () => {
     expect(await bookImportBatch("nope", [], env(), db())).toEqual({ ok: false, reason: "not-found" });
     expect(await bookImportBatch("", [], env(), db())).toEqual({ ok: false, reason: "not-found" });
+  });
+});
+
+describe("comdirect upload (story 5.4)", () => {
+  const comdirect = (name: string) =>
+    readFileSync(resolve(__dirname, "../../../test/fixtures/import/comdirect", name), "utf8");
+  const NOTICE_INFO = "Steuern in „dividende.pdf“ übernommen. Keine Buchung erforderlich.";
+
+  it("merges a credit and its Steuermitteilung into one DIVIDEND and books only that", async () => {
+    const { id } = await depot("COMDIRECT", "comdirect");
+    const batchId = await create(id, [pdf("dividende.pdf", comdirect("dividend.txt")), pdf("steuer.pdf", comdirect("dividend-tax.txt"))]);
+    const batch = await review(batchId);
+    expect(batch.items.map((item) => [item.fileName, item.status, item.reviewStatus, item.documentType, item.reason, item.documentDate])).toEqual([
+      ["dividende.pdf", "PARSED", "PARSED", "dividend", null, null],
+      ["steuer.pdf", "NO_BOOKING", "NO_BOOKING", "dividend-tax", NOTICE_INFO, null],
+    ]);
+    expect(batch.items[0]?.proposals.map((view) => view.proposal)).toEqual([
+      {
+        type: "DIVIDEND",
+        date: "2026-06-21",
+        isin: "IE00B3RBWM25",
+        name: "Vanguard FTSE All-World UCITS ETF",
+        amount: "25.57",
+        fee: "0",
+        tax: "4.73",
+      },
+    ]);
+    expect(batch.items[1]?.proposals).toEqual([]);
+    expect(batch.files).toEqual({ PARSED: 1, AMBIGUOUS: 0, DUPLICATE: 0, NO_BOOKING: 1, FAILED: 0 });
+    expect(batch.bookKeys).toHaveLength(1);
+    expect(await listOpenBatches(db())).toEqual([expect.objectContaining({ fileCount: 2, parsedCount: 1, failedCount: 0 })]);
+
+    expect(await book(batchId)).toEqual({ ok: true, booked: 1, depotId: id });
+    const rows = await listTransactions(id, db());
+    expect(rows.map((row) => [row.date, row.type, row.security?.isin, row.amount, row.fee, row.tax])).toEqual([
+      ["2026-06-21", "DIVIDEND", "IE00B3RBWM25", "25.57", "0", "4.73"],
+    ]);
+  });
+
+  it("keeps a lone credit with its note and fails a lone notice with its date", async () => {
+    const { id } = await depot("COMDIRECT", "comdirect");
+    const credit = await review(await create(id, [pdf("dividende.pdf", comdirect("dividend.txt"))]));
+    expect(credit.items[0]).toMatchObject({
+      status: "PARSED",
+      reviewStatus: "PARSED",
+      reason: "Steuermitteilung (Referenz-Nr. 3AAAAAAAAAA001AA) nicht im Import: Steuern sind nicht enthalten. Bitte prüfen oder zusammen hochladen.",
+      proposals: [{ proposal: { type: "DIVIDEND", amount: "25.57", tax: "0" } }],
+    });
+    const notice = await review(await create(id, [pdf("steuer.pdf", comdirect("dividend-tax.txt"))]));
+    expect(notice.items[0]).toMatchObject({
+      status: "FAILED",
+      reviewStatus: "FAILED",
+      documentType: null,
+      reason: "Steuermitteilung ohne Ertragsgutschrift. Bitte zusammen hochladen.",
+      documentDate: "2026-06-21",
+      proposals: [],
+    });
+  });
+
+  it("stages a buy and a sell settlement with the matrix values", async () => {
+    const { id } = await depot("COMDIRECT", "comdirect");
+    const batch = await review(await create(id, [pdf("kauf.pdf", comdirect("buy.txt")), pdf("verkauf.pdf", comdirect("sell.txt"))]));
+    expect(batch.items.flatMap((item) => item.proposals.map((view) => view.proposal))).toEqual([
+      expect.objectContaining({ type: "BUY", date: "2026-04-07", isin: "DE0005933931", quantity: "2.5", price: "180.12345", amount: "450.31", fee: "0", tax: "0" }),
+      expect.objectContaining({ type: "SELL", date: "2026-05-06", isin: "LU0274209740", quantity: "3.2", price: "52.5", amount: "168", fee: "0", tax: "3.32" }),
+    ]);
+    expect(batch.items.map((item) => item.reason)).toEqual([null, null]);
   });
 });

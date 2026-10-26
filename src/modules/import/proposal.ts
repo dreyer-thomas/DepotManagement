@@ -86,5 +86,43 @@ export const proposalListSchema = z.array(transactionProposalSchema);
  */
 export type ParseError = { error: "unrecognized" } | { error: "invalid"; message: string };
 
+/**
+ * Cross-file data of a document, merged by `linkDocuments` within one upload and never stored (story 5.4):
+ * a comdirect Ertragsgutschrift (`dividend-credit`) and its separate Steuermitteilung
+ * (`dividend-tax-notice`) share a reference number. Amounts are decimal strings, signed as printed.
+ */
+export type DocumentLink =
+  | { kind: "dividend-credit"; reference: string; beforeTax: string }
+  | { kind: "dividend-tax-notice"; reference: string; isin: string; beforeTax: string; afterTax: string };
+
+/** Validates a parser's link (decimals canonical). */
+export const documentLinkSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("dividend-credit"), reference: z.string().trim().min(1), beforeTax: decimalString }).strict(),
+  z
+    .object({
+      kind: z.literal("dividend-tax-notice"),
+      reference: z.string().trim().min(1),
+      isin: isinSchema,
+      beforeTax: decimalString,
+      afterTax: decimalString,
+    })
+    .strict(),
+]);
+
+/**
+ * A parser result with extras: `note` is a German review hint shown under the file name; `link` feeds
+ * `linkDocuments`. Empty `proposals` are valid only with a `dividend-tax-notice` link.
+ */
+export type ParsedDocument = { proposals: readonly TransactionProposalInput[]; note?: string; link?: DocumentLink };
+
+/** Validates a `ParsedDocument` (proposals as `proposalListSchema`). */
+export const parsedDocumentSchema = z
+  .object({
+    proposals: proposalListSchema,
+    note: z.string().trim().min(1).optional(),
+    link: documentLinkSchema.optional(),
+  })
+  .strict();
+
 /** A broker parser: pure, synchronous, no I/O. */
-export type Parser = (text: string) => readonly TransactionProposalInput[] | ParseError;
+export type Parser = (text: string) => readonly TransactionProposalInput[] | ParsedDocument | ParseError;

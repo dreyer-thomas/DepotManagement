@@ -1,0 +1,107 @@
+25449 Quickborn
+Ihren Auftrag haben wir gemäß unseren produktbezogenen
+Geschäftsbedingungen "Trading" wie nachstehend ausgeführt.
+Die Wertpapiere haben wir der Abrechnung entsprechend gebucht.
+Wir bitten Sie, diese Abrechnung auf ihre Richtigkeit und
+Vollständigkeit zu überprüfen und etwaige Einwendungen
+unverzüglich zu erheben.
+A113
+DO15DD/16/04/2010
+*
+Telefon : 04106-708 25 00
+Max Mustermann
+Musterstraße 1
+12345 Musterstadt
+01099999 Depotnr.: 1234567 00
+BLZ: 200 411 33
+GESCHÄFTSABRECHNUNG VOM 07.04.2026
+Wertpapierkauf
+Geschäftsnummer : 91 000003
+100000000003 Rechnungsnummer : 100000000003DD15
+Geschäftstag : 07.04.2026 Ausführungsplatz : TRADEGATE
+(Kommissionsgeschäft)
+Wertpapier-Bezeichnung WPKNR/ISIN
+iShares Core DAX UCITS ETF DE 593393
+Inhaber-Anteile EUR (Acc) o.N. DE0005933931
+Nennwert Zum Mischkurs von
+St. 2,5 EUR 180,12345
+Kurswert : EUR 450,31
+Provision : EUR 4,90
+Börsenplatzgebühr : EUR 1,50
+IBAN Valuta Zu Ihren Lasten vor Steuern
+DE00 2004 1133 0123 4567 00 EUR 09.04.2026 EUR 456,71
+Verwahrungs-Art: GIROSAMMELVERWAHRUNG
+Informationen zur steuerlichen Behandlung dieses Geschäftsvorgangs und den auf
+Ihrem Konto gebuchten Endbetrag finden Sie auf der separaten Steuermitteilung.
+Ihre comdirect
+Diese Abrechnung wird von der Bank nicht unterschrieben
+Die Leistung ist gemäß §4 Nr.8 UStG umsatzsteuerfrei. USt-Id-Nr.: DE 114 103 514
+Kundennr. /BLZ Bezeichnung
+abweichend wirtschaftlich Berechtigter
+Max Mustermann
+Musterstraße 1
+12345 Musterstadt
+----
+1234567
+200 411 33
+KEINE STEUERBESCHEINIGUNG ...
+comdirect
+25451 Quickborn
+Telefon: 04106 - 708 25 00
+Datum: 07.04.2026
+Referenz-Nummer: 1AAAAAAAAAA003AA
+Depotnummer: 1234567 00
+Herrn
+Max Mustermann
+Musterstraße 1
+12345 Musterstadt
+010 99999
+Steuerliche Behandlung: Wertpapierkauf Nr. 91000003 vom 07.04.2026
+Stk. 2,5 ISHS CORE DAX UC.ETF , WKN / ISIN: 593393 / DE0005933931
+Zu Ihren Lasten vor Steuern: EUR -456,71
+Steuerbemessungsgrundlage EUR 0,00
+Kapitalertragsteuer EUR 0,00
+Solidaritätszuschlag EUR 0,00
+Kirchensteuer EUR 0,00_____________________
+abgeführte Steuern EUR 0,00_____________________
+Zu Ihren Lasten nach Steuern: EUR -456,71
+Die Belastung erfolgt mit Valuta 09.04.2026 auf Konto EUR mit der IBAN DE00 2004 1133 0123 4567 00
+Bisher einbehaltene bzw. angerechnete Steuer in EUR (4)
+Verrechnungssalden in EUR (4)
+in
+vor Ermittlung
+nach Ermittlung
+einbehaltene
+Kapitalertragsteuer Solidaritätszuschlag einbehaltene
+Kirchensteuer angerechnete
+ausländische Quellensteuer
+vor Ermittlung
+nach Ermittlung
+aus Aktien sonstige
+Gewinne / Verluste anrechenbare
+ausländische Quellensteuer verfügbarer
+Freistellungsauftrag
+einbehaltener
+Gewinne / Verluste
+2026
+100,00
+100,00
+5,50
+5,50
+0,00
+0,00
+0,00
+0,00
+KEINE STEUERBESCHEINIGUNG
+2026in
+0,00
+0,00
+500,00
+500,00
+0,00
+0,00
+0,00
+0,00
+Ihre comdirect
+Diese Abrechnung ist maschinell erstellt und wird nicht unterschrieben.
+(4) Die ausgewiesenen EUR-Beträge spiegeln den Stand zum Abrechnungszeitpunkt wider.

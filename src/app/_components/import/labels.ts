@@ -15,6 +15,7 @@ export const ITEM_STATUS_LABELS: Record<ItemReviewStatus, string> = {
   PARSED: "erkannt",
   AMBIGUOUS: "mehrdeutig",
   DUPLICATE: "Duplikat",
+  NO_BOOKING: "keine Buchung",
   FAILED: "fehlgeschlagen",
 };
 
@@ -57,9 +58,11 @@ export function fileCountLabel(count: number): string {
   return count === 1 ? "1 Datei" : `${count} Dateien`;
 }
 
-/** Summary line of a batch: "N Dateien · X erkannt · Y fehlgeschlagen". */
+/** Summary line of a batch: "N Dateien · X erkannt[ · Z ohne Buchung] · Y fehlgeschlagen". */
 export function batchSummary(counts: { fileCount: number; parsedCount: number; failedCount: number }): string {
-  return `${fileCountLabel(counts.fileCount)} · ${counts.parsedCount} erkannt · ${counts.failedCount} fehlgeschlagen`;
+  const noBooking = counts.fileCount - counts.parsedCount - counts.failedCount;
+  const noBookingPart = noBooking > 0 ? ` · ${noBooking} ohne Buchung` : "";
+  return `${fileCountLabel(counts.fileCount)} · ${counts.parsedCount} erkannt${noBookingPart} · ${counts.failedCount} fehlgeschlagen`;
 }
 
 /** Megabytes with one decimal, German formatting (for the selection summary); below 0,1 MB "< 0,1 MB". */
@@ -69,13 +72,14 @@ export function formatMegabytes(bytes: number): string {
 }
 
 /**
- * Review summary: "14 Dateien: 11 erkannt, 1 mehrdeutig, 1 Duplikat, 1 fehlgeschlagen · 1 Entscheidung offen";
+ * Review summary: "14 Dateien: 11 erkannt, 1 mehrdeutig, 1 Duplikat, 1 ohne Buchung, 1 fehlgeschlagen · 1 Entscheidung offen";
  * zero counts are left out except erkannt.
  */
 export function reviewSummary(fileCount: number, files: Record<ItemReviewStatus, number>, openDecisions: number): string {
   const parts = [`${files.PARSED} erkannt`];
   if (files.AMBIGUOUS > 0) parts.push(`${files.AMBIGUOUS} mehrdeutig`);
   if (files.DUPLICATE > 0) parts.push(files.DUPLICATE === 1 ? "1 Duplikat" : `${files.DUPLICATE} Duplikate`);
+  if (files.NO_BOOKING > 0) parts.push(`${files.NO_BOOKING} ohne Buchung`);
   if (files.FAILED > 0) parts.push(`${files.FAILED} fehlgeschlagen`);
   const summary = `${fileCountLabel(fileCount)}: ${parts.join(", ")}`;
   return openDecisions > 0 ? `${summary} · ${openDecisionsLabel(openDecisions)}` : summary;

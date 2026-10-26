@@ -23,6 +23,7 @@ import { EDITABLE_PROPOSAL_FIELDS, type EditableProposalField, editableFields } 
 import { extractPdfText, isPdf } from "./extract";
 import { IMPORT_MAX_BATCH_BYTES, IMPORT_MAX_FILE_BYTES, IMPORT_MAX_FILES } from "./limits";
 import { DATE_PATTERN, germanDate } from "./parsers/german";
+import { linkDocuments } from "./parsers/link";
 import { PARSERS, type ParseOutcome, parseDocument, type ParserRegistry } from "./parsers/registry";
 import { type ProposalType, proposalListSchema, type TransactionProposal, transactionProposalSchema } from "./proposal";
 import {
@@ -102,10 +103,10 @@ export type ImportItemView = {
   position: number;
   fileName: string;
   status: ImportItemStatus;
-  /** The chip: erkannt, mehrdeutig, Duplikat or fehlgeschlagen. */
+  /** The chip: erkannt, mehrdeutig, Duplikat, keine Buchung or fehlgeschlagen. */
   reviewStatus: ItemReviewStatus;
   documentType: string | null;
-  /** German reason of a FAILED item. */
+  /** German text: failure reason (FAILED), review note (PARSED, optional) or info (NO_BOOKING). */
   reason: string | null;
   /** The same file bytes were uploaded before (warning only). */
   duplicateUpload: boolean;
@@ -188,8 +189,8 @@ type PreparedItem = {
   /** Bytes to keep on disk; null when the file is not kept. */
   keep: Uint8Array | null;
   outcome: ParseOutcome;
-  /** First readable date of a parser-failed file. */
-  documentDate: string | null;
+  /** Extracted text, kept until linking decides whether the file failed; null without text. */
+  text: string | null;
 };
 
 /** The first `dd.mm.yyyy` in `text` that is a real day, as `YYYY-MM-DD`; `null` without one. */
@@ -202,7 +203,7 @@ export function firstDocumentDate(text: string): string | null {
 }
 
 async function prepare(file: UploadedFile, broker: Broker, deps: ImportDeps): Promise<PreparedItem> {
-  const base = { fileName: file.name, fileHash: sha256(file.bytes), documentDate: null };
+  const base = { fileName: file.name, fileHash: sha256(file.bytes), text: null };
   if (file.bytes.byteLength > IMPORT_MAX_FILE_BYTES) {
     return { ...base, keep: null, outcome: { status: "FAILED", reason: TOO_LARGE_REASON } };
   }
@@ -214,8 +215,7 @@ async function prepare(file: UploadedFile, broker: Broker, deps: ImportDeps): Pr
     console.warn(`Import: text extraction failed (${error instanceof Error ? error.name : "unknown"})`);
     return { ...base, keep: file.bytes, outcome: { status: "FAILED", reason: EXTRACTION_FAILED_REASON } };
   }
-  const outcome = parseDocument(broker, text, deps.registry ?? PARSERS);
-  return { ...base, keep: file.bytes, outcome, documentDate: outcome.status === "FAILED" ? firstDocumentDate(text) : null };
+  return { ...base, keep: file.bytes, outcome: parseDocument(broker, text, deps.registry ?? PARSERS), text };
 }
 
 /** Normalises a client-supplied file name for display (no path, bounded length). */
@@ -227,7 +227,9 @@ function displayName(name: string, position: number): string {
 
 /**
  * Stages `files` for Depot `depotId`: one OPEN batch, one item per file in upload order, each PARSED (with
- * validated proposals) or FAILED (with a German reason). A hash already stored on another item, or seen
+ * validated proposals and an optional review note), NO_BOOKING (with an info) or FAILED (with a German
+ * reason). The outcomes of all files are linked first (`linkDocuments`: a comdirect Steuermitteilung is
+ * merged into its Ertragsgutschrift). A hash already stored on another item, or seen
  * earlier in this upload, only flags `duplicateUpload`. Rejects (nothing written) an empty upload, more than
  * `IMPORT_MAX_FILES` files, more than `IMPORT_MAX_BATCH_BYTES` in total and an unknown or archived Depot.
  */
@@ -248,6 +250,9 @@ export async function createImportBatch(
   // Extraction and parsing run before any write, outside the DB transaction.
   const prepared: PreparedItem[] = [];
   for (const file of files) prepared.push(await prepare(file, depot.broker, deps));
+  const linked = linkDocuments(
+    prepared.map((item, position) => ({ fileName: displayName(item.fileName, position), outcome: item.outcome })),
+  );
 
   const dir = importsDir(deps.env ?? process.env);
   const createdAt = (deps.now ?? (() => new Date()))().toISOString();
@@ -260,7 +265,7 @@ export async function createImportBatch(
       const batch = await tx.importBatch.create({ data: { depotId: depot.id, status: "OPEN", createdAt } });
       batchId = batch.id;
       for (const [position, item] of prepared.entries()) {
-        const { outcome } = item;
+        const outcome = linked[position];
         const created = await tx.importItem.create({
           data: {
             batchId: batch.id,
@@ -269,10 +274,11 @@ export async function createImportBatch(
             fileHash: item.fileHash,
             duplicateUpload: seen.has(item.fileHash),
             status: outcome.status,
-            documentType: outcome.status === "PARSED" ? outcome.documentType : null,
-            reason: outcome.status === "FAILED" ? outcome.reason : null,
+            documentType: outcome.status === "FAILED" ? null : outcome.documentType,
+            reason: outcome.status === "PARSED" ? (outcome.note ?? null) : outcome.reason,
             proposals: JSON.stringify(outcome.status === "PARSED" ? outcome.proposals : []),
-            documentDate: item.documentDate,
+            // First readable date of a file that failed after extraction (prefills manual entry).
+            documentDate: outcome.status === "FAILED" && item.text !== null ? firstDocumentDate(item.text) : null,
           },
           select: { id: true },
         });
@@ -614,6 +620,7 @@ export async function listOpenBatches(db: ImportDb = prisma): Promise<OpenImport
     const depot = depots.get(batch.depotId);
     if (!depot) return [];
     const parsedCount = batch.items.filter((item) => item.status === "PARSED").length;
+    const failedCount = batch.items.filter((item) => item.status === "FAILED").length;
     return [
       {
         id: batch.id,
@@ -623,7 +630,7 @@ export async function listOpenBatches(db: ImportDb = prisma): Promise<OpenImport
         createdAt: batch.createdAt,
         fileCount: batch.items.length,
         parsedCount,
-        failedCount: batch.items.length - parsedCount,
+        failedCount,
       },
     ];
   });

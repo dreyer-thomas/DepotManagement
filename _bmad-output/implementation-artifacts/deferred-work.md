@@ -128,3 +128,10 @@ status: open
 - source_spec: `_bmad-output/implementation-artifacts/spec-5-2-robin-real-layout.md`
   summary: comdirect fixtures lack a savings-plan execution and a settlement with Provision/fee lines that Story 5.4 requires.
   evidence: real — test/fixtures/import/comdirect has buy, sell, dividend, dividend-tax only; a real anonymised Sparplan and an order with fees are needed.
+
+### DW-14: cominvest documents, real comdirect fee lines and real savings-plan/multi-execution layouts are not verified against real unpdf output.
+origin: spec-deferred fd12d01773f4
+location: src/modules/import/parsers/comdirect/trade.ts, dividend.ts
+source_spec: `spec-5-4-comdirect-cominvest-parser.md`
+reason: All fixtures are comdirect "Trading" layouts; buy-fees.txt and savings-plan.txt are synthetic variants of buy.txt and multi-execution is tested by concatenating buy.txt and sell.txt. If cominvest settlements use another title or layout they fail safely with "Layout nicht erkannt". Settled by anonymised real cominvest and comdirect samples (operator action).
+status: open

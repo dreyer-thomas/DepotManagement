@@ -52,10 +52,11 @@ const CHIP_COLORS: Record<ItemReviewStatus, { bgcolor: string; color: string }> 
   AMBIGUOUS: { bgcolor: "stale.soft", color: "stale.main" },
   // MUI's default (grey) chip.
   DUPLICATE: { bgcolor: "action.selected", color: "text.primary" },
+  NO_BOOKING: { bgcolor: "action.selected", color: "text.primary" },
   FAILED: { bgcolor: "loss.soft", color: "loss.main" },
 };
 
-/** Status chip (DESIGN.md `status-chip-import`): erkannt, mehrdeutig, Duplikat, fehlgeschlagen. */
+/** Status chip (DESIGN.md `status-chip-import`): erkannt, mehrdeutig, Duplikat, keine Buchung, fehlgeschlagen. */
 export function ImportStatusChip({ status }: { status: ItemReviewStatus }) {
   return (
     <Box
@@ -362,12 +363,24 @@ function ItemCard({
           <Typography id={titleId} component="h2" variant="subtitle1" sx={{ fontWeight: 600, wordBreak: "break-all" }}>
             {item.fileName}
           </Typography>
-          {review.editable || item.reviewStatus === "FAILED" ? <ImportStatusChip status={item.reviewStatus} /> : null}
+          {review.editable || item.reviewStatus === "FAILED" || item.reviewStatus === "NO_BOOKING" ? (
+            <ImportStatusChip status={item.reviewStatus} />
+          ) : null}
         </Stack>
         {item.duplicateUpload && batch.status === "OPEN" ? (
           <Alert severity="warning" sx={{ mt: 1 }}>
             {REUPLOAD_WARNING}
           </Alert>
+        ) : null}
+        {item.status === "PARSED" && item.reviewStatus !== "FAILED" && item.reason ? (
+          <Typography variant="body2" data-import-note sx={{ mt: 1, color: "stale.main" }}>
+            {item.reason}
+          </Typography>
+        ) : null}
+        {item.reviewStatus === "NO_BOOKING" && item.reason ? (
+          <Typography variant="body2" sx={{ mt: 1, color: "text.secondary" }}>
+            {item.reason}
+          </Typography>
         ) : null}
         {item.reviewStatus === "FAILED" ? (
           <Stack direction="row" useFlexGap sx={{ mt: 1, gap: 1.5, alignItems: "center", flexWrap: "wrap" }}>

@@ -14,14 +14,17 @@ export type ProposalReviewStatus = "unique" | "duplicate" | "ambiguous";
 /** What happens to a proposal on "Buchen": booked, not booked, or not yet decided (blocks booking). */
 export type EffectiveDecision = "book" | "discard" | "open";
 
-/** File status shown by the chip: erkannt, mehrdeutig, Duplikat, fehlgeschlagen. */
-export type ItemReviewStatus = "PARSED" | "AMBIGUOUS" | "DUPLICATE" | "FAILED";
+/** File status shown by the chip: erkannt, mehrdeutig, Duplikat, keine Buchung, fehlgeschlagen. */
+export type ItemReviewStatus = "PARSED" | "AMBIGUOUS" | "DUPLICATE" | "NO_BOOKING" | "FAILED";
+
+/** Stored status of a file (Prisma `ImportItemStatus`). */
+export type StoredItemStatus = "PARSED" | "FAILED" | "NO_BOOKING";
 
 /** A ledger row of the Depot as `core/duplicates` compares it (`securityId` of the stored Security). */
 export type ReviewLedgerRow = DuplicateCandidate & { id: string };
 
-/** One file of the batch: FAILED items have no proposals. */
-export type ReviewItemInput = { id: string; status: "PARSED" | "FAILED"; proposals: readonly TransactionProposal[] };
+/** One file of the batch: FAILED and NO_BOOKING items have no proposals. */
+export type ReviewItemInput = { id: string; status: StoredItemStatus; proposals: readonly TransactionProposal[] };
 
 export type ProposalClassification<T> = {
   status: ProposalReviewStatus;
@@ -113,9 +116,14 @@ export function effectiveDecision(status: ProposalReviewStatus, stored: ReviewDe
   return stored ?? "open";
 }
 
-/** The chip of a file: FAILED; any ambiguous proposal → AMBIGUOUS; all duplicate → DUPLICATE; else PARSED. */
-export function itemReviewStatus(status: "PARSED" | "FAILED", proposals: readonly ProposalReviewStatus[]): ItemReviewStatus {
-  if (status === "FAILED" || proposals.length === 0) return "FAILED";
+/**
+ * The chip of a file: FAILED; NO_BOOKING; a PARSED file without proposals → FAILED; any ambiguous
+ * proposal → AMBIGUOUS; all duplicate → DUPLICATE; else PARSED.
+ */
+export function itemReviewStatus(status: StoredItemStatus, proposals: readonly ProposalReviewStatus[]): ItemReviewStatus {
+  if (status === "FAILED") return "FAILED";
+  if (status === "NO_BOOKING") return "NO_BOOKING";
+  if (proposals.length === 0) return "FAILED";
   if (proposals.includes("ambiguous")) return "AMBIGUOUS";
   if (proposals.every((proposal) => proposal === "duplicate")) return "DUPLICATE";
   return "PARSED";
@@ -135,7 +143,7 @@ export type ReviewCounts = {
 export function reviewCounts(
   items: readonly { reviewStatus: ItemReviewStatus; proposals: readonly { key: string; effective: EffectiveDecision }[] }[],
 ): ReviewCounts {
-  const files: Record<ItemReviewStatus, number> = { PARSED: 0, AMBIGUOUS: 0, DUPLICATE: 0, FAILED: 0 };
+  const files: Record<ItemReviewStatus, number> = { PARSED: 0, AMBIGUOUS: 0, DUPLICATE: 0, NO_BOOKING: 0, FAILED: 0 };
   let openDecisions = 0;
   const bookKeys: string[] = [];
   for (const item of items) {

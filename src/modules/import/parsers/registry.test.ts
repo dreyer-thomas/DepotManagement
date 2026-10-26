@@ -29,12 +29,13 @@ afterEach(() => {
 });
 
 describe("parseDocument", () => {
-  it("registers the Deutsche Bank parsers only; other documents stay unrecognized", () => {
+  it("registers the Deutsche Bank and comdirect parsers; other documents stay unrecognized", () => {
     expect(PARSERS.DEUTSCHE_BANK.map((entry) => entry.documentType)).toEqual(["trade", "dividend"]);
-    expect(PARSERS.COMDIRECT).toEqual([]);
+    expect(PARSERS.COMDIRECT.map((entry) => entry.documentType)).toEqual(["trade", "dividend", "dividend-tax"]);
     expect(PARSERS.FINANZEN_ZERO).toEqual([]);
     expect(parseDocument("DEUTSCHE_BANK", "Kauf")).toEqual({ status: "FAILED", reason: UNRECOGNIZED_REASON });
     expect(parseDocument("COMDIRECT", "Abrechnung: Kauf von Wertpapieren")).toEqual({ status: "FAILED", reason: UNRECOGNIZED_REASON });
+    expect(parseDocument("FINANZEN_ZERO", "Wertpapierkauf GESCHÄFTSABRECHNUNG")).toEqual({ status: "FAILED", reason: UNRECOGNIZED_REASON });
     expect(UNRECOGNIZED_REASON).toBe("Layout nicht erkannt. Buchung bitte manuell erfassen.");
   });
 
@@ -112,6 +113,45 @@ describe("parseDocument", () => {
       reason: PARSER_CRASHED_REASON,
     });
     expect(String(vi.mocked(console.warn).mock.calls[0]?.[0])).not.toContain("1.482");
+  });
+
+  it("passes a parsed document's note and link through", () => {
+    const link = { kind: "dividend-credit", reference: "R1", beforeTax: "21.00" } as const;
+    const doc: Parser = () => ({ proposals: [BUY], note: "Bitte prüfen.", link });
+    expect(parseDocument("DEUTSCHE_BANK", "x", registry([{ documentType: "dividend", parse: doc }]))).toEqual({
+      status: "PARSED",
+      documentType: "dividend",
+      proposals: [{ ...BUY, fee: "0", tax: "0" }],
+      note: "Bitte prüfen.",
+      link: { ...link, beforeTax: "21" },
+    });
+  });
+
+  it("returns a tax-notice link without proposals as LINK_ONLY", () => {
+    const link = { kind: "dividend-tax-notice", reference: "R1", isin: "DE0007164600", beforeTax: "10", afterTax: "7.5" } as const;
+    expect(parseDocument("DEUTSCHE_BANK", "x", registry([{ documentType: "tax", parse: () => ({ proposals: [], link }) }]))).toEqual({
+      status: "LINK_ONLY",
+      documentType: "tax",
+      link,
+    });
+    const withProposals: Parser = () => ({ proposals: [BUY], link });
+    expect(parseDocument("DEUTSCHE_BANK", "x", registry([{ documentType: "tax", parse: withProposals }]))).toEqual({
+      status: "FAILED",
+      reason: INVALID_OUTPUT_REASON,
+    });
+  });
+
+  it("fails a parsed document without proposals and without tax-notice link, or with an invalid shape", () => {
+    const empty: Parser = () => ({ proposals: [], note: "x" });
+    expect(parseDocument("DEUTSCHE_BANK", "x", registry([{ documentType: "t", parse: empty }]))).toEqual({
+      status: "FAILED",
+      reason: NO_PROPOSALS_REASON,
+    });
+    const badLink = (() => ({ proposals: [BUY], link: { kind: "other" } })) as unknown as Parser;
+    expect(parseDocument("DEUTSCHE_BANK", "x", registry([{ documentType: "t", parse: badLink }]))).toEqual({
+      status: "FAILED",
+      reason: INVALID_OUTPUT_REASON,
+    });
   });
 
   it("fails when the parser proposes nothing", () => {

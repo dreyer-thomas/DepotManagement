@@ -40,5 +40,14 @@ export type { EditableProposalField } from "./edit-fields";
 export { IMPORT_MAX_BATCH_BYTES, IMPORT_MAX_FILE_BYTES, IMPORT_MAX_FILES } from "./limits";
 export { PARSERS, parseDocument, UNRECOGNIZED_REASON } from "./parsers/registry";
 export type { ParseOutcome, ParserEntry, ParserRegistry } from "./parsers/registry";
+export type { LinkedOutcome } from "./parsers/link";
 export { PROPOSAL_TYPES, transactionProposalSchema } from "./proposal";
-export type { ParseError, Parser, ProposalType, TransactionProposal, TransactionProposalInput } from "./proposal";
+export type {
+  DocumentLink,
+  ParsedDocument,
+  ParseError,
+  Parser,
+  ProposalType,
+  TransactionProposal,
+  TransactionProposalInput,
+} from "./proposal";

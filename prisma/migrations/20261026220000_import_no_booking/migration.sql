@@ -1,0 +1,4 @@
+-- Adds NO_BOOKING to the ImportItemStatus enum (story 5-4): a document that needs no booking, such as a
+-- comdirect Steuermitteilung merged into its Ertragsgutschrift. SQLite stores Prisma enums as TEXT without
+-- a CHECK constraint, so the new value needs no schema change; `prisma migrate diff` yields an empty
+-- script. This migration only records the enum change.

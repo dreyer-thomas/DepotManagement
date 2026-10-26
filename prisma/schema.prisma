@@ -233,6 +233,8 @@ enum ImportBatchStatus {
 enum ImportItemStatus {
   PARSED
   FAILED
+  /// The document needs no booking (e.g. a comdirect Steuermitteilung merged into its Ertragsgutschrift).
+  NO_BOOKING
 }
 
 // Owned by the import module (AD-4). Staging only: nothing here is ledger data. One batch per upload for
@@ -267,7 +269,7 @@ model ImportItem {
   storedFile      String?
   status          ImportItemStatus
   documentType    String?
-  /// German reason of a FAILED item.
+  /// German text: the failure reason (FAILED), the review note (PARSED, optional) or the info (NO_BOOKING).
   reason          String?
   proposals       String           @default("[]")
   /// JSON array aligned with `proposals`: the review decision per proposal, `"book" | "discard" | null`.

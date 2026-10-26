@@ -153,6 +153,7 @@ describe("itemReviewStatus", () => {
     expect(itemReviewStatus("PARSED", ["duplicate", "duplicate"])).toBe("DUPLICATE");
     expect(itemReviewStatus("PARSED", ["duplicate", "unique"])).toBe("PARSED");
     expect(itemReviewStatus("PARSED", ["unique"])).toBe("PARSED");
+    expect(itemReviewStatus("NO_BOOKING", [])).toBe("NO_BOOKING");
   });
 });
 
@@ -164,10 +165,11 @@ describe("reviewCounts", () => {
       { reviewStatus: "DUPLICATE", proposals: [{ key: "c:0", effective: "discard" }] },
       { reviewStatus: "FAILED", proposals: [] },
       { reviewStatus: "PARSED", proposals: [{ key: "e:0", effective: "book" }] },
+      { reviewStatus: "NO_BOOKING", proposals: [] },
     ]);
     expect(counts).toEqual({
-      fileCount: 5,
-      files: { PARSED: 2, AMBIGUOUS: 1, DUPLICATE: 1, FAILED: 1 },
+      fileCount: 6,
+      files: { PARSED: 2, AMBIGUOUS: 1, DUPLICATE: 1, NO_BOOKING: 1, FAILED: 1 },
       openDecisions: 1,
       bookKeys: ["a:0", "e:0"],
     });

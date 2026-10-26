@@ -68,7 +68,7 @@ function batch(overrides: Partial<ImportBatchView> = {}): ImportBatchView {
     status: "OPEN",
     createdAt: "2026-10-26T10:00:00.000Z",
     items: [item("a")],
-    files: { PARSED: 1, AMBIGUOUS: 0, DUPLICATE: 0, FAILED: 0 },
+    files: { PARSED: 1, AMBIGUOUS: 0, DUPLICATE: 0, NO_BOOKING: 0, FAILED: 0 },
     openDecisions: 0,
     bookKeys: ["a:0"],
     ...overrides,
@@ -87,7 +87,7 @@ const ambiguousBatch = () =>
         proposals: [proposal("b", { status: "ambiguous", siblingMatch: true, effective: "open" })],
       }),
     ],
-    files: { PARSED: 0, AMBIGUOUS: 2, DUPLICATE: 0, FAILED: 0 },
+    files: { PARSED: 0, AMBIGUOUS: 2, DUPLICATE: 0, NO_BOOKING: 0, FAILED: 0 },
     openDecisions: 2,
     bookKeys: [],
   });
@@ -135,7 +135,7 @@ describe("ImportReview", () => {
     show(
       batch({
         items: [item("a", { reviewStatus: "DUPLICATE", proposals: [proposal("a", { status: "duplicate", effective: "discard", ledgerMatches: [match] })] })],
-        files: { PARSED: 0, AMBIGUOUS: 0, DUPLICATE: 1, FAILED: 0 },
+        files: { PARSED: 0, AMBIGUOUS: 0, DUPLICATE: 1, NO_BOOKING: 0, FAILED: 0 },
         bookKeys: [],
       }),
     );
@@ -261,7 +261,7 @@ describe("ImportReview", () => {
     show(
       batch({
         items: [item("x", { status: "FAILED", reviewStatus: "FAILED", reason: "Layout nicht erkannt.", documentDate: "2026-10-15", proposals: [] })],
-        files: { PARSED: 0, AMBIGUOUS: 0, DUPLICATE: 0, FAILED: 1 },
+        files: { PARSED: 0, AMBIGUOUS: 0, DUPLICATE: 0, NO_BOOKING: 0, FAILED: 1 },
         bookKeys: [],
       }),
     );
@@ -284,6 +284,33 @@ describe("ImportReview", () => {
     expect(screen.queryByRole("button", { name: "Manuell erfassen" })).toBeNull();
     expect((screen.getByRole("button", { name: "1 Buchung buchen" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText("Depot ist archiviert. Bitte zuerst reaktivieren, um zu buchen.")).toBeTruthy();
+  });
+
+  it("shows a merged tax notice as keine Buchung and a review note under its file name", () => {
+    show(
+      batch({
+        broker: "COMDIRECT",
+        items: [
+          item("a", { reason: "Keine Steuermitteilung im Dokument: Steuern sind nicht enthalten. Bitte prüfen." }),
+          item("n", {
+            status: "NO_BOOKING",
+            reviewStatus: "NO_BOOKING",
+            documentType: "dividend-tax",
+            reason: "Steuern in „a.pdf“ übernommen. Keine Buchung erforderlich.",
+            proposals: [],
+          }),
+        ],
+        files: { PARSED: 1, AMBIGUOUS: 0, DUPLICATE: 0, NO_BOOKING: 1, FAILED: 0 },
+      }),
+    );
+    expect(screen.getByText("2 Dateien: 1 erkannt, 1 ohne Buchung")).toBeTruthy();
+    const notice = screen.getByRole("region", { name: "n.pdf" });
+    expect(within(notice).getByText("keine Buchung").getAttribute("data-import-status")).toBe("NO_BOOKING");
+    expect(within(notice).getByText("Steuern in „a.pdf“ übernommen. Keine Buchung erforderlich.")).toBeTruthy();
+    expect(within(notice).queryByRole("button")).toBeNull();
+    const parsed = screen.getByRole("region", { name: "a.pdf" });
+    expect(within(parsed).getByText(/Keine Steuermitteilung im Dokument/).hasAttribute("data-import-note")).toBe(true);
+    expect(screen.getByRole("button", { name: "1 Buchung buchen" })).toBeTruthy();
   });
 
   it("shows a BOOKED batch read-only", () => {
