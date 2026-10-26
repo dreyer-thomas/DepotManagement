@@ -149,3 +149,11 @@ location: src/modules/import/parsers/registry.ts
 source_spec: `spec-5-6-isin-changes-from-broker-documents.md`
 reason: Only finanzen.net zero has a corporate-action parser; the Deutsche Bank and comdirect parsers contain no corporate-action detection and no fixtures of such notices exist. Settled by an anonymised real corporate-action notice from either broker (then add detection that fails it with the Corporate Action hint or reads it as an ISIN change).
 status: open
+
+### DW-17: Non-transactional writes from other requests run inside any open interactive transaction on the shared better-sqlite3 connection and roll back with it.
+origin: spec-deferred f3aa5fe5921f
+location: src/modules/backup/export.ts (inTransaction)
+source_spec: `spec-6-1-export-all-data.md`
+severity: medium
+reason: @prisma/adapter-better-sqlite3 dist/index.mjs: the mutex is acquired only in startTransaction; plain queries use the same client and execute inside the open BEGIN. Pre-existing for every interactive transaction (ledger batch, logos, reconciliation); the export adds one more read-only transaction that rolls back only on a DB error.
+status: open

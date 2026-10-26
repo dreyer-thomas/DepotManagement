@@ -58,7 +58,7 @@ The `dev`, `build` and `start` scripts set `NEXT_TELEMETRY_DISABLED=1`, so Next.
 src/
   app/        # Next.js routes and pages (thin); _components/ holds the app shell
   core/       # pure functions (decimal.js only; enforced by test/architecture)
-  modules/    # services per domain module (auth now; ledger, import, ... in later stories)
+  modules/    # services per domain module (auth, ledger, prices, logos, news, import, migration, backup)
   db/         # Prisma client singleton (WAL, busy timeout) and database URL resolution
   theme/      # "Minze" MUI theme and design tokens
 prisma/       # schema.prisma and migrations/
@@ -95,6 +95,36 @@ It prints a line like `AUTH_PASSWORD_HASH=\$2b\$12\$...`. Paste it into `.env` a
 If a variable is missing, empty or invalid, `npm run dev` and `npm start` print which variables are wrong (never their values) and exit with an error before serving any request. `npm run build` needs none of them.
 
 After login the session lasts 7 days and is not extended; then you log in again. The session cookie is `HttpOnly` and `SameSite=Lax`. It is marked `Secure` when the request came in over HTTPS, as reported by a TLS-terminating reverse proxy in `X-Forwarded-Proto`. "Abmelden" in the top bar ends the session. Changing `SESSION_SECRET` or `AUTH_USERNAME` logs out every open session. Changing the password (`AUTH_PASSWORD_HASH`) does not end existing sessions; rotate `SESSION_SECRET` too to log out everywhere.
+
+## Data export
+
+Settings → "Datensicherung" → "Exportieren" downloads all data as one JSON file (`GET /api/export`, login required). The file is named `depotmanagement-export-<YYYYMMDD-HHMMSS>.json` (Europe/Berlin time of the download) and is pretty-printed with two spaces. It carries no timestamp inside, so the same data always yields the same file.
+
+Format rules:
+
+- Decimals (amounts, quantities, prices, ratios) are strings exactly as stored, e.g. `"1.50000"`; never JSON numbers.
+- Business dates are `YYYY-MM-DD` strings; timestamps (`createdAt`, `fetchedAt`, ...) are UTC ISO strings as stored.
+- IDs and the intra-day `sequence` are kept. Absent values are `null`.
+- Only stored data: Positions, balances, Cost Basis and returns are computed after a restore, never exported.
+- Arrays are sorted by stable keys (see below).
+
+Top-level keys, in this order (the zod schema in [src/modules/backup/schema.ts](src/modules/backup/schema.ts) is the binding contract):
+
+| Key | Records | Sorted by |
+| --- | --- | --- |
+| `schemaVersion` | The number `1` | — |
+| `depots` | `id`, `name`, `broker` (`COMDIRECT`/`DEUTSCHE_BANK`/`FINANZEN_ZERO`), `archived` | `id` |
+| `securities` | `id`, `isin`, `cryptoSymbol`, `name`, `assetType` | `id` |
+| `providerMappings` | `id`, `securityId`, `provider` (`YAHOO`/`ONVISTA`/`COINGECKO`), `symbol`, `origin` (`AUTO`/`MANUAL`), `updatedAt`, `historyFrom`, `fetchedAt`, `fetchError`; provider and symbol `null` = "not found" marker | `securityId` |
+| `transactions` | `id`, `depotId`, `securityId`, `type` (`BUY`, `SELL`, `DIVIDEND`, `FEE`, `TAX`, `DEPOSIT`, `WITHDRAWAL`, `ADJUSTMENT`), `date`, `sequence`, `quantity`, `price`, `amount`, `fee`, `tax`, `note` | `depotId`, `date`, `sequence` |
+| `corporateActions` | `id`, `securityId`, `newSecurityId`, `type` (`SPLIT`/`ISIN_CHANGE`), `date`, `ratioOld`, `ratioNew` | `securityId`, `type`, `date` |
+| `reconciliationRuns` | `id`, `depotId`, `statementDate`, `status` (`OPEN`/`FINISHED`), `createdAt`, `finishedAt`, `rows`: [`id`, `runId`, `securityId` (`null` = Cash Account), `statementValue`, `checked`] | `id`; rows by `id` |
+| `prices` | `id`, `securityId`, `date`, `source` (`MANUAL`/`PROVIDER`), `price`, `fetchedAt` | `securityId`, `date`, `source` |
+| `logos` | Manually uploaded logos only: `id`, `securityId`, `contentType` (`image/png`/`image/jpeg`/`image/webp`), `fetchedAt`, `data` (file bytes as base64) | `securityId` |
+
+Not exported: caches and anything that can be fetched again or is temporary: fetched logos and their "nothing found" markers, news headlines, PDF import staging (batches, items, stored PDFs). A manual logo whose file is missing, empty or otherwise unusable on disk is skipped with a warning in the log.
+
+`schemaVersion` changes only when the format changes incompatibly. Restore (story 6.2) will read older versions by upgrading them step by step to the current one.
 
 ## Definition of Done (UI stories)
 

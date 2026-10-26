@@ -9,9 +9,29 @@ const dbFile = await vi.hoisted(async () => {
 
 import { prisma } from "@/db";
 import { archiveDepot, createDepot, recordTrade } from "@/modules/ledger";
+import { ExportButton } from "../../_components/backup/ExportButton";
 import { CreateDepotButton } from "../../_components/depots/DepotDialogs";
 import { DepotGroups } from "../../_components/depots/DepotList";
 import SettingsPage from "./page";
+
+type Node = { props: { children?: unknown; "aria-labelledby"?: string } };
+
+/** The element labelled by the "Datensicherung" heading (`aria-labelledby="settings-backup"`). */
+function findBackupSection(node: unknown): Node | undefined {
+  if (Array.isArray(node)) {
+    for (const child of node) {
+      const found = findBackupSection(child);
+      if (found) return found;
+    }
+    return undefined;
+  }
+  if (node && typeof node === "object" && "props" in node) {
+    const element = node as Node;
+    if (element.props["aria-labelledby"] === "settings-backup") return element;
+    return findBackupSection(element.props.children);
+  }
+  return undefined;
+}
 
 beforeEach(async () => {
   await prisma.transaction.deleteMany();
@@ -41,6 +61,14 @@ describe("Settings page", () => {
     const html = renderHtml(tree);
     expect(html).toMatch(/<a[^>]*href="\/settings\/parqet"[^>]*>Aus Parqet übernehmen/);
     expect(html).not.toMatch(/disabled[^>]*>Aus Parqet übernehmen/);
+  });
+
+  it("offers the JSON export button in the Datensicherung section", async () => {
+    const tree = await SettingsPage();
+    const section = findBackupSection(tree);
+    expect(section).toBeDefined();
+    expect(renderText(section as never)).toContain("Datensicherung");
+    expect(findElement(section, ExportButton)).toBeDefined();
   });
 
   it("lists Depots with a rename button each", async () => {

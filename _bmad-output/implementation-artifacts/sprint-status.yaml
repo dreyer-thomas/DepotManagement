@@ -88,7 +88,7 @@ development_status:
   epic-5-retrospective: optional
 
   epic-6: backlog
-  6-1-export-all-data: backlog
+  6-1-export-all-data: done
   6-2-restore-from-export: backlog
   6-3-daily-database-backup: backlog
   6-4-production-deployment-behind-nginx: backlog

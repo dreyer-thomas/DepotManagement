@@ -3,6 +3,7 @@ import Card from "@mui/material/Card";
 import CardContent from "@mui/material/CardContent";
 import Typography from "@mui/material/Typography";
 import type { Metadata } from "next";
+import { ExportButton } from "@/app/_components/backup/ExportButton";
 import { CreateDepotButton } from "@/app/_components/depots/DepotDialogs";
 import { DepotGroups } from "@/app/_components/depots/DepotList";
 import { ParqetMigrationLink } from "@/app/_components/migration/ParqetMigrationLink";
@@ -41,6 +42,15 @@ export default async function SettingsPage() {
           Übernimm die Buchungen eines Parqet-Portfolios aus dessen CSV-Export in ein Depot.
         </Typography>
         <ParqetMigrationLink />
+      </Box>
+      <Box component="section" aria-labelledby="settings-backup" sx={{ mt: 4 }}>
+        <Typography id="settings-backup" component="h2" variant="h6" sx={{ fontWeight: 600, mb: 1 }}>
+          Datensicherung
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Lade alle Daten als JSON-Datei herunter: Depots, Buchungen, Kurse und hochgeladene Logos.
+        </Typography>
+        <ExportButton />
       </Box>
     </>
   );

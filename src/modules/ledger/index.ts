@@ -1,4 +1,5 @@
-// The ledger module is the only writer of ledger rows (Depots, Securities, Transactions, CorporateActions).
+// The ledger module is the only writer of ledger rows (Depots, Securities, Transactions, CorporateActions,
+// ReconciliationRuns); `exportLedgerData` is its export reader for the backup module.
 export {
   deleteIsinChange,
   deleteSplit,
@@ -143,3 +144,5 @@ export type {
   TransactionType,
   UpdateTransactionResult,
 } from "./transactions";
+export { exportLedgerData } from "./export";
+export type { LedgerExport } from "./export";

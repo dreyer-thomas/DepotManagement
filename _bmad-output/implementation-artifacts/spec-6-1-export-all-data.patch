@@ -1,0 +1,845 @@
+diff --git a/README.md b/README.md
+index 900702d..3ef04d8 100644
+--- a/README.md
++++ b/README.md
+@@ -58,7 +58,7 @@ The `dev`, `build` and `start` scripts set `NEXT_TELEMETRY_DISABLED=1`, so Next.
+ src/
+   app/        # Next.js routes and pages (thin); _components/ holds the app shell
+   core/       # pure functions (decimal.js only; enforced by test/architecture)
+-  modules/    # services per domain module (auth now; ledger, import, ... in later stories)
++  modules/    # services per domain module (auth, ledger, prices, logos, news, import, migration, backup)
+   db/         # Prisma client singleton (WAL, busy timeout) and database URL resolution
+   theme/      # "Minze" MUI theme and design tokens
+ prisma/       # schema.prisma and migrations/
+@@ -96,6 +96,36 @@ If a variable is missing, empty or invalid, `npm run dev` and `npm start` print
+ 
+ After login the session lasts 7 days and is not extended; then you log in again. The session cookie is `HttpOnly` and `SameSite=Lax`. It is marked `Secure` when the request came in over HTTPS, as reported by a TLS-terminating reverse proxy in `X-Forwarded-Proto`. "Abmelden" in the top bar ends the session. Changing `SESSION_SECRET` or `AUTH_USERNAME` logs out every open session. Changing the password (`AUTH_PASSWORD_HASH`) does not end existing sessions; rotate `SESSION_SECRET` too to log out everywhere.
+ 
++## Data export
++
++Settings → "Datensicherung" → "Exportieren" downloads all data as one JSON file (`GET /api/export`, login required). The file is named `depotmanagement-export-<YYYYMMDD-HHMMSS>.json` (Europe/Berlin time of the download) and is pretty-printed with two spaces. It carries no timestamp inside, so the same data always yields the same file.
++
++Format rules:
++
++- Decimals (amounts, quantities, prices, ratios) are strings exactly as stored, e.g. `"1.50000"`; never JSON numbers.
++- Business dates are `YYYY-MM-DD` strings; timestamps (`createdAt`, `fetchedAt`, ...) are UTC ISO strings as stored.
++- IDs and the intra-day `sequence` are kept. Absent values are `null`.
++- Only stored data: Positions, balances, Cost Basis and returns are computed after a restore, never exported.
++- Arrays are sorted by stable keys (see below).
++
++Top-level keys, in this order (the zod schema in [src/modules/backup/schema.ts](src/modules/backup/schema.ts) is the binding contract):
++
++| Key | Records | Sorted by |
++| --- | --- | --- |
++| `schemaVersion` | The number `1` | — |
++| `depots` | `id`, `name`, `broker` (`COMDIRECT`/`DEUTSCHE_BANK`/`FINANZEN_ZERO`), `archived` | `id` |
++| `securities` | `id`, `isin`, `cryptoSymbol`, `name`, `assetType` | `id` |
++| `providerMappings` | `id`, `securityId`, `provider` (`YAHOO`/`ONVISTA`/`COINGECKO`), `symbol`, `origin` (`AUTO`/`MANUAL`), `updatedAt`, `historyFrom`, `fetchedAt`, `fetchError`; provider and symbol `null` = "not found" marker | `securityId` |
++| `transactions` | `id`, `depotId`, `securityId`, `type` (`BUY`, `SELL`, `DIVIDEND`, `FEE`, `TAX`, `DEPOSIT`, `WITHDRAWAL`, `ADJUSTMENT`), `date`, `sequence`, `quantity`, `price`, `amount`, `fee`, `tax`, `note` | `depotId`, `date`, `sequence` |
++| `corporateActions` | `id`, `securityId`, `newSecurityId`, `type` (`SPLIT`/`ISIN_CHANGE`), `date`, `ratioOld`, `ratioNew` | `securityId`, `type`, `date` |
++| `reconciliationRuns` | `id`, `depotId`, `statementDate`, `status` (`OPEN`/`FINISHED`), `createdAt`, `finishedAt`, `rows`: [`id`, `runId`, `securityId` (`null` = Cash Account), `statementValue`, `checked`] | `id`; rows by `id` |
++| `prices` | `id`, `securityId`, `date`, `source` (`MANUAL`/`PROVIDER`), `price`, `fetchedAt` | `securityId`, `date`, `source` |
++| `logos` | Manually uploaded logos only: `id`, `securityId`, `contentType` (`image/png`/`image/jpeg`/`image/webp`), `fetchedAt`, `data` (file bytes as base64) | `securityId` |
++
++Not exported: caches and anything that can be fetched again or is temporary: fetched logos and their "nothing found" markers, news headlines, PDF import staging (batches, items, stored PDFs). A manual logo whose file is missing on disk is skipped with a warning in the log.
++
++`schemaVersion` changes only when the format changes incompatibly. Restore (story 6.2) will read older versions by upgrading them step by step to the current one.
++
+ ## Definition of Done (UI stories)
+ 
+ Every UI story is done only when all of these hold:
+diff --git a/src/app/(app)/settings/page.test.tsx b/src/app/(app)/settings/page.test.tsx
+index 0633cbe..3096093 100644
+--- a/src/app/(app)/settings/page.test.tsx
++++ b/src/app/(app)/settings/page.test.tsx
+@@ -43,6 +43,12 @@ describe("Settings page", () => {
+     expect(html).not.toMatch(/disabled[^>]*>Aus Parqet übernehmen/);
+   });
+ 
++  it("offers the JSON export as a download link in the Datensicherung section", async () => {
++    const tree = await SettingsPage();
++    expect(renderText(tree)).toContain("Datensicherung");
++    expect(renderHtml(tree)).toMatch(/<a[^>]*href="\/api\/export"[^>]*download=""[^>]*>.*Exportieren/);
++  });
++
+   it("lists Depots with a rename button each", async () => {
+     await createDepot({ name: "Hauptdepot", broker: "COMDIRECT" });
+     const tree = await SettingsPage();
+diff --git a/src/app/(app)/settings/page.tsx b/src/app/(app)/settings/page.tsx
+index b15a942..c197f08 100644
+--- a/src/app/(app)/settings/page.tsx
++++ b/src/app/(app)/settings/page.tsx
+@@ -3,6 +3,7 @@ import Card from "@mui/material/Card";
+ import CardContent from "@mui/material/CardContent";
+ import Typography from "@mui/material/Typography";
+ import type { Metadata } from "next";
++import { ExportButton } from "@/app/_components/backup/ExportButton";
+ import { CreateDepotButton } from "@/app/_components/depots/DepotDialogs";
+ import { DepotGroups } from "@/app/_components/depots/DepotList";
+ import { ParqetMigrationLink } from "@/app/_components/migration/ParqetMigrationLink";
+@@ -42,6 +43,15 @@ export default async function SettingsPage() {
+         </Typography>
+         <ParqetMigrationLink />
+       </Box>
++      <Box component="section" aria-labelledby="settings-backup" sx={{ mt: 4 }}>
++        <Typography id="settings-backup" component="h2" variant="h6" sx={{ fontWeight: 600, mb: 1 }}>
++          Datensicherung
++        </Typography>
++        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
++          Lade alle Daten als JSON-Datei herunter: Depots, Buchungen, Kurse und hochgeladene Logos.
++        </Typography>
++        <ExportButton />
++      </Box>
+     </>
+   );
+ }
+diff --git a/src/app/_components/backup/ExportButton.tsx b/src/app/_components/backup/ExportButton.tsx
+new file mode 100644
+index 0000000..d77b4fc
+--- /dev/null
++++ b/src/app/_components/backup/ExportButton.tsx
+@@ -0,0 +1,13 @@
++"use client";
++
++import DownloadIcon from "@mui/icons-material/Download";
++import Button from "@mui/material/Button";
++
++/** Downloads the full JSON export; a plain link so the browser handles the file download. */
++export function ExportButton() {
++  return (
++    <Button component="a" href="/api/export" download variant="outlined" startIcon={<DownloadIcon />} sx={{ minHeight: 44 }}>
++      Exportieren
++    </Button>
++  );
++}
+diff --git a/src/app/api/export/route.test.ts b/src/app/api/export/route.test.ts
+new file mode 100644
+index 0000000..ac206a0
+--- /dev/null
++++ b/src/app/api/export/route.test.ts
+@@ -0,0 +1,85 @@
++import { mkdtempSync, rmSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
++import { createRequestFakes } from "../../../../test/helpers/next-mocks";
++import { createSessionToken, SESSION_COOKIE } from "@/modules/auth";
++
++const fakes = vi.hoisted(() => ({}) as { current: ReturnType<typeof createRequestFakes> });
++const dbFile = await vi.hoisted(async () => {
++  const { useMigratedDatabaseForSingleton } = await import("../../../../test/helpers/migrated-db-file");
++  return useMigratedDatabaseForSingleton();
++});
++
++vi.mock("next/headers", () => ({
++  cookies: async () => fakes.current.cookieStore,
++  headers: async () => fakes.current.state.headers,
++}));
++
++import { prisma } from "@/db";
++import { exportFileSchema } from "@/modules/backup";
++import { createDepot, ensureSecurity } from "@/modules/ledger";
++import { saveManualLogo } from "@/modules/logos";
++import { GET } from "./route";
++
++const SECRET = "test-secret-with-at-least-32-characters";
++const HASH = "$2b$04$Raf6EM460q2HE2THwTzIR.5Uk58FNzZG7FhlOvTFD.sbuFp.We4pO";
++const savedEnv = { ...process.env };
++const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 7, 7]);
++let dataDir: string;
++
++beforeEach(async () => {
++  fakes.current = createRequestFakes();
++  dataDir = mkdtempSync(join(tmpdir(), "depot-export-route-"));
++  process.env.AUTH_USERNAME = "tester";
++  process.env.AUTH_PASSWORD_HASH = HASH;
++  process.env.SESSION_SECRET = SECRET;
++  process.env.DATA_DIR = dataDir;
++  fakes.current.state.incoming.set(SESSION_COOKIE, await createSessionToken("tester", SECRET));
++  await prisma.securityLogo.deleteMany();
++  await prisma.security.deleteMany();
++  await prisma.depot.deleteMany();
++});
++
++afterEach(() => {
++  process.env = { ...savedEnv };
++  rmSync(dataDir, { recursive: true, force: true });
++});
++
++afterAll(async () => {
++  await prisma.$disconnect();
++  dbFile.removeFiles();
++});
++
++describe("GET /api/export", () => {
++  it("returns 401 JSON without a session and no data", async () => {
++    await createDepot({ name: "Hauptdepot", broker: "COMDIRECT" });
++    fakes.current.state.incoming.clear();
++    const response = await GET();
++    expect(response.status).toBe(401);
++    expect(await response.json()).toEqual({ error: "unauthorized" });
++    expect(response.headers.get("Content-Disposition")).toBeNull();
++  });
++
++  it("serves the export as an attachment with no-store and nosniff", async () => {
++    await createDepot({ name: "Hauptdepot", broker: "COMDIRECT" });
++    const security = await ensureSecurity({ isin: "DE0007164600" }, { name: "SAP SE", assetType: "STOCK" });
++    if (!security.ok) throw new Error("setup failed");
++    expect(await saveManualLogo(security.security.id, PNG)).toEqual({ ok: true });
++
++    const response = await GET();
++    expect(response.status).toBe(200);
++    expect(response.headers.get("Content-Type")).toBe("application/json; charset=utf-8");
++    expect(response.headers.get("Cache-Control")).toBe("no-store");
++    expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
++    expect(response.headers.get("Content-Disposition")).toMatch(
++      /^attachment; filename="depotmanagement-export-\d{8}-\d{6}\.json"$/,
++    );
++    const text = await response.text();
++    expect(text.startsWith('{\n  "schemaVersion": 1,')).toBe(true);
++    const file = exportFileSchema.parse(JSON.parse(text));
++    expect(file.depots.map((depot) => depot.name)).toEqual(["Hauptdepot"]);
++    expect(file.logos).toHaveLength(1);
++    expect(Buffer.from(file.logos[0]!.data, "base64")).toEqual(Buffer.from(PNG));
++  });
++});
+diff --git a/src/app/api/export/route.ts b/src/app/api/export/route.ts
+new file mode 100644
+index 0000000..bae2017
+--- /dev/null
++++ b/src/app/api/export/route.ts
+@@ -0,0 +1,34 @@
++// Download of the full JSON export (story 6.1). The proxy already answers /api/* without a session with
++// 401; the handler re-checks. Logs never contain amounts or file content.
++import { getSession } from "@/modules/auth";
++import { createExport, exportFileName } from "@/modules/backup";
++
++const SECURITY_HEADERS = {
++  "X-Content-Type-Options": "nosniff",
++  "Cache-Control": "no-store",
++};
++
++function error(status: 401 | 500, message: string): Response {
++  return Response.json({ error: message }, { status, headers: SECURITY_HEADERS });
++}
++
++/** All data as `depotmanagement-export-<YYYYMMDD-HHMMSS>.json`: 401 without a session. */
++export async function GET(): Promise<Response> {
++  if (!(await getSession())) return error(401, "unauthorized");
++  const now = new Date();
++  let body: string;
++  try {
++    body = JSON.stringify(await createExport(), null, 2);
++  } catch (failure) {
++    console.error(`Export: creating the export failed (${failure instanceof Error ? failure.name : "unknown"})`);
++    return error(500, "export-failed");
++  }
++  return new Response(body, {
++    status: 200,
++    headers: {
++      ...SECURITY_HEADERS,
++      "Content-Type": "application/json; charset=utf-8",
++      "Content-Disposition": `attachment; filename="${exportFileName(now)}"`,
++    },
++  });
++}
+diff --git a/src/modules/backup/export.test.ts b/src/modules/backup/export.test.ts
+new file mode 100644
+index 0000000..c51b7a7
+--- /dev/null
++++ b/src/modules/backup/export.test.ts
+@@ -0,0 +1,219 @@
++import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
++import { createTestDatabase, type TestDatabase } from "../../../test/helpers/test-db";
++import { createExport, EXPORT_SCHEMA_VERSION, exportFileName, exportFileSchema } from "./index";
++
++const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
++const TS = "2026-10-26T10:00:00.000Z";
++
++let testDb: TestDatabase;
++let dataDir: string;
++const db = () => testDb.client;
++const deps = () => ({ env: { DATA_DIR: dataDir } });
++
++beforeEach(() => {
++  testDb = createTestDatabase();
++  dataDir = mkdtempSync(join(tmpdir(), "depot-export-"));
++});
++
++afterEach(async () => {
++  vi.restoreAllMocks();
++  await testDb.cleanup();
++  rmSync(dataDir, { recursive: true, force: true });
++});
++
++function writeLogo(fileName: string): void {
++  mkdirSync(join(dataDir, "logos"), { recursive: true });
++  writeFileSync(join(dataDir, "logos", fileName), PNG);
++}
++
++/** Synthetic full ledger; rows are inserted out of sort order with non-canonical decimals. */
++async function seedFullLedger(): Promise<void> {
++  const c = db();
++  await c.depot.create({ data: { id: "depot-b", name: "Zweitdepot", broker: "FINANZEN_ZERO", archived: true } });
++  await c.depot.create({ data: { id: "depot-a", name: "Hauptdepot", broker: "COMDIRECT" } });
++  await c.security.create({ data: { id: "sec-c", cryptoSymbol: "BTC", name: "Bitcoin", assetType: "CRYPTO" } });
++  await c.security.create({ data: { id: "sec-b", isin: "DE000SYNCB08", name: "Synthetic Beta AG", assetType: "STOCK" } });
++  await c.security.create({ data: { id: "sec-a", isin: "DE000SYNCA09", name: "Synthetic Alpha AG", assetType: "ETF" } });
++  const tx = (id: string, depotId: string, date: string, sequence: number, extra: Record<string, unknown>) =>
++    c.transaction.create({ data: { id, depotId, date, sequence, amount: "0", fee: "0", tax: "0", type: "DEPOSIT", ...extra } as never });
++  await tx("t-5", "depot-b", "2026-01-01", 0, { amount: "100.00" });
++  await tx("t-4", "depot-a", "2026-03-01", 0, { type: "ADJUSTMENT", securityId: "sec-a", quantity: "-0.50", price: null, note: "Kontoabgleich" });
++  await tx("t-3", "depot-a", "2026-02-01", 1, { type: "SELL", securityId: "sec-a", quantity: "1.0", price: "12.3400", amount: "12.34", fee: "1.00", tax: "0.10" });
++  await tx("t-2", "depot-a", "2026-02-01", 0, { type: "BUY", securityId: "sec-a", quantity: "1.50000", price: "10.00", amount: "15.00", fee: "0.99", note: "erste Notiz" });
++  await tx("t-1", "depot-a", "2026-01-15", 0, { amount: "1000.00" });
++  await c.corporateAction.create({ data: { id: "ca-2", securityId: "sec-b", newSecurityId: "sec-a", type: "ISIN_CHANGE", date: "2026-04-01", ratioOld: "2.0", ratioNew: "1" } });
++  await c.corporateAction.create({ data: { id: "ca-1", securityId: "sec-a", type: "SPLIT", date: "2026-05-01", ratioOld: "1", ratioNew: "4" } });
++  await c.reconciliationRun.create({
++    data: {
++      id: "run-1",
++      depotId: "depot-a",
++      statementDate: "2026-06-30",
++      status: "FINISHED",
++      createdAt: TS,
++      finishedAt: "2026-10-26T11:00:00.000Z",
++      rows: {
++        create: [
++          { id: "row-2", securityId: "sec-a", statementValue: "4.00", checked: true },
++          { id: "row-1", securityId: null, statementValue: "987.6500", checked: false },
++        ],
++      },
++    },
++  });
++  await c.providerMapping.create({
++    data: { id: "map-a", securityId: "sec-a", provider: "YAHOO", symbol: "SYA.DE", origin: "AUTO", updatedAt: TS, historyFrom: "2026-01-15", fetchedAt: TS },
++  });
++  await c.providerMapping.create({ data: { id: "map-b", securityId: "sec-b", origin: "AUTO", updatedAt: TS, fetchError: "not-found" } });
++  await c.price.create({ data: { id: "p-3", securityId: "sec-a", date: "2026-02-02", source: "PROVIDER", price: "11.2000", fetchedAt: TS } });
++  await c.price.create({ data: { id: "p-2", securityId: "sec-a", date: "2026-02-01", source: "PROVIDER", price: "10.1", fetchedAt: TS } });
++  await c.price.create({ data: { id: "p-1", securityId: "sec-a", date: "2026-02-01", source: "MANUAL", price: "10.50", fetchedAt: TS } });
++  writeLogo("sec-b-1.png");
++  await c.securityLogo.create({ data: { id: "logo-b", securityId: "sec-b", source: "MANUAL", fileName: "sec-b-1.png", contentType: "image/png", fetchedAt: TS } });
++}
++
++describe("createExport", () => {
++  it("exports every stored row with all columns as stored, sorted by stable keys", async () => {
++    await seedFullLedger();
++    const file = await createExport(deps(), db());
++    expect(Object.keys(file)).toEqual([
++      "schemaVersion",
++      "depots",
++      "securities",
++      "providerMappings",
++      "transactions",
++      "corporateActions",
++      "reconciliationRuns",
++      "prices",
++      "logos",
++    ]);
++    expect(file.schemaVersion).toBe(1);
++    expect(file.depots).toEqual([
++      { id: "depot-a", name: "Hauptdepot", broker: "COMDIRECT", archived: false },
++      { id: "depot-b", name: "Zweitdepot", broker: "FINANZEN_ZERO", archived: true },
++    ]);
++    expect(file.securities.map((s) => s.id)).toEqual(["sec-a", "sec-b", "sec-c"]);
++    expect(file.securities[2]).toEqual({ id: "sec-c", isin: null, cryptoSymbol: "BTC", name: "Bitcoin", assetType: "CRYPTO" });
++    expect(file.transactions.map((t) => t.id)).toEqual(["t-1", "t-2", "t-3", "t-4", "t-5"]);
++    expect(file.transactions[1]).toEqual({
++      id: "t-2",
++      depotId: "depot-a",
++      securityId: "sec-a",
++      type: "BUY",
++      date: "2026-02-01",
++      sequence: 0,
++      quantity: "1.50000",
++      price: "10.00",
++      amount: "15.00",
++      fee: "0.99",
++      tax: "0",
++      note: "erste Notiz",
++    });
++    expect(file.transactions[3]).toMatchObject({ type: "ADJUSTMENT", quantity: "-0.50", price: null, note: "Kontoabgleich" });
++    expect(file.transactions[0]).toMatchObject({ securityId: null, quantity: null, price: null, note: null, amount: "1000.00" });
++    expect(file.corporateActions).toEqual([
++      { id: "ca-1", securityId: "sec-a", newSecurityId: null, type: "SPLIT", date: "2026-05-01", ratioOld: "1", ratioNew: "4" },
++      { id: "ca-2", securityId: "sec-b", newSecurityId: "sec-a", type: "ISIN_CHANGE", date: "2026-04-01", ratioOld: "2.0", ratioNew: "1" },
++    ]);
++    expect(file.reconciliationRuns).toEqual([
++      {
++        id: "run-1",
++        depotId: "depot-a",
++        statementDate: "2026-06-30",
++        status: "FINISHED",
++        createdAt: TS,
++        finishedAt: "2026-10-26T11:00:00.000Z",
++        rows: [
++          { id: "row-1", runId: "run-1", securityId: null, statementValue: "987.6500", checked: false },
++          { id: "row-2", runId: "run-1", securityId: "sec-a", statementValue: "4.00", checked: true },
++        ],
++      },
++    ]);
++    expect(file.providerMappings).toEqual([
++      { id: "map-a", securityId: "sec-a", provider: "YAHOO", symbol: "SYA.DE", origin: "AUTO", updatedAt: TS, historyFrom: "2026-01-15", fetchedAt: TS, fetchError: null },
++      { id: "map-b", securityId: "sec-b", provider: null, symbol: null, origin: "AUTO", updatedAt: TS, historyFrom: null, fetchedAt: null, fetchError: "not-found" },
++    ]);
++    expect(file.prices.map((p) => [p.id, p.price])).toEqual([
++      ["p-1", "10.50"],
++      ["p-2", "10.1"],
++      ["p-3", "11.2000"],
++    ]);
++    expect(file.logos).toEqual([
++      { id: "logo-b", securityId: "sec-b", contentType: "image/png", fetchedAt: TS, data: PNG.toString("base64") },
++    ]);
++    expect(exportFileSchema.parse(file)).toEqual(file);
++  });
++
++  it("leaves out fetched logos, markers, news and import staging", async () => {
++    await seedFullLedger();
++    const c = db();
++    writeLogo("sec-a-1.png");
++    await c.securityLogo.create({ data: { securityId: "sec-a", source: "FETCHED", provider: "LOGO_DEV", fileName: "sec-a-1.png", contentType: "image/png", fetchedAt: TS } });
++    await c.securityLogo.create({ data: { securityId: "sec-c", source: "FETCHED", fetchedAt: TS } });
++    await c.newsArticle.create({ data: { securityId: "sec-a", url: "https://example.test/a", title: "Synthetic", source: "Test", publishedAt: TS, provider: "YAHOO", fetchedAt: TS } });
++    await c.newsFetch.create({ data: { securityId: "sec-a", fetchedAt: TS } });
++    await c.importBatch.create({
++      data: { depotId: "depot-a", createdAt: TS, items: { create: [{ position: 0, fileName: "doc.pdf", fileHash: "abc", status: "PARSED" }] } },
++    });
++    const file = await createExport(deps(), db());
++    expect(file.logos.map((logo) => logo.securityId)).toEqual(["sec-b"]);
++    const json = JSON.stringify(file);
++    for (const excluded of ["example.test", "Synthetic\"", "doc.pdf", "abc", "LOGO_DEV", "FETCHED", "sec-a-1.png", "fileName"]) {
++      expect(json).not.toContain(excluded);
++    }
++  });
++
++  it("exports an empty instance as schemaVersion 1 with empty arrays", async () => {
++    expect(await createExport(deps(), db())).toEqual({
++      schemaVersion: EXPORT_SCHEMA_VERSION,
++      depots: [],
++      securities: [],
++      providerMappings: [],
++      transactions: [],
++      corporateActions: [],
++      reconciliationRuns: [],
++      prices: [],
++      logos: [],
++    });
++  });
++
++  it("omits a manual logo whose file is missing and warns without ids or data", async () => {
++    await seedFullLedger();
++    rmSync(join(dataDir, "logos", "sec-b-1.png"));
++    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
++    const file = await createExport(deps(), db());
++    expect(file.logos).toEqual([]);
++    expect(file.transactions).toHaveLength(5);
++    expect(warn).toHaveBeenCalledTimes(1);
++    const message = String(warn.mock.calls[0]?.[0]);
++    expect(message).not.toContain("sec-b");
++    expect(message).not.toContain("logo-b");
++  });
++
++  it("yields byte-identical JSON for the same data", async () => {
++    await seedFullLedger();
++    const first = JSON.stringify(await createExport(deps(), db()), null, 2);
++    const second = JSON.stringify(await createExport(deps(), db()), null, 2);
++    expect(second).toBe(first);
++  });
++});
++
++describe("exportFileSchema", () => {
++  it("rejects unknown keys, a wrong version and number decimals", async () => {
++    await seedFullLedger();
++    const file = await createExport(deps(), db());
++    expect(exportFileSchema.safeParse({ ...file, schemaVersion: 2 }).success).toBe(false);
++    expect(exportFileSchema.safeParse({ ...file, exportedAt: TS }).success).toBe(false);
++    const transactions = [{ ...file.transactions[0], amount: 1000 }];
++    expect(exportFileSchema.safeParse({ ...file, transactions }).success).toBe(false);
++  });
++});
++
++describe("exportFileName", () => {
++  it("uses Europe/Berlin local time in winter (UTC+1) and summer (UTC+2)", () => {
++    expect(exportFileName(new Date("2026-01-15T23:30:05Z"))).toBe("depotmanagement-export-20260116-003005.json");
++    expect(exportFileName(new Date("2026-07-01T08:09:10Z"))).toBe("depotmanagement-export-20260701-100910.json");
++    expect(exportFileName(new Date("2026-10-25T22:00:00Z"))).toBe("depotmanagement-export-20261025-230000.json");
++  });
++});
+diff --git a/src/modules/backup/export.ts b/src/modules/backup/export.ts
+new file mode 100644
+index 0000000..3662d59
+--- /dev/null
++++ b/src/modules/backup/export.ts
+@@ -0,0 +1,63 @@
++// JSON export of all data (story 6.1). Reads every module's export reader inside one interactive
++// transaction (consistent snapshot), assembles the keys in a fixed order and validates the result
++// against the export schema before anyone serves it. No timestamp inside the file: the same data
++// always yields the same document (export → restore → export round-trip, story 6.2).
++import { prisma } from "@/db";
++import type { Prisma } from "@/db/generated/prisma/client";
++import { exportLedgerData } from "@/modules/ledger";
++import { exportManualLogos, type LogoDeps } from "@/modules/logos";
++import { exportPriceData } from "@/modules/prices";
++import { EXPORT_SCHEMA_VERSION, exportFileSchema, type ExportFile } from "./schema";
++
++export type BackupDb = Prisma.TransactionClient;
++
++export type ExportDeps = Pick<LogoDeps, "env">;
++
++/** Upper bound of the snapshot transaction; logo files are read inside it. */
++export const EXPORT_TIMEOUT_MS = 120_000;
++
++async function inTransaction<T>(db: BackupDb, read: (tx: BackupDb) => Promise<T>): Promise<T> {
++  const client = db as BackupDb & Partial<Pick<typeof prisma, "$transaction">>;
++  if (typeof client.$transaction === "function") {
++    return client.$transaction((tx) => read(tx), { timeout: EXPORT_TIMEOUT_MS, maxWait: 10_000 });
++  }
++  return read(db);
++}
++
++/** Builds and validates the export document of all stored data (throws only on unexpected failures). */
++export async function createExport(deps: ExportDeps = {}, db: BackupDb = prisma): Promise<ExportFile> {
++  const file = await inTransaction(db, async (tx) => {
++    const ledger = await exportLedgerData(tx);
++    const prices = await exportPriceData(tx);
++    const logos = await exportManualLogos(deps, tx);
++    return {
++      schemaVersion: EXPORT_SCHEMA_VERSION,
++      depots: ledger.depots,
++      securities: ledger.securities,
++      providerMappings: prices.providerMappings,
++      transactions: ledger.transactions,
++      corporateActions: ledger.corporateActions,
++      reconciliationRuns: ledger.reconciliationRuns,
++      prices: prices.prices,
++      logos,
++    };
++  });
++  return exportFileSchema.parse(file);
++}
++
++const BERLIN_DATE_TIME = new Intl.DateTimeFormat("en-CA", {
++  timeZone: "Europe/Berlin",
++  year: "numeric",
++  month: "2-digit",
++  day: "2-digit",
++  hour: "2-digit",
++  minute: "2-digit",
++  second: "2-digit",
++  hourCycle: "h23",
++});
++
++/** `depotmanagement-export-<YYYYMMDD-HHMMSS>.json` in Europe/Berlin local time of `now`. */
++export function exportFileName(now: Date): string {
++  const parts = Object.fromEntries(BERLIN_DATE_TIME.formatToParts(now).map((part) => [part.type, part.value]));
++  return `depotmanagement-export-${parts.year}${parts.month}${parts.day}-${parts.hour}${parts.minute}${parts.second}.json`;
++}
+diff --git a/src/modules/backup/index.ts b/src/modules/backup/index.ts
+new file mode 100644
+index 0000000..2259aa2
+--- /dev/null
++++ b/src/modules/backup/index.ts
+@@ -0,0 +1,6 @@
++// The backup module owns the JSON export/restore, export schema upgrades and the DB file backup. It
++// reaches other modules only through their entry points (`ledger`, `prices`, `logos`).
++export { createExport, EXPORT_TIMEOUT_MS, exportFileName } from "./export";
++export type { BackupDb, ExportDeps } from "./export";
++export { EXPORT_SCHEMA_VERSION, exportFileSchema } from "./schema";
++export type { ExportFile } from "./schema";
+diff --git a/src/modules/backup/schema.ts b/src/modules/backup/schema.ts
+new file mode 100644
+index 0000000..2675aff
+--- /dev/null
++++ b/src/modules/backup/schema.ts
+@@ -0,0 +1,117 @@
++// The export file contract (story 6.1, AD-12): one versioned JSON document with every stored ledger,
++// price and manual-logo row. Decimals and dates are the stored strings; nothing derived is included.
++// Restore (story 6.2) parses files with this schema; older versions are upgraded before parsing.
++import { z } from "zod";
++import { isBusinessDate } from "@/core/dates";
++import { isDecimalString } from "@/core/decimal";
++
++export const EXPORT_SCHEMA_VERSION = 1;
++
++const id = z.string().min(1);
++const decimal = z.string().refine(isDecimalString, "decimal string expected");
++const businessDate = z.string().refine(isBusinessDate, "YYYY-MM-DD expected");
++/** UTC ISO timestamp as stored (e.g. `fetchedAt`); kept verbatim. */
++const timestamp = z.string().min(1);
++
++export const depotRecordSchema = z.strictObject({
++  id,
++  name: z.string().min(1),
++  broker: z.enum(["COMDIRECT", "DEUTSCHE_BANK", "FINANZEN_ZERO"]),
++  archived: z.boolean(),
++});
++
++export const securityRecordSchema = z.strictObject({
++  id,
++  isin: z.string().min(1).nullable(),
++  cryptoSymbol: z.string().min(1).nullable(),
++  name: z.string().min(1),
++  assetType: z.enum(["STOCK", "ETF", "FUND", "CERTIFICATE", "CRYPTO", "UNCLASSIFIED"]),
++});
++
++export const providerMappingRecordSchema = z.strictObject({
++  id,
++  securityId: id,
++  provider: z.enum(["YAHOO", "ONVISTA", "COINGECKO"]).nullable(),
++  symbol: z.string().min(1).nullable(),
++  origin: z.enum(["AUTO", "MANUAL"]),
++  updatedAt: timestamp,
++  historyFrom: businessDate.nullable(),
++  fetchedAt: timestamp.nullable(),
++  fetchError: z.string().min(1).nullable(),
++});
++
++export const transactionRecordSchema = z.strictObject({
++  id,
++  depotId: id,
++  securityId: id.nullable(),
++  type: z.enum(["BUY", "SELL", "DIVIDEND", "FEE", "TAX", "DEPOSIT", "WITHDRAWAL", "ADJUSTMENT"]),
++  date: businessDate,
++  sequence: z.number().int(),
++  quantity: decimal.nullable(),
++  price: decimal.nullable(),
++  amount: decimal,
++  fee: decimal,
++  tax: decimal,
++  note: z.string().nullable(),
++});
++
++export const corporateActionRecordSchema = z.strictObject({
++  id,
++  securityId: id,
++  newSecurityId: id.nullable(),
++  type: z.enum(["SPLIT", "ISIN_CHANGE"]),
++  date: businessDate,
++  ratioOld: decimal,
++  ratioNew: decimal,
++});
++
++export const reconciliationRowRecordSchema = z.strictObject({
++  id,
++  runId: id,
++  securityId: id.nullable(),
++  statementValue: decimal.nullable(),
++  checked: z.boolean(),
++});
++
++export const reconciliationRunRecordSchema = z.strictObject({
++  id,
++  depotId: id,
++  statementDate: businessDate,
++  status: z.enum(["OPEN", "FINISHED"]),
++  createdAt: timestamp,
++  finishedAt: timestamp.nullable(),
++  rows: z.array(reconciliationRowRecordSchema),
++});
++
++export const priceRecordSchema = z.strictObject({
++  id,
++  securityId: id,
++  date: businessDate,
++  source: z.enum(["MANUAL", "PROVIDER"]),
++  price: decimal,
++  fetchedAt: timestamp,
++});
++
++export const logoRecordSchema = z.strictObject({
++  id,
++  securityId: id,
++  contentType: z.enum(["image/png", "image/jpeg", "image/webp"]),
++  fetchedAt: timestamp,
++  /** The logo file bytes, base64-encoded. */
++  data: z.base64().min(1),
++});
++
++/** The whole export file; keys appear in this order in the serialized JSON. */
++export const exportFileSchema = z.strictObject({
++  schemaVersion: z.literal(EXPORT_SCHEMA_VERSION),
++  depots: z.array(depotRecordSchema),
++  securities: z.array(securityRecordSchema),
++  providerMappings: z.array(providerMappingRecordSchema),
++  transactions: z.array(transactionRecordSchema),
++  corporateActions: z.array(corporateActionRecordSchema),
++  reconciliationRuns: z.array(reconciliationRunRecordSchema),
++  prices: z.array(priceRecordSchema),
++  logos: z.array(logoRecordSchema),
++});
++
++export type ExportFile = z.infer<typeof exportFileSchema>;
+diff --git a/src/modules/ledger/export.ts b/src/modules/ledger/export.ts
+new file mode 100644
+index 0000000..3863db5
+--- /dev/null
++++ b/src/modules/ledger/export.ts
+@@ -0,0 +1,54 @@
++// Export reader of the ledger tables (story 6.1): every stored column as stored, no relations, nothing
++// derived. Used by the backup module inside its snapshot transaction.
++import type { LedgerDb } from "./depots";
++
++/** All ledger rows, sorted by stable unique keys so the same data always yields the same export. */
++export async function exportLedgerData(db: LedgerDb) {
++  const depots = await db.depot.findMany({
++    select: { id: true, name: true, broker: true, archived: true },
++    orderBy: { id: "asc" },
++  });
++  const securities = await db.security.findMany({
++    select: { id: true, isin: true, cryptoSymbol: true, name: true, assetType: true },
++    orderBy: { id: "asc" },
++  });
++  const transactions = await db.transaction.findMany({
++    select: {
++      id: true,
++      depotId: true,
++      securityId: true,
++      type: true,
++      date: true,
++      sequence: true,
++      quantity: true,
++      price: true,
++      amount: true,
++      fee: true,
++      tax: true,
++      note: true,
++    },
++    orderBy: [{ depotId: "asc" }, { date: "asc" }, { sequence: "asc" }],
++  });
++  const corporateActions = await db.corporateAction.findMany({
++    select: { id: true, securityId: true, newSecurityId: true, type: true, date: true, ratioOld: true, ratioNew: true },
++    orderBy: [{ securityId: "asc" }, { type: "asc" }, { date: "asc" }],
++  });
++  const reconciliationRuns = await db.reconciliationRun.findMany({
++    select: {
++      id: true,
++      depotId: true,
++      statementDate: true,
++      status: true,
++      createdAt: true,
++      finishedAt: true,
++      rows: {
++        select: { id: true, runId: true, securityId: true, statementValue: true, checked: true },
++        orderBy: { id: "asc" },
++      },
++    },
++    orderBy: { id: "asc" },
++  });
++  return { depots, securities, transactions, corporateActions, reconciliationRuns };
++}
++
++export type LedgerExport = Awaited<ReturnType<typeof exportLedgerData>>;
+diff --git a/src/modules/ledger/index.ts b/src/modules/ledger/index.ts
+index d660625..e6580bd 100644
+--- a/src/modules/ledger/index.ts
++++ b/src/modules/ledger/index.ts
+@@ -1,4 +1,5 @@
+-// The ledger module is the only writer of ledger rows (Depots, Securities, Transactions, CorporateActions).
++// The ledger module is the only writer of ledger rows (Depots, Securities, Transactions, CorporateActions,
++// ReconciliationRuns); `exportLedgerData` is its export reader for the backup module.
+ export {
+   deleteIsinChange,
+   deleteSplit,
+@@ -143,3 +144,5 @@ export type {
+   TransactionType,
+   UpdateTransactionResult,
+ } from "./transactions";
++export { exportLedgerData } from "./export";
++export type { LedgerExport } from "./export";
+diff --git a/src/modules/logos/export.ts b/src/modules/logos/export.ts
+new file mode 100644
+index 0000000..795f57a
+--- /dev/null
++++ b/src/modules/logos/export.ts
+@@ -0,0 +1,35 @@
++// Export reader of manually uploaded logos (story 6.1). Fetched logos and markers are caches and are
++// never exported; a MANUAL row whose file cannot be read is skipped with a data-free warning.
++import { LOGO_CONTENT_TYPES } from "./image";
++import type { LogoDeps, LogosDb } from "./logos";
++import { logosDir, readLogoFile } from "./storage";
++
++export type ManualLogoExport = { id: string; securityId: string; contentType: string; fetchedAt: string; data: string };
++
++/** MANUAL logos sorted by `securityId`, each with the file bytes as base64 in `data`. */
++export async function exportManualLogos(deps: Pick<LogoDeps, "env">, db: LogosDb): Promise<ManualLogoExport[]> {
++  const rows = await db.securityLogo.findMany({
++    where: { source: "MANUAL" },
++    select: { id: true, securityId: true, fileName: true, contentType: true, fetchedAt: true },
++    orderBy: { securityId: "asc" },
++  });
++  const dir = logosDir(deps.env ?? process.env);
++  const logos: ManualLogoExport[] = [];
++  let skipped = 0;
++  for (const row of rows) {
++    const bytes = row.fileName && row.contentType && LOGO_CONTENT_TYPES.includes(row.contentType) ? readLogoFile(dir, row.fileName) : null;
++    if (!bytes || !row.contentType) {
++      skipped += 1;
++      continue;
++    }
++    logos.push({
++      id: row.id,
++      securityId: row.securityId,
++      contentType: row.contentType,
++      fetchedAt: row.fetchedAt,
++      data: bytes.toString("base64"),
++    });
++  }
++  if (skipped > 0) console.warn(`Logos: export skipped ${skipped} manual logos with an unreadable file`);
++  return logos;
++}
+diff --git a/src/modules/logos/index.ts b/src/modules/logos/index.ts
+index 8cabee7..b7b33f0 100644
+--- a/src/modules/logos/index.ts
++++ b/src/modules/logos/index.ts
+@@ -11,3 +11,5 @@ export type {
+ } from "./logos";
+ export { FETCH_MAX_BYTES, UPLOAD_MAX_BYTES } from "./image";
+ export { CERTIFICATE_ISSUERS, issuerIsin } from "./issuers";
++export { exportManualLogos } from "./export";
++export type { ManualLogoExport } from "./export";
+diff --git a/src/modules/prices/export.ts b/src/modules/prices/export.ts
+new file mode 100644
+index 0000000..5ea4af5
+--- /dev/null
++++ b/src/modules/prices/export.ts
+@@ -0,0 +1,27 @@
++// Export reader of the prices tables (story 6.1): every stored column as stored, sorted by unique keys.
++import type { PricesDb } from "./mappings";
++
++/** All ProviderMappings (including "not found" markers) and all stored Prices (MANUAL and PROVIDER). */
++export async function exportPriceData(db: PricesDb) {
++  const providerMappings = await db.providerMapping.findMany({
++    select: {
++      id: true,
++      securityId: true,
++      provider: true,
++      symbol: true,
++      origin: true,
++      updatedAt: true,
++      historyFrom: true,
++      fetchedAt: true,
++      fetchError: true,
++    },
++    orderBy: { securityId: "asc" },
++  });
++  const prices = await db.price.findMany({
++    select: { id: true, securityId: true, date: true, source: true, price: true, fetchedAt: true },
++    orderBy: [{ securityId: "asc" }, { date: "asc" }, { source: "asc" }],
++  });
++  return { providerMappings, prices };
++}
++
++export type PriceExport = Awaited<ReturnType<typeof exportPriceData>>;
+diff --git a/src/modules/prices/index.ts b/src/modules/prices/index.ts
+index 095a042..459083e 100644
+--- a/src/modules/prices/index.ts
++++ b/src/modules/prices/index.ts
+@@ -56,3 +56,5 @@ export { onvistaPrices } from "./providers/onvista";
+ export { coingeckoPrices } from "./providers/coingecko";
+ export { binancePrices } from "./providers/binance";
+ export type { YahooChart } from "./providers/yahoo";
++export { exportPriceData } from "./export";
++export type { PriceExport } from "./export";
