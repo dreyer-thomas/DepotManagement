@@ -1,6 +1,7 @@
 /**
- * Architecture guard: the chart library is wrapped in one component (story 4.3). Only
- * `src/app/_components/charts/ValueChart.tsx` may import `@mui/x-charts` (or any of its subpaths).
+ * Architecture guard: the chart library is wrapped in the chart components (story 4.3; story 4.7 adds the
+ * price chart). Only `src/app/_components/charts/ValueChart.tsx` and `PriceChart.tsx` may import
+ * `@mui/x-charts` (or any of its subpaths).
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
@@ -9,6 +10,7 @@ import { describe, expect, it } from "vitest";
 
 const SRC_DIR = resolve(__dirname, "../../src");
 const WRAPPER = join(SRC_DIR, "app/_components/charts/ValueChart.tsx");
+const WRAPPERS = new Set([WRAPPER, join(SRC_DIR, "app/_components/charts/PriceChart.tsx")]);
 const CHART_PACKAGE = /^@mui\/x-charts(\/|$)/;
 
 function listSourceFiles(dir: string): string[] {
@@ -26,7 +28,7 @@ function specifiersOf(source: string): string[] {
 
 function findViolations(files: { path: string; source: string }[]): string[] {
   return files.flatMap(({ path, source }) =>
-    path === WRAPPER
+    WRAPPERS.has(path)
       ? []
       : specifiersOf(source)
           .filter((specifier) => CHART_PACKAGE.test(specifier))
@@ -35,11 +37,11 @@ function findViolations(files: { path: string; source: string }[]): string[] {
 }
 
 describe("chart library import guard", () => {
-  it("only ValueChart.tsx imports @mui/x-charts", () => {
+  it("only ValueChart.tsx and PriceChart.tsx import @mui/x-charts", () => {
     const files = listSourceFiles(SRC_DIR).map((path) => ({ path, source: readFileSync(path, "utf8") }));
     expect(files.some((file) => file.path === WRAPPER)).toBe(true);
     const violations = findViolations(files);
-    expect(violations, `@mui/x-charts imported outside ValueChart.tsx:\n${violations.join("\n")}`).toEqual([]);
+    expect(violations, `@mui/x-charts imported outside the chart wrappers:\n${violations.join("\n")}`).toEqual([]);
   });
 
   it("detects the package and its subpaths in every import form, except in the wrapper", () => {
@@ -55,6 +57,6 @@ describe("chart library import guard", () => {
       `${relative(process.cwd(), join(SRC_DIR, "app/x.tsx"))} imports "@mui/x-charts"`,
       `${relative(process.cwd(), join(SRC_DIR, "app/x.tsx"))} imports "@mui/x-charts/ChartsTooltip"`,
     ]);
-    expect(findViolations([{ path: WRAPPER, source }])).toEqual([]);
+    for (const wrapper of WRAPPERS) expect(findViolations([{ path: wrapper, source }])).toEqual([]);
   });
 });

@@ -187,4 +187,41 @@ describe("securityDetail", () => {
     ]);
     expect(detail?.performance.gain).toBe("50");
   });
+
+  it("all-time total is independent of the Period; trades and price series follow Period and scope", async () => {
+    await book(depotA, { type: "BUY", date: "2026-02-02", quantity: "10", price: "100", fee: "1", security: { id: securityId } });
+    await book(depotA, { type: "SELL", date: "2026-05-04", quantity: "4", price: "120", fee: "1", security: { id: securityId } });
+    await book(depotA, { type: "BUY", date: "2026-08-03", quantity: "5", price: "130", security: { id: securityId } });
+    await book(depotB, { type: "BUY", date: "2026-08-04", quantity: "2", price: "131", security: { id: securityId } });
+    const storedPrices = async (_ids: string[], asOf: string) =>
+      [provider("2026-05-04", "105"), provider("2026-10-20", "140")].filter((p) => p.date <= asOf);
+
+    const max = await securityDetail(securityId, depotA, MAX, TODAY, db(), { storedPrices });
+    const custom = await securityDetail(securityId, depotA, { kind: "custom", from: "2026-04-01", to: "2026-06-30" }, TODAY, db(), {
+      storedPrices,
+    });
+    expect(custom?.total).toEqual(max?.total);
+    // Realized 4 × 120 − 1 − 400.4 = 78.6; open 6 @ 100.1 + 5 @ 130 = 1250.6, value 11 × 140 = 1540.
+    expect(max?.total).toMatchObject({
+      realized: "78.6",
+      value: "1540",
+      unrealized: "289.4",
+      total: "368",
+      totalInvested: "1651",
+    });
+
+    expect(custom?.trades.map(({ type, date, depotName, quantity, price }) => ({ type, date, depotName, quantity, price }))).toEqual([
+      { type: "SELL", date: "2026-05-04", depotName: "Alpha", quantity: "4", price: "120" },
+    ]);
+    expect(max?.trades.map((trade) => trade.date)).toEqual(["2026-02-02", "2026-05-04", "2026-08-03"]);
+    const all = await securityDetail(securityId, undefined, MAX, TODAY, db(), { storedPrices });
+    expect(all?.trades.map((trade) => trade.depotName)).toEqual(["Alpha", "Alpha", "Alpha", "Beta"]);
+    expect(all?.total.totalInvested).toBe("1913");
+
+    expect(custom?.priceSeries[0]).toEqual({ date: "2026-04-01", price: "100" });
+    // On 04.05. the provider Price wins over the trade price.
+    expect(custom?.priceSeries.find((point) => point.date === "2026-05-04")?.price).toBe("105");
+    expect(custom?.priceSeries.at(-1)).toEqual({ date: "2026-06-30", price: "105" });
+    expect(custom?.priceSeries).toHaveLength(91);
+  });
 });

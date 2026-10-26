@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { depotLabel, heroLabel, securityCaption, securityHref } from "./labels";
+import { depotLabel, heroLabel, percentOrMissing, ratioTone, securityCaption, securityHref, signedMoneyOrMissing } from "./labels";
 
 describe("security detail labels", () => {
   it("builds the Security page URL with an optional Depot", () => {
@@ -21,5 +21,19 @@ describe("security detail labels", () => {
   it("marks archived Depots", () => {
     expect(depotLabel({ name: "Alt", archived: true })).toBe("Alt (archiviert)");
     expect(depotLabel({ name: "Neu", archived: false })).toBe("Neu");
+  });
+
+  it("formats all-time figures or –", () => {
+    expect(signedMoneyOrMissing("198")).toBe("+198,00\u00a0€");
+    expect(signedMoneyOrMissing(null)).toBe("–");
+    expect(percentOrMissing("-0.05")).toBe("-5,00\u00a0%");
+    expect(percentOrMissing(null)).toBe("–");
+  });
+
+  it("gives a ratio its tone as displayed", () => {
+    expect(ratioTone("0.1978")).toBe("gain");
+    expect(ratioTone("-0.01")).toBe("loss");
+    expect(ratioTone("0.00004")).toBeNull();
+    expect(ratioTone(null)).toBeNull();
   });
 });

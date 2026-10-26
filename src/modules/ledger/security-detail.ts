@@ -6,14 +6,20 @@ import type { ResolvedPrice } from "@/core/prices";
 import type { PeriodPerformance } from "@/core/returns";
 import {
   currentSecurityId,
+  type PricePoint,
   securityChain,
   type SecurityLot,
   securityLots,
   securityPerformance,
   securityPrice,
+  securityPriceSeries,
   securitySeries,
   type SecuritySnapshot,
   securitySnapshot,
+  type SecurityTotal,
+  securityTotal,
+  type SecurityTrade,
+  securityTrades,
   sumSecurityPerformance,
 } from "@/core/security";
 import { type ValuationPoint, type ValuationRow, valuationSeries } from "@/core/valuation";
@@ -55,9 +61,15 @@ export type SecurityDetail = {
   lots: { depotId: string; depotName: string; lots: SecurityLot[] }[];
   /** Every chain row of the scope's Depots, newest first `(date, sequence)`. */
   transactions: SecurityTransactionRecord[];
+  /** All-time result since the first buy as of `today`, summed over the scope; independent of the Period. */
+  total: SecurityTotal;
+  /** Daily resolver price of `priceSecurity` for `from..to`, in its units as of `to`. */
+  priceSeries: PricePoint[];
+  /** BUY/SELL scope rows dated `from..to` as chart markers, in `priceSecurity`'s units as of `to`. */
+  trades: SecurityTrade[];
 };
 
-type ChainRow = ValuationRow & { depotId: string };
+type ChainRow = ValuationRow & { depotId: string; price: string | null };
 
 /**
  * The Security detail of `securityId` for `selection` as of `today`; `null` for an unknown id. Scope rows
@@ -114,6 +126,7 @@ export async function securityDetail(
       date: record.date,
       sequence: record.sequence,
       quantity: record.quantity,
+      price: record.price,
       amount: record.amount,
       fee: record.fee,
       tax: record.tax,
@@ -122,7 +135,8 @@ export async function securityDetail(
   const scopeRows = [...rowsByDepot.values()].flat();
   const firstDate = scopeRows.reduce<string | null>((first, row) => (first === null || row.date < first ? row.date : first), null);
   const { from, to } = resolvePeriod(selection, today, firstDate);
-  const observations = await lineageObservations(chain, actions, to, db, storedPrices);
+  // As of today (≥ to): the all-time total needs today's price; the Period figures ignore later dates.
+  const observations = await lineageObservations(chain, actions, to > today ? to : today, db, storedPrices);
 
   // One series from the day before `from` per Depot: its first point is the start, the rest the Period.
   const startDate = addDays(from, -1);
@@ -149,6 +163,13 @@ export async function securityDetail(
   const priceSecurityId = currentSecurityId(securityId, actions, to);
   const priceSecurity = priceSecurityId === securityId ? security : ((await getSecurity(priceSecurityId, db)) ?? security);
   const names = new Map(depots.map((depot) => [depot.id, depot.name]));
+  const trades = securityTrades(
+    scopeRows
+      .filter((row) => row.date >= from && row.date <= to)
+      .map((row) => ({ ...row, depotName: names.get(row.depotId) ?? "" })),
+    actions,
+    to,
+  );
 
   return {
     security,
@@ -166,5 +187,13 @@ export async function securityDetail(
     transactions: records
       .filter((record) => scopeIds.has(record.depotId))
       .map((record) => ({ ...toRecord(record), depotName: names.get(record.depotId) ?? "" })),
+    total: securityTotal(
+      scope.map((depot) => rowsByDepot.get(depot.id)!),
+      observations,
+      actions,
+      today,
+    ),
+    priceSeries: securityPriceSeries(observations, priceSecurity.id, actions, from, to),
+    trades,
   };
 }

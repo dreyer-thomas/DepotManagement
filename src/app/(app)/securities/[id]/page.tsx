@@ -9,13 +9,16 @@ import { readPeriod } from "@/app/_actions/period-cookie";
 import { NewsList } from "@/app/_components/news/NewsList";
 import { CardHeading } from "@/app/_components/overview/CardHeading";
 import { PeriodSelector } from "@/app/_components/period/PeriodSelector";
+import { toChartPoints } from "@/app/_components/charts/value-chart";
 import { DepotSwitcher } from "@/app/_components/security-detail/DepotSwitcher";
 import { FifoLots } from "@/app/_components/security-detail/FifoLots";
 import { NO_TRANSACTIONS_TEXT, securityCaption } from "@/app/_components/security-detail/labels";
 import { PriceLine } from "@/app/_components/security-detail/PriceLine";
 import { SecurityActions } from "@/app/_components/security-detail/SecurityActions";
+import { SecurityChart } from "@/app/_components/security-detail/SecurityChart";
 import { SecurityHero } from "@/app/_components/security-detail/SecurityHero";
 import { SecurityKpis } from "@/app/_components/security-detail/SecurityKpis";
+import { SecurityTotal } from "@/app/_components/security-detail/SecurityTotal";
 import { SecurityTransactions } from "@/app/_components/security-detail/SecurityTransactions";
 import { SecurityLogo } from "@/app/_components/securities/SecurityLogo";
 import { businessDate } from "@/core/dates";
@@ -37,8 +40,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 /**
  * One Security across all Depots or one Depot (story 4-6), also when no longer held: header with the
- * actions menu, Depot switcher, hero (value, Period gain/loss, TTWROR, XIRR, price line, chart,
- * breakdown), KPIs, open FIFO lots, Transaction history and 14-day news. Every figure comes from
+ * actions menu, Depot switcher, hero (value, Period gain/loss, TTWROR, XIRR, price line, Kurs/Wert
+ * chart, breakdown), KPIs, "Gesamt seit Erstkauf" (story 4-7), open FIFO lots, Transaction history and
+ * 14-day news. Every figure comes from
  * `core` via `securityDetail` (AD-10); no provider call during render.
  */
 export default async function SecurityDetailPage({ params, searchParams }: Props) {
@@ -104,10 +108,24 @@ export default async function SecurityDetailPage({ params, searchParams }: Props
             to={detail.to}
             today={today}
             performance={detail.performance}
-            series={detail.series}
             priceLine={<PriceLine price={detail.price} security={detail.priceSecurity} held={held} today={today} />}
+            chart={
+              <SecurityChart
+                valuePoints={toChartPoints(detail.series)}
+                pricePoints={detail.priceSeries}
+                trades={detail.trades.map(({ depotName, type, date, quantity, price, adjusted }) => ({
+                  depotName,
+                  type,
+                  date,
+                  quantity,
+                  price,
+                  adjusted,
+                }))}
+              />
+            }
           />
           <SecurityKpis snapshot={detail.snapshot} dividends={detail.performance.dividends} periodLabel={periodLabel(period)} />
+          <SecurityTotal total={detail.total} />
           <FifoLots groups={detail.lots} />
           <SecurityTransactions securityId={security.id} transactions={detail.transactions} splits={splits} today={today} />
           <Box component="section" aria-labelledby="security-news">

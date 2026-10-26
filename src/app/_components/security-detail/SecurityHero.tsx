@@ -4,19 +4,16 @@ import CardContent from "@mui/material/CardContent";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import type { ReactNode } from "react";
-import { ValueChart } from "@/app/_components/charts/ValueChart";
-import { toChartPoints } from "@/app/_components/charts/value-chart";
 import { GainLossPill } from "@/app/_components/positions/GainLossPill";
 import { Breakdown, xirrText } from "@/app/_components/valuation/ValueSummary";
 import { formatDate, formatMoney } from "@/core/format";
 import type { PeriodPerformance } from "@/core/returns";
-import type { ValuationPoint } from "@/core/valuation";
 import { heroLabel } from "./labels";
 
 /**
  * Hero card of the Security page: "Wert · <qty> Stück à <price>", the value at the Period end, "Stand"
- * when the Period ends before today, gain/loss pill with TTWROR, XIRR, the price line, the value chart
- * and the "Aufschlüsselung". Renders the figures it is given; computes nothing.
+ * when the Period ends before today, gain/loss pill with TTWROR, XIRR, the price line, the chart slot
+ * (Kurs/Wert toggle) and the "Aufschlüsselung". Renders the figures it is given; computes nothing.
  */
 export function SecurityHero({
   quantity,
@@ -25,8 +22,8 @@ export function SecurityHero({
   to,
   today,
   performance,
-  series,
   priceLine,
+  chart,
 }: {
   quantity: string;
   /** Resolver price as of the Period end; `null` without one. */
@@ -36,8 +33,9 @@ export function SecurityHero({
   to: string;
   today: string;
   performance: PeriodPerformance;
-  series: readonly ValuationPoint[];
   priceLine: ReactNode;
+  /** The hero chart (`SecurityChart`). */
+  chart: ReactNode;
 }) {
   return (
     <Box component="section" aria-label="Wert" sx={{ mb: 1.5 }}>
@@ -61,7 +59,7 @@ export function SecurityHero({
             </Typography>
           </Stack>
           {priceLine}
-          {series.length > 0 ? <ValueChart points={toChartPoints(series)} /> : null}
+          {chart}
           <Breakdown performance={performance} />
         </CardContent>
       </Card>

@@ -303,4 +303,48 @@ describe("Security detail page", () => {
     expect(text(max)).toContain("Wert · 15 Stück à 140,00 €");
     expect(max).toMatch(/<div[^>]*role="figure"/);
   });
+
+  it("shows Gesamt seit Erstkauf after the KPIs, identical for every Period", async () => {
+    const { id } = await twoDepots();
+    const card = async () => text(section(renderHtml(await SecurityDetailPage(props(id))), 'id="security-total"', 'id="security-lots"'));
+    const max = await card();
+    // Realized 0, unrealized 1.650 − 1.600, dividends 20; taxes 5 separate; invested 1.600; 70 / 1.600.
+    expect(max).toMatch(
+      /Gesamt seit Erstkauf Realisiert 0,00 € Unrealisiert \+50,00 € Dividenden \+20,00 € Gebühren 0,00 € Gesamt \+70,00 € Steuern gezahlt nicht in Gewinn\/Verlust enthalten \+5,00 € Investiert gesamt 1\.600,00 € Rendite auf Investiert \+4,38 % XIRR \+\d+,\d\d %/,
+    );
+    cookieJar.set(PERIOD_COOKIE, "1M");
+    expect(await card()).toBe(max);
+    cookieJar.set(PERIOD_COOKIE, "custom:2026-03-01:2026-03-31");
+    expect(await card()).toBe(max);
+
+    // The card sits between the KPIs and the lots.
+    const html = renderHtml(await SecurityDetailPage(props(id)));
+    expect(html.indexOf('aria-label="Kennzahlen"')).toBeLessThan(html.indexOf('id="security-total"'));
+  });
+
+  it("shows the Kurs/Wert toggle with the price chart and its trade markers by default", async () => {
+    const { id } = await twoDepots();
+    const hero = section(renderHtml(await SecurityDetailPage(props(id))), 'aria-label="Wert"', "Aufschlüsselung");
+    expect(hero).toMatch(/role="group"[^>]*aria-label="Diagramm"|aria-label="Diagramm"[^>]*role="group"/);
+    expect(text(hero)).toMatch(/Kurs Wert/);
+    const pressed = [...hero.matchAll(/<button[^>]*aria-pressed="true"[^>]*>([^<]*)</g)].map((match) => match[1]);
+    expect(pressed).toEqual(["Kurs"]);
+    const label = hero.match(/role="figure"[^>]*aria-label="([^"]*)"|aria-label="([^"]*)"[^>]*role="figure"/);
+    expect((label?.[1] ?? label?.[2])?.replace(/\u00a0/g, " ")).toMatch(/^Kursverlauf 02\.02\.2026 – 26\.10\.2026: Kurs von 100,00 € auf 110,00 €, 2 Käufe, 0 Verkäufe$/);
+  });
+
+  it("shows the all-time card of a fully sold Security", async () => {
+    const a = await depot("Alpha");
+    const id = await security();
+    await book({ depotId: a, type: "BUY", date: "2025-01-02", quantity: "10", price: "100", fee: "1", security: { id } });
+    await book({ depotId: a, type: "SELL", date: "2026-01-02", quantity: "10", price: "120", fee: "1", security: { id } });
+    cookieJar.set(PERIOD_COOKIE, "1M");
+    const card = text(section(renderHtml(await SecurityDetailPage(props(id))), 'id="security-total"', 'id="security-lots"'));
+    expect(card).toContain("Realisiert +198,00 €");
+    expect(card).toContain("Unrealisiert 0,00 €");
+    expect(card).toContain("Gesamt +198,00 €");
+    expect(card).toContain("Investiert gesamt 1.001,00 €");
+    expect(card).toContain("Rendite auf Investiert +19,78 %");
+    expect(card).toContain("XIRR +19,78 %");
+  });
 });

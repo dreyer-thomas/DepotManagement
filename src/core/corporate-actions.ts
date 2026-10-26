@@ -300,6 +300,39 @@ export function adjustedPrice(
   return { securityId: current, price: changed ? canonicalDecimal(num.dividedBy(den)) : price };
 }
 
+/**
+ * A quantity of `securityId` booked on `date`, carried to the Security and units it maps to as of
+ * `asOf` — the inverse factors of `adjustedPrice`: each later split of the current Security × new/old;
+ * each later ISIN change of it moves to the new Security, × n/o. Price × quantity stays unchanged.
+ */
+export function adjustedQuantity(
+  securityId: string,
+  date: string,
+  quantity: string,
+  actions: CorporateActions,
+  asOf: string,
+): { securityId: string; quantity: string } {
+  let current = securityId;
+  let num = new ExactDecimal(quantity);
+  let den = new ExactDecimal(1);
+  let changed = false;
+  for (const event of actionEvents(actions, asOf)) {
+    if (event.kind === "split") {
+      if (event.split.securityId !== current || !(date < event.split.date)) continue;
+      num = num.times(event.split.ratioNew);
+      den = den.times(event.split.ratioOld);
+      changed = true;
+    } else {
+      if (event.change.oldSecurityId !== current || !(date < event.change.date)) continue;
+      current = event.change.newSecurityId;
+      num = num.times(event.change.newQuantity);
+      den = den.times(event.change.oldQuantity);
+      changed = true;
+    }
+  }
+  return { securityId: current, quantity: changed ? canonicalDecimal(num.dividedBy(den)) : quantity };
+}
+
 /** Decimal places of a stored (unadjusted) provider Price. */
 export const STORED_PRICE_DECIMALS = 4;
 

@@ -4,13 +4,13 @@
  * Depot engine (`core/valuation`, `core/returns`) with the Security's own flows: a BUY is money put into
  * the holding, a SELL or DIVIDEND money taken out. Pure, decimal strings only; nothing here is stored.
  */
-import { adjustedPrice, type CorporateActions } from "./corporate-actions";
+import { adjustedPrice, adjustedQuantity, type CorporateActions } from "./corporate-actions";
 import { addDays } from "./dates";
 import { canonicalDecimal, ExactDecimal } from "./decimal";
 import { fifo, type FifoLot } from "./fifo";
-import type { Position } from "./positions";
-import { type PriceObservation, type ResolvedPrice, resolvePrice } from "./prices";
-import { type PeriodPerformance, periodCashFlows, portfolioPerformance, ttwror, xirr } from "./returns";
+import { computePositions, type Position } from "./positions";
+import { compareObservations, type PriceObservation, type ResolvedPrice, resolvePrice } from "./prices";
+import { type CashFlow, type PeriodPerformance, periodCashFlows, portfolioPerformance, ttwror, xirr } from "./returns";
 import { periodFlows, type ValuationPoint, type ValuationRow } from "./valuation";
 
 type Decimal = InstanceType<typeof ExactDecimal>;
@@ -220,12 +220,186 @@ export function securityPrice(
   actions: CorporateActions,
   asOf: string,
 ): ResolvedPrice | null {
-  const adjusted =
-    actions.splits.length === 0 && actions.isinChanges.length === 0
-      ? observations
-      : observations.map((observation) => ({
-          ...observation,
-          ...adjustedPrice(observation.securityId, observation.date, observation.price, actions, asOf),
-        }));
-  return resolvePrice(adjusted, securityId, asOf);
+  return resolvePrice(adjustedObservations(observations, actions, asOf), securityId, asOf);
+}
+
+/** Observations carried to the Securities and units as of `asOf` (`adjustedPrice`). */
+function adjustedObservations(
+  observations: readonly PriceObservation[],
+  actions: CorporateActions,
+  asOf: string,
+): readonly PriceObservation[] {
+  return actions.splits.length === 0 && actions.isinChanges.length === 0
+    ? observations
+    : observations.map((observation) => ({
+        ...observation,
+        ...adjustedPrice(observation.securityId, observation.date, observation.price, actions, asOf),
+      }));
+}
+
+/** The all-time result of the holding since the first buy, as of "today" (story 4-7). Decimal strings. */
+export type SecurityTotal = {
+  /** Σ FIFO sale gains. */
+  realized: string;
+  /** Current value − Cost Basis of the open Positions; `null` without a value. */
+  unrealized: string | null;
+  /** Σ DIVIDEND `amount` (gross). */
+  dividends: string;
+  /** Σ `fee` of DIVIDEND/FEE rows (trade fees are in cost and proceeds). */
+  fees: string;
+  /** Σ signed `tax` of all rows; not part of `total`. */
+  taxesPaid: string;
+  /** realized + unrealized + dividends − fees; `null` without a value. */
+  total: string | null;
+  /** Σ BUY `amount + fee`. */
+  totalInvested: string;
+  /** `total / totalInvested`; `null` without a total or when nothing was invested. */
+  returnRatio: string | null;
+  /** Annualised money-weighted return of the Security flows plus the current value; `null` if unsolvable. */
+  xirr: string | null;
+  /** Current value of the open Positions; `null` when an open Position lacks a price. */
+  value: string | null;
+};
+
+/**
+ * Investor-view cash flows of the Security rows: BUY −(amount + fee), FEE −fee, SELL and DIVIDEND
+ * +(amount − fee); taxes are ignored.
+ */
+function investorFlows(rows: readonly ValuationRow[]): CashFlow[] {
+  return securityFlowRows(rows).map((flow) => ({ date: flow.date, amount: canonicalDecimal(signedFlow(flow).negated()) }));
+}
+
+/**
+ * The all-time Security total as of `today` over the scope's Depots (`depotRows`: each Depot's rows of
+ * the chain, all dates; FIFO per Depot), summed; XIRR over the merged investor flows plus the summed
+ * current value on `today` (when > 0). Independent of any Period. A missing value (open Position
+ * without a price) makes unrealized, total, ratio and XIRR `null`.
+ */
+export function securityTotal(
+  depotRows: readonly (readonly ValuationRow[])[],
+  observations: readonly PriceObservation[],
+  actions: CorporateActions,
+  today: string,
+): SecurityTotal {
+  let realized = new ExactDecimal(0);
+  let dividends = new ExactDecimal(0);
+  let fees = new ExactDecimal(0);
+  let taxesPaid = new ExactDecimal(0);
+  let invested = new ExactDecimal(0);
+  let costBasis = new ExactDecimal(0);
+  let value: Decimal | null = new ExactDecimal(0);
+  const flows: CashFlow[] = [];
+  for (const rows of depotRows) {
+    const upToToday = rows.filter((row) => row.date <= today);
+    for (const result of fifo(upToToday, today, actions)) {
+      for (const sale of result.sales) realized = realized.plus(sale.gain);
+    }
+    for (const position of computePositions(upToToday, observations, today, actions)) {
+      costBasis = costBasis.plus(position.costBasis);
+      value = value === null || position.value === null ? null : value.plus(position.value);
+    }
+    for (const row of upToToday) {
+      if (row.type === "DIVIDEND") dividends = dividends.plus(row.amount);
+      if (row.type === "DIVIDEND" || row.type === "FEE") fees = fees.plus(row.fee);
+      if (row.type === "BUY") invested = invested.plus(row.amount).plus(row.fee);
+      taxesPaid = taxesPaid.plus(row.tax);
+    }
+    flows.push(...investorFlows(upToToday));
+  }
+
+  let unrealized: Decimal | null = null;
+  let total: Decimal | null = null;
+  let returnRatio: string | null = null;
+  let rate: string | null = null;
+  if (value !== null) {
+    unrealized = value.minus(costBasis);
+    total = realized.plus(unrealized).plus(dividends).minus(fees);
+    returnRatio = invested.isZero() ? null : canonicalDecimal(total.dividedBy(invested));
+    if (value.greaterThan(0)) flows.push({ date: today, amount: canonicalDecimal(value) });
+    rate = xirr(flows);
+  }
+  return {
+    realized: canonicalDecimal(realized),
+    unrealized: unrealized === null ? null : canonicalDecimal(unrealized),
+    dividends: canonicalDecimal(dividends),
+    fees: canonicalDecimal(fees),
+    taxesPaid: canonicalDecimal(taxesPaid),
+    total: total === null ? null : canonicalDecimal(total),
+    totalInvested: canonicalDecimal(invested),
+    returnRatio,
+    xirr: rate,
+    value: value === null ? null : canonicalDecimal(value),
+  };
+}
+
+/** One day of the price chart: the resolver price (decimal string) or `null` before the first one. */
+export type PricePoint = { date: string; price: string | null };
+
+/**
+ * Daily resolver price of `securityId` for `from..to` (inclusive) over the observations carried to the
+ * Securities and units as of `to` (as `securityPrice`), carried forward; `null` before the first
+ * observation. One sorted pass instead of resolving each day. Empty when `from > to`.
+ */
+export function securityPriceSeries(
+  observations: readonly PriceObservation[],
+  securityId: string,
+  actions: CorporateActions,
+  from: string,
+  to: string,
+): PricePoint[] {
+  if (from > to) return [];
+  const own = adjustedObservations(observations, actions, to)
+    .filter((observation) => observation.securityId === securityId && observation.date <= to)
+    .sort(compareObservations);
+  const points: PricePoint[] = [];
+  let next = 0;
+  let price: string | null = null;
+  for (let day = from; day <= to; day = addDays(day, 1)) {
+    while (next < own.length && own[next].date <= day) price = own[next++].price;
+    points.push({ date: day, price });
+  }
+  return points;
+}
+
+/** A BUY/SELL row of the Security chain as `securityTrades` needs it. */
+export type SecurityTradeRow = ValuationRow & { price: string | null; depotName: string };
+
+/** A trade marker: quantity and price per unit in the price Security's units as of the chart end. */
+export type SecurityTrade = {
+  depotName: string;
+  type: "BUY" | "SELL";
+  date: string;
+  sequence: number;
+  quantity: string;
+  price: string;
+  /** True when a corporate action changed quantity or price. */
+  adjusted: boolean;
+};
+
+/**
+ * The BUY/SELL rows among `rows` as trade markers, ordered `(date, sequence)`: quantity and price per
+ * unit (`price`, else `amount / quantity`) carried to the Security and units as of `asOf`
+ * (`adjustedQuantity`, `adjustedPrice`). Rows without a positive quantity are skipped.
+ */
+export function securityTrades(rows: readonly SecurityTradeRow[], actions: CorporateActions, asOf: string): SecurityTrade[] {
+  const trades: SecurityTrade[] = [];
+  for (const row of rows) {
+    if ((row.type !== "BUY" && row.type !== "SELL") || row.securityId === null || row.quantity === null) continue;
+    const quantity = new ExactDecimal(row.quantity);
+    if (!quantity.greaterThan(0)) continue;
+    const unitPrice = row.price ?? canonicalDecimal(new ExactDecimal(row.amount).dividedBy(quantity));
+    const adjustedUnits = adjustedQuantity(row.securityId, row.date, row.quantity, actions, asOf).quantity;
+    const adjustedUnitPrice = adjustedPrice(row.securityId, row.date, unitPrice, actions, asOf).price;
+    trades.push({
+      depotName: row.depotName,
+      type: row.type,
+      date: row.date,
+      sequence: row.sequence,
+      quantity: adjustedUnits,
+      price: adjustedUnitPrice,
+      adjusted:
+        !new ExactDecimal(adjustedUnits).equals(quantity) || !new ExactDecimal(adjustedUnitPrice).equals(unitPrice),
+    });
+  }
+  return trades.sort((a, b) => (a.date !== b.date ? (a.date < b.date ? -1 : 1) : a.sequence - b.sequence));
 }

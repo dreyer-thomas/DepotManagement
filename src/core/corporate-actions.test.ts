@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   adjustedPrice,
+  adjustedQuantity,
   ALL_ACTIONS,
   type CorporateActions,
   type IsinChange,
@@ -120,6 +121,26 @@ describe("adjustedPrice", () => {
       isinChanges: [change("2024-03-01", "10", "5"), change("2024-05-01", "2", "1", "B", "C")],
     };
     expect(adjustedPrice("A", "2024-01-01", "100", chain, ALL_ACTIONS)).toEqual({ securityId: "C", price: "400" });
+  });
+});
+
+describe("adjustedQuantity", () => {
+  const actions: CorporateActions = {
+    splits: [split("2024-02-01", "1", "2", "A"), split("2024-05-01", "1", "4", "B")],
+    isinChanges: [change("2024-03-01", "10", "5")],
+  };
+
+  it("applies the inverse factors of adjustedPrice, so price × quantity is unchanged", () => {
+    expect(adjustedQuantity("A", "2024-01-01", "10", actions, ALL_ACTIONS)).toEqual({ securityId: "B", quantity: "40" });
+    expect(adjustedQuantity("A", "2024-01-01", "10", actions, "2024-04-01")).toEqual({ securityId: "B", quantity: "10" });
+    expect(adjustedQuantity("A", "2024-01-01", "10", actions, "2024-02-15")).toEqual({ securityId: "A", quantity: "20" });
+    expect(adjustedQuantity("A", "2024-03-01", "10", actions, "2024-04-01")).toEqual({ securityId: "A", quantity: "10" });
+    expect(adjustedQuantity("C", "2024-01-01", "7", actions, ALL_ACTIONS)).toEqual({ securityId: "C", quantity: "7" });
+    for (const asOf of [ALL_ACTIONS, "2024-04-01", "2024-02-15"]) {
+      const price = adjustedPrice("A", "2024-01-01", "100", actions, asOf).price;
+      const quantity = adjustedQuantity("A", "2024-01-01", "10", actions, asOf).quantity;
+      expect(new ExactDecimal(price).times(quantity).toFixed()).toBe("1000");
+    }
   });
 });
 

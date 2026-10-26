@@ -1,4 +1,5 @@
-import { formatMoney, formatQuantity } from "@/core/format";
+import { ExactDecimal } from "@/core/decimal";
+import { formatMoney, formatPercent, formatQuantity } from "@/core/format";
 import type { SecuritySummary } from "@/modules/ledger";
 import { ASSET_TYPE_LABELS } from "../transactions/labels";
 
@@ -29,4 +30,28 @@ export function heroLabel(quantity: string, price: string | null): string {
 /** Depot switcher label: the name, `(archiviert)` appended for an archived Depot. */
 export function depotLabel(depot: { name: string; archived: boolean }): string {
   return depot.archived ? `${depot.name} (archiviert)` : depot.name;
+}
+
+/** Hero chart modes: "Kurs" (price with trades) and "Wert" (value development). */
+export type ChartMode = "price" | "value";
+export const CHART_MODE_LABELS: Record<ChartMode, string> = { price: "Kurs", value: "Wert" };
+
+export const TOTAL_HEADING = "Gesamt seit Erstkauf";
+
+/** Signed money or `–`: `+198,00 €`. */
+export function signedMoneyOrMissing(amount: string | null): string {
+  return amount === null ? MISSING : formatMoney(amount, { sign: true });
+}
+
+/** `+19,78 %` or `–`. */
+export function percentOrMissing(ratio: string | null): string {
+  return ratio === null ? MISSING : formatPercent(ratio);
+}
+
+/** Tone of a ratio as displayed (percent with two decimals): `null` when it shows as 0,00 %. */
+export function ratioTone(ratio: string | null): "gain" | "loss" | null {
+  if (ratio === null) return null;
+  const shown = new ExactDecimal(ratio).times(100).toDecimalPlaces(2, ExactDecimal.ROUND_HALF_UP);
+  if (shown.isZero()) return null;
+  return shown.isNegative() ? "loss" : "gain";
 }
