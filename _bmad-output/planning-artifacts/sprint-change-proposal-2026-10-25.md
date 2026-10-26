@@ -182,3 +182,9 @@ NEW: ... by asset type (ETF, Fonds, Aktie, Zertifikat, Krypto, Guthaben, Unklass
 **Trigger.** Tommy saw holding differences against his brokers (~3.000 € vs Parqet) and had no way to reconcile. A read-only comparison of the local database with the Parqet exports showed the app matches Parqet exactly at each export date; differences come from trades after the exports (5 ROBIN imports on 26.10.) and from the cominvest Parqet export ending on 02.09.2026 (autosync stopped), plus price-source differences. Tommy still needs a way to check every holding against the real statement and fix genuine errors.
 
 **Change.** New FR-20 / CAP-20 and Story 2.9 "Depot Reconciliation and Holding Corrections": persisted reconciliation run per Depot (statement date, statement values, checks, progress, explicit "Abgleich abschließen", next run starts empty), "Buchungen ansehen" with duplicate hints, holding correction as new Transaction type `ADJUSTMENT` (no cash, no realized gain, external flow in returns), cash correction as Deposit/Withdrawal. Amended: AD-14 (spine), PRD FR-20, SPEC CAP-20, epics inventory, Epic 2 coverage and map. Sprint status gains `2-9-...: backlog`.
+
+## Addendum G — ISIN Changes from Broker Documents (approved 2026-10-26)
+
+**Trigger.** Importing the real finanzen.net zero documents, only the "Obligatorischer Umtausch" (Fresenius DE0005785604 → DE000FRE5EN2, 13.08.2026, already recorded by the Parqet migration) ended as "fehlgeschlagen" with a "Manuell erfassen" button that opens the trade form — a path to a wrong booking.
+
+**Change.** New Story 5.6: ISIN-change notices are parsed into ISIN-change proposals; review status "Kapitalmaßnahme"; already recorded changes show "Bereits erfasst"; otherwise "Als ISIN-Wechsel buchen" records them via the ledger ISIN-change service; no trade form for corporate-action notices. Amended: PRD FR-4 consequence, SPEC CAP-4, epics FR4 coverage. Sprint status gains `5-6-...: backlog`.

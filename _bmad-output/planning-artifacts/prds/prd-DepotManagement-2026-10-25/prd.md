@@ -87,6 +87,7 @@ Tommy can upload one or many broker documents for a Depot and have Transactions 
 **Consequences (testable):**
 - Supported in v1: Deutsche Bank/ROBIN PDF documents (buy, sell, and dividend confirmations — imported this way in Parqet today) and comdirect/cominvest PDF documents (replacing the Parqet autosync used today; confirmed sufficient).
 - finanzen.net zero/Baader Bank documents are imported too (buy, sell, dividend and fund distribution, tax refund); Parqet supported neither sync nor import for it, which is why it was first planned as manual (changed 2026-10-26).
+- A broker notice of an ISIN change is recognized and can be recorded as a corporate action with one click; an already recorded change is shown as such and not booked again.
 - Each file shows a status: parsed, duplicate, or failed with a reason.
 
 #### FR-5: Review before booking

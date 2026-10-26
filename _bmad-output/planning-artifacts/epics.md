@@ -114,7 +114,7 @@ UX-DR21: Accessibility floor — WCAG 2.2 AA, sign + arrow with gain/loss colors
 FR1: Epic 1 - Manage Depots (create, rename, archive)
 FR2: Epic 1 - Manual Transactions of every type
 FR3: Epic 2 - Splits and ISIN changes
-FR4: Epic 5 - Upload and parse broker PDFs (finanzen.net zero added in Story 5.5)
+FR4: Epic 5 - Upload and parse broker PDFs (finanzen.net zero added in Story 5.5; ISIN-change notices in Story 5.6)
 FR5: Epic 5 - Review before booking
 FR6: Epic 5 - Duplicate protection in import (core matcher built in Epic 1, used by Epic 2)
 FR7: Epic 3 - Automatic current prices, stale flag
@@ -826,6 +826,23 @@ So that my third Depot no longer needs manual bookkeeping.
 **And** "Obligatorischer Umtausch" (ISIN change) and other corporate-action notices fail with "Kapitalmaßnahme bitte als Corporate Action erfassen." and are never booked as trades
 **And** the tax details on later pages ("Steuerbeträge", "Merkposten / Steuertöpfe") are not read as additional tax
 **And** the parsers are unit-tested against the anonymised real-layout fixtures in `test/fixtures/import/finanzen-zero/` (`buy.txt`, `sell.txt`, `dividend.txt`, `fund-distribution.txt`, `tax-refund.txt`, `tax-pot-no-booking.txt`, `isin-change.txt`), each through `parseDocument("FINANZEN_ZERO", …)`
+
+### Story 5.6: ISIN Changes from Broker Documents
+
+As Tommy,
+I want an ISIN-change notice from my broker to be recognized and booked with one click,
+So that corporate-action documents no longer end as "fehlgeschlagen" or tempt me into a wrong manual trade.
+
+**Acceptance Criteria:**
+
+**Given** a finanzen.net zero "Obligatorischer Umtausch" (or another broker notice the parsers identify as an ISIN change with one Ausbuchung and one Einbuchung)
+**When** it is processed in a batch
+**Then** the parser returns an ISIN-change proposal (old ISIN, new ISIN, old quantity, new quantity, effective date = "per" date of the booking, new Security name) instead of a failure
+**And** the review shows the file with a new status "Kapitalmaßnahme" and the change as "ISIN-Wechsel <old> → <new>, <qty> St. am <date>"
+**And** if the same ISIN change (same old and new Security, same date) is already recorded, the file shows "Bereits erfasst" and is not booked (like a duplicate)
+**And** otherwise the action "Als ISIN-Wechsel buchen" records it through the existing ledger ISIN-change service (`ensureSecurity` for the new ISIN, FIFO lots and Cost Basis carried over, AD-7) as part of the batch booking; it is never booked as BUY/SELL
+**And** "Manuell erfassen" is not offered for such files; for corporate-action notices the parsers cannot read, the failure reason points to "Position → Corporate Action" and no Transaction form opens
+**And** the parser is unit-tested against `test/fixtures/import/finanzen-zero/isin-change.txt`, and the review/booking path has tests for "already recorded" and "book now"
 
 ## Epic 6: Data Safety & Operations
 

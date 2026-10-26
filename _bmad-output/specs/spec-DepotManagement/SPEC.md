@@ -36,7 +36,7 @@ CAP-N corresponds to PRD FR-N (CAP-19 added 2026-10-26).
   - **success:** A split records ratio and effective date, and quantities and Prices before it are shown split-adjusted; an ISIN change records old and new quantity (ratio may differ from 1:1) and keeps total Cost Basis and original FIFO purchase dates.
 - **CAP-4** — Import broker documents
   - **intent:** Tommy can upload one or many broker PDF documents for a Depot and get Transactions extracted.
-  - **success:** Deutsche Bank/ROBIN, comdirect/cominvest and finanzen.net zero/Baader Bank buy, sell and dividend confirmations are parsed (finanzen.net zero also tax refunds); each file shows status parsed, duplicate, or failed with a reason.
+  - **success:** Deutsche Bank/ROBIN, comdirect/cominvest and finanzen.net zero/Baader Bank buy, sell and dividend confirmations are parsed (finanzen.net zero also tax refunds); broker ISIN-change notices become a one-click corporate action or are shown as already recorded; each file shows status parsed, duplicate, or failed with a reason.
 - **CAP-5** — Review before booking
   - **intent:** Tommy can review, correct or discard extracted Transactions before they are booked.
   - **success:** Nothing from an import appears in the ledger until Tommy confirms it.
