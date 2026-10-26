@@ -2,7 +2,7 @@
 title: 'Deutsche Bank / ROBIN Parser'
 type: 'feature'
 created: '2026-10-26'
-status: 'awaiting-operator'
+status: done
 baseline_revision: 'f85febd1cd450c384d656237bebb227d556d9640'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -168,3 +168,14 @@ Status: awaiting-operator
 **Operator actions owed:** see `operator_actions` in the frontmatter (real anonymised ROBIN samples as fixtures, parser adjustments if layouts differ, manual upload check).
 
 **Residual risks:** real ROBIN unpdf output may differ from the synthetic layouts (line joins, label order, ISIN before the "Abrechnung:" line), so real documents may fail with a specific reason until samples are added; Storno detection rejects any document mentioning "Storno"; foreign-currency documents always need manual entry.
+
+## Operator Confirmation
+
+Confirmed 2026-10-26: the external actions this story owed were carried out.
+
+- Extract the text of real ROBIN PDFs (one buy, one sell, one dividend/distribution, one savings-plan execution, one rebalancing document with several executions) with `npm run -s extract-pdf-text -- <file.pdf> > <file outside the repo>.txt`.
+- Anonymise each extracted text as described in test/fixtures/import/deutsche-bank/README.md (names, addresses, account/depot/order numbers, ISINs with valid check digit, consistent amounts) and save it under test/fixtures/import/deutsche-bank/ as *.txt.
+- Add or extend tests in src/modules/import/parsers/deutsche-bank/ for the anonymised samples and fix the parser regexes if a real layout differs from the synthetic fixtures.
+- Upload one real ROBIN PDF of each type to a Deutsche Bank Depot in `npm run dev` and confirm the batch view shows status erkannt with correct date, ISIN, quantity, price, amount, fee and tax.
+
+_Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._
