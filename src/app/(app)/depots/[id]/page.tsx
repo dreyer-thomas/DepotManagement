@@ -117,6 +117,7 @@ export default async function DepotDetailPage({ params, searchParams }: Props) {
     content = (
       <PositionsTable
         positions={positions}
+        depotId={depot.id}
         cashBalance={depot.cashBalance}
         today={today}
         splits={splits}

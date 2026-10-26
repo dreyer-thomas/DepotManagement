@@ -41,6 +41,12 @@ async function offeredTypes(name: string) {
 }
 
 describe("SecurityList", () => {
+  it("links each name to the Security page", () => {
+    render(<SecurityList securities={securities} today="2026-10-26" />);
+    expect(screen.getByRole("link", { name: "Bitcoin" }).getAttribute("href")).toBe("/securities/s1");
+    expect(screen.getByRole("link", { name: "SAP" }).getAttribute("href")).toBe("/securities/s2");
+  });
+
   it("offers the types allowed for each identifier in 'Typ ändern'", async () => {
     render(<SecurityList securities={securities} today="2026-10-26" />);
     expect(await offeredTypes("SAP")).toEqual(["Aktie", "ETF", "Fonds", "Zertifikat"]);

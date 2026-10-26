@@ -280,6 +280,23 @@ describe("Depot detail page", () => {
     expect((html.match(/<button[^>]*>Neue Buchung/g) ?? []).length).toBe(1);
   });
 
+  it("links each Position's Security to its page with this Depot selected", async () => {
+    const { id } = await depot();
+    const buy = await recordTrade({
+      depotId: id,
+      type: "BUY",
+      date: "2026-01-10",
+      quantity: "10",
+      price: "100",
+      security: { new: { isin: "US0378331005", name: "Apple Inc.", assetType: "STOCK" } },
+    });
+    if (!buy.ok) throw new Error("setup failed");
+    const html = renderHtml(await DepotDetailPage(props(id, "positions")));
+    const href = `href="/securities/${buy.transaction.security!.id}?depot=${id}"`;
+    // Desktop table and phone list.
+    expect(html.split(href).length - 1).toBe(2);
+  });
+
   it("values Positions with stored Prices: manual over provider over the Transaction price", async () => {
     const { id } = await depot();
     const buy = await recordTrade({

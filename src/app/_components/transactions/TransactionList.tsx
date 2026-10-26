@@ -16,6 +16,7 @@ import { cashEffect } from "@/core/cash";
 import { type Split, splitAdjustment } from "@/core/corporate-actions";
 import { formatDate, formatMoney, formatMonth, formatQuantity } from "@/core/format";
 import type { SecuritySummary, SplitRecord, TransactionRecord } from "@/modules/ledger";
+import { SecurityLink } from "../security-detail/SecurityLink";
 import { SecurityLogo } from "../securities/SecurityLogo";
 import { type DialogDepot, TransactionDialog } from "./TransactionDialog";
 import { eventValue } from "./transaction-form";
@@ -64,7 +65,7 @@ const numeric = { textAlign: "right", fontVariantNumeric: "tabular-nums", whiteS
  * The "Stück" cell: a BUY/SELL quantity split-adjusted as of `today`, with the booked quantity as a
  * caption when a split applies. The stored row (and the edit dialog) keep the booked value.
  */
-function QuantityText({ transaction, splits, today }: { transaction: TransactionRecord; splits: Split[]; today: string }) {
+export function QuantityText({ transaction, splits, today }: { transaction: TransactionRecord; splits: Split[]; today: string }) {
   if (!transaction.quantity) return null;
   const adjusted =
     transaction.security && (transaction.type === "BUY" || transaction.type === "SELL")
@@ -170,7 +171,9 @@ export function TransactionList({
                           {transaction.security ? (
                             <Stack direction="row" spacing={1.5} sx={{ alignItems: "center", minWidth: 160 }}>
                               <SecurityLogo securityId={transaction.security.id} name={name} />
-                              <span>{name}</span>
+                              <SecurityLink securityId={transaction.security.id} depotId={transaction.depotId} stopPropagation>
+                                {name}
+                              </SecurityLink>
                             </Stack>
                           ) : null}
                         </TableCell>

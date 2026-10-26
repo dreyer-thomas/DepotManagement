@@ -7,6 +7,7 @@ import { formatMoney } from "@/core/format";
 import { isStale } from "@/core/prices";
 import { GainLossPill } from "../positions/GainLossPill";
 import { StaleBadge } from "../prices/StaleBadge";
+import { SecurityLink } from "../security-detail/SecurityLink";
 import { SecurityLogo } from "../securities/SecurityLogo";
 import { CardHeading } from "./CardHeading";
 import { type DepotPosition, positionCaption } from "./labels";
@@ -26,7 +27,9 @@ function Row({ entry, today }: { entry: DepotPosition; today: string }) {
       <Box sx={{ flex: 1, minWidth: 0 }}>
         <Stack direction="row" sx={{ alignItems: "center", columnGap: 1, rowGap: 0.25, flexWrap: "wrap" }}>
           <Typography variant="body2" component="span" sx={{ fontWeight: 500, overflowWrap: "anywhere" }}>
-            {position.security.name}
+            <SecurityLink securityId={position.security.id} depotId={entry.depotId}>
+              {position.security.name}
+            </SecurityLink>
           </Typography>
           {stale ? <StaleBadge info={stale} /> : null}
         </Stack>
@@ -55,7 +58,7 @@ export function TopPositions({ entries, today }: { entries: readonly DepotPositi
         ) : (
           <Box component="ul" aria-label="Top-Positionen" sx={{ listStyle: "none", m: 0, p: 0 }}>
             {entries.map((entry) => (
-              <Row key={`${entry.depotName}\u0000${entry.position.security.id}`} entry={entry} today={today} />
+              <Row key={`${entry.depotId}\u0000${entry.position.security.id}`} entry={entry} today={today} />
             ))}
           </Box>
         )}

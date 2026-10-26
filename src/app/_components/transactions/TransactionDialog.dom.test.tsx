@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { formEntries, registerDomCleanup } from "../../../../test/helpers/dom";
 import { saveTransactionAction } from "@/app/_actions/transactions";
 import type { SecuritySummary } from "@/modules/ledger";
-import { NewTransactionButton } from "./TransactionDialog";
+import { NewTransactionButton, TransactionDialog } from "./TransactionDialog";
 
 vi.mock("@/app/_actions/transactions", () => ({
   saveTransactionAction: vi.fn(),
@@ -97,5 +97,20 @@ describe("NewTransactionButton", () => {
     await user.click(within(dialog).getByRole("button", { name: "Buchen" }));
     await waitForElementToBeRemoved(() => screen.queryByRole("dialog"));
     expect(save).toHaveBeenCalledTimes(1);
+  }, 20_000);
+});
+
+describe("TransactionDialog", () => {
+  it("preselects the given Security in a new Transaction", async () => {
+    save.mockResolvedValue({ ok: false, reason: "quantity-invalid" });
+    const user = userEvent.setup({ delay: null });
+    render(
+      <TransactionDialog open onClose={() => {}} formKey={1} depot={depot} securities={securities} today="2024-03-01" security={securities[0]} />,
+    );
+    const dialog = await screen.findByRole("dialog", { name: "Neue Buchung" });
+    expect((within(dialog).getByRole("combobox", { name: "Security" }) as HTMLInputElement).value).toBe("Welt ETF (IE00B4L5Y983)");
+    await user.click(within(dialog).getByRole("button", { name: "Buchen" }));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(formEntries(save.mock.calls[0][1])).toMatchObject({ depotId: "d1", type: "BUY", securityId: "s1" });
   }, 20_000);
 });

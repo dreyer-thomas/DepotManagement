@@ -136,7 +136,7 @@ export type RecordTransactionInput = {
 
 export type RecordTradeInput = RecordTransactionInput & { quantity: unknown; price: unknown };
 
-const TRANSACTION_INCLUDE = {
+export const TRANSACTION_INCLUDE = {
   security: { select: { id: true, name: true, isin: true, cryptoSymbol: true, assetType: true } },
 } as const;
 
@@ -549,7 +549,7 @@ export async function recordTrade(input: RecordTradeInput, db: LedgerDb = prisma
   return (await recordTransaction(input, db)) as RecordTradeResult;
 }
 
-function toRecord(row: {
+export function toRecord(row: {
   id: string;
   depotId: string;
   type: TransactionType;

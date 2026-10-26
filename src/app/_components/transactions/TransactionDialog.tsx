@@ -96,6 +96,7 @@ function TransactionForm({
   securities,
   today,
   transaction,
+  security: preselected,
   titleId,
   onSuccess,
   onCancel,
@@ -104,6 +105,8 @@ function TransactionForm({
   securities: SecuritySummary[];
   today: string;
   transaction?: TransactionRecord;
+  /** New Transaction only: the Security to preselect. */
+  security?: SecuritySummary;
   titleId: string;
   onSuccess: () => void;
   onCancel: () => void;
@@ -111,7 +114,7 @@ function TransactionForm({
   const typeLabelId = useId();
   const typeErrorId = useId();
   const previewId = useId();
-  const [initial] = useState(() => (transaction ? initialValues(transaction) : emptyValues(today)));
+  const [initial] = useState(() => (transaction ? initialValues(transaction) : emptyValues(today, preselected ?? null)));
   const [type, setType] = useState<TransactionType>(initial.type);
   const [security, setSecurity] = useState<SecurityOption | null>(
     initial.security ? { kind: "security", security: initial.security } : null,
@@ -465,6 +468,7 @@ export function TransactionDialog({
   securities,
   today,
   transaction,
+  security,
 }: {
   open: boolean;
   onClose: () => void;
@@ -473,6 +477,8 @@ export function TransactionDialog({
   securities: SecuritySummary[];
   today: string;
   transaction?: TransactionRecord;
+  /** New Transaction only: the Security to preselect. */
+  security?: SecuritySummary;
 }) {
   const theme = useTheme();
   const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
@@ -485,6 +491,7 @@ export function TransactionDialog({
         securities={securities}
         today={today}
         transaction={transaction}
+        security={security}
         titleId={titleId}
         onSuccess={onClose}
         onCancel={onClose}

@@ -14,6 +14,7 @@ import { LogoUploadButton } from "./LogoUploadDialog";
 import { ManualPriceButton } from "./ManualPriceDialog";
 import { ManualPriceList } from "./ManualPriceList";
 import { MappingDialogButton, ResolveMappingButton } from "./MappingDialog";
+import { SecurityLink } from "../security-detail/SecurityLink";
 import { SecurityLogo } from "./SecurityLogo";
 import { TypeDialogButton } from "./TypeDialog";
 
@@ -53,7 +54,7 @@ export function SecurityList({
                   <SecurityLogo securityId={security.id} name={security.name} />
                   <Stack sx={{ flexGrow: 1, minWidth: 0, gap: 0.5 }}>
                     <Typography component="p" variant="subtitle1" sx={{ fontWeight: 600, overflowWrap: "anywhere" }}>
-                      {security.name}
+                      <SecurityLink securityId={security.id}>{security.name}</SecurityLink>
                     </Typography>
                     <Stack direction="row" sx={{ alignItems: "center", gap: 1, flexWrap: "wrap" }}>
                       <Typography variant="body2" color="text.secondary">

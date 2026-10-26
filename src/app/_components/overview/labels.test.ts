@@ -29,12 +29,12 @@ describe("staleAlertText", () => {
 describe("topPositions", () => {
   it("ranks by value descending, Positions without a price last, and keeps the top five", () => {
     const entries = [
-      { depotName: "A", position: position("none", null) },
-      { depotName: "A", position: position("p10", "10") },
-      { depotName: "B", position: position("p9.99", "9.99") },
-      { depotName: "B", position: position("p100", "100") },
-      { depotName: "A", position: position("p2", "2") },
-      { depotName: "A", position: position("p1", "1") },
+      { depotId: "A", depotName: "A", position: position("none", null) },
+      { depotId: "A", depotName: "A", position: position("p10", "10") },
+      { depotId: "B", depotName: "B", position: position("p9.99", "9.99") },
+      { depotId: "B", depotName: "B", position: position("p100", "100") },
+      { depotId: "A", depotName: "A", position: position("p2", "2") },
+      { depotId: "A", depotName: "A", position: position("p1", "1") },
     ];
     expect(topPositions(entries).map((entry) => entry.position.security.name)).toEqual(["p100", "p10", "p9.99", "p2", "p1"]);
     expect(topPositions(entries, 10).at(-1)!.position.security.name).toBe("none");
@@ -43,10 +43,10 @@ describe("topPositions", () => {
 
 describe("positionCaption", () => {
   it("shows asset type, Depot and quantity; crypto in its symbol", () => {
-    expect(positionCaption({ depotName: "comdirect", position: position("ETF", "1") })).toBe("ETF · comdirect · 310 Stück");
+    expect(positionCaption({ depotId: "comdirect", depotName: "comdirect", position: position("ETF", "1") })).toBe("ETF · comdirect · 310 Stück");
     const btc = position("Bitcoin", "1", { assetType: "CRYPTO", cryptoSymbol: "BTC" }, "0.06512");
     expect(quantityText(btc)).toBe("0,06512 BTC");
-    expect(positionCaption({ depotName: "ZERO", position: btc })).toBe("Krypto · ZERO · 0,06512 BTC");
+    expect(positionCaption({ depotId: "ZERO", depotName: "ZERO", position: btc })).toBe("Krypto · ZERO · 0,06512 BTC");
   });
 });
 

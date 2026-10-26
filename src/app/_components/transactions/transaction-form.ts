@@ -78,9 +78,9 @@ function inputDecimal(value: string | null): string {
   return value === null ? "" : value.replace(".", ",");
 }
 
-/** Empty values of a new Transaction dated `today`. */
-export function emptyValues(today: string): FormValues {
-  return { type: "BUY", security: null, date: today, quantity: "", price: "", fee: "", tax: "", amount: "" };
+/** Empty values of a new Transaction dated `today`, optionally with `security` preselected. */
+export function emptyValues(today: string, security: SecuritySummary | null = null): FormValues {
+  return { type: "BUY", security, date: today, quantity: "", price: "", fee: "", tax: "", amount: "" };
 }
 
 /**

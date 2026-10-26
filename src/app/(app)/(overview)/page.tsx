@@ -132,7 +132,7 @@ export default async function OverviewPage() {
   ]);
   const staleCount = Object.values(priceInfo).filter((info) => info.stale).length;
   const held: DepotPosition[] = portfolio.depots.flatMap((depot, index) =>
-    positionsByDepot[index].map((position) => ({ depotName: depot.name, position })),
+    positionsByDepot[index].map((position) => ({ depotId: depot.id, depotName: depot.name, position })),
   );
   const end = portfolio.series.at(-1) ?? portfolio.start;
   // Composition is a today snapshot (Positions-tab values plus each Depot's Cash Account), independent of the Period.

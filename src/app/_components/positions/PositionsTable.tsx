@@ -26,6 +26,7 @@ import { IsinChangeDialog } from "../corporate-actions/IsinChangeDialog";
 import type { PriceDateInfo } from "../prices/price-labels";
 import { PriceDate } from "../prices/StaleBadge";
 import { SplitDialog } from "../corporate-actions/SplitDialog";
+import { SecurityLink } from "../security-detail/SecurityLink";
 import { SecurityLogo } from "../securities/SecurityLogo";
 import { GainLossPill } from "./GainLossPill";
 import {
@@ -66,12 +67,14 @@ function PositionPriceDate({ position, today }: { position: PositionRecord; toda
   return info ? <PriceDate info={info} /> : null;
 }
 
-function SecurityName({ securityId, name }: { securityId: string; name: string }) {
+function SecurityName({ securityId, name, depotId }: { securityId: string; name: string; depotId: string | undefined }) {
   return (
     <Stack direction="row" spacing={1.5} sx={{ alignItems: "center", minWidth: 0 }}>
       <SecurityLogo securityId={securityId} name={name} />
       <Typography component="span" variant="body2" sx={{ fontWeight: 500, overflowWrap: "anywhere" }}>
-        {name}
+        <SecurityLink securityId={securityId} depotId={depotId}>
+          {name}
+        </SecurityLink>
       </Typography>
     </Stack>
   );
@@ -169,6 +172,7 @@ function CashName() {
 
 function DesktopTable({
   rows,
+  depotId,
   cashBalance,
   today,
   sort,
@@ -176,6 +180,7 @@ function DesktopTable({
   onAction,
 }: {
   rows: PositionRecord[];
+  depotId: string | undefined;
   cashBalance: string;
   today: string | undefined;
   sort: Sort;
@@ -218,7 +223,7 @@ function DesktopTable({
           {rows.map((position) => (
             <TableRow key={position.security.id} sx={{ "& td": { py: 1 } }}>
               <TableCell>
-                <SecurityName securityId={position.security.id} name={position.security.name} />
+                <SecurityName securityId={position.security.id} name={position.security.name} depotId={depotId} />
               </TableCell>
               <TableCell sx={numeric}>{formatQuantity(position.quantity)}</TableCell>
               <TableCell sx={numeric}>{formatMoney(position.costBasis)}</TableCell>
@@ -265,6 +270,7 @@ function DesktopTable({
 
 function PhoneList({
   rows,
+  depotId,
   cashBalance,
   today,
   sort,
@@ -272,6 +278,7 @@ function PhoneList({
   onAction,
 }: {
   rows: PositionRecord[];
+  depotId: string | undefined;
   cashBalance: string;
   today: string | undefined;
   sort: Sort;
@@ -324,7 +331,9 @@ function PhoneList({
               <SecurityLogo securityId={position.security.id} name={position.security.name} />
               <Box sx={{ flex: 1, minWidth: 0 }}>
                 <Typography variant="body2" sx={{ fontWeight: 500, overflowWrap: "anywhere" }}>
-                  {position.security.name}
+                  <SecurityLink securityId={position.security.id} depotId={depotId}>
+                    {position.security.name}
+                  </SecurityLink>
                 </Typography>
                 <Stack direction="row" sx={{ alignItems: "center", columnGap: 1, rowGap: 0.5, flexWrap: "wrap" }}>
                   <Typography variant="caption" color="text.secondary" sx={{ fontVariantNumeric: "tabular-nums" }}>
@@ -374,6 +383,7 @@ function PhoneList({
  */
 export function PositionsTable({
   positions,
+  depotId,
   cashBalance,
   today,
   splits = [],
@@ -383,6 +393,8 @@ export function PositionsTable({
   initialSort = DEFAULT_POSITION_SORT,
 }: {
   positions: PositionRecord[];
+  /** The Depot of the Positions: Security names link to its Security page with it selected. */
+  depotId?: string;
   cashBalance: string;
   /** Today's business date for the stale check; without it no price is flagged stale. */
   today?: string;
@@ -412,8 +424,8 @@ export function PositionsTable({
       };
   return (
     <>
-      <DesktopTable rows={rows} cashBalance={cashBalance} today={today} sort={sort} onSort={onSort} onAction={onAction} />
-      <PhoneList rows={rows} cashBalance={cashBalance} today={today} sort={sort} onChange={setSort} onAction={onAction} />
+      <DesktopTable rows={rows} depotId={depotId} cashBalance={cashBalance} today={today} sort={sort} onSort={onSort} onAction={onAction} />
+      <PhoneList rows={rows} depotId={depotId} cashBalance={cashBalance} today={today} sort={sort} onChange={setSort} onAction={onAction} />
       {dialog?.action === "split" && !readOnly ? (
         <SplitDialog
           key={session}

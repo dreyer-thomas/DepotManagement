@@ -378,7 +378,7 @@ describe("Overview page", () => {
     expect(renderText(await OverviewPage())).not.toContain("veraltet");
   });
 
-  it("lists the five largest open Positions across Depots, value descending, without links", async () => {
+  it("lists the five largest open Positions across Depots, value descending, linked to their Security page", async () => {
     const a = await depot("Hauptdepot");
     const b = await depot("Zweitdepot");
     await book({ depotId: a, type: "DEPOSIT", date: "2026-01-02", amount: "100000" });
@@ -406,7 +406,9 @@ describe("Overview page", () => {
     );
     expect(top).not.toContain("Zeta AG");
     expect(top).not.toContain("Gamma AG Aktie · Hauptdepot");
-    expect(section(html, 'id="overview-top-positions"', 'id="overview-composition"')).not.toContain("<a");
+    const links = section(html, 'id="overview-top-positions"', 'id="overview-composition"').match(/<a[^>]*href="[^"]*"/g) ?? [];
+    expect(links).toHaveLength(5);
+    expect(links.at(-1)).toContain(`href="/securities/${shared.id}?depot=${b}"`);
   });
 
   it("shows the three newest headlines with external links and a link to all news", async () => {

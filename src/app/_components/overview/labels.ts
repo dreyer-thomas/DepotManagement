@@ -9,7 +9,7 @@ export function staleAlertText(count: number): string {
 }
 
 /** An open Position of one Depot, as the Overview's "Top-Positionen" lists it. */
-export type DepotPosition = { depotName: string; position: PositionRecord };
+export type DepotPosition = { depotId: string; depotName: string; position: PositionRecord };
 
 /** Number of rows in "Top-Positionen". */
 export const TOP_POSITIONS = 5;

@@ -69,7 +69,7 @@ const LIST_SX = { m: 0, maxWidth: 480, display: "grid", gridTemplateColumns: "1f
  * Collapsed "Aufschlüsselung" of the Period Gain/Loss: realized, unrealized, dividends, fees (as their
  * negative contribution), then taxes paid separately. Neutral text color; signs carry the direction.
  */
-function Breakdown({ performance }: { performance: PeriodPerformance }) {
+export function Breakdown({ performance }: { performance: PeriodPerformance }) {
   return (
     <Accordion
       disableGutters
@@ -105,7 +105,7 @@ function Breakdown({ performance }: { performance: PeriodPerformance }) {
   );
 }
 
-function Kpi({ label, value, color, note }: { label: string; value: string; color: string; note?: string }) {
+export function Kpi({ label, value, color, note }: { label: string; value: string; color: string; note?: string }) {
   return (
     <Card sx={{ borderTop: 4, borderTopColor: color, minWidth: 0 }}>
       <CardContent>

@@ -49,3 +49,12 @@ describe("PositionsTable logos", () => {
     expect(logos.filter((img) => table.contains(img))).toHaveLength(1);
   });
 });
+
+describe("PositionsTable Security links", () => {
+  it("links the name to the Security page with the Depot selected in both layouts", () => {
+    render(<PositionsTable positions={[stale]} depotId="d1" cashBalance="0" today="2026-10-26" readOnly />);
+    const links = screen.getAllByRole("link", { name: "SAP SE", hidden: true });
+    expect(links).toHaveLength(2);
+    for (const link of links) expect(link.getAttribute("href")).toBe("/securities/s1?depot=d1");
+  });
+});

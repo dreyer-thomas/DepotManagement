@@ -4,6 +4,7 @@ import type { TransactionField } from "./labels";
 import {
   deleteConfirmText,
   duplicateWarning,
+  emptyValues,
   errorPlacement,
   formDataKey,
   FORM_SECTIONS,
@@ -88,6 +89,25 @@ function record(overrides: Partial<TransactionRecord> = {}): TransactionRecord {
     ...overrides,
   };
 }
+
+describe("emptyValues", () => {
+  it("starts a BUY dated today without a Security", () => {
+    expect(emptyValues("2026-10-26")).toEqual({
+      type: "BUY",
+      security: null,
+      date: "2026-10-26",
+      quantity: "",
+      price: "",
+      fee: "",
+      tax: "",
+      amount: "",
+    });
+  });
+
+  it("preselects a given Security", () => {
+    expect(emptyValues("2026-10-26", apple)).toMatchObject({ type: "BUY", security: apple, date: "2026-10-26" });
+  });
+});
 
 describe("initialValues", () => {
   it("prefills a trade with decimal commas and the Security", () => {
