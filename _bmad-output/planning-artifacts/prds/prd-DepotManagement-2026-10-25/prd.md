@@ -193,6 +193,12 @@ Tommy can open a detail page for each Security, across all Depots or for one Dep
 - It shows news, price history with his buys and sells marked, and the Transaction history with the Depot of each Transaction.
 - It shows the all-time result since the first buy: realized and unrealized Gain/Loss, dividends, fees, taxes paid (separately), total, return in % of the invested amount, and an annualised money-weighted return.
 
+#### FR-20: Depot reconciliation
+Tommy can reconcile a Depot against his broker statement position by position and correct real errors.
+**Consequences (testable):**
+- A reconciliation run lists every Position and the Cash Account on the statement date; matching rows are checked off; checks persist until Tommy finishes the run; the next run starts empty.
+- A holding correction is booked as its own Transaction type (no cash effect, no realized Gain/Loss) and counts as external flow in return metrics; a cash correction is booked as Deposit or Withdrawal.
+
 ## 5. Cross-Cutting NFRs and Constraints
 - **Deployment:** Runs locally first; later as a web app on Tommy's Linux production server behind Nginx with TLS. Must be installable from the repository with a documented, simple setup.
 - **Privacy & security:** Financial data stays on Tommy's own machine/server; no third-party analytics. Once reachable over the network, access requires authentication (single user).

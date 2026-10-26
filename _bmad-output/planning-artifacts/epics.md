@@ -41,6 +41,7 @@ FR15: Tommy can import his full Transaction history once from Parqet CSV exports
 FR16: Tommy can export all Depots and Transactions to an open file format and restore from it; export → restore into an empty instance reproduces identical Depots, Cash Accounts, Transactions, manual Prices and evaluations; restore replaces, never merges.
 FR17: Tommy can see balance and booking history of each Depot's Cash Account; buy, sell, dividend, fee and tax book their cash side automatically; Deposits and Withdrawals are entered manually and change only the Cash Account.
 FR18: Portfolio and Depot overviews and charts include Cash Account balances in total value, shown separately from Positions; Deposits and Withdrawals are external cash flows in both return metrics.
+FR20: Tommy can reconcile a Depot against a broker statement position by position (persisted run with checks, finished explicitly) and book holding corrections (ADJUSTMENT: no cash, no realized gain, external flow in returns) or cash corrections.
 FR19: Tommy can open a detail page per Security across all Depots (also when no longer held) showing news, price history with his buys and sells marked, the Transaction history with Depot, and the all-time result since the first buy (realized, unrealized, dividends, fees, taxes, total, return in % and XIRR).
 
 ### NonFunctional Requirements
@@ -129,6 +130,7 @@ FR16: Epic 6 - Export and restore
 FR17: Epic 1 - Cash Account balance and history
 FR18: Epic 4 - Cash in overviews and return metrics
 FR19: Epic 4 - Security detail page and all-time performance (Stories 4.6, 4.7)
+FR20: Epic 2 - Depot reconciliation and holding corrections (Story 2.9)
 
 ## Epic List
 
@@ -138,9 +140,33 @@ Tommy can sign in, create and manage Depots, record every Transaction type by ha
 
 ### Epic 2: Corporate Actions & Parqet Migration
 Tommy can record splits and ISIN changes and bring his complete history from Parqet into DepotManagement, with Positions, invested capital and Cash Account balances reconciled against Parqet. From here on he works with real data.
-**FRs covered:** FR3, FR15 · **Also:** AR7, AR15, AR16, AR21, UX-DR17
+**FRs covered:** FR3, FR15, FR20 · **Also:** AR7, AR15, AR16, AR21, UX-DR17
 
-### Epic 3: Market Data — Prices, Logos, News
+#### Story 2.9: Depot Reconciliation and Holding Corrections
+
+As Tommy,
+I want to reconcile a Depot against my broker statement position by position and correct real errors,
+So that every holding and the Cash Account match my broker without faking sales.
+
+**Acceptance Criteria:**
+
+**Given** a non-archived Depot
+**When** I choose "Depot abgleichen" in the Depot detail ⋮ menu and enter the statement date
+**Then** a reconciliation run opens listing every Position held on that date plus the Cash Account, each with the app's quantity (balance) on that date, an input for the statement value and a "stimmt" check
+**And** a row whose statement value equals the app value (or that I check) is marked ✅ "abgeglichen"; a differing row shows the difference and two actions: "Buchungen ansehen" (the Security detail history in this Depot, possible duplicates marked by `core/duplicates`) and "Korrektur buchen"
+**And** the header shows progress "x von y abgeglichen"; checks and entered values of the open run persist across sessions; at most one open run per Depot
+**And** "Abgleich abschließen" ends the run (asking once when rows are still open); the next run starts empty; the Depot detail shows "Zuletzt abgeglichen am <statement date>"
+**Given** a differing Position row
+**When** I choose "Korrektur buchen"
+**Then** a new Transaction type `ADJUSTMENT` ("Bestandskorrektur") is booked through the ledger service on the statement date with the signed quantity difference: no cash effect, no realized Gain/Loss; a positive difference adds a FIFO lot at a unit cost defaulting to the Position's average purchase price (editable), a negative difference removes the oldest FIFO units at their Cost Basis (AD-14)
+**And** in TTWROR and XIRR the market value of the correction counts as an external flow (inflow for +, outflow for −) so returns are not distorted (AD-10)
+**And** the correction appears in the Transaction history as "Bestandskorrektur" and can be edited and deleted like any Transaction; afterwards the row shows ✅
+**Given** a differing Cash Account row
+**When** I choose "Korrektur buchen"
+**Then** a DEPOSIT or WITHDRAWAL for the difference is booked on the statement date with the note "Kontoabgleich"
+**And** reconciliation runs and their entered statement values are stored by the `ledger` module (user-entered statement data, not derived) and included in export/restore; core functions for ADJUSTMENT in FIFO, cash and returns have unit tests
+
+## Epic 3: Market Data — Prices, Logos, News
 Tommy gets current and historical Prices automatically, sees stale Prices flagged, can enter manual Prices and fix provider mappings, sees logos at every Security, and reads the last 14 days of news on his holdings.
 **FRs covered:** FR7, FR8, FR9, FR14 · **Also:** NFR2, NFR6, AR9, AR11, AR13 (scheduler), AR19, AR20, UX-DR14, UX-DR15
 

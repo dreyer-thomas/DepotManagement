@@ -24,6 +24,7 @@ Single-surface responsive web app, MUI 9 on Next.js (App Router), one user (Tomm
 | Security detail | Positions row, top Positions, Securities row, Transaction row | One page per Security across Depots (switcher "Alle Depots" / single Depot), also for Securities no longer held: header, hero with chart toggle "Kurs" (buy/sell markers) / "Wert", KPIs, card "Gesamt seit Erstkauf", FIFO lots per Depot, Transactions with Depot, news | CAP-7, 8, 12, 14, 19 |
 | Transaction form | FAB / "Neue Buchung" on any Depot surface; row click to edit | Add, edit, delete a Transaction of any type | CAP-2, 17 |
 | Corporate action form | Security detail menu | Record split or ISIN change | CAP-3 |
+| Depot reconciliation | Depot detail ⋮ "Depot abgleichen" | Statement date; rows per Position + Cash Account with app value, statement input, "stimmt" check, ✅ when matched; differing rows: difference, "Buchungen ansehen", "Korrektur buchen" (Bestandskorrektur); progress "x von y abgeglichen"; open run persists until "Abgleich abschließen"; Depot detail shows "Zuletzt abgeglichen am …" | CAP-20 |
 | Import | Depot detail action "Dokumente importieren", nav | Upload PDFs → review batch → confirm | CAP-4..6 |
 | News | Nav | Headlines last 14 days, filter by Security | CAP-14 |
 | Securities | Nav "Mehr" | All Securities: classify `UNCLASSIFIED`, edit provider mapping, enter manual Prices, trigger price refresh, replace or upload a logo | CAP-7, 9 |

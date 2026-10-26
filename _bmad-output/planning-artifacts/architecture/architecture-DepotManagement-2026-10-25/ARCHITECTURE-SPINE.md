@@ -8,8 +8,8 @@ scope: 'DepotManagement v1 — the whole product as defined by the PRD (FR-1..FR
 status: final
 created: '2026-10-25'
 updated: '2026-10-25'
-change_log: ['2026-10-25 sprint change: AD-7, AD-16 amended (hands-off Parqet migration, FUND type)', '2026-10-25 sprint change: AD-6 amended (funding for cash-less exports)', '2026-10-25 sprint change: AD-6 amended (group cash pairing, TAX differences, rounding clamp)', '2026-10-25 sprint change: AD-6 amended (inflow differences as DEPOSIT, funding for every export)', '2026-10-26 sprint change: AD-10 amended (Security-level figures, FR-19)']
-binds: [FR-19, FR-1, FR-2, FR-3, FR-4, FR-5, FR-6, FR-7, FR-8, FR-9, FR-10, FR-11, FR-12, FR-13, FR-14, FR-15, FR-16, FR-17, FR-18]
+change_log: ['2026-10-25 sprint change: AD-7, AD-16 amended (hands-off Parqet migration, FUND type)', '2026-10-25 sprint change: AD-6 amended (funding for cash-less exports)', '2026-10-25 sprint change: AD-6 amended (group cash pairing, TAX differences, rounding clamp)', '2026-10-25 sprint change: AD-6 amended (inflow differences as DEPOSIT, funding for every export)', '2026-10-26 sprint change: AD-10 amended (Security-level figures, FR-19)', '2026-10-26 sprint change: AD-14 amended (ADJUSTMENT type, FR-20)']
+binds: [FR-20, FR-19, FR-1, FR-2, FR-3, FR-4, FR-5, FR-6, FR-7, FR-8, FR-9, FR-10, FR-11, FR-12, FR-13, FR-14, FR-15, FR-16, FR-17, FR-18]
 sources:
   - _bmad-output/planning-artifacts/prds/prd-DepotManagement-2026-10-25/prd.md
   - _bmad-output/planning-artifacts/prds/prd-DepotManagement-2026-10-25/addendum.md
@@ -137,7 +137,7 @@ graph TD
 
 - **Binds:** FR-2, FR-4, FR-5, FR-6, FR-12, FR-15, FR-17
 - **Prevents:** parsers, migration, manual form and `core/cash` storing or reading amounts with different meanings (gross vs net, sign, included fees).
-- **Rule:** Types: `BUY`, `SELL`, `DIVIDEND`, `FEE`, `TAX`, `DEPOSIT`, `WITHDRAWAL`. `amount` is the unsigned gross value of the event, never including fee or tax (for a dividend: gross total, not per share). `fee ≥ 0`. `tax` is signed: positive = paid, negative = refund. Direction comes only from `type`. `quantity` and `price` are set only on `BUY` and `SELL`. Standalone `FEE` and `TAX` carry their value in `fee` / `tax` with `amount = 0`. `securityId` is required for `BUY`, `SELL`, `DIVIDEND`, optional for `FEE`/`TAX`, absent for `DEPOSIT`/`WITHDRAWAL`. Cash effect, defined once in `core/cash`: `BUY −(amount+fee+tax)`, `SELL / DIVIDEND +amount−fee−tax`, `FEE −fee`, `TAX −tax`, `DEPOSIT +amount`, `WITHDRAWAL −amount`. Every writer normalises to this shape before calling `ledger`.
+- **Rule:** Types: `BUY`, `SELL`, `DIVIDEND`, `FEE`, `TAX`, `DEPOSIT`, `WITHDRAWAL`, `ADJUSTMENT`. `ADJUSTMENT` (holding correction) carries a signed `quantity` and, for a positive quantity, a unit cost in `price`; `amount`, `fee`, `tax` are 0; its cash effect is 0; FIFO adds a lot at that cost (+) or removes the oldest units at Cost Basis without realized Gain/Loss (−); returns treat its market value as an external flow. `amount` is the unsigned gross value of the event, never including fee or tax (for a dividend: gross total, not per share). `fee ≥ 0`. `tax` is signed: positive = paid, negative = refund. Direction comes only from `type`. `quantity` and `price` are set only on `BUY` and `SELL`. Standalone `FEE` and `TAX` carry their value in `fee` / `tax` with `amount = 0`. `securityId` is required for `BUY`, `SELL`, `DIVIDEND`, optional for `FEE`/`TAX`, absent for `DEPOSIT`/`WITHDRAWAL`. Cash effect, defined once in `core/cash`: `BUY −(amount+fee+tax)`, `SELL / DIVIDEND +amount−fee−tax`, `FEE −fee`, `TAX −tax`, `DEPOSIT +amount`, `WITHDRAWAL −amount`. Every writer normalises to this shape before calling `ledger`.
 
 ### AD-15 — Duplicate matching is one advisory function
 
