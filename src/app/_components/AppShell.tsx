@@ -24,7 +24,7 @@ import { ColorModeToggle } from "./ColorModeToggle";
 import { activeBottomHref, bottomItems, drawerItems, isActive } from "./navigation";
 
 const DRAWER_WIDTH = 240;
-const BOTTOM_NAV_HEIGHT = 56;
+export const BOTTOM_NAV_HEIGHT = 56;
 
 const ATTRIBUTION_LINK = { target: "_blank", rel: "noopener noreferrer", color: "inherit" } as const;
 

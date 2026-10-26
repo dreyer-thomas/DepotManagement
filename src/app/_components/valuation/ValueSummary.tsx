@@ -32,6 +32,8 @@ export type ValueSummaryProps = {
   performance: PeriodPerformance;
   /** The Period's daily valuation series (same call as the figures); renders the value chart when given. */
   series?: readonly ValuationPoint[];
+  /** Accessible name of the section, e.g. "Portfoliowert" on the Overview; default "Depotwert". */
+  label?: string;
 };
 
 /** `XIRR +10,87 %`, or `XIRR –` when it could not be solved. */
@@ -139,9 +141,10 @@ export function ValueSummary({
   today,
   performance,
   series,
+  label = "Depotwert",
 }: ValueSummaryProps) {
   return (
-    <Box component="section" aria-label="Depotwert" sx={{ mb: 2 }}>
+    <Box component="section" aria-label={label} sx={{ mb: 2 }}>
       <Card sx={{ mb: 1.5 }}>
         <CardContent sx={{ p: { xs: 2, md: 2.5 } }}>
           <Typography variant="body2" color="text.secondary">

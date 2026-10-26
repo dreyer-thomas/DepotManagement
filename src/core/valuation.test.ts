@@ -5,7 +5,7 @@ import { addDays } from "./dates";
 import { canonicalDecimal, ExactDecimal } from "./decimal";
 import { computePositions } from "./positions";
 import type { PriceObservation } from "./prices";
-import { investedCapital, periodFlows, type ValuationRow, valuationSeries } from "./valuation";
+import { investedCapital, periodFlows, sumValuationSeries, type ValuationPoint, type ValuationRow, valuationSeries } from "./valuation";
 
 type Row = ValuationRow & { id: string; price: string | null };
 
@@ -214,5 +214,36 @@ describe("valuationSeries performance", () => {
     expect(series).toHaveLength(1096);
     // Generous bound: catches a per-day full re-resolve, not machine speed.
     expect(performance.now() - started).toBeLessThan(10000);
+  });
+});
+
+describe("sumValuationSeries", () => {
+  const point = (date: string, positionsValue: string, cash: string, investedCapital: string): ValuationPoint => ({
+    date,
+    value: new ExactDecimal(positionsValue).plus(cash).toFixed(),
+    positionsValue,
+    cash,
+    investedCapital,
+  });
+
+  it("sums every field per date exactly", () => {
+    const a = [point("2026-01-01", "100.1", "0.2", "90"), point("2026-01-02", "110", "-5.55", "90")];
+    const b = [point("2026-01-01", "0", "0", "0"), point("2026-01-02", "33.333", "1000", "30.01")];
+    expect(sumValuationSeries([a, b])).toEqual([
+      { date: "2026-01-01", value: "100.3", positionsValue: "100.1", cash: "0.2", investedCapital: "90" },
+      { date: "2026-01-02", value: "1137.783", positionsValue: "143.333", cash: "994.45", investedCapital: "120.01" },
+    ]);
+  });
+
+  it("returns a single series unchanged and nothing for no series", () => {
+    const a = [point("2026-01-01", "1", "2", "1")];
+    expect(sumValuationSeries([a])).toEqual(a);
+    expect(sumValuationSeries([])).toEqual([]);
+  });
+
+  it("throws when lengths or dates differ", () => {
+    const a = [point("2026-01-01", "1", "0", "1"), point("2026-01-02", "1", "0", "1")];
+    expect(() => sumValuationSeries([a, a.slice(1)])).toThrow();
+    expect(() => sumValuationSeries([a, [point("2026-01-01", "1", "0", "1"), point("2026-01-03", "1", "0", "1")]])).toThrow();
   });
 });

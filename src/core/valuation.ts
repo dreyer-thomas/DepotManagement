@@ -209,3 +209,40 @@ export function periodFlows(
   }
   return { dividends: canonicalDecimal(dividends), taxesPaid: canonicalDecimal(taxesPaid) };
 }
+
+/**
+ * Pointwise sum of valuation series over the same dates (the Portfolio series, AD-10): per date the
+ * sum of `value`, `positionsValue`, `cash` and `investedCapital`. Throws when the series differ in
+ * length or dates; empty input gives `[]`.
+ */
+export function sumValuationSeries(parts: readonly (readonly ValuationPoint[])[]): ValuationPoint[] {
+  if (parts.length === 0) return [];
+  const length = parts[0].length;
+  for (const part of parts) {
+    if (part.length !== length) throw new Error("valuation series differ in length");
+  }
+  const points: ValuationPoint[] = [];
+  for (let index = 0; index < length; index++) {
+    const date = parts[0][index].date;
+    let value = new ExactDecimal(0);
+    let positionsValue = new ExactDecimal(0);
+    let cash = new ExactDecimal(0);
+    let invested = new ExactDecimal(0);
+    for (const part of parts) {
+      const point = part[index];
+      if (point.date !== date) throw new Error(`valuation series differ in dates: ${point.date} vs ${date}`);
+      value = value.plus(point.value);
+      positionsValue = positionsValue.plus(point.positionsValue);
+      cash = cash.plus(point.cash);
+      invested = invested.plus(point.investedCapital);
+    }
+    points.push({
+      date,
+      value: canonicalDecimal(value),
+      positionsValue: canonicalDecimal(positionsValue),
+      cash: canonicalDecimal(cash),
+      investedCapital: canonicalDecimal(invested),
+    });
+  }
+  return points;
+}

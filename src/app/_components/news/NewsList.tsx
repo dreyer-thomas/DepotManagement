@@ -12,7 +12,7 @@ import { SecurityLogo } from "../securities/SecurityLogo";
 import { articleMeta, NEW_TAB_HINT, NEWS_EMPTY_TEXT } from "./labels";
 
 /** Hidden visually, read by screen readers (same rules as MUI's `visuallyHidden`). */
-const visuallyHidden = {
+export const visuallyHidden = {
   border: 0,
   clip: "rect(0 0 0 0)",
   height: "1px",

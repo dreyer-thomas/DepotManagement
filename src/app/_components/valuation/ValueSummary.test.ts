@@ -38,6 +38,13 @@ const PROPS: ValueSummaryProps = {
 };
 
 describe("ValueSummary", () => {
+  it("labels the section Depotwert by default, or with the given label", () => {
+    expect(renderHtml(createElement(ValueSummary, PROPS))).toContain('aria-label="Depotwert"');
+    const html = renderHtml(createElement(ValueSummary, { ...PROPS, label: "Portfoliowert" }));
+    expect(html).toContain('aria-label="Portfoliowert"');
+    expect(html).not.toContain('aria-label="Depotwert"');
+  });
+
   it("renders no chart without a series", () => {
     expect(renderHtml(createElement(ValueSummary, PROPS))).not.toContain('role="figure"');
   });

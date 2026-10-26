@@ -4,8 +4,8 @@ import { type CorporateActions, NO_CORPORATE_ACTIONS as NONE } from "./corporate
 import { addDays, daysBetween } from "./dates";
 import { ExactDecimal } from "./decimal";
 import type { PriceObservation } from "./prices";
-import { externalFlow, periodPerformance, ttwror, xirr } from "./returns";
-import { type ValuationPoint, type ValuationRow, valuationSeries } from "./valuation";
+import { externalFlow, periodCashFlows, periodPerformance, portfolioPerformance, ttwror, xirr } from "./returns";
+import { sumValuationSeries, type ValuationPoint, type ValuationRow, valuationSeries } from "./valuation";
 
 type Row = ValuationRow & { id: string; price: string | null };
 
@@ -378,5 +378,105 @@ describe("xirr", () => {
       new Decimal(0),
     );
     expect(npv.abs().lessThan("1e-9")).toBe(true);
+  });
+});
+
+describe("periodCashFlows", () => {
+  it("pays in the start value, nets external flows per date and receives the end value", () => {
+    const rows = [deposit("2026-01-10", "500"), row("TAX", "2026-01-10", { tax: "20" }), withdrawal("2026-01-20", "100"), deposit("2025-12-01", "9")];
+    const start: ValuationPoint = { date: "2026-01-01", value: "1000", positionsValue: "1000", cash: "0", investedCapital: "1000" };
+    const end: ValuationPoint = { date: "2026-01-31", value: "1500", positionsValue: "1100", cash: "400", investedCapital: "1000" };
+    expect(periodCashFlows(rows, start, [{ ...start, date: "2026-01-02" }, end])).toEqual([
+      { date: "2026-01-01", amount: "-1000" },
+      { date: "2026-01-10", amount: "-480" },
+      { date: "2026-01-20", amount: "100" },
+      { date: "2026-01-31", amount: "1500" },
+    ]);
+  });
+});
+
+describe("portfolioPerformance", () => {
+  const sap = (date: string, quantity: string, price: string, kind: "BUY" | "SELL" = "BUY", fee = "0") =>
+    row(kind, date, { securityId: "s2", quantity, price, fee, sequence: 2 });
+
+  // Depot A: s1 bought, partly sold, a dividend with tax, a fee. Depot B: s2 with a Deposit mid-Period and a tax refund.
+  const rowsA = [
+    deposit("2025-06-01", "3000"),
+    buy("2025-06-02", "20", "100", { fee: "5" }),
+    sell("2026-02-10", "5", "130", { fee: "3" }),
+    row("DIVIDEND", "2026-03-01", { securityId: "s1", amount: "40", fee: "1", tax: "8" }),
+    row("FEE", "2026-04-01", { fee: "2" }),
+  ];
+  const rowsB = [
+    deposit("2025-09-01", "1000"),
+    sap("2025-09-02", "4", "200"),
+    deposit("2026-05-05", "2000"),
+    sap("2026-05-06", "8", "210", "BUY", "4"),
+    row("TAX", "2026-06-01", { tax: "-12" }),
+  ];
+  const pricesA = [provider("2025-12-01", "110"), provider("2026-04-15", "125"), provider("2026-07-30", "121.5")];
+  const pricesB = [provider("2025-12-01", "190", "s2"), provider("2026-06-20", "230", "s2"), provider("2026-07-28", "222.25", "s2")];
+  const FROM = "2026-01-01";
+  const TO = "2026-07-31";
+
+  it("sums two Depots exactly and chains returns over the summed series with all flows", () => {
+    const a = { rows: rowsA, ...evaluate(rowsA, pricesA, FROM, TO) };
+    const b = { rows: rowsB, ...evaluate(rowsB, pricesB, FROM, TO) };
+    const portfolio = portfolioPerformance([a, b]);
+    const sum = (field: "gain" | "realized" | "unrealized" | "dividends" | "fees" | "feesContribution" | "taxesPaid" | "netExternalFlows") =>
+      new ExactDecimal(a.performance[field]).plus(b.performance[field]).toFixed();
+    for (const field of ["gain", "realized", "unrealized", "dividends", "fees", "feesContribution", "taxesPaid", "netExternalFlows"] as const) {
+      expect(portfolio.performance[field]).toBe(sum(field));
+    }
+    expect(portfolio.performance).toMatchObject({ dividends: "40", fees: "3", taxesPaid: "-4", netExternalFlows: "2004" });
+    expectIdentity(portfolio.performance);
+    expect(portfolio.start).toEqual(sumValuationSeries([[a.start], [b.start]])[0]);
+    expect(portfolio.series).toEqual(sumValuationSeries([a.series, b.series]));
+    const point = portfolio.series.find((p) => p.date === "2026-06-20")!;
+    const pointA = a.series.find((p) => p.date === "2026-06-20")!;
+    const pointB = b.series.find((p) => p.date === "2026-06-20")!;
+    expect(point.value).toBe(new ExactDecimal(pointA.value).plus(pointB.value).toFixed());
+
+    // Hand-built: the chain over summed values with merged flows, and XIRR over summed start/end + merged flows.
+    const merged = [...rowsA, ...rowsB];
+    expect(portfolio.performance.ttwror).toBe(ttwror(portfolio.start, portfolio.series, merged));
+    const end = portfolio.series.at(-1)!;
+    const flows = [
+      { date: portfolio.start.date, amount: new ExactDecimal(portfolio.start.value).negated().toFixed() },
+      { date: "2026-03-01", amount: "8" },
+      { date: "2026-05-05", amount: "-2000" },
+      { date: "2026-06-01", amount: "-12" },
+      { date: TO, amount: end.value },
+    ];
+    expect(portfolio.performance.xirr).toBe(xirr(flows));
+    expect(portfolio.performance.ttwror).not.toBeNull();
+    expect(portfolio.performance.xirr).not.toBeNull();
+  });
+
+  it("is the Depot's own performance for a single Depot", () => {
+    const a = { rows: rowsA, ...evaluate(rowsA, pricesA, FROM, TO) };
+    const portfolio = portfolioPerformance([a]);
+    expect(portfolio.performance).toEqual(a.performance);
+    expect(portfolio.series).toEqual(a.series);
+    expect(portfolio.start).toEqual(a.start);
+  });
+
+  it("does not count a Deposit in one Depot as gain", () => {
+    const a = { rows: rowsA, ...evaluate(rowsA, pricesA, FROM, TO) };
+    const cashOnly = [deposit("2026-03-10", "5000")];
+    const b = { rows: cashOnly, ...evaluate(cashOnly, [], FROM, TO) };
+    const portfolio = portfolioPerformance([a, b]);
+    expect(portfolio.performance.gain).toBe(a.performance.gain);
+    expect(portfolio.performance.netExternalFlows).toBe(new ExactDecimal(a.performance.netExternalFlows).plus(5000).toFixed());
+  });
+
+  it("keeps a Depot's figures when its zero-valued leading days precede its first row (MAX)", () => {
+    const own = evaluate(rowsB, pricesB, "2025-09-01", TO);
+    const longer = evaluate(rowsB, pricesB, "2025-06-01", TO);
+    expect(longer.performance).toEqual(own.performance);
+  });
+
+  it("throws without parts", () => {
+    expect(() => portfolioPerformance([])).toThrow();
   });
 });

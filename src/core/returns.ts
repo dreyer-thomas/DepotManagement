@@ -11,7 +11,7 @@ import type { CorporateActions } from "./corporate-actions";
 import { addDays, daysBetween } from "./dates";
 import { canonicalDecimal, ExactDecimal } from "./decimal";
 import { fifo } from "./fifo";
-import { periodFlows, type ValuationPoint, type ValuationRow } from "./valuation";
+import { periodFlows, sumValuationSeries, type ValuationPoint, type ValuationRow } from "./valuation";
 
 /** Decimal constructor for return ratios: ≈ 40 significant digits, enough for chained ratios and `ln`/`exp`. */
 const ReturnDecimal = Decimal.clone({ precision: 40, rounding: Decimal.ROUND_HALF_UP });
@@ -209,6 +209,23 @@ export function xirr(flows: readonly CashFlow[]): string | null {
   return ratioString(r);
 }
 
+/**
+ * The XIRR cash flows of the Period covered by `series` (investor's view): the start value paid in on
+ * `start.date`, the net external flows of rows dated in the Period per date (Deposits paid in,
+ * Withdrawals and net taxes received), and the end value received on the Period end.
+ */
+export function periodCashFlows(rows: readonly FlowRow[], start: ValuationPoint, series: readonly ValuationPoint[]): CashFlow[] {
+  const end = series.length > 0 ? series[series.length - 1] : start;
+  const from = series.length > 0 ? series[0].date : addDays(start.date, 1);
+  const to = end.date;
+  const cashFlows: CashFlow[] = [{ date: start.date, amount: canonicalDecimal(new ExactDecimal(start.value).negated()) }];
+  for (const [date, flow] of [...flowsByDate(rows, from, to)].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+    if (!flow.isZero()) cashFlows.push({ date, amount: canonicalDecimal(flow.negated()) });
+  }
+  cashFlows.push({ date: to, amount: end.value });
+  return cashFlows;
+}
+
 /** Period Gain/Loss, its split and both return metrics; amounts and ratios as decimal strings. */
 export type PeriodPerformance = {
   /** `V(to) − V(start) − netExternalFlows` = realized + unrealized + dividends − fees. */
@@ -269,12 +286,6 @@ export function periodPerformance(
   const gain = new ExactDecimal(end.value).minus(start.value).minus(netExternalFlows);
   const { dividends, taxesPaid } = periodFlows(rows, from, to);
 
-  const cashFlows: CashFlow[] = [{ date: start.date, amount: canonicalDecimal(new ExactDecimal(start.value).negated()) }];
-  for (const [date, flow] of [...flowsByDate(rows, from, to)].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
-    if (!flow.isZero()) cashFlows.push({ date, amount: canonicalDecimal(flow.negated()) });
-  }
-  cashFlows.push({ date: to, amount: end.value });
-
   return {
     gain: canonicalDecimal(gain),
     realized: canonicalDecimal(realized),
@@ -285,6 +296,56 @@ export function periodPerformance(
     taxesPaid,
     netExternalFlows: canonicalDecimal(netExternalFlows),
     ttwror: ttwror(start, series, rows),
-    xirr: series.length > 0 ? xirr(cashFlows) : null,
+    xirr: series.length > 0 ? xirr(periodCashFlows(rows, start, series)) : null,
+  };
+}
+
+/** One Depot's Period result as `portfolioPerformance` sums it: its rows, start point, series and performance. */
+export type PerformancePart = {
+  rows: readonly ValuationRow[];
+  start: ValuationPoint;
+  series: readonly ValuationPoint[];
+  performance: PeriodPerformance;
+};
+
+const AMOUNT_FIELDS = [
+  "gain",
+  "realized",
+  "unrealized",
+  "dividends",
+  "fees",
+  "feesContribution",
+  "taxesPaid",
+  "netExternalFlows",
+] as const;
+
+/**
+ * Portfolio performance over one common Period (AD-10): the Depots' series and start points summed
+ * pointwise, their Gain/Loss and split summed (FIFO stays per Depot), TTWROR chained over the summed
+ * series with all Depots' external flows and XIRR over the summed start and end values and the merged
+ * flows (same construction as `periodPerformance`). Every part must cover the same dates; throws
+ * without parts.
+ */
+export function portfolioPerformance(parts: readonly PerformancePart[]): {
+  start: ValuationPoint;
+  series: ValuationPoint[];
+  performance: PeriodPerformance;
+} {
+  if (parts.length === 0) throw new Error("portfolioPerformance needs at least one part");
+  const [start] = sumValuationSeries(parts.map((part) => [part.start]));
+  const series = sumValuationSeries(parts.map((part) => part.series));
+  const rows = parts.flatMap((part) => part.rows);
+  const sums = {} as Record<(typeof AMOUNT_FIELDS)[number], string>;
+  for (const field of AMOUNT_FIELDS) {
+    sums[field] = canonicalDecimal(parts.reduce((sum, part) => sum.plus(part.performance[field]), new ExactDecimal(0)));
+  }
+  return {
+    start,
+    series,
+    performance: {
+      ...sums,
+      ttwror: ttwror(start, series, rows),
+      xirr: series.length > 0 ? xirr(periodCashFlows(rows, start, series)) : null,
+    },
   };
 }

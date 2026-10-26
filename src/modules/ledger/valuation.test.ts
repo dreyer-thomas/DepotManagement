@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestDatabase, type TestDatabase } from "../../../test/helpers/test-db";
 import type { PriceObservation } from "@/core/prices";
-import { createDepot, depotValuation, ensureSecurity, recordIsinChange, recordTransaction, type RecordTransactionInput } from "./index";
+import { ExactDecimal } from "@/core/decimal";
+import { archiveDepot, createDepot, depotValuation, ensureSecurity, portfolioValuation, recordIsinChange, recordTransaction, type RecordTransactionInput } from "./index";
 
 let testDb: TestDatabase;
 let depotId: string;
@@ -186,5 +187,102 @@ describe("depotValuation", () => {
     expect(valuation.series.at(-1)).toMatchObject({ date: "2023-01-01", value: "2420" });
     expect(valuation.performance).toMatchObject({ gain: "320", unrealized: "320", netExternalFlows: "1100", ttwror: "0.21" });
     expect(Math.abs(Number(valuation.performance.xirr) - 0.1)).toBeLessThan(1e-9);
+  });
+});
+
+describe("portfolioValuation", () => {
+  const ONE_YEAR = { kind: "preset", preset: "1J" } as const;
+  const MAX = { kind: "preset", preset: "MAX" } as const;
+  const sum = (...values: string[]) => values.reduce((total, value) => total.plus(value), new ExactDecimal(0)).toFixed();
+
+  async function twoDepots() {
+    await book({ type: "DEPOSIT", date: "2025-11-01", amount: "3000" });
+    await book({ type: "BUY", date: "2025-11-02", quantity: "10", price: "100", fee: "5", security: { id: appleId } });
+    await book({ type: "DIVIDEND", date: "2026-03-01", amount: "50", tax: "15", security: { id: appleId } });
+    await book({ type: "SELL", date: "2026-06-01", quantity: "4", price: "130", fee: "2", security: { id: appleId } });
+    await book({ depotId: otherDepotId, type: "DEPOSIT", date: "2026-01-02", amount: "1000" });
+    await book({ depotId: otherDepotId, type: "BUY", date: "2026-01-03", quantity: "5", price: "110", security: { id: appleId } });
+    await book({ depotId: otherDepotId, type: "TAX", date: "2026-04-01", tax: "7.5" });
+  }
+  const stored: PriceObservation[] = [
+    { id: "p1", securityId: "", date: "2026-02-15", sequence: 0, price: "120", source: "provider" },
+    { id: "p2", securityId: "", date: "2026-09-30", sequence: 0, price: "141.25", source: "provider" },
+  ];
+  const storedPrices = async () => stored.map((p) => ({ ...p, securityId: appleId }));
+
+  it("sums two Depots over one Period: series, flows and Gain/Loss split", async () => {
+    await twoDepots();
+    const portfolio = await portfolioValuation(ONE_YEAR, TODAY, db(), { storedPrices });
+    const a = await depotValuation(depotId, ONE_YEAR, TODAY, db(), { storedPrices });
+    const b = await depotValuation(otherDepotId, ONE_YEAR, TODAY, db(), { storedPrices });
+    expect(portfolio.hasTransactions).toBe(true);
+    expect(portfolio.depots.map((depot) => depot.name)).toEqual(["Hauptdepot", "Zweitdepot"]);
+    expect(portfolio.depots[0].valuation).toEqual(a);
+    expect(portfolio.depots[1].valuation).toEqual(b);
+    expect({ from: portfolio.from, to: portfolio.to }).toEqual({ from: a.from, to: a.to });
+    for (const [index, point] of portfolio.series.entries()) {
+      const pa = a.series[index];
+      const pb = b.series[index];
+      expect(point).toEqual({
+        date: pa.date,
+        value: sum(pa.value, pb.value),
+        positionsValue: sum(pa.positionsValue, pb.positionsValue),
+        cash: sum(pa.cash, pb.cash),
+        investedCapital: sum(pa.investedCapital, pb.investedCapital),
+      });
+    }
+    expect(portfolio.dividends).toBe(sum(a.dividends, b.dividends));
+    expect(portfolio.taxesPaid).toBe(sum(a.taxesPaid, b.taxesPaid));
+    expect(portfolio.taxesPaid).toBe("22.5");
+    for (const field of ["gain", "realized", "unrealized", "dividends", "fees", "taxesPaid", "netExternalFlows"] as const) {
+      expect(portfolio.performance[field]).toBe(sum(a.performance[field], b.performance[field]));
+    }
+    expect(portfolio.performance.ttwror).not.toBeNull();
+    expect(portfolio.performance.xirr).not.toBeNull();
+  });
+
+  it("evaluates every Depot from the earliest first date for MAX; a later-starting Depot keeps its own figures", async () => {
+    await book({ type: "DEPOSIT", date: "2024-01-10", amount: "2000" });
+    await book({ type: "BUY", date: "2024-01-10", quantity: "10", price: "100", security: { id: appleId } });
+    await book({ depotId: otherDepotId, type: "DEPOSIT", date: "2025-06-01", amount: "1000" });
+    await book({ depotId: otherDepotId, type: "BUY", date: "2025-06-02", quantity: "5", price: "120", security: { id: appleId } });
+    await book({ depotId: otherDepotId, type: "WITHDRAWAL", date: "2026-02-01", amount: "100" });
+    const portfolio = await portfolioValuation(MAX, TODAY, db(), { storedPrices });
+    expect(portfolio.from).toBe("2024-01-10");
+    const late = portfolio.depots.find((depot) => depot.id === otherDepotId)!.valuation;
+    const own = await depotValuation(otherDepotId, MAX, TODAY, db(), { storedPrices });
+    expect(own.from).toBe("2025-06-01");
+    expect(late.from).toBe("2024-01-10");
+    expect(late.series.at(-1)).toEqual(own.series.at(-1));
+    expect(late.performance).toEqual(own.performance);
+    expect(late.dividends).toBe(own.dividends);
+    expect(late.taxesPaid).toBe(own.taxesPaid);
+  });
+
+  it("leaves out archived Depots and counts an empty Depot as zero", async () => {
+    await book({ type: "DEPOSIT", date: "2026-01-05", amount: "1000" });
+    await book({ type: "BUY", date: "2026-01-06", quantity: "5", price: "100", security: { id: appleId } });
+    const archived = await createDepot({ name: "Altdepot", broker: "COMDIRECT" }, db());
+    if (!archived.ok) throw new Error("setup failed");
+    await book({ depotId: archived.depot.id, type: "DEPOSIT", date: "2026-01-01", amount: "5000" });
+    await book({ depotId: archived.depot.id, type: "WITHDRAWAL", date: "2026-01-02", amount: "5000" });
+    expect((await archiveDepot(archived.depot.id, db())).ok).toBe(true);
+    const portfolio = await portfolioValuation(ONE_YEAR, TODAY, db(), { storedPrices });
+    expect(portfolio.depots.map((depot) => depot.name)).toEqual(["Hauptdepot", "Zweitdepot"]);
+    const own = await depotValuation(depotId, ONE_YEAR, TODAY, db(), { storedPrices });
+    expect(portfolio.performance).toEqual(own.performance);
+    expect(portfolio.series).toEqual(own.series);
+    const empty = portfolio.depots[1].valuation;
+    expect(empty.series.at(-1)).toMatchObject({ value: "0" });
+    expect(empty.performance).toMatchObject({ gain: "0", ttwror: null, xirr: null });
+  });
+
+  it("reports no Transactions when none of the Depots has a ledger row", async () => {
+    const portfolio = await portfolioValuation(MAX, TODAY, db());
+    expect(portfolio.hasTransactions).toBe(false);
+    expect(portfolio.from).toBe(TODAY);
+    expect(portfolio.series).toEqual([{ date: TODAY, value: "0", positionsValue: "0", cash: "0", investedCapital: "0" }]);
+    expect(portfolio.depots).toHaveLength(2);
+    expect(portfolio.performance).toMatchObject({ gain: "0", ttwror: null, xirr: null });
   });
 });
