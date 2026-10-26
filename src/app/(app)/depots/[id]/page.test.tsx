@@ -93,7 +93,18 @@ describe("Depot detail page", () => {
     const buttons = html.match(/<button[^>]*>Neue Buchung/g) ?? [];
     expect(buttons).toHaveLength(1);
     expect(buttons[0]).not.toMatch(/disabled/);
+    expect(html.match(/<a[^>]*href="\/import\?depot=[^"]*"[^>]*>[\s\S]*?Dokumente importieren/g) ?? []).toHaveLength(1);
+    expect(html).toContain(`href="/import?depot=${id}"`);
     expect(await generateMetadata(props(id))).toEqual({ title: "Hauptdepot" });
+  });
+
+  it("links Dokumente importieren next to Neue Buchung on a Depot with Transactions", async () => {
+    const { id } = await depot();
+    const result = await recordTransaction({ depotId: id, type: "DEPOSIT", date: "2026-01-02", amount: "100" });
+    if (!result.ok) throw new Error("setup failed");
+    const html = renderHtml(await DepotDetailPage(props(id, "transactions")));
+    expect((html.match(/Dokumente importieren/g) ?? []).length).toBe(1);
+    expect(html).toContain(`href="/import?depot=${id}"`);
   });
 
   it("lists Transactions grouped by month, newest first", async () => {
@@ -435,6 +446,7 @@ describe("Depot detail page", () => {
       expect(text).toMatch(/Archiviertes Depot – nur lesbar\. Reaktivieren unter Einstellungen ?\./);
       expect(html).toMatch(/<a[^>]*href="\/settings"[^>]*>Einstellungen<\/a>/);
       expect(html).not.toMatch(/<button[^>]*>Neue Buchung/);
+      expect(html).not.toContain("Dokumente importieren");
       expect(html).not.toContain("bearbeiten");
     }
     expect(renderText(await DepotDetailPage(props(id, "composition")))).toContain("Keine Werte vorhanden.");
@@ -451,6 +463,7 @@ describe("Depot detail page", () => {
     expect(renderText(tree)).toContain("Noch keine Buchungen.");
     expect(renderText(tree)).toContain("Archiviert");
     expect(renderHtml(tree)).not.toMatch(/<button[^>]*>Neue Buchung/);
+    expect(renderHtml(tree)).not.toContain("Dokumente importieren");
   });
 
   it("shows no archive marker on an active Depot", async () => {

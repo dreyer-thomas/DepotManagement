@@ -19,12 +19,14 @@ enum Broker {
 // Owned by the ledger module. The Cash Account is implicit (one per Depot); its balance is
 // computed on read and never stored.
 model Depot {
-  id     String @id @default(cuid())
-  name   String @unique
-  broker       Broker
+  id            String        @id @default(cuid())
+  name          String        @unique
+  broker        Broker
   /// Archived Depots are read-only and left out of Portfolio figures (AD-17).
-  archived     Boolean       @default(false)
-  transactions Transaction[]
+  archived      Boolean       @default(false)
+  transactions  Transaction[]
+  /// Import staging of this Depot (owned by the import module; rows cascade with the Depot).
+  importBatches ImportBatch[]
 }
 
 enum AssetType {
@@ -49,13 +51,13 @@ enum TransactionType {
 
 // Owned by the ledger module; created only via ledger.ensureSecurity.
 model Security {
-  id           String        @id @default(cuid())
-  isin         String?       @unique
-  cryptoSymbol String?       @unique
-  name         String
-  assetType        AssetType
-  transactions     Transaction[]
-  corporateActions CorporateAction[] @relation("CorporateActionSecurity")
+  id                String            @id @default(cuid())
+  isin              String?           @unique
+  cryptoSymbol      String?           @unique
+  name              String
+  assetType         AssetType
+  transactions      Transaction[]
+  corporateActions  CorporateAction[] @relation("CorporateActionSecurity")
   /// ISIN changes whose new Security this is.
   isinChangeSources CorporateAction[] @relation("IsinChangeTarget")
   providerMapping   ProviderMapping?
@@ -127,14 +129,14 @@ enum MappingOrigin {
 // Owned by the prices module (AD-9). At most one row per Security. A row is either mapped
 // (provider + symbol both set) or a "not found" marker (both null) recording that auto-resolution ran.
 model ProviderMapping {
-  id         String         @id @default(cuid())
-  securityId String         @unique
-  security   Security       @relation(fields: [securityId], references: [id], onDelete: Cascade)
-  provider   PriceProvider?
-  symbol     String?
-  origin     MappingOrigin
+  id          String         @id @default(cuid())
+  securityId  String         @unique
+  security    Security       @relation(fields: [securityId], references: [id], onDelete: Cascade)
+  provider    PriceProvider?
+  symbol      String?
+  origin      MappingOrigin
   /// UTC ISO timestamp of the last write.
-  updatedAt  String
+  updatedAt   String
   /// Business date the stored provider history starts at (first activity date of the last full
   /// backfill); null until a full backfill succeeded. Reset when the mapping changes.
   historyFrom String?
@@ -221,4 +223,54 @@ model NewsFetch {
   security   Security @relation(fields: [securityId], references: [id], onDelete: Cascade)
   /// UTC ISO timestamp of the last successful refresh.
   fetchedAt  String
+}
+
+enum ImportBatchStatus {
+  OPEN
+  BOOKED
+}
+
+enum ImportItemStatus {
+  PARSED
+  FAILED
+}
+
+// Owned by the import module (AD-4). Staging only: nothing here is ledger data. One batch per upload for
+// one Depot; OPEN until booked or discarded (a discard deletes the rows and the batch's PDF directory).
+model ImportBatch {
+  id        String            @id @default(cuid())
+  depotId   String
+  depot     Depot             @relation(fields: [depotId], references: [id], onDelete: Cascade)
+  status    ImportBatchStatus @default(OPEN)
+  /// UTC ISO timestamp of the upload.
+  createdAt String
+  items     ImportItem[]
+
+  @@index([depotId])
+  @@index([status])
+}
+
+// Owned by the import module (AD-4). One row per uploaded file, in upload order (`position`, 0-based).
+// `storedFile` is the generated file name (`<id>.pdf`) under `<DATA_DIR>/imports/<batchId>/`, null when
+// the file was not kept (too large, not a PDF). `proposals` is a JSON array of AD-14-shaped Transaction
+// proposals (decimal strings), validated with the proposal schema on read.
+model ImportItem {
+  id              String           @id @default(cuid())
+  batchId         String
+  batch           ImportBatch      @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  position        Int
+  fileName        String
+  /// SHA-256 of the file bytes (hex); a hash already stored on another item only warns (re-upload).
+  fileHash        String
+  /// True when another item had the same hash at upload time.
+  duplicateUpload Boolean          @default(false)
+  storedFile      String?
+  status          ImportItemStatus
+  documentType    String?
+  /// German reason of a FAILED item.
+  reason          String?
+  proposals       String           @default("[]")
+
+  @@unique([batchId, position])
+  @@index([fileHash])
 }

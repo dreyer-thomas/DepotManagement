@@ -18,6 +18,7 @@ import { ValueSummary } from "@/app/_components/valuation/ValueSummary";
 import { CashBookings } from "@/app/_components/cash/CashBookings";
 import { CompositionCard } from "@/app/_components/composition/CompositionCard";
 import { COMPOSITION_LABELS, compositionHoldings } from "@/app/_components/composition/labels";
+import { ImportDocumentsLink } from "@/app/_components/import/ImportDocumentsLink";
 import { NewTransactionButton } from "@/app/_components/transactions/TransactionDialog";
 import { PositionsTable } from "@/app/_components/positions/PositionsTable";
 import { TransactionList } from "@/app/_components/transactions/TransactionList";
@@ -84,9 +85,12 @@ export default async function DepotDetailPage({ params, searchParams }: Props) {
   // An archived Depot is read-only (AD-17): no write action anywhere on the page.
   const readOnly = depot.archived;
   const newTransaction = readOnly ? null : (
-    <NewTransactionButton depot={dialogDepot} securities={securities} today={today} />
+    <Stack direction="row" spacing={1.5} sx={{ flexWrap: "wrap", rowGap: 1 }}>
+      <NewTransactionButton depot={dialogDepot} securities={securities} today={today} />
+      <ImportDocumentsLink depotId={depot.id} />
+    </Stack>
   );
-  // An empty Depot shows its only "Neue Buchung" button inside the empty state of every tab.
+  // An empty Depot shows its only "Neue Buchung" / "Dokumente importieren" buttons inside the empty state of every tab.
   const emptyState = transactions.length === 0;
   // Every summary figure comes from the core valuation series (AD-10); also for archived Depots.
   const valuation = emptyState

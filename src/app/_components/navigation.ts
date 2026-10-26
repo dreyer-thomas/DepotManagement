@@ -42,3 +42,13 @@ export function activeBottomHref(pathname: string): string | false {
   if (direct) return direct.href;
   return moreItems.some((item) => isActive(item.href, pathname)) ? more.href : false;
 }
+
+/** The open-import count shown on a nav entry: on "Import" (drawer, "Mehr" list) and on "Mehr" (phones). */
+export function navBadgeCount(href: string, openImports: number): number {
+  return href === importItem.href || href === more.href ? Math.max(0, openImports) : 0;
+}
+
+/** Screen-reader text of the open-import count. */
+export function openImportsLabel(count: number): string {
+  return count === 1 ? "1 offener Import" : `${count} offene Importe`;
+}

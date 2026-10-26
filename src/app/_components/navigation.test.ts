@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeBottomHref, isActive } from "./navigation";
+import { activeBottomHref, isActive, navBadgeCount, openImportsLabel } from "./navigation";
 
 describe("isActive", () => {
   it("matches / only by itself", () => {
@@ -28,5 +28,25 @@ describe("activeBottomHref", () => {
 
   it("returns false for unknown paths", () => {
     expect(activeBottomHref("/unknown")).toBe(false);
+  });
+});
+
+describe("navBadgeCount", () => {
+  it("shows the open-import count on Import and Mehr only", () => {
+    expect(navBadgeCount("/import", 2)).toBe(2);
+    expect(navBadgeCount("/more", 2)).toBe(2);
+    expect(navBadgeCount("/depots", 2)).toBe(0);
+    expect(navBadgeCount("/", 2)).toBe(0);
+  });
+
+  it("never shows a negative count", () => {
+    expect(navBadgeCount("/import", -1)).toBe(0);
+  });
+});
+
+describe("openImportsLabel", () => {
+  it("names the count in German", () => {
+    expect(openImportsLabel(1)).toBe("1 offener Import");
+    expect(openImportsLabel(3)).toBe("3 offene Importe");
   });
 });

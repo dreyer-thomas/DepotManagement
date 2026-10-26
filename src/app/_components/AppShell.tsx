@@ -2,6 +2,7 @@
 
 import LogoutOutlined from "@mui/icons-material/LogoutOutlined";
 import AppBar from "@mui/material/AppBar";
+import Badge from "@mui/material/Badge";
 import BottomNavigation from "@mui/material/BottomNavigation";
 import BottomNavigationAction from "@mui/material/BottomNavigationAction";
 import Box from "@mui/material/Box";
@@ -21,7 +22,7 @@ import type { ReactNode } from "react";
 import { spacing } from "@/theme/tokens";
 import { logout } from "../_actions/logout";
 import { ColorModeToggle } from "./ColorModeToggle";
-import { activeBottomHref, bottomItems, drawerItems, isActive } from "./navigation";
+import { type NavItem, activeBottomHref, bottomItems, drawerItems, isActive, navBadgeCount, openImportsLabel } from "./navigation";
 
 const DRAWER_WIDTH = 240;
 export const BOTTOM_NAV_HEIGHT = 56;
@@ -44,11 +45,21 @@ function LogoAttribution() {
   );
 }
 
+/** A nav icon with the open-import count (hidden at 0). */
+function NavIcon({ icon: Icon, count }: { icon: NavItem["icon"]; count: number }) {
+  if (count === 0) return <Icon />;
+  return (
+    <Badge badgeContent={count} color="primary" max={99} slotProps={{ badge: { "aria-label": openImportsLabel(count) } }}>
+      <Icon />
+    </Badge>
+  );
+}
+
 /**
  * Responsive app shell: top AppBar; permanent drawer from md (900px) up,
  * bottom navigation below. Breakpoints switch via CSS so SSR renders without layout shift.
  */
-export function AppShell({ children }: { children: ReactNode }) {
+export function AppShell({ children, openImports = 0 }: { children: ReactNode; openImports?: number }) {
   const pathname = usePathname() ?? "/";
 
   return (
@@ -89,7 +100,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <Toolbar />
         <Box component="nav" aria-label="Hauptnavigation">
           <List sx={{ px: 1 }}>
-            {drawerItems.map(({ label, href, icon: Icon }) => {
+            {drawerItems.map(({ label, href, icon }) => {
               const active = isActive(href, pathname);
               return (
                 <ListItemButton
@@ -106,7 +117,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   }}
                 >
                   <ListItemIcon sx={{ minWidth: 40 }}>
-                    <Icon />
+                    <NavIcon icon={icon} count={navBadgeCount(href, openImports)} />
                   </ListItemIcon>
                   <ListItemText primary={label} />
                 </ListItemButton>
@@ -157,12 +168,12 @@ export function AppShell({ children }: { children: ReactNode }) {
         }}
       >
         <BottomNavigation showLabels value={activeBottomHref(pathname)} sx={{ height: BOTTOM_NAV_HEIGHT }}>
-          {bottomItems.map(({ label, href, icon: Icon }) => (
+          {bottomItems.map(({ label, href, icon }) => (
             <BottomNavigationAction
               key={href}
               label={label}
               value={href}
-              icon={<Icon />}
+              icon={<NavIcon icon={icon} count={navBadgeCount(href, openImports)} />}
               component={Link}
               href={href}
               aria-current={activeBottomHref(pathname) === href ? "page" : undefined}

@@ -7,8 +7,10 @@ import ProtectedLayout from "./layout";
 
 const fakes = vi.hoisted(() => ({}) as { current: ReturnType<typeof createRequestFakes> });
 const listLogoVersions = vi.hoisted(() => vi.fn());
+const countOpenBatches = vi.hoisted(() => vi.fn());
 
 vi.mock("@/modules/logos", () => ({ listLogoVersions }));
+vi.mock("@/modules/import", () => ({ countOpenBatches }));
 
 vi.mock("next/headers", () => ({
   cookies: async () => fakes.current.cookieStore,
@@ -29,6 +31,8 @@ beforeEach(() => {
   fakes.current = createRequestFakes();
   listLogoVersions.mockReset();
   listLogoVersions.mockResolvedValue({ s1: "1761472800000" });
+  countOpenBatches.mockReset();
+  countOpenBatches.mockResolvedValue(2);
   process.env.AUTH_USERNAME = "tester";
   process.env.AUTH_PASSWORD_HASH = HASH;
   process.env.SESSION_SECRET = SECRET;
@@ -42,9 +46,10 @@ afterEach(() => {
 const render = () => ProtectedLayout({ children: "page" });
 
 describe("(app) layout", () => {
-  it("redirects to /login without a cookie, before reading logos", async () => {
+  it("redirects to /login without a cookie, before reading logos or imports", async () => {
     expect(await expectRedirect(render)).toBe("/login");
     expect(listLogoVersions).not.toHaveBeenCalled();
+    expect(countOpenBatches).not.toHaveBeenCalled();
   });
 
   it("redirects to /login with an invalid cookie", async () => {
@@ -64,6 +69,17 @@ describe("(app) layout", () => {
     const shell = findElement(tree, AppShell);
     expect(shell?.props.children).toBe("page");
     expect(findElement(tree, LogoProvider)?.props.versions).toEqual({ s1: "1761472800000" });
+    expect(shell?.props.openImports).toBe(2);
+  });
+
+  it("shows no import count when the open batches cannot be counted, logging only the error name", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    countOpenBatches.mockRejectedValue(new TypeError("database locked"));
+    fakes.current.state.incoming.set(SESSION_COOKIE, await createSessionToken("tester", SECRET));
+    const tree = await render();
+    expect(findElement(tree, AppShell)?.props.openImports).toBe(0);
+    expect(findElement(tree, AppShell)?.props.children).toBe("page");
+    expect(error).toHaveBeenCalledWith("Import: counting open batches failed (TypeError)");
   });
 
   it("renders with initials only when the logo versions cannot be read", async () => {

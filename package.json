@@ -36,6 +36,7 @@
     "prisma": "7.10.1",
     "react": "19.3.0",
     "react-dom": "19.3.0",
+    "unpdf": "1.9.1",
     "yahoo-finance2": "4.0.5",
     "zod": "4.6.7"
   },

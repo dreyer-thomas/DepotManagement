@@ -22,8 +22,10 @@ vi.mock("next/server", () => ({ after }));
 vi.mock("@/modules/logos", () => logos);
 
 import { prisma } from "@/db";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { createImportBatch } from "@/modules/import";
 import { listDepots, listTransactions, recordTransaction } from "@/modules/ledger";
 import { confirmParqetMigration, EMPTY_DECISIONS, previewParqetMigration } from "@/modules/migration";
 import { archiveDepotAction, createDepotAction, deleteDepotAction, renameDepotAction, unarchiveDepotAction } from "./depots";
@@ -245,6 +247,23 @@ describe("deleteDepotAction", () => {
       deleted: { transactions: 0 },
     });
     expect(await listDepots()).toEqual([]);
+  });
+
+  it("discards the Depot's import batches with their PDFs", async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "depot-delete-import-"));
+    process.env.DATA_DIR = dataDir;
+    try {
+      const depot = await createOne("Hauptdepot");
+      const bytes = new TextEncoder().encode("%PDF-1.4 synthetic");
+      const staged = await createImportBatch(depot.id, [{ name: "a.pdf", bytes }], { extract: async () => "" });
+      if (!staged.ok) throw new Error(staged.reason);
+      expect(existsSync(join(dataDir, "imports", staged.batchId))).toBe(true);
+      expect(await deleteDepotAction(null, form({ id: depot.id, confirmName: "Hauptdepot" }))).toMatchObject({ ok: true });
+      expect(await prisma.importBatch.count()).toBe(0);
+      expect(existsSync(join(dataDir, "imports", staged.batchId))).toBe(false);
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true });
+    }
   });
 
   it("reports an unknown or missing id as not-found", async () => {

@@ -4,6 +4,7 @@ import { getSession } from "@/modules/auth";
 import { listLogoVersions } from "@/modules/logos";
 import { AppShell } from "../_components/AppShell";
 import { LogoProvider } from "../_components/securities/LogoContext";
+import { openImportCount } from "./open-imports";
 
 /** Stored-logo versions for `SecurityLogo`; a read failure only means initials everywhere. */
 async function logoVersions(): Promise<Record<string, string>> {
@@ -22,10 +23,10 @@ export default async function ProtectedLayout({ children }: { children: ReactNod
   if (!session) {
     redirect("/login");
   }
-  const versions = await logoVersions();
+  const [versions, openImports] = await Promise.all([logoVersions(), openImportCount()]);
   return (
     <LogoProvider versions={versions}>
-      <AppShell>{children}</AppShell>
+      <AppShell openImports={openImports}>{children}</AppShell>
     </LogoProvider>
   );
 }

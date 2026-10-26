@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { getSession } from "@/modules/auth";
+import { discardImportBatchesOfDepot } from "@/modules/import";
 import {
   archiveDepot,
   type ArchiveDepotResult,
@@ -91,6 +92,8 @@ export async function deleteDepotAction(_previous: DeleteDepotActionState, formD
   const depot = await getDepot(id);
   if (!depot) return { ok: false, reason: "not-found" };
   if (confirmName.normalize("NFC").trim() !== depot.name) return { ok: false, reason: "name-mismatch" };
+  // Import staging rows would cascade with the Depot; discarding first also removes their PDFs.
+  await discardImportBatchesOfDepot(id);
   const result = await deleteDepot(id);
   if (result.ok) revalidatePath("/", "layout");
   return result;

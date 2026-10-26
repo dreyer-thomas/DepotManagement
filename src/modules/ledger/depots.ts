@@ -189,8 +189,8 @@ export async function unarchiveDepot(id: string, db: LedgerDb = prisma): Promise
 /**
  * Deletes a Depot (active or archived) and everything scoped to it, in one DB transaction: all its
  * Transactions, then the Depot. Securities, their CorporateActions and Prices, and every other Depot's
- * rows stay untouched. Irreversible. Later stories that add Depot-scoped tables (import staging, caches)
- * must delete their rows here too.
+ * rows stay untouched. Irreversible. Import staging rows (owned by `import`) cascade with the Depot; the
+ * delete action discards them through `import` first so their PDFs go too.
  */
 export async function deleteDepot(id: string, db: LedgerDb = prisma): Promise<DeleteDepotResult> {
   return inTransaction(db, async (tx): Promise<DeleteDepotResult> => {
