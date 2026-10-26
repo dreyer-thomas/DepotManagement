@@ -158,6 +158,7 @@ export default async function DepotDetailPage({ params, searchParams }: Props) {
           periodLabel={periodLabel(period)}
           to={valuation.to}
           today={today}
+          performance={valuation.performance}
         />
       ) : null}
       <DepotTabs depotId={depot.id} value={tab} />

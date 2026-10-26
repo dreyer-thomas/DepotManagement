@@ -111,9 +111,41 @@ describe("depotValuation", () => {
     expect(valuation).toEqual({
       from: TODAY,
       to: TODAY,
+      start: { date: "2026-10-25", value: "0", positionsValue: "0", cash: "0", investedCapital: "0" },
       series: [{ date: TODAY, value: "0", positionsValue: "0", cash: "0", investedCapital: "0" }],
       dividends: "0",
       taxesPaid: "0",
+      performance: {
+        gain: "0",
+        realized: "0",
+        unrealized: "0",
+        dividends: "0",
+        fees: "0",
+        feesContribution: "0",
+        taxesPaid: "0",
+        netExternalFlows: "0",
+        ttwror: null,
+        xirr: null,
+      },
     });
+  });
+
+  it("computes the reference Period performance from one series starting the day before the Period", async () => {
+    await book({ type: "DEPOSIT", date: "2021-01-01", amount: "1000" });
+    await book({ type: "BUY", date: "2021-01-01", quantity: "10", price: "100", security: { id: appleId } });
+    await book({ type: "DEPOSIT", date: "2022-01-01", amount: "1100" });
+    await book({ type: "BUY", date: "2022-01-01", quantity: "10", price: "110", security: { id: appleId } });
+    const stored: PriceObservation[] = [
+      { id: "p1", securityId: appleId, date: "2021-12-31", sequence: 0, price: "110", source: "provider" },
+      { id: "p2", securityId: appleId, date: "2023-01-01", sequence: 0, price: "121", source: "provider" },
+    ];
+    const valuation = await depotValuation(depotId, { kind: "custom", from: "2021-01-02", to: "2023-01-01" }, TODAY, db(), {
+      storedPrices: async () => stored,
+    });
+    expect(valuation.start).toEqual({ date: "2021-01-01", value: "1000", positionsValue: "1000", cash: "0", investedCapital: "1000" });
+    expect(valuation.series[0].date).toBe("2021-01-02");
+    expect(valuation.series.at(-1)).toMatchObject({ date: "2023-01-01", value: "2420" });
+    expect(valuation.performance).toMatchObject({ gain: "320", unrealized: "320", netExternalFlows: "1100", ttwror: "0.21" });
+    expect(Math.abs(Number(valuation.performance.xirr) - 0.1)).toBeLessThan(1e-9);
   });
 });

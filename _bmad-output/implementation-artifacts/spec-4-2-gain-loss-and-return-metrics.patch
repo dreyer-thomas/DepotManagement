@@ -1,0 +1,1015 @@
+diff --git a/src/app/(app)/depots/[id]/page.test.tsx b/src/app/(app)/depots/[id]/page.test.tsx
+index 40ae207..a6bb44c 100644
+--- a/src/app/(app)/depots/[id]/page.test.tsx
++++ b/src/app/(app)/depots/[id]/page.test.tsx
+@@ -48,6 +48,11 @@ function selectedTab(label: string): RegExp {
+   return new RegExp(`<[^>]*(role="tab"[^>]*aria-selected="true"|aria-selected="true"[^>]*role="tab")[^>]*>${label}<`);
+ }
+ 
++/** The hero card's HTML up to the breakdown (the Positions table has its own pills). */
++function heroHtml(html: string): string {
++  return html.slice(html.indexOf('aria-label="Depotwert"'), html.indexOf("Aufschlüsselung"));
++}
++
+ async function depot() {
+   const result = await createDepot({ name: "Hauptdepot", broker: "COMDIRECT" });
+   if (!result.ok) throw new Error("setup failed");
+@@ -495,16 +500,54 @@ describe("Depot detail page", () => {
+     expect(text).toContain(
+       [
+         "Gesamtwert 1.731,10\u00a0€ Stand 30.06.2026",
++        // Period Gain/Loss: 1.731,10 − 0 − (2000 − 300 + 3,50 refund − 12,50 dividend tax) = 40,10.
++        "+40,10\u00a0€ · TTWROR +2,02\u00a0% XIRR +4,69\u00a0%",
++        "Aufschlüsselung",
++        "Realisiert 0,00\u00a0€ Unrealisiert -5,00\u00a0€ Dividenden +50,00\u00a0€ Gebühren -4,90\u00a0€",
++        "Steuern gezahlt nicht in Gewinn/Verlust enthalten +9,00\u00a0€",
++        "Ordergebühren stecken in realisiert/unrealisiert.",
+         "Investiertes Kapital 1.005,00\u00a0€ Cost Basis offener Positionen",
+         "Dividenden · 01.01.2026 – 30.06.2026 50,00\u00a0€",
+         "Guthaben 731,10\u00a0€",
+         "Steuern gezahlt · 01.01.2026 – 30.06.2026 9,00\u00a0€ separat ausgewiesen",
+       ].join(" "),
+     );
++    // Gain: green tone with an upward arrow; the breakdown is a collapsed accordion.
++    expect(heroHtml(html)).toMatch(/<svg[^>]*data-testid="ArrowUpwardIcon"/);
++    expect(heroHtml(html)).not.toContain('data-testid="ArrowDownwardIcon"');
++    expect(html).toMatch(/<button[^>]*aria-expanded="false"[^>]*>[\s\S]*?Aufschlüsselung/);
+     // The summary sits above the tabs.
+     expect(text.indexOf("Gesamtwert")).toBeLessThan(text.indexOf("Positionen"));
+   });
+ 
++  it("shows a Period loss with the loss tone, a downward arrow and a minus sign", async () => {
++    const { id } = await depot();
++    const book = async (input: Omit<RecordTransactionInput, "depotId">) => {
++      const result = await recordTransaction({ depotId: id, ...input });
++      if (!result.ok) throw new Error(`setup failed: ${result.reason}`);
++      return result.transaction;
++    };
++    await book({ type: "DEPOSIT", date: "2026-01-05", amount: "1000" });
++    const buy = await book({
++      type: "BUY",
++      date: "2026-01-05",
++      quantity: "10",
++      price: "100",
++      security: { new: { isin: "US0378331005", name: "Apple Inc.", assetType: "STOCK" } },
++    });
++    await prisma.price.create({
++      data: { securityId: buy.security!.id, date: "2026-02-01", source: "PROVIDER", price: "80", fetchedAt: "2026-02-01T18:00:00.000Z" },
++    });
++    cookieJar.set("dm_period", "custom:2026-01-01:2026-02-28");
++    const tree = await DepotDetailPage(props(id));
++    const text = renderText(tree);
++    const html = renderHtml(tree);
++    expect(text).toContain("Gesamtwert 800,00\u00a0€ Stand 28.02.2026 -200,00\u00a0€ · TTWROR -20,00\u00a0% XIRR ");
++    expect(text).toContain("Unrealisiert -200,00\u00a0€");
++    expect(heroHtml(html)).toMatch(/<svg[^>]*data-testid="ArrowDownwardIcon"/);
++    expect(heroHtml(html)).not.toContain('data-testid="ArrowUpwardIcon"');
++  });
++
+   it("defaults to 1J for a missing or invalid cookie and values with stored Prices up to today", async () => {
+     // 1J is relative to today: pin the clock so the 2026 bookings stay inside it.
+     vi.useFakeTimers({ toFake: ["Date"] });
+@@ -523,7 +566,8 @@ describe("Depot detail page", () => {
+       const tree = await DepotDetailPage(props(id));
+       const text = renderText(tree);
+       expect(renderHtml(tree)).toMatch(pressedPill("1J"));
+-      expect(text).toMatch(/Gesamtwert 1\.931,10\u00a0€ Investiertes Kapital/);
++      expect(text).toMatch(/Gesamtwert 1\.931,10\u00a0€ \+240,10\u00a0€ · TTWROR \+[\d,]+\u00a0% XIRR \+[\d,.]+\u00a0% Aufschlüsselung/);
++      expect(text).toMatch(/Investiertes Kapital 1\.005,00\u00a0€/);
+       expect(text).toContain("Dividenden · 1J 50,00\u00a0€");
+       expect(text).toContain("Steuern gezahlt · 1J 9,00\u00a0€");
+       expect(text).not.toContain("Stand ");
+@@ -541,7 +585,11 @@ describe("Depot detail page", () => {
+     const text = renderText(tree);
+     const html = renderHtml(tree);
+     expect(html).toMatch(pressedPill("Max"));
+-    expect(text).toContain("Gesamtwert 0,00\u00a0€ Investiertes Kapital 0,00\u00a0€");
++    // Deposit and full Withdrawal: no gain; the breakdown is still shown read-only.
++    expect(text).toContain("Gesamtwert 0,00\u00a0€ 0,00\u00a0€ · TTWROR 0,00\u00a0% XIRR ");
++    expect(text).toContain("Aufschlüsselung Realisiert 0,00\u00a0€ Unrealisiert 0,00\u00a0€ Dividenden 0,00\u00a0€ Gebühren 0,00\u00a0€");
++    expect(text).toContain("Investiertes Kapital 0,00\u00a0€");
++    expect(heroHtml(html)).not.toMatch(/data-testid="Arrow(Up|Down)wardIcon"/);
+     expect(text).toContain("Dividenden · Max 0,00\u00a0€");
+     expect(html).not.toMatch(/<button[^>]*>Neue Buchung/);
+     expect(html).not.toContain("bearbeiten");
+diff --git a/src/app/(app)/depots/[id]/page.tsx b/src/app/(app)/depots/[id]/page.tsx
+index 5e5d098..c4e2e8e 100644
+--- a/src/app/(app)/depots/[id]/page.tsx
++++ b/src/app/(app)/depots/[id]/page.tsx
+@@ -158,6 +158,7 @@ export default async function DepotDetailPage({ params, searchParams }: Props) {
+           periodLabel={periodLabel(period)}
+           to={valuation.to}
+           today={today}
++          performance={valuation.performance}
+         />
+       ) : null}
+       <DepotTabs depotId={depot.id} value={tab} />
+diff --git a/src/app/_components/positions/GainLossPill.test.ts b/src/app/_components/positions/GainLossPill.test.ts
+index c745bad..429a5df 100644
+--- a/src/app/_components/positions/GainLossPill.test.ts
++++ b/src/app/_components/positions/GainLossPill.test.ts
+@@ -12,6 +12,12 @@ describe("gainLossText", () => {
+     expect(gainLossText("3", null)).toBe("+3,00 €");
+   });
+ 
++  it("names the ratio when a label is given", () => {
++    expect(gainLossText("14238.55", "0.1142", "TTWROR")).toBe("+14.238,55 € · TTWROR +11,42 %");
++    expect(gainLossText("-50", "-0.05", "TTWROR")).toBe("-50,00 € · TTWROR -5,00 %");
++    expect(gainLossText("0", null, "TTWROR")).toBe("0,00 €");
++  });
++
+   it("shows a flat Position as zero amount and zero percent", () => {
+     expect(gainLossText("0", "0")).toBe("0,00 € · 0,00 %");
+   });
+diff --git a/src/app/_components/positions/GainLossPill.tsx b/src/app/_components/positions/GainLossPill.tsx
+index 7b7f232..dff2812 100644
+--- a/src/app/_components/positions/GainLossPill.tsx
++++ b/src/app/_components/positions/GainLossPill.tsx
+@@ -4,10 +4,14 @@ import Box from "@mui/material/Box";
+ import { ExactDecimal } from "@/core/decimal";
+ import { formatMoney, formatPercent } from "@/core/format";
+ 
+-/** Signed pill text: `+28,80 € · +7,97 %`, or the amount alone without a ratio. */
+-export function gainLossText(gain: string, ratio: string | null): string {
++/**
++ * Signed pill text: `+28,80 € · +7,97 %`, with a `ratioLabel` `+14.238,55 € · TTWROR +11,42 %`, or the
++ * amount alone without a ratio.
++ */
++export function gainLossText(gain: string, ratio: string | null, ratioLabel?: string): string {
+   const amount = formatMoney(gain, { sign: true });
+-  return ratio === null ? amount : `${amount} · ${formatPercent(ratio)}`;
++  if (ratio === null) return amount;
++  return `${amount} · ${ratioLabel ? `${ratioLabel} ` : ""}${formatPercent(ratio)}`;
+ }
+ 
+ /** Tone of a gain as displayed (rounded half-up to cents): `null` when it shows as 0,00 €. */
+@@ -21,7 +25,7 @@ export function gainLossTone(gain: string): "gain" | "loss" | null {
+  * Gain/Loss pill: soft gain/loss background, arrow and signed text (never color alone);
+  * a zero gain is neutral and has no arrow.
+  */
+-export function GainLossPill({ gain, ratio }: { gain: string; ratio: string | null }) {
++export function GainLossPill({ gain, ratio, ratioLabel }: { gain: string; ratio: string | null; ratioLabel?: string }) {
+   const tone = gainLossTone(gain);
+   const Arrow = tone === "loss" ? ArrowDownward : ArrowUpward;
+   return (
+@@ -44,7 +48,7 @@ export function GainLossPill({ gain, ratio }: { gain: string; ratio: string | nu
+       }}
+     >
+       {tone ? <Arrow aria-hidden sx={{ fontSize: 14 }} /> : null}
+-      {gainLossText(gain, ratio)}
++      {gainLossText(gain, ratio, ratioLabel)}
+     </Box>
+   );
+ }
+diff --git a/src/app/_components/valuation/ValueSummary.test.ts b/src/app/_components/valuation/ValueSummary.test.ts
+new file mode 100644
+index 0000000..dc93b9b
+--- /dev/null
++++ b/src/app/_components/valuation/ValueSummary.test.ts
+@@ -0,0 +1,10 @@
++import { describe, expect, it } from "vitest";
++import { xirrText } from "./ValueSummary";
++
++describe("xirrText", () => {
++  it("shows the signed annualised rate, or a dash when there is none", () => {
++    expect(xirrText("0.1087")).toBe("XIRR +10,87 %");
++    expect(xirrText("-0.05")).toBe("XIRR -5,00 %");
++    expect(xirrText(null)).toBe("XIRR –");
++  });
++});
+diff --git a/src/app/_components/valuation/ValueSummary.tsx b/src/app/_components/valuation/ValueSummary.tsx
+index 3ac762e..4002134 100644
+--- a/src/app/_components/valuation/ValueSummary.tsx
++++ b/src/app/_components/valuation/ValueSummary.tsx
+@@ -1,8 +1,17 @@
++import ExpandMore from "@mui/icons-material/ExpandMore";
++import Accordion from "@mui/material/Accordion";
++import AccordionDetails from "@mui/material/AccordionDetails";
++import AccordionSummary from "@mui/material/AccordionSummary";
+ import Box from "@mui/material/Box";
+ import Card from "@mui/material/Card";
+ import CardContent from "@mui/material/CardContent";
++import Divider from "@mui/material/Divider";
++import Stack from "@mui/material/Stack";
+ import Typography from "@mui/material/Typography";
+-import { formatDate, formatMoney } from "@/core/format";
++import { GainLossPill } from "@/app/_components/positions/GainLossPill";
++import { ExactDecimal } from "@/core/decimal";
++import { formatDate, formatMoney, formatPercent } from "@/core/format";
++import type { PeriodPerformance } from "@/core/returns";
+ 
+ export type ValueSummaryProps = {
+   /** Series point at the Period end (decimal strings). */
+@@ -17,8 +26,73 @@ export type ValueSummaryProps = {
+   /** Period end and today (`YYYY-MM-DD`); "Stand" is shown when they differ. */
+   to: string;
+   today: string;
++  /** Period Gain/Loss, its split, TTWROR and XIRR (`core/returns`). */
++  performance: PeriodPerformance;
+ };
+ 
++/** `XIRR +10,87 %`, or `XIRR –` when it could not be solved. */
++export function xirrText(xirr: string | null): string {
++  return `XIRR ${xirr === null ? "–" : formatPercent(xirr)}`;
++}
++
++function BreakdownRow({ label, amount, note }: { label: string; amount: string; note?: string }) {
++  return (
++    <Box sx={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", columnGap: 2, py: 0.5 }}>
++      <Box component="dt" sx={{ m: 0 }}>
++        <Typography variant="body2" component="span">
++          {label}
++        </Typography>
++        {note ? (
++          <Typography variant="caption" color="text.secondary" component="span" sx={{ display: "block" }}>
++            {note}
++          </Typography>
++        ) : null}
++      </Box>
++      <Typography variant="figure" component="dd" sx={{ m: 0, whiteSpace: "nowrap" }}>
++        {formatMoney(amount, { sign: true })}
++      </Typography>
++    </Box>
++  );
++}
++
++/**
++ * Collapsed "Aufschlüsselung" of the Period Gain/Loss: realized, unrealized, dividends, fees (as their
++ * negative contribution), then taxes paid separately. Neutral text color; signs carry the direction.
++ */
++function Breakdown({ performance }: { performance: PeriodPerformance }) {
++  return (
++    <Accordion
++      disableGutters
++      elevation={0}
++      sx={{ mt: 1.5, bgcolor: "transparent", "&::before": { display: "none" } }}
++    >
++      <AccordionSummary
++        id="gain-loss-breakdown-header"
++        aria-controls="gain-loss-breakdown-content"
++        expandIcon={<ExpandMore />}
++        sx={{ minHeight: 44, px: 0 }}
++      >
++        <Typography component="span" variant="body2" sx={{ fontWeight: 600 }}>
++          Aufschlüsselung
++        </Typography>
++      </AccordionSummary>
++      <AccordionDetails sx={{ px: 0, pt: 0 }}>
++        <Box component="dl" sx={{ m: 0, maxWidth: 480 }}>
++          <BreakdownRow label="Realisiert" amount={performance.realized} />
++          <BreakdownRow label="Unrealisiert" amount={performance.unrealized} />
++          <BreakdownRow label="Dividenden" amount={performance.dividends} />
++          <BreakdownRow label="Gebühren" amount={new ExactDecimal(performance.fees).negated().toFixed()} />
++          <Divider component="div" role="presentation" sx={{ my: 1 }} />
++          <BreakdownRow label="Steuern gezahlt" amount={performance.taxesPaid} note="nicht in Gewinn/Verlust enthalten" />
++        </Box>
++        <Typography variant="caption" color="text.secondary" component="p" sx={{ mt: 1 }}>
++          Ordergebühren stecken in realisiert/unrealisiert.
++        </Typography>
++      </AccordionDetails>
++    </Accordion>
++  );
++}
++
+ function Kpi({ label, value, color, note }: { label: string; value: string; color: string; note?: string }) {
+   return (
+     <Card sx={{ borderTop: 4, borderTopColor: color, minWidth: 0 }}>
+@@ -40,10 +114,21 @@ function Kpi({ label, value, color, note }: { label: string; value: string; colo
+ }
+ 
+ /**
+- * Hero card ("Gesamtwert" at the Period end) and KPI row: invested capital, dividends in the Period,
+- * cash, taxes paid in the Period. Renders the figures it is given; computes nothing.
++ * Hero card ("Gesamtwert" at the Period end, gain/loss pill with TTWROR, XIRR, "Aufschlüsselung") and
++ * KPI row: invested capital, dividends in the Period, cash, taxes paid in the Period. Renders the
++ * figures it is given; computes nothing.
+  */
+-export function ValueSummary({ value, investedCapital, cash, dividends, taxesPaid, periodLabel, to, today }: ValueSummaryProps) {
++export function ValueSummary({
++  value,
++  investedCapital,
++  cash,
++  dividends,
++  taxesPaid,
++  periodLabel,
++  to,
++  today,
++  performance,
++}: ValueSummaryProps) {
+   return (
+     <Box component="section" aria-label="Depotwert" sx={{ mb: 2 }}>
+       <Card sx={{ mb: 1.5 }}>
+@@ -59,6 +144,13 @@ export function ValueSummary({ value, investedCapital, cash, dividends, taxesPai
+               Stand {formatDate(to)}
+             </Typography>
+           ) : null}
++          <Stack direction="row" sx={{ mt: 1, flexWrap: "wrap", alignItems: "center", columnGap: 1.5, rowGap: 0.5 }}>
++            <GainLossPill gain={performance.gain} ratio={performance.ttwror} ratioLabel="TTWROR" />
++            <Typography variant="body2" color="text.secondary" sx={{ fontVariantNumeric: "tabular-nums" }}>
++              {xirrText(performance.xirr)}
++            </Typography>
++          </Stack>
++          <Breakdown performance={performance} />
+         </CardContent>
+       </Card>
+       <Box
+diff --git a/src/core/dates.test.ts b/src/core/dates.test.ts
+index a034d75..2fba177 100644
+--- a/src/core/dates.test.ts
++++ b/src/core/dates.test.ts
+@@ -1,5 +1,5 @@
+ import { describe, expect, it } from "vitest";
+-import { addDays, addMonths, businessDate, isBusinessDate } from "./dates";
++import { addDays, addMonths, businessDate, daysBetween, isBusinessDate } from "./dates";
+ 
+ describe("isBusinessDate", () => {
+   it.each(["2026-10-25", "2024-02-29", "2000-02-29", "2026-12-31"])("accepts %s", (value) => {
+@@ -46,6 +46,21 @@ describe("addDays", () => {
+   });
+ });
+ 
++describe("daysBetween", () => {
++  it("counts calendar days across years and leap days, signed", () => {
++    expect(daysBetween("2021-01-01", "2022-01-01")).toBe(365);
++    expect(daysBetween("2024-01-01", "2025-01-01")).toBe(366);
++    expect(daysBetween("2026-10-25", "2026-10-25")).toBe(0);
++    expect(daysBetween("2026-10-26", "2026-10-25")).toBe(-1);
++    expect(daysBetween("2024-03-04", "2026-10-25")).toBe(965);
++  });
++
++  it("rejects a non-business date", () => {
++    expect(() => daysBetween("2026-02-30", "2026-03-01")).toThrow(RangeError);
++    expect(() => daysBetween("2026-03-01", "x")).toThrow(RangeError);
++  });
++});
++
+ describe("addMonths", () => {
+   it.each([
+     ["2026-10-26", -1, "2026-09-26"],
+diff --git a/src/core/dates.ts b/src/core/dates.ts
+index 520fd7f..2cdbd4a 100644
+--- a/src/core/dates.ts
++++ b/src/core/dates.ts
+@@ -81,3 +81,14 @@ export function addMonths(date: string, months: number): string {
+   const day = Math.min(Number(match[3]), daysInMonth(year, month));
+   return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+ }
++
++/** Calendar days from `from` to `to` (negative when `to` is earlier), e.g. `2021-01-01` → `2022-01-01` = 365. */
++export function daysBetween(from: string, to: string): number {
++  const a = ISO_DATE.exec(from);
++  const b = ISO_DATE.exec(to);
++  if (!a || !isBusinessDate(from)) throw new RangeError(`Not a business date: ${from}`);
++  if (!b || !isBusinessDate(to)) throw new RangeError(`Not a business date: ${to}`);
++  return (
++    daysFromCivil(Number(b[1]), Number(b[2]), Number(b[3])) - daysFromCivil(Number(a[1]), Number(a[2]), Number(a[3]))
++  );
++}
+diff --git a/src/core/returns.test.ts b/src/core/returns.test.ts
+new file mode 100644
+index 0000000..2c79666
+--- /dev/null
++++ b/src/core/returns.test.ts
+@@ -0,0 +1,289 @@
++import Decimal from "decimal.js";
++import { describe, expect, it } from "vitest";
++import { type CorporateActions, NO_CORPORATE_ACTIONS as NONE } from "./corporate-actions";
++import { addDays, daysBetween } from "./dates";
++import { ExactDecimal } from "./decimal";
++import type { PriceObservation } from "./prices";
++import { externalFlow, periodPerformance, ttwror, xirr } from "./returns";
++import { type ValuationPoint, type ValuationRow, valuationSeries } from "./valuation";
++
++type Row = ValuationRow & { id: string; price: string | null };
++
++let counter = 0;
++function row(
++  type: string,
++  date: string,
++  input: { securityId?: string; quantity?: string; price?: string; amount?: string; fee?: string; tax?: string; sequence?: number } = {},
++): Row {
++  const amount = input.amount ?? (input.quantity && input.price ? new ExactDecimal(input.quantity).times(input.price).toFixed() : "0");
++  return {
++    id: `t${++counter}`,
++    securityId: input.securityId ?? null,
++    type,
++    date,
++    sequence: input.sequence ?? 1,
++    quantity: input.quantity ?? null,
++    price: input.price ?? null,
++    amount,
++    fee: input.fee ?? "0",
++    tax: input.tax ?? "0",
++  };
++}
++
++const buy = (date: string, quantity: string, price: string, input: { securityId?: string; fee?: string; sequence?: number } = {}) =>
++  row("BUY", date, { securityId: "s1", quantity, price, sequence: 2, ...input });
++const sell = (date: string, quantity: string, price: string, input: { securityId?: string; fee?: string; sequence?: number } = {}) =>
++  row("SELL", date, { securityId: "s1", quantity, price, sequence: 2, ...input });
++const deposit = (date: string, amount: string, sequence = 1) => row("DEPOSIT", date, { amount, sequence });
++const withdrawal = (date: string, amount: string, sequence = 3) => row("WITHDRAWAL", date, { amount, sequence });
++
++const tradeObservations = (rows: Row[]): PriceObservation[] =>
++  rows
++    .filter((r) => r.price !== null && r.securityId !== null)
++    .map((r) => ({ id: r.id, securityId: r.securityId!, date: r.date, sequence: r.sequence, price: r.price!, source: "transaction" }));
++
++const provider = (date: string, price: string, securityId = "s1"): PriceObservation => ({
++  id: `p-${securityId}-${date}`,
++  securityId,
++  date,
++  sequence: 0,
++  price,
++  source: "provider",
++});
++
++/** As the ledger shell does it: one series from the day before `from`, split into start + Period. */
++function evaluate(rows: Row[], prices: PriceObservation[], from: string, to: string, actions: CorporateActions = NONE) {
++  const points = valuationSeries(rows, [...tradeObservations(rows), ...prices], actions, addDays(from, -1), to);
++  const start = points[0];
++  const series = points.slice(1);
++  return { start, series, performance: periodPerformance(rows, start, series, actions) };
++}
++
++function expectIdentity(performance: ReturnType<typeof periodPerformance>) {
++  const sum = new ExactDecimal(performance.realized)
++    .plus(performance.unrealized)
++    .plus(performance.dividends)
++    .minus(performance.fees);
++  expect(sum.equals(performance.gain)).toBe(true);
++}
++
++function expectClose(actual: string | null, expected: string, tolerance = "1e-9") {
++  expect(actual).not.toBeNull();
++  expect(new Decimal(actual!).minus(expected).abs().lessThanOrEqualTo(tolerance)).toBe(true);
++}
++
++describe("externalFlow", () => {
++  it("counts Deposits in, Withdrawals out and taxes out (refunds in)", () => {
++    expect(externalFlow(deposit("2026-01-01", "500"))).toBe("500");
++    expect(externalFlow(withdrawal("2026-01-01", "200"))).toBe("-200");
++    expect(externalFlow(row("TAX", "2026-01-01", { tax: "-20" }))).toBe("20");
++    expect(externalFlow(row("DIVIDEND", "2026-01-01", { securityId: "s1", amount: "30", fee: "1", tax: "5" }))).toBe("-5");
++    expect(externalFlow(buy("2026-01-01", "1", "100", { fee: "2" }))).toBe("0");
++    expect(externalFlow(row("FEE", "2026-01-01", { fee: "3" }))).toBe("0");
++  });
++});
++
++describe("periodPerformance", () => {
++  it("matches the hand-calculated reference: gain 320, TTWROR 0.21, XIRR 0.1", () => {
++    const rows = [
++      deposit("2021-01-01", "1000"),
++      buy("2021-01-01", "10", "100"),
++      deposit("2022-01-01", "1100"),
++      buy("2022-01-01", "10", "110"),
++    ];
++    const { start, series, performance } = evaluate(rows, [provider("2021-12-31", "110"), provider("2023-01-01", "121")], "2021-01-02", "2023-01-01");
++    expect(start).toMatchObject({ date: "2021-01-01", value: "1000", cash: "0" });
++    expect(series.at(-1)!.value).toBe("2420");
++    expect(performance).toMatchObject({
++      gain: "320",
++      unrealized: "320",
++      realized: "0",
++      dividends: "0",
++      fees: "0",
++      taxesPaid: "0",
++      netExternalFlows: "1100",
++      ttwror: "0.21",
++    });
++    expectClose(performance.xirr, "0.1");
++    expectIdentity(performance);
++  });
++
++  it("does not count a Deposit as gain", () => {
++    const { performance } = evaluate([deposit("2026-01-10", "5000")], [], "2026-01-01", "2026-01-31");
++    expect(performance).toMatchObject({ gain: "0", netExternalFlows: "5000", ttwror: "0", xirr: "0" });
++  });
++
++  it("treats a tax refund as an external inflow, not as gain", () => {
++    const { performance } = evaluate([row("TAX", "2026-01-10", { tax: "-20" })], [], "2026-01-01", "2026-01-31");
++    expect(performance).toMatchObject({ gain: "0", taxesPaid: "-20", netExternalFlows: "20" });
++    expectIdentity(performance);
++  });
++
++  it("satisfies (1 + XIRR)^(days/365) = 1 + TTWROR = V(to)/V(start) for a Period without flows", () => {
++    const rows = [deposit("2025-03-01", "1000"), buy("2025-03-01", "8", "100")];
++    const prices = [provider("2025-06-01", "95"), provider("2025-11-15", "131.7"), provider("2026-02-10", "118.25")];
++    const { start, series, performance } = evaluate(rows, prices, "2025-05-01", "2026-03-31");
++    expect(performance.netExternalFlows).toBe("0");
++    const end = series.at(-1)!;
++    expectClose(performance.ttwror, new Decimal(end.value).dividedBy(start.value).minus(1).toFixed());
++    const days = daysBetween(start.date, end.date);
++    const grown = new Decimal(1).plus(performance.xirr!).pow(new Decimal(days).dividedBy(365));
++    expectClose(grown.minus(1).toFixed(), performance.ttwror!);
++    expectIdentity(performance);
++  });
++
++  it("splits a sale, a dividend and fees and keeps the identity", () => {
++    const rows = [
++      deposit("2026-01-01", "2000"),
++      buy("2026-01-02", "10", "100", { fee: "5" }),
++      sell("2026-02-10", "4", "130", { fee: "3" }),
++      row("DIVIDEND", "2026-03-01", { securityId: "s1", amount: "30", fee: "1", tax: "5" }),
++      row("FEE", "2026-03-02", { fee: "2" }),
++    ];
++    const { performance } = evaluate(rows, [provider("2026-03-20", "125")], "2026-02-01", "2026-03-31");
++    // 517 proceeds − 4/10 of 1005.
++    expect(performance).toMatchObject({ realized: "115", dividends: "30", fees: "3", taxesPaid: "5", netExternalFlows: "-5" });
++    // Unrealized: at start 10 × 100 − 1005 = −5; at the end 6 × 125 − 603 = 147.
++    expect(performance.unrealized).toBe("152");
++    expectIdentity(performance);
++    expect(performance.gain).toBe("294");
++  });
++
++  it("starts from zero for MAX: the first day's denominator is the Deposit", () => {
++    const rows = [deposit("2026-01-05", "1000"), buy("2026-01-05", "10", "100")];
++    const { start, performance } = evaluate(rows, [provider("2026-01-20", "110")], "2026-01-05", "2026-01-31");
++    expect(start).toMatchObject({ date: "2026-01-04", value: "0" });
++    expect(performance).toMatchObject({ gain: "100", ttwror: "0.1", unrealized: "100" });
++    expect(performance.xirr).not.toBeNull();
++  });
++
++  it("gives null returns and zero gain when nothing was invested", () => {
++    const rows = [deposit("2025-01-01", "100"), withdrawal("2025-01-02", "100")];
++    const { performance } = evaluate(rows, [], "2026-01-01", "2026-01-31");
++    expect(performance).toMatchObject({ gain: "0", ttwror: null, xirr: null, netExternalFlows: "0" });
++  });
++
++  it("skips the day of a full Withdrawal instead of dividing by zero", () => {
++    const rows = [
++      deposit("2025-12-01", "1000"),
++      withdrawal("2026-01-10", "1000"),
++      deposit("2026-01-15", "500"),
++      buy("2026-01-15", "5", "100"),
++    ];
++    const { performance } = evaluate(rows, [provider("2026-01-25", "120")], "2026-01-01", "2026-01-31");
++    expect(performance).toMatchObject({ gain: "100", ttwror: "0.2", netExternalFlows: "-500" });
++    expect(performance.xirr).not.toBeNull();
++  });
++
++  it("keeps the identity exactly across a split, an ISIN change, SELLs, dividends and taxes for many Periods", () => {
++    const actions: CorporateActions = {
++      splits: [{ securityId: "s1", date: "2026-01-12", ratioOld: "1", ratioNew: "3" }],
++      isinChanges: [{ oldSecurityId: "s2", newSecurityId: "s3", date: "2026-01-20", oldQuantity: "3", newQuantity: "2" }],
++    };
++    const rows = [
++      deposit("2026-01-01", "3000"),
++      buy("2026-01-05", "10", "100.1", { fee: "1.23" }),
++      buy("2026-01-06", "3", "50", { securityId: "s2", fee: "0.77" }),
++      sell("2026-01-15", "12", "40.07", { fee: "2.01" }),
++      buy("2026-01-16", "7", "33.3", { fee: "1" }),
++      row("DIVIDEND", "2026-01-28", { securityId: "s3", amount: "10.11", fee: "0.5", tax: "2.53" }),
++      row("FEE", "2026-01-29", { fee: "1.5" }),
++      row("TAX", "2026-01-29", { tax: "-1.07" }),
++      withdrawal("2026-01-30", "100"),
++      sell("2026-02-03", "2", "91", { securityId: "s3", fee: "0.9" }),
++    ];
++    const prices = [
++      provider("2026-01-08", "104.2"),
++      provider("2026-01-14", "36.9"),
++      provider("2026-01-25", "90", "s3"),
++      provider("2026-01-27", "35.55"),
++    ];
++    for (const [from, to] of [
++      ["2026-01-01", "2026-02-10"],
++      ["2026-01-10", "2026-02-05"],
++      ["2026-01-13", "2026-01-21"],
++      ["2026-01-21", "2026-02-03"],
++      ["2026-01-16", "2026-01-16"],
++    ]) {
++      const { performance } = evaluate(rows, prices, from, to, actions);
++      expectIdentity(performance);
++    }
++    const { performance } = evaluate(rows, prices, "2026-01-01", "2026-02-10", actions);
++    expect(performance.realized).not.toBe("0");
++    expect(performance.ttwror).not.toBeNull();
++  });
++
++  it("evaluates a 3-year daily series with ~50 flow days quickly", () => {
++    const rows: Row[] = [];
++    const prices: PriceObservation[] = [];
++    let day = "2023-01-01";
++    for (let i = 0; i < 50; i++) {
++      rows.push(deposit(day, String(500 + i * 10)));
++      rows.push(buy(day, "4", String(100 + (i % 7) * 3)));
++      day = addDays(day, 21);
++    }
++    for (let d = "2023-01-01", i = 0; d <= "2025-12-31"; d = addDays(d, 1), i++) {
++      prices.push(provider(d, String(100 + ((i * 37) % 41) - 20 + i / 50)));
++    }
++    const started = performance.now();
++    const { performance: result } = evaluate(rows, prices, "2023-01-01", "2025-12-31");
++    const elapsed = performance.now() - started;
++    expect(result.ttwror).not.toBeNull();
++    expect(result.xirr).not.toBeNull();
++    expectIdentity(result);
++    expect(elapsed).toBeLessThan(5000);
++  });
++
++  it("is zero with null returns for an empty Period", () => {
++    const start: ValuationPoint = { date: "2026-01-31", value: "10", positionsValue: "0", cash: "10", investedCapital: "0" };
++    expect(periodPerformance([], start, [], NONE)).toMatchObject({ gain: "0", ttwror: null, xirr: null });
++  });
++});
++
++describe("ttwror", () => {
++  it("counts a flow at the start of its day", () => {
++    const point = (date: string, value: string): ValuationPoint => ({ date, value, positionsValue: value, cash: "0", investedCapital: "0" });
++    // Day 2: 100 + 100 deposited → 220: +10 %.
++    expect(ttwror(point("2026-01-01", "100"), [point("2026-01-02", "220")], [deposit("2026-01-02", "100")])).toBe("0.1");
++  });
++});
++
++describe("xirr", () => {
++  it("solves a one-year doubling and a multi-year schedule", () => {
++    expectClose(xirr([{ date: "2021-01-01", amount: "-100" }, { date: "2022-01-01", amount: "200" }]), "1");
++    expectClose(
++      xirr([
++        { date: "2021-01-01", amount: "-1000" },
++        { date: "2022-01-01", amount: "-1100" },
++        { date: "2023-01-01", amount: "2420" },
++      ]),
++      "0.1",
++    );
++  });
++
++  it("finds strongly negative rates", () => {
++    expectClose(xirr([{ date: "2021-01-01", amount: "-100" }, { date: "2022-01-01", amount: "1" }]), "-0.99");
++  });
++
++  it("returns null without both a positive and a negative flow", () => {
++    expect(xirr([])).toBeNull();
++    expect(xirr([{ date: "2021-01-01", amount: "-100" }, { date: "2022-01-01", amount: "0" }])).toBeNull();
++    expect(xirr([{ date: "2021-01-01", amount: "100" }, { date: "2022-01-01", amount: "200" }])).toBeNull();
++  });
++
++  it("is order independent and accepts several flows on one date", () => {
++    const flows = [
++      { date: "2023-06-30", amount: "1300" },
++      { date: "2022-01-01", amount: "-500" },
++      { date: "2022-01-01", amount: "-500" },
++      { date: "2022-09-15", amount: "-200" },
++    ];
++    const rate = xirr(flows)!;
++    const npv = flows.reduce(
++      (sum, flow) =>
++        sum.plus(new Decimal(flow.amount).dividedBy(new Decimal(1).plus(rate).pow(new Decimal(daysBetween("2022-01-01", flow.date)).dividedBy(365)))),
++      new Decimal(0),
++    );
++    expect(npv.abs().lessThan("1e-9")).toBe(true);
++  });
++});
+diff --git a/src/core/returns.ts b/src/core/returns.ts
+new file mode 100644
+index 0000000..7736ff3
+--- /dev/null
++++ b/src/core/returns.ts
+@@ -0,0 +1,237 @@
++/**
++ * Period performance of a Depot (AD-10): Gain/Loss with its split, TTWROR and XIRR, all derived from one
++ * daily valuation series (`core/valuation`) plus the Period's ledger rows. Pure; money stays exact
++ * (`ExactDecimal`), return ratios use a lower-precision `decimal.js` clone (logarithms and powers at
++ * precision 1000 would be far too slow). Every result is a decimal string; ratios are plain (0.1142 =
++ * 11,42 %).
++ */
++import Decimal from "decimal.js";
++import type { CashRow } from "./cash";
++import type { CorporateActions } from "./corporate-actions";
++import { addDays, daysBetween } from "./dates";
++import { canonicalDecimal, ExactDecimal } from "./decimal";
++import { fifo } from "./fifo";
++import { periodFlows, type ValuationPoint, type ValuationRow } from "./valuation";
++
++/** Decimal constructor for return ratios: ≈ 40 significant digits, enough for chained ratios and `ln`/`exp`. */
++const ReturnDecimal = Decimal.clone({ precision: 40, rounding: Decimal.ROUND_HALF_UP });
++type ReturnValue = InstanceType<typeof ReturnDecimal>;
++type Exact = InstanceType<typeof ExactDecimal>;
++
++/** Decimal places kept in a returned ratio; far below any displayed precision, above solver noise. */
++const RATIO_DECIMALS = 20;
++
++function ratioString(value: ReturnValue): string {
++  const rounded = value.toDecimalPlaces(RATIO_DECIMALS, ReturnDecimal.ROUND_HALF_UP);
++  return rounded.isZero() ? "0" : rounded.toFixed();
++}
++
++/** A ledger row as the external-flow definition needs it. */
++export type FlowRow = Pick<CashRow, "type" | "date" | "amount" | "tax">;
++
++function flowOf(row: FlowRow): Exact {
++  let flow = new ExactDecimal(row.tax).negated();
++  if (row.type === "DEPOSIT") flow = flow.plus(row.amount);
++  else if (row.type === "WITHDRAWAL") flow = flow.minus(row.amount);
++  return flow;
++}
++
++/**
++ * Signed external flow of a row into the Depot (AD-10): DEPOSIT `+amount`, WITHDRAWAL `−amount`, and for
++ * every row `−tax` (a refund, negative `tax`, is an inflow). Dividends, fees and trades are internal.
++ */
++export function externalFlow(row: FlowRow): string {
++  return canonicalDecimal(flowOf(row));
++}
++
++/** Net external flow per date for rows dated `from..to` (inclusive). */
++function flowsByDate(rows: readonly FlowRow[], from: string, to: string): Map<string, Exact> {
++  const flows = new Map<string, Exact>();
++  for (const row of rows) {
++    if (row.date < from || row.date > to) continue;
++    flows.set(row.date, (flows.get(row.date) ?? new ExactDecimal(0)).plus(flowOf(row)));
++  }
++  return flows;
++}
++
++/**
++ * True time-weighted rate of return over `series` (not annualised). Flows count at the start of their
++ * day: for each day `d` with previous point `p` (`start` first) `denominator = V(p) + F(d)`; when it is
++ * positive the chain is multiplied by `V(d) / denominator`, otherwise the day is skipped (nothing
++ * invested, e.g. after a full Withdrawal). `null` when no day was multiplied.
++ */
++export function ttwror(start: ValuationPoint, series: readonly ValuationPoint[], rows: readonly FlowRow[]): string | null {
++  if (series.length === 0) return null;
++  const flows = flowsByDate(rows, series[0].date, series[series.length - 1].date);
++  let chain = new ReturnDecimal(1);
++  let multiplied = false;
++  let previous = start;
++  for (const point of series) {
++    const denominator = new ExactDecimal(previous.value).plus(flows.get(point.date) ?? 0);
++    if (denominator.greaterThan(0)) {
++      chain = chain.times(new ReturnDecimal(point.value).dividedBy(new ReturnDecimal(denominator.toFixed())));
++      multiplied = true;
++    }
++    previous = point;
++  }
++  return multiplied ? ratioString(chain.minus(1)) : null;
++}
++
++/** A dated cash flow from the investor's view: negative = paid in, positive = received. */
++export type CashFlow = { date: string; amount: string };
++
++const MAX_ITERATIONS = 300;
++const TOLERANCE = new ReturnDecimal("1e-30");
++
++/**
++ * Annualised money-weighted rate of return: the `r > −1` with Σ `amount · (1 + r)^(−days/365)` = 0,
++ * `days` counted from the earliest flow's date. Newton's method safeguarded by bisection inside a
++ * bracket found by expanding outward from 0 (towards −1 and towards large rates); deterministic and
++ * bounded. With several roots, the one in the bracket nearest to 0 wins. `null` when the flows lack a
++ * positive or a negative amount, or no sign change (root) is found.
++ */
++export function xirr(flows: readonly CashFlow[]): string | null {
++  const relevant = flows.filter((flow) => !new ReturnDecimal(flow.amount).isZero());
++  if (!relevant.some((flow) => new ReturnDecimal(flow.amount).isPositive())) return null;
++  if (!relevant.some((flow) => new ReturnDecimal(flow.amount).isNegative())) return null;
++  const origin = relevant.reduce((first, flow) => (flow.date < first ? flow.date : first), relevant[0].date);
++  const terms = relevant.map((flow) => ({
++    amount: new ReturnDecimal(flow.amount),
++    years: new ReturnDecimal(daysBetween(origin, flow.date)).dividedBy(365),
++  }));
++
++  /** Net present value and its derivative at rate `r`. */
++  const evaluate = (r: ReturnValue): { value: ReturnValue; slope: ReturnValue } => {
++    const base = r.plus(1);
++    const lnBase = base.ln();
++    let value = new ReturnDecimal(0);
++    let slope = new ReturnDecimal(0);
++    for (const term of terms) {
++      const discounted = term.years.isZero() ? term.amount : term.amount.times(term.years.times(lnBase).negated().exp());
++      value = value.plus(discounted);
++      slope = slope.minus(term.years.times(discounted).dividedBy(base));
++    }
++    return { value, slope };
++  };
++
++  // Bracket: grid points expanding outward from 0, nearest intervals first.
++  const right = ["0", "0.5", "1", "3", "10", "100", "1000", "100000", "10000000"].map((r) => new ReturnDecimal(r));
++  const left = ["0", "-0.5", "-0.9", "-0.99", "-0.9999", "-0.999999", "-0.99999999", "-0.9999999999"].map(
++    (r) => new ReturnDecimal(r),
++  );
++  const atZero = evaluate(right[0]).value;
++  if (atZero.isZero()) return "0";
++  let bracket: [ReturnValue, ReturnValue, ReturnValue] | null = null; // [low, high, value at low]
++  let rightValue = atZero;
++  let leftValue = atZero;
++  for (let step = 1; bracket === null && (step < right.length || step < left.length); step++) {
++    if (step < right.length) {
++      const value = evaluate(right[step]).value;
++      if (value.isZero()) return ratioString(right[step]);
++      if (value.isNegative() !== rightValue.isNegative()) bracket = [right[step - 1], right[step], rightValue];
++      rightValue = value;
++    }
++    if (bracket === null && step < left.length) {
++      const value = evaluate(left[step]).value;
++      if (value.isZero()) return ratioString(left[step]);
++      if (value.isNegative() !== leftValue.isNegative()) bracket = [left[step], left[step - 1], value];
++      leftValue = value;
++    }
++  }
++  if (bracket === null) return null;
++
++  let [low, high, lowValue] = bracket;
++  let r = low.plus(high).dividedBy(2);
++  for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
++    const { value, slope } = evaluate(r);
++    if (value.isZero()) return ratioString(r);
++    if (value.isNegative() === lowValue.isNegative()) {
++      low = r;
++      lowValue = value;
++    } else {
++      high = r;
++    }
++    let next = slope.isZero() ? null : r.minus(value.dividedBy(slope));
++    if (next === null || !next.greaterThan(low) || !next.lessThan(high)) next = low.plus(high).dividedBy(2);
++    if (next.minus(r).abs().lessThan(TOLERANCE) || high.minus(low).lessThan(TOLERANCE)) return ratioString(next);
++    r = next;
++  }
++  return ratioString(r);
++}
++
++/** Period Gain/Loss, its split and both return metrics; amounts and ratios as decimal strings. */
++export type PeriodPerformance = {
++  /** `V(to) − V(start) − netExternalFlows` = realized + unrealized + dividends − fees. */
++  gain: string;
++  /** FIFO gains of SELLs dated in the Period. */
++  realized: string;
++  /** Change of (Positions value − invested capital) from start to the Period end. */
++  unrealized: string;
++  /** Gross DIVIDEND amounts. */
++  dividends: string;
++  /** Fees of FEE and DIVIDEND rows (trade fees sit in realized/unrealized). */
++  fees: string;
++  /** Net taxes (paid minus refunds); external, not part of the gain. */
++  taxesPaid: string;
++  /** Σ external flows (Deposits − Withdrawals − net taxes). */
++  netExternalFlows: string;
++  /** Not annualised; `null` when nothing was invested. */
++  ttwror: string | null;
++  /** Annualised; `null` when not solvable. */
++  xirr: string | null;
++};
++
++/**
++ * Performance of the Period covered by `series` (`from..to`), with `start` the valuation point at the
++ * end of the day before `from` (zero before the Depot's first row). Rows are all of the Depot's ledger
++ * rows; only those dated `from..to` count as Period activity. Exact identity:
++ * `gain = realized + unrealized + dividends − fees`.
++ */
++export function periodPerformance(
++  rows: readonly ValuationRow[],
++  start: ValuationPoint,
++  series: readonly ValuationPoint[],
++  actions: CorporateActions,
++): PeriodPerformance {
++  const end = series.length > 0 ? series[series.length - 1] : start;
++  const from = series.length > 0 ? series[0].date : addDays(start.date, 1);
++  const to = end.date;
++  const inPeriod = rows.filter((row) => row.date >= from && row.date <= to);
++
++  let netExternalFlows = new ExactDecimal(0);
++  let fees = new ExactDecimal(0);
++  for (const row of inPeriod) {
++    netExternalFlows = netExternalFlows.plus(flowOf(row));
++    if (row.type === "FEE" || row.type === "DIVIDEND") fees = fees.plus(row.fee);
++  }
++  let realized = new ExactDecimal(0);
++  if (inPeriod.length > 0) {
++    for (const result of fifo(rows, to, actions)) {
++      for (const sale of result.sales) {
++        if (sale.date >= from && sale.date <= to) realized = realized.plus(sale.gain);
++      }
++    }
++  }
++  const unrealizedOf = (point: ValuationPoint) => new ExactDecimal(point.positionsValue).minus(point.investedCapital);
++  const unrealized = unrealizedOf(end).minus(unrealizedOf(start));
++  const gain = new ExactDecimal(end.value).minus(start.value).minus(netExternalFlows);
++  const { dividends, taxesPaid } = periodFlows(rows, from, to);
++
++  const cashFlows: CashFlow[] = [{ date: start.date, amount: canonicalDecimal(new ExactDecimal(start.value).negated()) }];
++  for (const [date, flow] of [...flowsByDate(rows, from, to)].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
++    if (!flow.isZero()) cashFlows.push({ date, amount: canonicalDecimal(flow.negated()) });
++  }
++  cashFlows.push({ date: to, amount: end.value });
++
++  return {
++    gain: canonicalDecimal(gain),
++    realized: canonicalDecimal(realized),
++    unrealized: canonicalDecimal(unrealized),
++    dividends,
++    fees: canonicalDecimal(fees),
++    taxesPaid,
++    netExternalFlows: canonicalDecimal(netExternalFlows),
++    ttwror: ttwror(start, series, rows),
++    xirr: series.length > 0 ? xirr(cashFlows) : null,
++  };
++}
+diff --git a/src/modules/ledger/index.ts b/src/modules/ledger/index.ts
+index 828edda..9587e6f 100644
+--- a/src/modules/ledger/index.ts
++++ b/src/modules/ledger/index.ts
+@@ -77,6 +77,7 @@ export { latestTradePrices, listPositions, listRealizedSales } from "./positions
+ export type { ListPositionsOptions, PositionRecord, RealizedSaleRecord, StoredPriceLoader } from "./positions";
+ export { depotValuation } from "./valuation";
+ export type { DepotValuation, DepotValuationOptions } from "./valuation";
++export type { PeriodPerformance } from "@/core/returns";
+ export { BATCH_TIMEOUT_MS, recordBatch } from "./batch";
+ export type {
+   BatchEntry,
+diff --git a/src/modules/ledger/valuation.test.ts b/src/modules/ledger/valuation.test.ts
+index 7a2016d..d167141 100644
+--- a/src/modules/ledger/valuation.test.ts
++++ b/src/modules/ledger/valuation.test.ts
+@@ -111,9 +111,40 @@ describe("depotValuation", () => {
+     expect(valuation).toEqual({
+       from: TODAY,
+       to: TODAY,
++      start: { date: "2026-10-25", value: "0", positionsValue: "0", cash: "0", investedCapital: "0" },
+       series: [{ date: TODAY, value: "0", positionsValue: "0", cash: "0", investedCapital: "0" }],
+       dividends: "0",
+       taxesPaid: "0",
++      performance: {
++        gain: "0",
++        realized: "0",
++        unrealized: "0",
++        dividends: "0",
++        fees: "0",
++        taxesPaid: "0",
++        netExternalFlows: "0",
++        ttwror: null,
++        xirr: null,
++      },
++    });
++  });
++
++  it("computes the reference Period performance from one series starting the day before the Period", async () => {
++    await book({ type: "DEPOSIT", date: "2021-01-01", amount: "1000" });
++    await book({ type: "BUY", date: "2021-01-01", quantity: "10", price: "100", security: { id: appleId } });
++    await book({ type: "DEPOSIT", date: "2022-01-01", amount: "1100" });
++    await book({ type: "BUY", date: "2022-01-01", quantity: "10", price: "110", security: { id: appleId } });
++    const stored: PriceObservation[] = [
++      { id: "p1", securityId: appleId, date: "2021-12-31", sequence: 0, price: "110", source: "provider" },
++      { id: "p2", securityId: appleId, date: "2023-01-01", sequence: 0, price: "121", source: "provider" },
++    ];
++    const valuation = await depotValuation(depotId, { kind: "custom", from: "2021-01-02", to: "2023-01-01" }, TODAY, db(), {
++      storedPrices: async () => stored,
+     });
++    expect(valuation.start).toEqual({ date: "2021-01-01", value: "1000", positionsValue: "1000", cash: "0", investedCapital: "1000" });
++    expect(valuation.series[0].date).toBe("2021-01-02");
++    expect(valuation.series.at(-1)).toMatchObject({ date: "2023-01-01", value: "2420" });
++    expect(valuation.performance).toMatchObject({ gain: "320", unrealized: "320", netExternalFlows: "1100", ttwror: "0.21" });
++    expect(Math.abs(Number(valuation.performance.xirr) - 0.1)).toBeLessThan(1e-9);
+   });
+ });
+diff --git a/src/modules/ledger/valuation.ts b/src/modules/ledger/valuation.ts
+index e9143e2..327ed38 100644
+--- a/src/modules/ledger/valuation.ts
++++ b/src/modules/ledger/valuation.ts
+@@ -1,5 +1,7 @@
+ import { prisma } from "@/db";
+ import { type PeriodSelection, resolvePeriod } from "@/core/period";
++import { addDays } from "@/core/dates";
++import { type PeriodPerformance, periodPerformance } from "@/core/returns";
+ import { periodFlows, type ValuationPoint, valuationSeries } from "@/core/valuation";
+ import { loadCorporateActions } from "./corporate-actions";
+ import type { LedgerDb } from "./depots";
+@@ -12,16 +14,20 @@ export type DepotValuation = {
+   /** Resolved Period, inclusive. */
+   from: string;
+   to: string;
++  /** Valuation at the end of the day before `from` (zero before the Depot's first row). */
++  start: ValuationPoint;
+   /** One point per calendar day `from..to` (`core/valuation`). */
+   series: ValuationPoint[];
+   /** Gross dividends of rows dated in the Period. */
+   dividends: string;
+   /** Net taxes (paid minus refunds) of rows dated in the Period. */
+   taxesPaid: string;
++  /** Period Gain/Loss, its split, TTWROR and XIRR (`core/returns`), from the same series. */
++  performance: PeriodPerformance;
+ };
+ 
+ /**
+- * The daily valuation series and Period flows of a Depot for `selection` as of `today` (`MAX` starts on
++ * The daily valuation series, Period flows and Period performance of a Depot for `selection` as of `today` (`MAX` starts on
+  * the Depot's first ledger date). Prices come from the core resolver over the BUY/SELL prices of the
+  * Depot's Securities and their ISIN-change successors in any Depot and, when `storedPrices` is given,
+  * the stored manual and provider Prices it loads (pass the full history for per-day carry-forward).
+@@ -43,10 +49,17 @@ export async function depotValuation(
+   const own = new Set(rows.flatMap((row) => (row.securityId ? [row.securityId] : [])));
+   const actions = await loadCorporateActions(db);
+   const observations = own.size === 0 ? [] : await lineageObservations(own, actions, to, db, storedPrices);
++  // One series from the day before `from`: its first point is the start, the rest the Period.
++  const startDate = addDays(from, -1);
++  const points = valuationSeries(rows, observations, actions, startDate, from > to ? startDate : to);
++  const start = points[0];
++  const series = points.slice(1);
+   return {
+     from,
+     to,
+-    series: valuationSeries(rows, observations, actions, from, to),
++    start,
++    series,
+     ...periodFlows(rows, from, to),
++    performance: periodPerformance(rows, start, series, actions),
+   };
+ }

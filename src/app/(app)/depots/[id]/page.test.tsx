@@ -48,6 +48,14 @@ function selectedTab(label: string): RegExp {
   return new RegExp(`<[^>]*(role="tab"[^>]*aria-selected="true"|aria-selected="true"[^>]*role="tab")[^>]*>${label}<`);
 }
 
+/** The hero card's HTML up to the breakdown (the Positions table has its own pills). */
+function heroHtml(html: string): string {
+  const start = html.indexOf('aria-label="Depotwert"');
+  const end = html.indexOf("Aufschlüsselung", start);
+  if (start < 0 || end < 0) throw new Error("hero card not rendered");
+  return html.slice(start, end);
+}
+
 async function depot() {
   const result = await createDepot({ name: "Hauptdepot", broker: "COMDIRECT" });
   if (!result.ok) throw new Error("setup failed");
@@ -495,17 +503,85 @@ describe("Depot detail page", () => {
     expect(text).toContain(
       [
         "Gesamtwert 1.731,10\u00a0€ Stand 30.06.2026",
+        // Period Gain/Loss: 1.731,10 − 0 − (2000 − 300 + 3,50 refund − 12,50 dividend tax) = 40,10.
+        "+40,10\u00a0€ · TTWROR +2,00\u00a0% XIRR +4,69\u00a0%",
+        "Aufschlüsselung",
+        "Realisiert 0,00\u00a0€ Unrealisiert -5,00\u00a0€ Dividenden +50,00\u00a0€ Gebühren -4,90\u00a0€",
+        "Steuern gezahlt nicht in Gewinn/Verlust enthalten +9,00\u00a0€",
+        "Ordergebühren stecken in realisiert/unrealisiert.",
         "Investiertes Kapital 1.005,00\u00a0€ Cost Basis offener Positionen",
         "Dividenden · 01.01.2026 – 30.06.2026 50,00\u00a0€",
         "Guthaben 731,10\u00a0€",
         "Steuern gezahlt · 01.01.2026 – 30.06.2026 9,00\u00a0€ separat ausgewiesen",
       ].join(" "),
     );
+    // Gain: green tone with an upward arrow; the breakdown is a collapsed accordion.
+    expect(heroHtml(html)).toMatch(/<svg[^>]*data-testid="ArrowUpwardIcon"/);
+    expect(heroHtml(html)).not.toContain('data-testid="ArrowDownwardIcon"');
+    expect(html).toMatch(/<button[^>]*aria-expanded="false"[^>]*>[\s\S]*?Aufschlüsselung/);
+    // Valid markup: the separator before "Steuern gezahlt" sits between two lists, not inside one.
+    const lists = html.match(/<dl[^>]*>[\s\S]*?<\/dl>/g) ?? [];
+    expect(lists).toHaveLength(2);
+    for (const list of lists) {
+      expect(list).not.toMatch(/<hr/);
+      // Only dt/dd directly inside the list: strip each dt/dd element, nothing else may remain.
+      // (Emotion's inline <style> tags of the test render are not markup children of the list.)
+      const body = list
+        .replace(/^<dl[^>]*>|<\/dl>$/g, "")
+        .replace(/<style\b[^>]*>[\s\S]*?<\/style>/g, "")
+        .replace(/<(dt|dd)\b[^>]*>[\s\S]*?<\/\1>/g, "");
+      expect(body).toBe("");
+    }
+    expect(lists[1]).toContain("Steuern gezahlt");
     // The summary sits above the tabs.
     expect(text.indexOf("Gesamtwert")).toBeLessThan(text.indexOf("Positionen"));
   });
 
-  it("defaults to 1J for a missing or invalid cookie and values with stored Prices up to today", async () => {
+  it("shows a Period loss with the loss tone, a downward arrow and a minus sign", async () => {
+    const { id } = await depot();
+    const book = async (input: Omit<RecordTransactionInput, "depotId">) => {
+      const result = await recordTransaction({ depotId: id, ...input });
+      if (!result.ok) throw new Error(`setup failed: ${result.reason}`);
+      return result.transaction;
+    };
+    await book({ type: "DEPOSIT", date: "2026-01-05", amount: "1000" });
+    const buy = await book({
+      type: "BUY",
+      date: "2026-01-05",
+      quantity: "10",
+      price: "100",
+      security: { new: { isin: "US0378331005", name: "Apple Inc.", assetType: "STOCK" } },
+    });
+    await prisma.price.create({
+      data: { securityId: buy.security!.id, date: "2026-02-01", source: "PROVIDER", price: "80", fetchedAt: "2026-02-01T18:00:00.000Z" },
+    });
+    cookieJar.set("dm_period", "custom:2026-01-01:2026-02-28");
+    const tree = await DepotDetailPage(props(id));
+    const text = renderText(tree);
+    const html = renderHtml(tree);
+    expect(text).toContain("Gesamtwert 800,00\u00a0€ Stand 28.02.2026 -200,00\u00a0€ · TTWROR -20,00\u00a0% XIRR -77,87\u00a0% Aufschlüsselung");
+    expect(text).toContain("Unrealisiert -200,00\u00a0€");
+    expect(heroHtml(html)).toMatch(/<svg[^>]*data-testid="ArrowDownwardIcon"/);
+    expect(heroHtml(html)).not.toContain('data-testid="ArrowUpwardIcon"');
+  });
+
+  it("shows a neutral zero pill and XIRR – when nothing was invested in the Period", async () => {
+    const { id } = await depot();
+    const deposit = await recordTransaction({ depotId: id, type: "DEPOSIT", date: "2025-03-01", amount: "500" });
+    const withdrawal = await recordTransaction({ depotId: id, type: "WITHDRAWAL", date: "2025-04-01", amount: "500" });
+    if (!deposit.ok || !withdrawal.ok) throw new Error("setup failed");
+    cookieJar.set("dm_period", "custom:2026-01-01:2026-01-31");
+    const tree = await DepotDetailPage(props(id));
+    const text = renderText(tree);
+    const hero = heroHtml(renderHtml(tree));
+    expect(text).toContain("Gesamtwert 0,00\u00a0€ Stand 31.01.2026 0,00\u00a0€ XIRR – Aufschlüsselung");
+    const heroText = text.slice(text.indexOf("Gesamtwert"), text.indexOf("Aufschlüsselung"));
+    expect(heroText).not.toBe("");
+    expect(heroText).not.toContain("TTWROR");
+    expect(hero).not.toMatch(/data-testid="Arrow(Up|Down)wardIcon"/);
+  });
+
+    it("defaults to 1J for a missing or invalid cookie and values with stored Prices up to today", async () => {
     // 1J is relative to today: pin the clock so the 2026 bookings stay inside it.
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-10-26T12:00:00+01:00"));
@@ -523,7 +599,8 @@ describe("Depot detail page", () => {
       const tree = await DepotDetailPage(props(id));
       const text = renderText(tree);
       expect(renderHtml(tree)).toMatch(pressedPill("1J"));
-      expect(text).toMatch(/Gesamtwert 1\.931,10\u00a0€ Investiertes Kapital/);
+      expect(text).toContain("Gesamtwert 1.931,10\u00a0€ +240,10\u00a0€ · TTWROR +13,79\u00a0% XIRR +17,26\u00a0% Aufschlüsselung");
+      expect(text).toMatch(/Investiertes Kapital 1\.005,00\u00a0€/);
       expect(text).toContain("Dividenden · 1J 50,00\u00a0€");
       expect(text).toContain("Steuern gezahlt · 1J 9,00\u00a0€");
       expect(text).not.toContain("Stand ");
@@ -541,7 +618,11 @@ describe("Depot detail page", () => {
     const text = renderText(tree);
     const html = renderHtml(tree);
     expect(html).toMatch(pressedPill("Max"));
-    expect(text).toContain("Gesamtwert 0,00\u00a0€ Investiertes Kapital 0,00\u00a0€");
+    // Deposit and full Withdrawal: no gain; the breakdown is still shown read-only.
+    expect(text).toContain("Gesamtwert 0,00\u00a0€ 0,00\u00a0€ · TTWROR 0,00\u00a0% XIRR 0,00\u00a0% Aufschlüsselung");
+    expect(text).toContain("Aufschlüsselung Realisiert 0,00\u00a0€ Unrealisiert 0,00\u00a0€ Dividenden 0,00\u00a0€ Gebühren 0,00\u00a0€");
+    expect(text).toContain("Investiertes Kapital 0,00\u00a0€");
+    expect(heroHtml(html)).not.toMatch(/data-testid="Arrow(Up|Down)wardIcon"/);
     expect(text).toContain("Dividenden · Max 0,00\u00a0€");
     expect(html).not.toMatch(/<button[^>]*>Neue Buchung/);
     expect(html).not.toContain("bearbeiten");

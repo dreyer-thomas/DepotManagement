@@ -12,6 +12,12 @@ describe("gainLossText", () => {
     expect(gainLossText("3", null)).toBe("+3,00 €");
   });
 
+  it("names the ratio when a label is given", () => {
+    expect(gainLossText("14238.55", "0.1142", "TTWROR")).toBe("+14.238,55 € · TTWROR +11,42 %");
+    expect(gainLossText("-50", "-0.05", "TTWROR")).toBe("-50,00 € · TTWROR -5,00 %");
+    expect(gainLossText("0", null, "TTWROR")).toBe("0,00 €");
+  });
+
   it("shows a flat Position as zero amount and zero percent", () => {
     expect(gainLossText("0", "0")).toBe("0,00 € · 0,00 %");
   });

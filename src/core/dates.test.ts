@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addDays, addMonths, businessDate, isBusinessDate } from "./dates";
+import { addDays, addMonths, businessDate, daysBetween, isBusinessDate } from "./dates";
 
 describe("isBusinessDate", () => {
   it.each(["2026-10-25", "2024-02-29", "2000-02-29", "2026-12-31"])("accepts %s", (value) => {
@@ -43,6 +43,21 @@ describe("addDays", () => {
 
   it("rejects a non-business date", () => {
     expect(() => addDays("2026-02-30", 1)).toThrow(RangeError);
+  });
+});
+
+describe("daysBetween", () => {
+  it("counts calendar days across years and leap days, signed", () => {
+    expect(daysBetween("2021-01-01", "2022-01-01")).toBe(365);
+    expect(daysBetween("2024-01-01", "2025-01-01")).toBe(366);
+    expect(daysBetween("2026-10-25", "2026-10-25")).toBe(0);
+    expect(daysBetween("2026-10-26", "2026-10-25")).toBe(-1);
+    expect(daysBetween("2024-03-04", "2026-10-25")).toBe(965);
+  });
+
+  it("rejects a non-business date", () => {
+    expect(() => daysBetween("2026-02-30", "2026-03-01")).toThrow(RangeError);
+    expect(() => daysBetween("2026-03-01", "x")).toThrow(RangeError);
   });
 });
 

@@ -4,10 +4,14 @@ import Box from "@mui/material/Box";
 import { ExactDecimal } from "@/core/decimal";
 import { formatMoney, formatPercent } from "@/core/format";
 
-/** Signed pill text: `+28,80 € · +7,97 %`, or the amount alone without a ratio. */
-export function gainLossText(gain: string, ratio: string | null): string {
+/**
+ * Signed pill text: `+28,80 € · +7,97 %`, with a `ratioLabel` `+14.238,55 € · TTWROR +11,42 %`, or the
+ * amount alone without a ratio.
+ */
+export function gainLossText(gain: string, ratio: string | null, ratioLabel?: string): string {
   const amount = formatMoney(gain, { sign: true });
-  return ratio === null ? amount : `${amount} · ${formatPercent(ratio)}`;
+  if (ratio === null) return amount;
+  return `${amount} · ${ratioLabel ? `${ratioLabel} ` : ""}${formatPercent(ratio)}`;
 }
 
 /** Tone of a gain as displayed (rounded half-up to cents): `null` when it shows as 0,00 €. */
@@ -21,7 +25,7 @@ export function gainLossTone(gain: string): "gain" | "loss" | null {
  * Gain/Loss pill: soft gain/loss background, arrow and signed text (never color alone);
  * a zero gain is neutral and has no arrow.
  */
-export function GainLossPill({ gain, ratio }: { gain: string; ratio: string | null }) {
+export function GainLossPill({ gain, ratio, ratioLabel }: { gain: string; ratio: string | null; ratioLabel?: string }) {
   const tone = gainLossTone(gain);
   const Arrow = tone === "loss" ? ArrowDownward : ArrowUpward;
   return (
@@ -44,7 +48,7 @@ export function GainLossPill({ gain, ratio }: { gain: string; ratio: string | nu
       }}
     >
       {tone ? <Arrow aria-hidden sx={{ fontSize: 14 }} /> : null}
-      {gainLossText(gain, ratio)}
+      {gainLossText(gain, ratio, ratioLabel)}
     </Box>
   );
 }

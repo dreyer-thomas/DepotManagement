@@ -81,3 +81,14 @@ export function addMonths(date: string, months: number): string {
   const day = Math.min(Number(match[3]), daysInMonth(year, month));
   return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
+
+/** Calendar days from `from` to `to` (negative when `to` is earlier), e.g. `2021-01-01` → `2022-01-01` = 365. */
+export function daysBetween(from: string, to: string): number {
+  const a = ISO_DATE.exec(from);
+  const b = ISO_DATE.exec(to);
+  if (!a || !isBusinessDate(from)) throw new RangeError(`Not a business date: ${from}`);
+  if (!b || !isBusinessDate(to)) throw new RangeError(`Not a business date: ${to}`);
+  return (
+    daysFromCivil(Number(b[1]), Number(b[2]), Number(b[3])) - daysFromCivil(Number(a[1]), Number(a[2]), Number(a[3]))
+  );
+}
