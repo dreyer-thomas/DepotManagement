@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { renderHtml, renderText } from "../../../../../test/helpers/render-text";
 
 const dbFile = await vi.hoisted(async () => {
@@ -12,6 +12,12 @@ vi.mock("next/navigation", () => ({
   notFound: () => {
     throw new NotFoundError("NEXT_NOT_FOUND");
   },
+  useRouter: () => ({ refresh: () => {} }),
+}));
+
+const cookieJar = vi.hoisted(() => new Map<string, string>());
+vi.mock("next/headers", () => ({
+  cookies: async () => ({ get: (name: string) => (cookieJar.has(name) ? { name, value: cookieJar.get(name)! } : undefined) }),
 }));
 
 import { prisma } from "@/db";
@@ -19,6 +25,8 @@ import { archiveDepot, createDepot, recordIsinChange, recordSplit, recordTrade, 
 import DepotDetailPage, { generateMetadata } from "./page";
 
 beforeEach(async () => {
+  cookieJar.clear();
+  await prisma.price.deleteMany();
   await prisma.corporateAction.deleteMany();
   await prisma.transaction.deleteMany();
   await prisma.security.deleteMany();
@@ -369,7 +377,7 @@ describe("Depot detail page", () => {
       const tree = await DepotDetailPage(props(id, tab));
       const text = renderText(tree);
       const html = renderHtml(tree);
-      expect(text).toMatch(/Hauptdepot comdirect Archiviert Cash-Konto/);
+      expect(text).toMatch(/Hauptdepot 1M YTD 1J 3J Max Benutzerdefiniert comdirect Archiviert Cash-Konto/);
       expect(text).toMatch(/Archiviertes Depot – nur lesbar\. Reaktivieren unter Einstellungen ?\./);
       expect(html).toMatch(/<a[^>]*href="\/settings"[^>]*>Einstellungen<\/a>/);
       expect(html).not.toMatch(/<button[^>]*>Neue Buchung/);
@@ -467,5 +475,82 @@ describe("Depot detail page", () => {
     const transactions = renderText(await DepotDetailPage(props(id, "transactions")));
     expect(transactions).toContain("Alt AG");
     expect(transactions).not.toContain("Neu AG");
+  });
+  /** The pressed pill of the Period selector (either attribute order). */
+  function pressedPill(label: string): RegExp {
+    return new RegExp(`<button[^>]*aria-pressed="true"[^>]*>${label}<`);
+  }
+
+  it("shows the value summary for the stored custom Period with its label in the captions", async () => {
+    const { id } = await depot();
+    await bookMatrix(id);
+    cookieJar.set("dm_period", "custom:2026-01-01:2026-06-30");
+    const tree = await DepotDetailPage(props(id));
+    const text = renderText(tree);
+    const html = renderHtml(tree);
+    expect(html).toContain('aria-label="Zeitraum"');
+    expect(html).toMatch(pressedPill("Benutzerdefiniert"));
+    expect((html.match(/aria-pressed="true"/g) ?? []).length).toBe(1);
+    expect(text).toMatch(/Hauptdepot 1M YTD 1J 3J Max Benutzerdefiniert comdirect/);
+    expect(text).toContain(
+      [
+        "Gesamtwert 1.731,10\u00a0€ Stand 30.06.2026",
+        "Investiertes Kapital 1.005,00\u00a0€ Cost Basis offener Positionen",
+        "Dividenden · 01.01.2026 – 30.06.2026 50,00\u00a0€",
+        "Guthaben 731,10\u00a0€",
+        "Steuern gezahlt · 01.01.2026 – 30.06.2026 9,00\u00a0€ separat ausgewiesen",
+      ].join(" "),
+    );
+    // The summary sits above the tabs.
+    expect(text.indexOf("Gesamtwert")).toBeLessThan(text.indexOf("Positionen"));
+  });
+
+  it("defaults to 1J for a missing or invalid cookie and values with stored Prices up to today", async () => {
+    // 1J is relative to today: pin the clock so the 2026 bookings stay inside it.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-26T12:00:00+01:00"));
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    const { id } = await depot();
+    await bookMatrix(id);
+    const apple = (await prisma.security.findFirstOrThrow()).id;
+    await prisma.price.create({
+      data: { securityId: apple, date: "2026-03-10", source: "PROVIDER", price: "120", fetchedAt: "2026-03-10T18:00:00.000Z" },
+    });
+    for (const stored of [undefined, "custom:2026-13-01:x"]) {
+      if (stored) cookieJar.set("dm_period", stored);
+      const tree = await DepotDetailPage(props(id));
+      const text = renderText(tree);
+      expect(renderHtml(tree)).toMatch(pressedPill("1J"));
+      expect(text).toMatch(/Gesamtwert 1\.931,10\u00a0€ Investiertes Kapital/);
+      expect(text).toContain("Dividenden · 1J 50,00\u00a0€");
+      expect(text).toContain("Steuern gezahlt · 1J 9,00\u00a0€");
+      expect(text).not.toContain("Stand ");
+    }
+  });
+
+  it("shows the summary of an archived Depot read-only", async () => {
+    const { id } = await depot();
+    const deposit = await recordTransaction({ depotId: id, type: "DEPOSIT", date: "2026-01-05", amount: "500" });
+    const withdrawal = await recordTransaction({ depotId: id, type: "WITHDRAWAL", date: "2026-01-06", amount: "500" });
+    if (!deposit.ok || !withdrawal.ok) throw new Error("setup failed");
+    expect(await archiveDepot(id)).toMatchObject({ ok: true });
+    cookieJar.set("dm_period", "MAX");
+    const tree = await DepotDetailPage(props(id));
+    const text = renderText(tree);
+    const html = renderHtml(tree);
+    expect(html).toMatch(pressedPill("Max"));
+    expect(text).toContain("Gesamtwert 0,00\u00a0€ Investiertes Kapital 0,00\u00a0€");
+    expect(text).toContain("Dividenden · Max 0,00\u00a0€");
+    expect(html).not.toMatch(/<button[^>]*>Neue Buchung/);
+    expect(html).not.toContain("bearbeiten");
+  });
+
+  it("shows no summary and no Period selector for an empty Depot", async () => {
+    const { id } = await depot();
+    const tree = await DepotDetailPage(props(id));
+    expect(renderText(tree)).not.toContain("Gesamtwert");
+    expect(renderHtml(tree)).not.toContain('aria-label="Zeitraum"');
   });
 });

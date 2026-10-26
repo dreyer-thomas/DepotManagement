@@ -75,6 +75,8 @@ export type {
 } from "./securities";
 export { latestTradePrices, listPositions, listRealizedSales } from "./positions";
 export type { ListPositionsOptions, PositionRecord, RealizedSaleRecord, StoredPriceLoader } from "./positions";
+export { depotValuation } from "./valuation";
+export type { DepotValuation, DepotValuationOptions } from "./valuation";
 export { BATCH_TIMEOUT_MS, recordBatch } from "./batch";
 export type {
   BatchEntry,

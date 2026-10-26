@@ -66,3 +66,18 @@ export function addDays(date: string, days: number): string {
   if (!match || !isBusinessDate(date)) throw new RangeError(`Not a business date: ${date}`);
   return civilFromDays(daysFromCivil(Number(match[1]), Number(match[2]), Number(match[3])) + days);
 }
+
+/**
+ * The business date `months` calendar months after `date` (negative: before), the day clamped to the
+ * target month's end, e.g. `2026-03-31` − 1 → `2026-02-28`, `2024-02-29` − 12 → `2023-02-28`.
+ */
+export function addMonths(date: string, months: number): string {
+  const match = ISO_DATE.exec(date);
+  if (!match || !isBusinessDate(date)) throw new RangeError(`Not a business date: ${date}`);
+  if (!Number.isInteger(months)) throw new RangeError(`Not a whole number of months: ${months}`);
+  const index = Number(match[1]) * 12 + (Number(match[2]) - 1) + months;
+  const year = Math.floor(index / 12);
+  const month = index - year * 12 + 1;
+  const day = Math.min(Number(match[3]), daysInMonth(year, month));
+  return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}

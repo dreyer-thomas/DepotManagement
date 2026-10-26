@@ -12,14 +12,18 @@ import { type DepotTab, depotTab, depotTabId, depotTabPanelId } from "@/app/_com
 import { AppLink } from "@/app/_components/depots/DepotLink";
 import { DepotTabs } from "@/app/_components/depots/DepotTabs";
 import { brokerLabel } from "@/app/_components/depots/labels";
-import { PageTitle } from "@/app/_components/Placeholder";
+import { readPeriod } from "@/app/_actions/period-cookie";
+import { PeriodSelector } from "@/app/_components/period/PeriodSelector";
+import { ValueSummary } from "@/app/_components/valuation/ValueSummary";
 import { CashBookings } from "@/app/_components/cash/CashBookings";
 import { NewTransactionButton } from "@/app/_components/transactions/TransactionDialog";
 import { PositionsTable } from "@/app/_components/positions/PositionsTable";
 import { TransactionList } from "@/app/_components/transactions/TransactionList";
 import { businessDate } from "@/core/dates";
 import { formatMoney } from "@/core/format";
+import { periodLabel } from "@/core/period";
 import {
+  depotValuation,
   getDepot,
   listCashBookings,
   listIsinChanges,
@@ -28,7 +32,7 @@ import {
   listSplits,
   listTransactions,
 } from "@/modules/ledger";
-import { latestStoredPrices } from "@/modules/prices";
+import { latestStoredPrices, storedPriceHistory } from "@/modules/prices";
 
 type Props = {
   params: Promise<{ id: string }>;
@@ -61,6 +65,7 @@ export default async function DepotDetailPage({ params, searchParams }: Props) {
   if (!depot) notFound();
   const tab = depotTab((await searchParams)?.tab);
   const today = businessDate(new Date());
+  const period = await readPeriod(today);
   const [transactions, securities, splits, isinChanges, positions, cashBookings] = await Promise.all([
     listTransactions(depot.id),
     listSecurities(),
@@ -78,6 +83,11 @@ export default async function DepotDetailPage({ params, searchParams }: Props) {
   );
   // An empty Depot shows its only "Neue Buchung" button inside the empty state of every tab.
   const emptyState = transactions.length === 0;
+  // Every summary figure comes from the core valuation series (AD-10); also for archived Depots.
+  const valuation = emptyState
+    ? null
+    : await depotValuation(depot.id, period, today, undefined, { storedPrices: storedPriceHistory });
+  const end = valuation?.series.at(-1);
 
   let content: ReactNode;
   if (emptyState) {
@@ -116,7 +126,15 @@ export default async function DepotDetailPage({ params, searchParams }: Props) {
 
   return (
     <>
-      <PageTitle>{depot.name}</PageTitle>
+      <Stack
+        direction="row"
+        sx={{ mb: 2, flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", columnGap: 2, rowGap: 1 }}
+      >
+        <Typography variant="pageTitle" component="h1">
+          {depot.name}
+        </Typography>
+        {emptyState ? null : <PeriodSelector period={period} today={today} />}
+      </Stack>
       <Stack direction="row" spacing={3} sx={{ mb: 2, flexWrap: "wrap", alignItems: "center", rowGap: 1 }}>
         <Typography color="text.secondary">{brokerLabel(depot.broker)}</Typography>
         {readOnly ? <Chip label="Archiviert" size="small" /> : null}
@@ -129,6 +147,18 @@ export default async function DepotDetailPage({ params, searchParams }: Props) {
         <Alert severity="info" sx={{ mb: 2 }}>
           Archiviertes Depot – nur lesbar. Reaktivieren unter <AppLink href="/settings">Einstellungen</AppLink>.
         </Alert>
+      ) : null}
+      {valuation && end ? (
+        <ValueSummary
+          value={end.value}
+          investedCapital={end.investedCapital}
+          cash={end.cash}
+          dividends={valuation.dividends}
+          taxesPaid={valuation.taxesPaid}
+          periodLabel={periodLabel(period)}
+          to={valuation.to}
+          today={today}
+        />
       ) : null}
       <DepotTabs depotId={depot.id} value={tab} />
       <TabPanel tab={tab}>{content}</TabPanel>

@@ -333,6 +333,16 @@ export async function latestStoredPrices(
       select: { securityId: true, provider: true },
     }),
   ]);
+  return storedObservations(rows, mappings);
+}
+
+type StoredPriceRow = { id: string; securityId: string; date: string; source: "MANUAL" | "PROVIDER"; price: string; fetchedAt: string };
+
+/** Stored Price rows as resolver observations; PROVIDER rows carry the provider of the Security's current mapping. */
+function storedObservations(
+  rows: readonly StoredPriceRow[],
+  mappings: readonly { securityId: string; provider: PriceProvider | null }[],
+): PriceObservation[] {
   const providers = new Map(mappings.map((mapping) => [mapping.securityId, mapping.provider]));
   return rows.map((row) => ({
     id: row.id,
@@ -344,6 +354,30 @@ export async function latestStoredPrices(
     fetchedAt: row.fetchedAt,
     provider: row.source === "PROVIDER" ? (providers.get(row.securityId) ?? null) : null,
   }));
+}
+
+/**
+ * Every stored Price (MANUAL and PROVIDER) of `securityIds` dated on or before `asOf` as resolver
+ * observations (same mapping as `latestStoredPrices`): the full history the daily valuation series
+ * needs for its per-day resolution and carry-forward. Read-only.
+ */
+export async function storedPriceHistory(
+  securityIds: readonly string[],
+  asOf: string,
+  db: PricesDb = prisma,
+): Promise<PriceObservation[]> {
+  if (securityIds.length === 0) return [];
+  const [rows, mappings] = await Promise.all([
+    db.price.findMany({
+      where: { securityId: { in: [...securityIds] }, date: { lte: asOf } },
+      select: { id: true, securityId: true, date: true, source: true, price: true, fetchedAt: true },
+    }),
+    db.providerMapping.findMany({
+      where: { securityId: { in: [...securityIds] } },
+      select: { securityId: true, provider: true },
+    }),
+  ]);
+  return storedObservations(rows, mappings);
 }
 
 /** Latest price date of a Security with its source (for the date line, stale badge and tooltip). */

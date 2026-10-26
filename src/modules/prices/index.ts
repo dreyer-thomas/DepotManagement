@@ -32,6 +32,7 @@ export {
   refreshPrices,
   saveManualPrice,
   securityPriceInfo,
+  storedPriceHistory,
   updateManualPrice,
 } from "./prices";
 export type {

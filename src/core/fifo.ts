@@ -32,6 +32,20 @@ export type FifoSale = {
 export type FifoResult = { securityId: string; lots: FifoLot[]; sales: FifoSale[] };
 
 /**
+ * Applies one BUY/SELL row (with a Security) to `book`: a BUY adds a lot costing `amount + fee`, a SELL
+ * consumes the earliest lots. Returns the Cost Basis a SELL consumed, `null` for a BUY.
+ */
+export function applyTrade(book: LotBook, row: FifoRow): InstanceType<typeof ExactDecimal> | null {
+  const securityId = row.securityId as string;
+  const quantity = row.quantity ?? "0";
+  if (row.type === "BUY") {
+    book.buy(securityId, row.date, row.sequence, quantity, new ExactDecimal(row.amount).plus(row.fee));
+    return null;
+  }
+  return book.sell(securityId, quantity);
+}
+
+/**
  * FIFO per Security over BUY/SELL rows dated on or before `asOf`, replayed with the corporate actions
  * dated on or before `asOf` (`core/corporate-actions`): on one date splits, then ISIN changes, then
  * Transactions by `(date, sequence)`. A SELL consumes the earliest lots first; a partially consumed lot
@@ -52,14 +66,9 @@ export function fifo(rows: readonly FifoRow[], asOf: string, actions: CorporateA
     const row = event.row;
     const securityId = row.securityId as string;
     const quantity = row.quantity ?? "0";
-    const amount = new ExactDecimal(row.amount);
-    const fee = new ExactDecimal(row.fee);
-    if (row.type === "BUY") {
-      book.buy(securityId, row.date, row.sequence, quantity, amount.plus(fee));
-      continue;
-    }
-    const costBasis = book.sell(securityId, quantity);
-    const proceeds = amount.minus(fee);
+    const costBasis = applyTrade(book, row);
+    if (costBasis === null) continue;
+    const proceeds = new ExactDecimal(row.amount).minus(row.fee);
     let list = sales.get(securityId);
     if (!list) sales.set(securityId, (list = []));
     list.push({

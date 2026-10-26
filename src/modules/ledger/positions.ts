@@ -1,4 +1,5 @@
 import { prisma } from "@/db";
+import type { CorporateActions } from "@/core/corporate-actions";
 import { saleFees, saleKey } from "@/core/fee-attribution";
 import { fifo } from "@/core/fifo";
 import { computePositions, type Position } from "@/core/positions";
@@ -21,6 +22,57 @@ export type StoredPriceLoader = (securityIds: string[], asOf: string) => Promise
 export type ListPositionsOptions = { storedPrices?: StoredPriceLoader };
 
 /**
+ * The Securities of `own` plus those an ISIN change carried their lots into, transitively: the
+ * Securities whose prices can value the Depot's Positions.
+ */
+export function securityLineage(own: Iterable<string>, actions: CorporateActions): string[] {
+  const lineage = new Set(own);
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const change of actions.isinChanges) {
+      if (lineage.has(change.oldSecurityId) && !lineage.has(change.newSecurityId)) {
+        lineage.add(change.newSecurityId);
+        grew = true;
+      }
+    }
+  }
+  return [...lineage];
+}
+
+/**
+ * Price observations for the lineage of `own` dated on or before `asOf`: the BUY/SELL prices of any
+ * Depot and, when `storedPrices` is given, the stored manual / provider Prices it loads.
+ */
+export async function lineageObservations(
+  own: Iterable<string>,
+  actions: CorporateActions,
+  asOf: string,
+  db: LedgerDb,
+  storedPrices?: StoredPriceLoader,
+): Promise<PriceObservation[]> {
+  const securityIds = securityLineage(own, actions);
+  const priced = await db.transaction.findMany({
+    where: { securityId: { in: securityIds }, type: { in: ["BUY", "SELL"] }, date: { lte: asOf }, price: { not: null } },
+    select: { id: true, securityId: true, date: true, sequence: true, price: true },
+  });
+  const observations: PriceObservation[] = priced.map((row) => ({
+    id: row.id,
+    securityId: row.securityId as string,
+    date: row.date,
+    sequence: row.sequence,
+    price: row.price as string,
+    source: "transaction",
+  }));
+  if (storedPrices) {
+    const ids = new Set(securityIds);
+    for (const observation of await storedPrices(securityIds, asOf)) {
+      if (ids.has(observation.securityId) && observation.date <= asOf) observations.push(observation);
+    }
+  }
+  return observations;
+}
+
+/**
  * Open Positions of a Depot as of `today` (`YYYY-MM-DD`). Prices come from the core resolver over the
  * BUY/SELL prices of each Security in any Depot dated on or before `today` and, when `storedPrices` is
  * given, the stored manual and provider Prices it loads (manual > provider > Transaction, carried
@@ -40,38 +92,7 @@ export async function listPositions(
   const own = new Set(rows.flatMap((row) => (row.securityId ? [row.securityId] : [])));
   if (own.size === 0) return [];
   const actions = await loadCorporateActions(db);
-  // Prices of the Securities an ISIN change carried the Depot's lots into, transitively.
-  const lineage = new Set(own);
-  for (let grew = true; grew; ) {
-    grew = false;
-    for (const change of actions.isinChanges) {
-      if (lineage.has(change.oldSecurityId) && !lineage.has(change.newSecurityId)) {
-        lineage.add(change.newSecurityId);
-        grew = true;
-      }
-    }
-  }
-  const securityIds = [...lineage];
-
-  const priced = await db.transaction.findMany({
-    where: { securityId: { in: securityIds }, type: { in: ["BUY", "SELL"] }, date: { lte: today }, price: { not: null } },
-    select: { id: true, securityId: true, date: true, sequence: true, price: true },
-  });
-  const observations: PriceObservation[] = priced.map((row) => ({
-    id: row.id,
-    securityId: row.securityId as string,
-    date: row.date,
-    sequence: row.sequence,
-    price: row.price as string,
-    source: "transaction",
-  }));
-  if (storedPrices) {
-    const ids = new Set(securityIds);
-    for (const observation of await storedPrices(securityIds, today)) {
-      if (ids.has(observation.securityId) && observation.date <= today) observations.push(observation);
-    }
-  }
-
+  const observations = await lineageObservations(own, actions, today, db, storedPrices);
   const positions = computePositions(rows, observations, today, actions);
   if (positions.length === 0) return [];
   const securities = await db.security.findMany({

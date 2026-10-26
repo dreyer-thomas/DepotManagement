@@ -92,7 +92,7 @@ export type ReplayRow = LedgerOrdered & { securityId: string | null; type: strin
 
 export type ReplayEvent<T extends ReplayRow> = ActionEvent | { kind: "trade"; row: T };
 
-function eventDate(event: ReplayEvent<ReplayRow>): string {
+export function eventDate(event: ReplayEvent<ReplayRow>): string {
   if (event.kind === "split") return event.split.date;
   if (event.kind === "isin-change") return event.change.date;
   return event.row.date;

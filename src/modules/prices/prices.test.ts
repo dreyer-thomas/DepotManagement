@@ -13,6 +13,7 @@ import {
   saveManualPrice,
   securityPriceInfo,
   setMapping,
+  storedPriceHistory,
   updateManualPrice,
   type YahooChart,
 } from "./index";
@@ -629,6 +630,34 @@ describe("latestStoredPrices and Positions", () => {
       storedPrices: (ids, asOf) => latestStoredPrices(ids, asOf, db()),
     });
     expect(position).toMatchObject({ quantity: "10", price: "110.44", value: "1104.4" });
+  });
+});
+
+describe("storedPriceHistory", () => {
+  async function price(securityId: string, date: string, source: "MANUAL" | "PROVIDER", value: string) {
+    await db().price.create({ data: { securityId, date, source, price: value, fetchedAt: NOW.toISOString() } });
+  }
+
+  it("returns every MANUAL and PROVIDER row on or before asOf of the given Securities", async () => {
+    const sap = await security(SAP, "SAP SE");
+    const nvidia = await security(NVIDIA, "NVIDIA");
+    await mapTo(sap, "YAHOO", "SAP.DE");
+    await price(sap, "2026-10-19", "MANUAL", "190");
+    await price(sap, "2026-10-20", "PROVIDER", "200");
+    await price(sap, "2026-10-21", "PROVIDER", "201");
+    await price(sap, "2026-10-25", "PROVIDER", "999");
+    await price(nvidia, "2026-10-20", "PROVIDER", "100");
+    const observations = await storedPriceHistory([sap], "2026-10-23", db());
+    expect(
+      observations
+        .map(({ securityId, date, price, source, sequence, fetchedAt, provider }) => ({ securityId, date, price, source, sequence, fetchedAt, provider }))
+        .sort((a, b) => a.date.localeCompare(b.date)),
+    ).toEqual([
+      { securityId: sap, date: "2026-10-19", price: "190", source: "manual", sequence: 0, fetchedAt: NOW.toISOString(), provider: null },
+      { securityId: sap, date: "2026-10-20", price: "200", source: "provider", sequence: 0, fetchedAt: NOW.toISOString(), provider: "YAHOO" },
+      { securityId: sap, date: "2026-10-21", price: "201", source: "provider", sequence: 0, fetchedAt: NOW.toISOString(), provider: "YAHOO" },
+    ]);
+    expect(await storedPriceHistory([], "2026-10-23", db())).toEqual([]);
   });
 });
 

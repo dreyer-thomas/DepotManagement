@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addDays, businessDate, isBusinessDate } from "./dates";
+import { addDays, addMonths, businessDate, isBusinessDate } from "./dates";
 
 describe("isBusinessDate", () => {
   it.each(["2026-10-25", "2024-02-29", "2000-02-29", "2026-12-31"])("accepts %s", (value) => {
@@ -43,5 +43,24 @@ describe("addDays", () => {
 
   it("rejects a non-business date", () => {
     expect(() => addDays("2026-02-30", 1)).toThrow(RangeError);
+  });
+});
+
+describe("addMonths", () => {
+  it.each([
+    ["2026-10-26", -1, "2026-09-26"],
+    ["2026-03-31", -1, "2026-02-28"],
+    ["2024-03-31", -1, "2024-02-29"],
+    ["2024-02-29", -12, "2023-02-28"],
+    ["2026-01-15", -1, "2025-12-15"],
+    ["2026-10-26", -36, "2023-10-26"],
+    ["2026-12-31", 2, "2027-02-28"],
+    ["2026-05-31", 0, "2026-05-31"],
+  ] as const)("%s %+d → %s", (date, months, expected) => {
+    expect(addMonths(date, months)).toBe(expected);
+  });
+
+  it("rejects an invalid date", () => {
+    expect(() => addMonths("2026-02-30", 1)).toThrow(RangeError);
   });
 });

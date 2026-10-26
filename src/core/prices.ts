@@ -36,7 +36,8 @@ export type ResolvedPrice = {
 
 const SOURCE_RANK: Record<PriceSource, number> = { transaction: 0, provider: 1, manual: 2 };
 
-function compareObservations(a: PriceObservation, b: PriceObservation): number {
+/** Resolver order: `(date, source transaction < provider < manual, sequence, id)`; the last on or before a date wins. */
+export function compareObservations(a: PriceObservation, b: PriceObservation): number {
   if (a.date !== b.date) return a.date < b.date ? -1 : 1;
   return (
     SOURCE_RANK[a.source] - SOURCE_RANK[b.source] ||
