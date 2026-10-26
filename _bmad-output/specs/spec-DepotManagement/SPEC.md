@@ -23,7 +23,7 @@ sources:
 
 ## Capabilities
 
-CAP-N corresponds to PRD FR-N.
+CAP-N corresponds to PRD FR-N (CAP-19 added 2026-10-26).
 
 - **CAP-1** — Manage Depots
   - **intent:** Tommy can create, rename and archive Depots, each assigned to one Broker and owning one Cash Account.
@@ -79,6 +79,9 @@ CAP-N corresponds to PRD FR-N.
 - **CAP-18** — Cash in overviews
   - **intent:** Portfolio and Depot overviews and charts include Cash Account balances in total value, shown separately from Positions.
   - **success:** Deposits and Withdrawals are external cash flows in both return metrics and do not count as Gain/Loss.
+- **CAP-19** — Security detail
+  - **intent:** Tommy can open a detail page per Security across all Depots or for one Depot, also when no longer held.
+  - **success:** It shows news, price history with buys and sells marked, the Transaction history with Depot, and the all-time result since the first buy (realized, unrealized, dividends, fees, taxes separately, total, % return and XIRR), all computed by core and consistent with the Depot figures.
 
 ## Constraints
 

@@ -41,6 +41,7 @@ FR15: Tommy can import his full Transaction history once from Parqet CSV exports
 FR16: Tommy can export all Depots and Transactions to an open file format and restore from it; export → restore into an empty instance reproduces identical Depots, Cash Accounts, Transactions, manual Prices and evaluations; restore replaces, never merges.
 FR17: Tommy can see balance and booking history of each Depot's Cash Account; buy, sell, dividend, fee and tax book their cash side automatically; Deposits and Withdrawals are entered manually and change only the Cash Account.
 FR18: Portfolio and Depot overviews and charts include Cash Account balances in total value, shown separately from Positions; Deposits and Withdrawals are external cash flows in both return metrics.
+FR19: Tommy can open a detail page per Security across all Depots (also when no longer held) showing news, price history with his buys and sells marked, the Transaction history with Depot, and the all-time result since the first buy (realized, unrealized, dividends, fees, taxes, total, return in % and XIRR).
 
 ### NonFunctional Requirements
 
@@ -127,6 +128,7 @@ FR15: Epic 2 - One-time Parqet migration (Stories 2.3, 2.4; hands-off rework in 
 FR16: Epic 6 - Export and restore
 FR17: Epic 1 - Cash Account balance and history
 FR18: Epic 4 - Cash in overviews and return metrics
+FR19: Epic 4 - Security detail page and all-time performance (Stories 4.6, 4.7)
 
 ## Epic List
 
@@ -138,110 +140,13 @@ Tommy can sign in, create and manage Depots, record every Transaction type by ha
 Tommy can record splits and ISIN changes and bring his complete history from Parqet into DepotManagement, with Positions, invested capital and Cash Account balances reconciled against Parqet. From here on he works with real data.
 **FRs covered:** FR3, FR15 · **Also:** AR7, AR15, AR16, AR21, UX-DR17
 
-#### Story 2.5: Hands-off Parqet Migration
-
-As Tommy,
-I want the Parqet migration to book my history without asking me row by row,
-So that moving away from Parqet takes minutes, not an afternoon of decisions.
-
-**Acceptance Criteria:**
-
-**Given** the asset types of the ledger
-**Then** `FUND` (active mutual fund, label "Fonds") is added to `AssetType` via a new migration and is selectable wherever an asset type is chosen (new Security in the Transaction form, ISIN-change dialog, migration preview)
-**Given** a Parqet preview with new Securities from `assettype = Security`
-**When** the preview is built
-**Then** a pure core classifier assigns each one a type from its name, in this order: contains `ETF`, `ETC`, `ETN` or `UCITS ETF`, or issuer `iShares`, `Xtrackers`, `Vanguard`, `Amundi`, `Lyxor`, `SPDR`, `Invesco`, `WisdomTree` → ETF; contains `Turbo`, `Knock-Out`, `Mini Future`, `Optionsschein`, `Open End` → CERTIFICATE; contains `SICAV`, `Fund`, `Funds`, `Fonds` → FUND; otherwise STOCK; `Crypto` rows stay CRYPTO
-**And** classification is no longer an open decision: the preview shows the estimated type per Security with an optional inline override, and the type stays editable later
-**And** the classifier is unit-tested with the fund, ETF and ETC names from the real-data trial (AB SICAV I Concentrated US Equity Portfolio, BlackRock Global Funds European Special Situations Fund, Fidelity Funds - USD Bond Fund, iShares Developed Markets Property Yield UCITS ETF, Xtrackers Physical Gold ETC) and typical stock and turbo names
-**Given** Security transfer rows sharing one instant
-**When** the reader groups them
-**Then** it first pairs `TransferOut` and `TransferIn` of the same ISIN into a split proposal (ratio = new quantity / old quantity, AD-7); then a remaining single out + single in of different ISINs becomes an ISIN change as before
-**And** every remaining `TransferIn` becomes a delivery: a BUY with Parqet's shares, price and amount plus a DEPOSIT of the same amount on the same date, so the Cash Account is unchanged and the delivery counts as an external inflow (AD-10, AD-14)
-**And** only a remaining unpaired `TransferOut` is still flagged
-**Given** remaining flags (unpaired `TransferOut`, `non-eur`, `unparseable`, `unsupported-row`, `cash-pair-mismatch`)
-**Then** they are listed in a collapsed "Nicht übernommen (n)" section that does not block "Übernehmen"; a single "Alle wie in Parqet übernehmen" books every flag that has a valid prefilled correction and skips the rest; the summary lists what was skipped
-**And** duplicate matching against an existing ledger (AD-15) still shows matches for decision; on an empty Depot there are none
-**Given** the synthetic fixture extended with a five-row `TransferIn` group, a same-ISIN out/in split pair and fund/ETC names
-**When** it is previewed into an empty Depot
-**Then** there are zero open decisions, "Übernehmen" is enabled immediately, and the resulting Positions, invested capital and Cash Account balance match the fixture's expected values
-
-### Story 2.6: Funding for Exports without Cash Rows and Depot Deletion
-
-As Tommy,
-I want a Parqet export without cash movements to produce a sensible Cash Account, and a way to delete a Depot completely,
-So that my cominvest history imports without a fake −26.000 € balance and I can redo a failed migration.
-
-**Acceptance Criteria:**
-
-**Given** a Parqet export that contains no `Cash` rows at all (e.g. a Parqet portfolio filled by comdirect/cominvest autosync)
-**When** the preview is built
-**Then** the preview states "Export ohne Kontobewegungen: N Einzahlungen werden ergänzt"
-**And** proposals are walked in `(date, sequence)` order with the running balance from `core/cash`; whenever a proposal's cash effect would take the balance below zero, a DEPOSIT for exactly the shortfall is inserted on the same date, sequenced directly before it (AD-6, AD-14)
-**And** proceeds from sells and dividends stay in the Cash Account and fund later buys, so only the minimal external funding is added
-**And** the Cash Account therefore never goes negative in the migrated history, and the inserted deposits count as external inflows in TTWROR and XIRR (AD-10)
-**And** exports that contain `Cash` rows are processed exactly as before
-**And** after booking, the existing balance alignment from Story 2.4 can set the final Cash Account balance to the broker's value at export date
-**And** a pure core function computes the funding deposits and is unit-tested with a synthetic cash-less fixture (buys, sells, a dividend, fees): never negative, deposits sum to the minimal funding
-**Given** a Depot in Settings → Depots
-**When** I choose "Depot löschen" and type the Depot's name to confirm
-**Then** the Depot, all its Transactions, its import staging and any caches are deleted through the `ledger` service in one DB transaction (AD-3); Securities and Prices shared with other Depots stay
-**And** the confirm dialog states how many Transactions will be deleted and that this cannot be undone
-**And** after deletion the same Parqet export can be migrated again into a newly created Depot
-
-### Story 2.7: Robust Cash Pairing and Rounding Tolerance in the Parqet Migration
-
-As Tommy,
-I want every trade from my Parqet exports to be booked even when Parqet's cash rows do not match the trade figures,
-So that no buy goes missing and no later sell fails with "Verkauf übersteigt Bestand".
-
-**Acceptance Criteria:**
-
-**Given** trade rows (BUY, SELL, DIVIDEND) and `Cash` rows of a Parqet export
-**When** the reader pairs them
-**Then** all trades and cash rows sharing one instant form a group; within a group, trades are paired 1:1 with cash rows first (as before), and any remaining trades and cash rows of the group are reconciled together as one group (e.g. a robo-advisor rebalancing with nine trades and a single net cash row)
-**And** `cash-pair-mismatch` is no longer a flag: every trade is booked with Parqet's quantity, price, amount and fee unchanged (Positions and Cost Basis match Parqet)
-**And** when a group's cash rows differ from the summed derived cash effects (AD-14) by more than €0.01, one standalone TAX Transaction (amount 0, signed tax = derived effect − cash, Security of the group's largest trade when the group has one Security, otherwise none) is added on that date, sequenced after the group's trades, so the Cash Account follows Parqet's cash rows; differences up to €0.01 keep the existing amount alignment (AD-6)
-**And** the preview shows "N Kontodifferenzen werden als Steuer gebucht" with the total
-**Given** a migrated SELL whose quantity exceeds the quantity held at that point by at most 0.001 units (Parqet rounding of fractional shares)
-**Then** the SELL is booked with the held quantity (amount, fee and tax unchanged), the shortfall is carried and subtracted from the quantity of the next BUY of the same Security in that Depot (amount unchanged), and the preview shows "N Rundungsreste ausgeglichen"
-**And** a SELL exceeding the holding by more than 0.001 units still stops booking with the existing message
-**Given** synthetic fixtures covering a buy whose cash row omits the fee, a sell whose cash row is lower than its amount (withheld tax), a dividend with a mismatching cash row, a rebalancing instant with several buys and sells and one net cash row, and a fractional sell exceeding the holding by 0.0008 followed later by a correcting buy
-**When** they are previewed and booked into an empty Depot
-**Then** there are no flags, booking succeeds, quantities end exactly as in the fixture, Cost Basis equals Parqet's, and the Cash Account equals the sum of the fixture's cash rows
-**And** the pure grouping, difference and shortfall functions live in `src/modules/migration` or `src/core` and are unit-tested
-
-### Story 2.8: Missing Deposits and Fee-Aware Gain Comparison in the Parqet Migration
-
-As Tommy,
-I want money Parqet never recorded as a deposit to be booked as a deposit, and fee-only gain differences not to look like errors,
-So that my Cash Accounts are plausible, my taxes-paid figure is right and the migration summary only shows real deviations.
-
-**Acceptance Criteria:**
-
-**Given** a group of trades and cash rows sharing one instant (Story 2.7) whose cash rows differ from the summed derived cash effects by more than €0.01
-**When** the cash rows show less money going out or more coming in than the trades explain (difference on the inflow side)
-**Then** the difference is booked as one DEPOSIT on that date, sequenced before the group's trades (money paid in from outside, e.g. a savings-plan contribution invested directly)
-**When** the cash rows show more money going out or less coming in than the trades explain (difference on the outflow side)
-**Then** the difference stays one standalone TAX Transaction with a positive tax, as in Story 2.7
-**And** the preview shows "N fehlende Einzahlungen ergänzt" and "N Kontodifferenzen als Steuer gebucht" separately with their totals
-**Given** any Parqet export, with or without `Cash` rows
-**When** proposals are walked in `(date, sequence)` order
-**Then** the minimal-funding rule of Story 2.6 applies to every export: whenever a row would take the running Cash Account balance below zero, a same-day DEPOSIT for exactly the shortfall is inserted before it, so the migrated Cash Account never goes negative
-**And** the cash comparison with Parqet in the summary explains that Parqet's own balance lacks deposits when the funding rule added any, instead of reporting a plain mismatch
-**Given** the per-sale comparison of realized Gain/Loss with Parqet's `realizedgains`
-**Then** a difference that equals the fees attributable to the sale (the sell fee plus the buy fees of the consumed FIFO lots, within €0.01) is shown as "Gebühren" and not counted as a deviation; other differences above €0.01 remain deviations
-**Given** synthetic fixtures with a rebalancing instant whose net cash row omits a contribution, a sell with withheld tax, a cash history that would go negative, and sales with buy and sell fees
-**When** they are previewed and booked into an empty Depot
-**Then** contributions are DEPOSITs, withheld tax is TAX with positive tax, the Cash Account never goes negative, and fee-only gain differences are not deviations
-**And** the classification of differences and the fee attribution are pure functions with unit tests
-
-## Epic 3: Market Data — Prices, Logos, News
+### Epic 3: Market Data — Prices, Logos, News
 Tommy gets current and historical Prices automatically, sees stale Prices flagged, can enter manual Prices and fix provider mappings, sees logos at every Security, and reads the last 14 days of news on his holdings.
 **FRs covered:** FR7, FR8, FR9, FR14 · **Also:** NFR2, NFR6, AR9, AR11, AR13 (scheduler), AR19, AR20, UX-DR14, UX-DR15
 
 ### Epic 4: Overview & Performance
 Tommy sees total and per-Depot value, invested capital, realized/unrealized Gain/Loss with dividends, fees and taxes, TTWROR and XIRR side by side, the value chart and composition for any Period, with cash included in totals.
-**FRs covered:** FR10, FR11, FR12, FR13, FR18 · **Also:** NFR5, AR10, AR17 (held set), UX-DR4–8
+**FRs covered:** FR10, FR11, FR12, FR13, FR18, FR19 · **Also:** NFR5, AR10, AR17 (held set), UX-DR4–8
 
 ### Epic 5: Document Import
 Tommy uploads ROBIN and comdirect/cominvest PDF documents, reviews the extracted Transactions with duplicate and ambiguity flags, and books them in one step.
@@ -471,6 +376,104 @@ So that I can trust DepotManagement as my new source of truth.
 **And** if the export contains no cash rows, the summary states that the Cash Account balance could not be reconciled and offers an opening Deposit/Withdrawal to set it
 **And** the migration can be repeated for each further Depot; re-running the same file books only what is not a duplicate.
 
+### Story 2.5: Hands-off Parqet Migration
+
+As Tommy,
+I want the Parqet migration to book my history without asking me row by row,
+So that moving away from Parqet takes minutes, not an afternoon of decisions.
+
+**Acceptance Criteria:**
+
+**Given** the asset types of the ledger
+**Then** `FUND` (active mutual fund, label "Fonds") is added to `AssetType` via a new migration and is selectable wherever an asset type is chosen (new Security in the Transaction form, ISIN-change dialog, migration preview)
+**Given** a Parqet preview with new Securities from `assettype = Security`
+**When** the preview is built
+**Then** a pure core classifier assigns each one a type from its name, in this order: contains `ETF`, `ETC`, `ETN` or `UCITS ETF`, or issuer `iShares`, `Xtrackers`, `Vanguard`, `Amundi`, `Lyxor`, `SPDR`, `Invesco`, `WisdomTree` → ETF; contains `Turbo`, `Knock-Out`, `Mini Future`, `Optionsschein`, `Open End` → CERTIFICATE; contains `SICAV`, `Fund`, `Funds`, `Fonds` → FUND; otherwise STOCK; `Crypto` rows stay CRYPTO
+**And** classification is no longer an open decision: the preview shows the estimated type per Security with an optional inline override, and the type stays editable later
+**And** the classifier is unit-tested with the fund, ETF and ETC names from the real-data trial (AB SICAV I Concentrated US Equity Portfolio, BlackRock Global Funds European Special Situations Fund, Fidelity Funds - USD Bond Fund, iShares Developed Markets Property Yield UCITS ETF, Xtrackers Physical Gold ETC) and typical stock and turbo names
+**Given** Security transfer rows sharing one instant
+**When** the reader groups them
+**Then** it first pairs `TransferOut` and `TransferIn` of the same ISIN into a split proposal (ratio = new quantity / old quantity, AD-7); then a remaining single out + single in of different ISINs becomes an ISIN change as before
+**And** every remaining `TransferIn` becomes a delivery: a BUY with Parqet's shares, price and amount plus a DEPOSIT of the same amount on the same date, so the Cash Account is unchanged and the delivery counts as an external inflow (AD-10, AD-14)
+**And** only a remaining unpaired `TransferOut` is still flagged
+**Given** remaining flags (unpaired `TransferOut`, `non-eur`, `unparseable`, `unsupported-row`, `cash-pair-mismatch`)
+**Then** they are listed in a collapsed "Nicht übernommen (n)" section that does not block "Übernehmen"; a single "Alle wie in Parqet übernehmen" books every flag that has a valid prefilled correction and skips the rest; the summary lists what was skipped
+**And** duplicate matching against an existing ledger (AD-15) still shows matches for decision; on an empty Depot there are none
+**Given** the synthetic fixture extended with a five-row `TransferIn` group, a same-ISIN out/in split pair and fund/ETC names
+**When** it is previewed into an empty Depot
+**Then** there are zero open decisions, "Übernehmen" is enabled immediately, and the resulting Positions, invested capital and Cash Account balance match the fixture's expected values
+
+### Story 2.6: Funding for Exports without Cash Rows and Depot Deletion
+
+As Tommy,
+I want a Parqet export without cash movements to produce a sensible Cash Account, and a way to delete a Depot completely,
+So that my cominvest history imports without a fake −26.000 € balance and I can redo a failed migration.
+
+**Acceptance Criteria:**
+
+**Given** a Parqet export that contains no `Cash` rows at all (e.g. a Parqet portfolio filled by comdirect/cominvest autosync)
+**When** the preview is built
+**Then** the preview states "Export ohne Kontobewegungen: N Einzahlungen werden ergänzt"
+**And** proposals are walked in `(date, sequence)` order with the running balance from `core/cash`; whenever a proposal's cash effect would take the balance below zero, a DEPOSIT for exactly the shortfall is inserted on the same date, sequenced directly before it (AD-6, AD-14)
+**And** proceeds from sells and dividends stay in the Cash Account and fund later buys, so only the minimal external funding is added
+**And** the Cash Account therefore never goes negative in the migrated history, and the inserted deposits count as external inflows in TTWROR and XIRR (AD-10)
+**And** exports that contain `Cash` rows are processed exactly as before
+**And** after booking, the existing balance alignment from Story 2.4 can set the final Cash Account balance to the broker's value at export date
+**And** a pure core function computes the funding deposits and is unit-tested with a synthetic cash-less fixture (buys, sells, a dividend, fees): never negative, deposits sum to the minimal funding
+**Given** a Depot in Settings → Depots
+**When** I choose "Depot löschen" and type the Depot's name to confirm
+**Then** the Depot, all its Transactions, its import staging and any caches are deleted through the `ledger` service in one DB transaction (AD-3); Securities and Prices shared with other Depots stay
+**And** the confirm dialog states how many Transactions will be deleted and that this cannot be undone
+**And** after deletion the same Parqet export can be migrated again into a newly created Depot
+
+### Story 2.7: Robust Cash Pairing and Rounding Tolerance in the Parqet Migration
+
+As Tommy,
+I want every trade from my Parqet exports to be booked even when Parqet's cash rows do not match the trade figures,
+So that no buy goes missing and no later sell fails with "Verkauf übersteigt Bestand".
+
+**Acceptance Criteria:**
+
+**Given** trade rows (BUY, SELL, DIVIDEND) and `Cash` rows of a Parqet export
+**When** the reader pairs them
+**Then** all trades and cash rows sharing one instant form a group; within a group, trades are paired 1:1 with cash rows first (as before), and any remaining trades and cash rows of the group are reconciled together as one group (e.g. a robo-advisor rebalancing with nine trades and a single net cash row)
+**And** `cash-pair-mismatch` is no longer a flag: every trade is booked with Parqet's quantity, price, amount and fee unchanged (Positions and Cost Basis match Parqet)
+**And** when a group's cash rows differ from the summed derived cash effects (AD-14) by more than €0.01, one standalone TAX Transaction (amount 0, signed tax = derived effect − cash, Security of the group's largest trade when the group has one Security, otherwise none) is added on that date, sequenced after the group's trades, so the Cash Account follows Parqet's cash rows; differences up to €0.01 keep the existing amount alignment (AD-6)
+**And** the preview shows "N Kontodifferenzen werden als Steuer gebucht" with the total
+**Given** a migrated SELL whose quantity exceeds the quantity held at that point by at most 0.001 units (Parqet rounding of fractional shares)
+**Then** the SELL is booked with the held quantity (amount, fee and tax unchanged), the shortfall is carried and subtracted from the quantity of the next BUY of the same Security in that Depot (amount unchanged), and the preview shows "N Rundungsreste ausgeglichen"
+**And** a SELL exceeding the holding by more than 0.001 units still stops booking with the existing message
+**Given** synthetic fixtures covering a buy whose cash row omits the fee, a sell whose cash row is lower than its amount (withheld tax), a dividend with a mismatching cash row, a rebalancing instant with several buys and sells and one net cash row, and a fractional sell exceeding the holding by 0.0008 followed later by a correcting buy
+**When** they are previewed and booked into an empty Depot
+**Then** there are no flags, booking succeeds, quantities end exactly as in the fixture, Cost Basis equals Parqet's, and the Cash Account equals the sum of the fixture's cash rows
+**And** the pure grouping, difference and shortfall functions live in `src/modules/migration` or `src/core` and are unit-tested
+
+### Story 2.8: Missing Deposits and Fee-Aware Gain Comparison in the Parqet Migration
+
+As Tommy,
+I want money Parqet never recorded as a deposit to be booked as a deposit, and fee-only gain differences not to look like errors,
+So that my Cash Accounts are plausible, my taxes-paid figure is right and the migration summary only shows real deviations.
+
+**Acceptance Criteria:**
+
+**Given** a group of trades and cash rows sharing one instant (Story 2.7) whose cash rows differ from the summed derived cash effects by more than €0.01
+**When** the cash rows show less money going out or more coming in than the trades explain (difference on the inflow side)
+**Then** the difference is booked as one DEPOSIT on that date, sequenced before the group's trades (money paid in from outside, e.g. a savings-plan contribution invested directly)
+**When** the cash rows show more money going out or less coming in than the trades explain (difference on the outflow side)
+**Then** the difference stays one standalone TAX Transaction with a positive tax, as in Story 2.7
+**And** the preview shows "N fehlende Einzahlungen ergänzt" and "N Kontodifferenzen als Steuer gebucht" separately with their totals
+**Given** any Parqet export, with or without `Cash` rows
+**When** proposals are walked in `(date, sequence)` order
+**Then** the minimal-funding rule of Story 2.6 applies to every export: whenever a row would take the running Cash Account balance below zero, a same-day DEPOSIT for exactly the shortfall is inserted before it, so the migrated Cash Account never goes negative
+**And** the cash comparison with Parqet in the summary explains that Parqet's own balance lacks deposits when the funding rule added any, instead of reporting a plain mismatch
+**Given** the per-sale comparison of realized Gain/Loss with Parqet's `realizedgains`
+**Then** a difference that equals the fees attributable to the sale (the sell fee plus the buy fees of the consumed FIFO lots, within €0.01) is shown as "Gebühren" and not counted as a deviation; other differences above €0.01 remain deviations
+**Given** synthetic fixtures with a rebalancing instant whose net cash row omits a contribution, a sell with withheld tax, a cash history that would go negative, and sales with buy and sell fees
+**When** they are previewed and booked into an empty Depot
+**Then** contributions are DEPOSITs, withheld tax is TAX with positive tax, the Cash Account never goes negative, and fee-only gain differences are not deviations
+**And** the classification of differences and the fee attribution are pure functions with unit tests
+
+
 ## Epic 3: Market Data — Prices, Logos, News
 
 Tommy gets current and historical Prices automatically, sees stale Prices flagged, can enter manual Prices and fix provider mappings, sees logos at every Security, and reads recent news on his holdings.
@@ -673,20 +676,38 @@ So that I understand my allocation.
 **And** percentages sum to 100 % of total value including cash; the legend shows percentage and amount, and tapping a legend row highlights its segment
 **And** the donut has a text alternative listing the segments (UX-DR21).
 
-### Story 4.6: Position Detail
+### Story 4.6: Security Detail Page
 
 As Tommy,
-I want a detail page for each Position,
-So that I can drill into a holding before deciding to act (UJ-1 climax).
+I want one detail page per Security that brings together all my Depots,
+So that I can drill into a holding — or one I already sold — before deciding to act (UJ-1 climax).
 
 **Acceptance Criteria:**
 
-**Given** a Position in a Depot
-**When** I tap it in the Positions table or top Positions
-**Then** I see the Security header (logo, name, ISIN, type, Depot), hero card with value, Period Gain/Loss and area chart, KPI cards (Cost Basis, unrealized, dividends in Period, average purchase price), latest price with date and stale badge, the FIFO lots, the Security's Transactions and its news of the last 14 days, as in `mockups/position-phone.html`
-**And** a stale Position shows "Keine Kursquelle liefert aktuelle Kurse." with "Kurs manuell eintragen"
-**And** menu actions offer Corporate Action (split, ISIN change) and new Transaction for this Security
+**Given** a Security I hold or held in any Depot
+**When** I tap it in the Positions table, top Positions, the Securities page or a Transaction row
+**Then** a Security detail page opens (also for Securities no longer held) with the header (logo, name, ISIN, type) and a Depot switcher "Alle Depots" plus each Depot that ever booked this Security (default: the Depot I came from, else "Alle Depots"), as in `mockups/position-phone.html`
+**And** for the selected scope it shows the hero card (current value, Period Gain/Loss, area chart), KPI cards (quantity, Cost Basis, unrealized, dividends in Period, average purchase price), latest price with date and stale badge, the open FIFO lots per Depot, and the Security's news of the last 14 days
+**And** the Transaction history lists every Transaction of this Security in the scope, newest first, each with its Depot name
+**And** a stale price shows "Keine Kursquelle liefert aktuelle Kurse." with "Kurs manuell eintragen"
+**And** menu actions offer Corporate Action (split, ISIN change) and a new Transaction for this Security (Depot preselected when one is selected)
 **And** the Period selector applies; no news shows "Keine Nachrichten der letzten 14 Tage."
+**And** all figures come from `src/core` over the ledger (AD-1); "Alle Depots" sums the per-Depot results and FIFO stays per Depot
+
+### Story 4.7: All-time Performance and Price Chart with Trades
+
+As Tommy,
+I want each Security's complete result since my first buy and its price history with my trades marked,
+So that I see what a holding really earned me and when I bought and sold.
+
+**Acceptance Criteria:**
+
+**Given** the Security detail page (Story 4.6) for a scope ("Alle Depots" or one Depot)
+**Then** a card "Gesamt seit Erstkauf" shows: realized Gain/Loss (FIFO, all sales), unrealized Gain/Loss, dividends, fees, taxes paid (separately), total Gain/Loss (realized + unrealized + dividends − fees, gross of taxes, AD-10), total invested (sum of buy costs), and two returns: total Gain/Loss ÷ total invested in %, and an annualised money-weighted return (XIRR) over the Security's own flows (buys as outflows; sells, dividends and the current value as inflows)
+**And** the card works for Securities no longer held (unrealized 0, current value 0) and does not depend on the Period selector
+**Given** the hero chart
+**Then** a toggle switches between "Kurs" (price per unit from the core price resolver, split-adjusted, AD-7/AD-9) and "Wert" (Position value); in "Kurs" mode every BUY and SELL in the scope is marked on its date (distinct markers for buy and sell) with a tooltip giving date, Depot, quantity and price
+**And** the Security-level total and XIRR are pure core functions with unit tests covering a fully sold Security, a Security held in two Depots, dividends, fees and a split
 
 ## Epic 5: Document Import
 

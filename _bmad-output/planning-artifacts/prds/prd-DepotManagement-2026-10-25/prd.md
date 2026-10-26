@@ -187,6 +187,12 @@ The Portfolio and Depot overviews (FR-10, FR-11) include Cash Account balances i
 **Consequences (testable):**
 - Deposits and Withdrawals are treated as external cash flows in both return metrics (FR-12), so they do not count as Gain/Loss.
 
+#### FR-19: Security detail
+Tommy can open a detail page for each Security, across all Depots or for one Depot, also when he no longer holds it.
+**Consequences (testable):**
+- It shows news, price history with his buys and sells marked, and the Transaction history with the Depot of each Transaction.
+- It shows the all-time result since the first buy: realized and unrealized Gain/Loss, dividends, fees, taxes paid (separately), total, return in % of the invested amount, and an annualised money-weighted return.
+
 ## 5. Cross-Cutting NFRs and Constraints
 - **Deployment:** Runs locally first; later as a web app on Tommy's Linux production server behind Nginx with TLS. Must be installable from the repository with a documented, simple setup.
 - **Privacy & security:** Financial data stays on Tommy's own machine/server; no third-party analytics. Once reachable over the network, access requires authentication (single user).

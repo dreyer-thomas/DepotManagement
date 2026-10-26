@@ -8,8 +8,8 @@ scope: 'DepotManagement v1 — the whole product as defined by the PRD (FR-1..FR
 status: final
 created: '2026-10-25'
 updated: '2026-10-25'
-change_log: ['2026-10-25 sprint change: AD-7, AD-16 amended (hands-off Parqet migration, FUND type)', '2026-10-25 sprint change: AD-6 amended (funding for cash-less exports)', '2026-10-25 sprint change: AD-6 amended (group cash pairing, TAX differences, rounding clamp)', '2026-10-25 sprint change: AD-6 amended (inflow differences as DEPOSIT, funding for every export)']
-binds: [FR-1, FR-2, FR-3, FR-4, FR-5, FR-6, FR-7, FR-8, FR-9, FR-10, FR-11, FR-12, FR-13, FR-14, FR-15, FR-16, FR-17, FR-18]
+change_log: ['2026-10-25 sprint change: AD-7, AD-16 amended (hands-off Parqet migration, FUND type)', '2026-10-25 sprint change: AD-6 amended (funding for cash-less exports)', '2026-10-25 sprint change: AD-6 amended (group cash pairing, TAX differences, rounding clamp)', '2026-10-25 sprint change: AD-6 amended (inflow differences as DEPOSIT, funding for every export)', '2026-10-26 sprint change: AD-10 amended (Security-level figures, FR-19)']
+binds: [FR-19, FR-1, FR-2, FR-3, FR-4, FR-5, FR-6, FR-7, FR-8, FR-9, FR-10, FR-11, FR-12, FR-13, FR-14, FR-15, FR-16, FR-17, FR-18]
 sources:
   - _bmad-output/planning-artifacts/prds/prd-DepotManagement-2026-10-25/prd.md
   - _bmad-output/planning-artifacts/prds/prd-DepotManagement-2026-10-25/addendum.md
@@ -113,7 +113,7 @@ graph TD
 
 - **Binds:** FR-10, FR-11, FR-12, FR-18
 - **Prevents:** TTWROR and XIRR, or Portfolio and Depot figures, using different notions of an external flow or of invested capital.
-- **Rule:** The unit of measurement is a Depot including its Cash Account; the Portfolio is the sum of non-archived Depots. Both return metrics and all Period figures come from one daily valuation series produced by core. External cash flows are Deposits, Withdrawals and net taxes (paid minus refunds) — the tax cash debit is classified as external, not counted twice — so returns and Gain/Loss are gross, with taxes shown separately. Period Gain/Loss = change in value − net external flows, split into realized, unrealized, dividends and fees. Invested capital = FIFO Cost Basis of open Positions, computed by one core function used by every view.
+- **Rule:** The unit of measurement is a Depot including its Cash Account; the Portfolio is the sum of non-archived Depots. Both return metrics and all Period figures come from one daily valuation series produced by core. External cash flows are Deposits, Withdrawals and net taxes (paid minus refunds) — the tax cash debit is classified as external, not counted twice — so returns and Gain/Loss are gross, with taxes shown separately. Period Gain/Loss = change in value − net external flows, split into realized, unrealized, dividends and fees. Invested capital = FIFO Cost Basis of open Positions, computed by one core function used by every view. Security-level figures (Security detail, FR-19) come from core over that Security's rows: "Alle Depots" sums per-Depot results (FIFO stays per Depot); the all-time total is realized + unrealized + dividends − fees (taxes separate), and the Security XIRR treats buys as outflows and sells, dividends and the current value as inflows.
 
 ### AD-11 — News providers are swappable and outside the ledger `[ADOPTED]`
 
@@ -260,6 +260,7 @@ graph LR
 | FR-3 Corporate actions | `modules/ledger`, `core/corporate-actions` | AD-7, AD-8 |
 | FR-4..FR-6 Document Import | `modules/import`, `core/duplicates` | AD-3, AD-4, AD-14, AD-15, AD-16 |
 | FR-7..FR-9 Prices | `modules/prices`, `core/prices` | AD-9, AD-13, AD-17 |
+| FR-19 Security detail, all-time performance | `core/returns`, `core/valuation`, `app` | AD-1, AD-7, AD-9, AD-10 |
 | FR-10..FR-13 Overview, chart, Gain/Loss, composition | `core/valuation`, `core/returns`, `core/composition`, `app` | AD-1, AD-5, AD-9, AD-10, AD-17 |
 | FR-14 News | `modules/news` | AD-11, AD-17 |
 | UX Security logos | `modules/logos` | AD-13, AD-19 |

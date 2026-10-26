@@ -162,3 +162,11 @@ NEW: ... by asset type (ETF, Fonds, Aktie, Zertifikat, Krypto, Guthaben, Unklass
 **Change.** New Story 2.8: inflow-side group differences → DEPOSIT, outflow-side → TAX; minimal funding for every export; fee-explained gain differences shown as "Gebühren". Amended: AD-6, PRD FR-15 consequences, SPEC CAP-15, EXPERIENCE.md Flow 4 notes, epics FR15 inventory and coverage map. Sprint status gains `2-8-...: backlog`.
 
 **Handoff.** bmad-loop builds 2.8; Claude re-runs the throwaway end-to-end migration (expect no negative cash, no negative TAX from contributions, only non-fee gain deviations); Tommy then migrates all three Depots, aligns each Cash Account to the broker balance and confirms Story 2.4.
+
+## Addendum D — Security Detail Page and All-time Performance (approved 2026-10-26)
+
+**Trigger.** Before starting Epic 4, Tommy asked for a detail view per Security: news, price history, the history of buys and sells across his Depot(s), and the Gain/Loss over all time. Planned Story 4.6 covered a per-Position page with Period figures only; it lacked a cross-Depot view, pages for fully sold Securities, all-time results and a price chart with trades.
+
+**Change.** New FR-19 / CAP-19 "Security detail". Story 4.6 rewritten as "Security Detail Page" (one page per Security, Depot switcher "Alle Depots"/single Depot, also for sold Securities, Transactions with Depot). New Story 4.7 "All-time Performance and Price Chart with Trades" (card "Gesamt seit Erstkauf" with realized, unrealized, dividends, fees, taxes, total, % return and Security XIRR; chart toggle Kurs/Wert with buy and sell markers). Amended: AD-10 (Security-level figures), spine capability map, PRD FR-19, SPEC CAP-19, EXPERIENCE.md (Position detail → Security detail), epics inventory and coverage map. Sprint status: `4-6-position-detail` replaced by `4-6-security-detail-page`, plus `4-7-...: backlog`.
+
+**Also fixed.** Stories 2.5–2.8 had been inserted into the Epic List section of `epics.md` (an anchor matched the list heading `### Epic 3`); they now sit in the Epic 2 section. Content unchanged.

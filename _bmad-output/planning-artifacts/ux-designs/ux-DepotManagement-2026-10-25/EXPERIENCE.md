@@ -21,16 +21,16 @@ Single-surface responsive web app, MUI 9 on Next.js (App Router), one user (Tomm
 | Login | Any URL without session | Single-user sign-in | NFR auth |
 | Overview | App open, nav | Portfolio KPIs, value chart, per-Depot list, composition, top news | CAP-10..13, 18, 14 |
 | Depot detail | Overview Depot row, nav "Depots" | Depot KPIs and chart; tabs: Positions · Cash Account · Transactions · Composition | CAP-1, 10..13, 17, 18 |
-| Position detail | Positions row | Security header (ISIN, type, latest Price + date, stale badge), Position KPIs, price/value chart, FIFO lots, Transactions, news for this Security | CAP-7, 8, 12, 14 |
+| Security detail | Positions row, top Positions, Securities row, Transaction row | One page per Security across Depots (switcher "Alle Depots" / single Depot), also for Securities no longer held: header, hero with chart toggle "Kurs" (buy/sell markers) / "Wert", KPIs, card "Gesamt seit Erstkauf", FIFO lots per Depot, Transactions with Depot, news | CAP-7, 8, 12, 14, 19 |
 | Transaction form | FAB / "Neue Buchung" on any Depot surface; row click to edit | Add, edit, delete a Transaction of any type | CAP-2, 17 |
-| Corporate action form | Position detail menu | Record split or ISIN change | CAP-3 |
+| Corporate action form | Security detail menu | Record split or ISIN change | CAP-3 |
 | Import | Depot detail action "Dokumente importieren", nav | Upload PDFs → review batch → confirm | CAP-4..6 |
 | News | Nav | Headlines last 14 days, filter by Security | CAP-14 |
 | Securities | Nav "Mehr" | All Securities: classify `UNCLASSIFIED`, edit provider mapping, enter manual Prices, trigger price refresh, replace or upload a logo | CAP-7, 9 |
 | Settings | Nav "Mehr" | Depots (create, rename, archive, delete with typed name confirmation), Parqet migration, export/restore, appearance | CAP-1, 15, 16 |
 | Parqet migration | Settings | One-time wizard per Depot: file → target Depot → preview/review → confirm | CAP-15 |
 
-One global **Period selector** (1M · YTD · 1J · 3J · Max · Benutzerdefiniert) lives in the page header of Overview, Depot detail and Position detail; the choice persists across those surfaces and sessions. `[ASSUMPTION: 3J added between 1J and Max]` Archived Depots appear only in a collapsed "Archiviert" group on the Depots list and are read-only.
+One global **Period selector** (1M · YTD · 1J · 3J · Max · Benutzerdefiniert) lives in the page header of Overview, Depot detail and Security detail; the choice persists across those surfaces and sessions. `[ASSUMPTION: 3J added between 1J and Max]` Archived Depots appear only in a collapsed "Archiviert" group on the Depots list and are read-only.
 
 Dialogs stack one level deep at most.
 
@@ -58,7 +58,7 @@ Behavioral; visual specs in `DESIGN.md.Components`.
 | Area chart | Overview, Depot, Position (in hero card) | Value (filled area) and invested capital (dashed) over the Period; crosshair/tap tooltip shows date, value, invested capital. Days with carried-forward Prices are not marked individually. |
 | Security logo | Every Security mention | Logo before the name, always served from the local logo cache (fetched once in the background: logo.dev, fallback Elbstream; certificates show issuer or underlying logo; crypto falls back to CoinGecko). Missing logo shows initials immediately, never a broken image or layout shift. A manually uploaded logo always wins. |
 | Positions table | Depot detail, Overview (top Positions) | Columns: logo + Security, quantity, price (+ stale badge), value, Gain/Loss abs/%, share. Sortable, default by value desc. Cash Account row pinned at the bottom, visually distinct. Phone: stacked rows (name, value, Gain/Loss). |
-| Transaction list | Depot detail, Position detail | Newest first, grouped by month; type icon, Security, quantity, amount, cash effect. Row click opens the form in edit mode. |
+| Transaction list | Depot detail, Security detail | Newest first, grouped by month; type icon, Security, quantity, amount, cash effect. Row click opens the form in edit mode. |
 | Transaction form | Dialog (desktop), full-screen page (phone) | Type first; fields adapt to type (BUY/SELL: Security, date, quantity, price, fee, tax; DIVIDEND: Security, amount, tax; FEE/TAX: value; DEPOSIT/WITHDRAWAL: amount). Security via Autocomplete on ISIN or name; unknown ISIN offers "Neue Security anlegen". Shows the computed cash effect live. On save a possible duplicate shows an inline warning requiring explicit "Trotzdem buchen". Delete asks for confirmation. |
 | Import review table | Import | One section per file with status chip; proposals editable inline; per proposal: book / discard. Ambiguous duplicates require a decision before "Buchen" is enabled. Failed files show reason and a "Manuell erfassen" link to the prefilled form. |
 | Stale badge | Every price display | Appears when Price older than 3 days; tooltip shows source and fetch time. |
@@ -75,10 +75,10 @@ Behavioral; visual specs in `DESIGN.md.Components`.
 | Loading | Any data surface | MUI Skeleton matching layout (KPI cards, chart block, table rows). |
 | Stale Prices | Overview | If any held Security is stale, an Alert (warning) above KPIs: "Kurse für 2 Wertpapiere veraltet" linking to Securities. |
 | Price fetch failed | Securities | Row-level error text with provider name; manual Price action offered. |
-| Unclassified Security | Securities, Position detail | Info chip "Typ unbekannt"; Overview composition shows an "Unklassifiziert" segment until resolved. |
+| Unclassified Security | Securities, Security detail | Info chip "Typ unbekannt"; Overview composition shows an "Unklassifiziert" segment until resolved. |
 | Import in review | Import | Batch persists until confirmed or discarded; Import entry shows count of open batches. |
 | Archive blocked | Settings → Depots | Archive action disabled with reason: "Depot hat noch Positionen oder Guthaben." |
-| No news | News, Position detail | "Keine Nachrichten der letzten 14 Tage." |
+| No news | News, Security detail | "Keine Nachrichten der letzten 14 Tage." |
 | Session expired | Any | Redirect to Login, return to original URL after sign-in. |
 | Server error on save | Forms | Form stays filled; error Alert in the form; retry possible. |
 
@@ -121,7 +121,7 @@ Behavioral; visual specs in `DESIGN.md.Components`.
 3. He switches the Period selector to "1J"; KPIs, TTWROR/XIRR and the chart update together.
 4. In the Depot list he sees comdirect moved most and taps it.
 5. Depot detail opens on the Positions tab, sorted by value; he taps the largest Position.
-6. **Climax:** Position detail shows the 1-year chart, his FIFO Gain/Loss and the last 14 days of headlines for that Security on one screen — he reads two headlines and decides to hold, without opening a second app.
+6. **Climax:** Security detail shows the 1-year chart, his FIFO Gain/Loss and the last 14 days of headlines for that Security on one screen — he reads two headlines and decides to hold, without opening a second app.
 
 Failure: a Price is stale → stale badge with date on the Position and the Overview alert; values use the last known Price.
 
