@@ -26,7 +26,7 @@ This document provides the complete epic and story breakdown for DepotManagement
 FR1: Tommy can create, rename and archive Depots, each assigned to one Broker and owning one Cash Account; an archived Depot is excluded from the Portfolio overview but its history stays viewable.
 FR2: Tommy can add, edit and delete Transactions of every type (buy, sell, dividend/distribution, fee, tax, Deposit, Withdrawal) for a Depot; Securities selectable by ISIN or name search, unknown ISINs can be added; fractional quantities up to 8 decimals; all asset types (stock, ETF, certificate, crypto); Positions and evaluations reflect changes immediately.
 FR3: Tommy can record stock splits (ratio + effective date; earlier quantities and Prices shown split-adjusted) and ISIN changes (old and new quantity, ratio may differ from 1:1; total Cost Basis and original FIFO purchase dates kept).
-FR4: Tommy can upload one or many broker PDF documents for a Depot and get Transactions extracted; v1 supports Deutsche Bank/ROBIN and comdirect/cominvest buy, sell and dividend confirmations; finanzen.net zero stays manual; each file shows status parsed, duplicate, or failed with reason.
+FR4: Tommy can upload one or many broker PDF documents for a Depot and get Transactions extracted; v1 supports Deutsche Bank/ROBIN, comdirect/cominvest and finanzen.net zero/Baader Bank buy, sell and dividend confirmations (finanzen.net zero also tax refunds); each file shows status parsed, duplicate, or failed with reason.
 FR5: Tommy can review, correct or discard extracted Transactions before they are booked.
 FR6: The system detects already-booked Transactions (earlier import, migration or manual entry) and does not book them twice; re-importing the same document books nothing; duplicate = Depot, date, ISIN (Security), type and quantity match and amount within €0.01; ambiguous matches (e.g. identical savings-plan buys on one day) are flagged in review, never auto-dropped.
 FR7: The system fetches current Prices for all held Securities at least daily and on demand; the UI shows the latest Price timestamp per Security; Prices older than 3 days are flagged stale in all overviews.
@@ -113,7 +113,7 @@ UX-DR21: Accessibility floor — WCAG 2.2 AA, sign + arrow with gain/loss colors
 FR1: Epic 1 - Manage Depots (create, rename, archive)
 FR2: Epic 1 - Manual Transactions of every type
 FR3: Epic 2 - Splits and ISIN changes
-FR4: Epic 5 - Upload and parse broker PDFs
+FR4: Epic 5 - Upload and parse broker PDFs (finanzen.net zero added in Story 5.5)
 FR5: Epic 5 - Review before booking
 FR6: Epic 5 - Duplicate protection in import (core matcher built in Epic 1, used by Epic 2)
 FR7: Epic 3 - Automatic current prices, stale flag
@@ -149,7 +149,7 @@ Tommy sees total and per-Depot value, invested capital, realized/unrealized Gain
 **FRs covered:** FR10, FR11, FR12, FR13, FR18, FR19 · **Also:** NFR5, AR10, AR17 (held set), UX-DR4–8
 
 ### Epic 5: Document Import
-Tommy uploads ROBIN and comdirect/cominvest PDF documents, reviews the extracted Transactions with duplicate and ambiguity flags, and books them in one step.
+Tommy uploads ROBIN, comdirect/cominvest and finanzen.net zero PDF documents, reviews the extracted Transactions with duplicate and ambiguity flags, and books them in one step.
 **FRs covered:** FR4, FR5, FR6 · **Also:** NFR9, AR4, AR15, AR22 (parser fixtures), UX-DR13
 
 ### Epic 6: Data Safety & Operations
@@ -711,7 +711,7 @@ So that I see what a holding really earned me and when I bought and sold.
 
 ## Epic 5: Document Import
 
-Tommy uploads ROBIN and comdirect/cominvest PDF documents, reviews the extracted Transactions with duplicate and ambiguity flags, and books them in one step.
+Tommy uploads ROBIN, comdirect/cominvest and finanzen.net zero PDF documents, reviews the extracted Transactions with duplicate and ambiguity flags, and books them in one step.
 
 ### Story 5.1: Upload Documents into a Review Batch
 
@@ -782,6 +782,24 @@ So that I can stop relying on Parqet's error-prone autosync.
 **And** a comdirect Wertpapierabrechnung PDF carries its Steuermitteilung as further pages of the same file: the trade's tax is read from that part (abgeführte Steuern), so one file yields one proposal with fee and tax
 **And** an Ertragsgutschrift and its Steuermitteilung arrive as separate files and are merged into one DIVIDEND proposal by Referenz-Nummer (the credit's "Referenz-Nr." equals the notice's "Referenz-Nummer"); tax = gross EUR − credited EUR after tax, which covers Kapitalertragsteuer, Solidaritätszuschlag, Kirchensteuer and foreign withholding tax
 **And** an Ertragsgutschrift whose Steuermitteilung is not in the batch yields the DIVIDEND with tax 0 and a review hint; a dividend Steuermitteilung without its Ertragsgutschrift in the batch fails with "Steuermitteilung ohne Ertragsgutschrift. Bitte zusammen hochladen."
+
+### Story 5.5: finanzen.net zero / Baader Bank Parser
+
+As Tommy,
+I want finanzen.net zero (Baader Bank) documents recognized,
+So that my third Depot no longer needs manual bookkeeping.
+
+**Acceptance Criteria:**
+
+**Given** a batch for a `FINANZEN_ZERO` Depot
+**When** Baader Bank documents from finanzen.net zero are processed
+**Then** pure parsers registered for `FINANZEN_ZERO` produce AD-14 proposals and the review and booking flow of Story 5.3 applies unchanged
+**And** "Wertpapierabrechnung: Kauf/Verkauf" yields one BUY or SELL: quantity from "STK n", price from the execution line, amount = Kurswert, fee = net of the fee lines (Finanzkommission, Vermittlungsentgelt, Handelsplatzabhängige Gutschrift as a negative fee), tax = sum of the page-1 tax lines (Kapitalertragsteuer, Solidaritätszuschlag, Kirchensteuer; a trailing "-" marks an amount paid), date = Handelsdatum; the booked total ("Zu Lasten/Zu Gunsten Konto … EUR") must equal the derived cash effect, else the file fails with a reason
+**And** "Dividendenabrechnung" and "Fondsausschüttung" yield one DIVIDEND: amount = "Bruttobetrag EUR", tax = all withheld taxes including foreign withholding tax (Quellensteuer, US-Quellensteuer), fee = external fees ("Gebühren extern …"), date = Zahltag; the credited amount must equal gross − tax − fee
+**And** "Steuerausgleichsrechnung" with "Erstattung" yields one TAX Transaction with negative tax (refund) and no Security; "Verlusttopfoptimierung" and other tax-pot notices without booking are recognized and reported as "Keine Buchung erforderlich." without a proposal
+**And** "Obligatorischer Umtausch" (ISIN change) and other corporate-action notices fail with "Kapitalmaßnahme bitte als Corporate Action erfassen." and are never booked as trades
+**And** the tax details on later pages ("Steuerbeträge", "Merkposten / Steuertöpfe") are not read as additional tax
+**And** the parsers are unit-tested against the anonymised real-layout fixtures in `test/fixtures/import/finanzen-zero/` (`buy.txt`, `sell.txt`, `dividend.txt`, `fund-distribution.txt`, `tax-refund.txt`, `tax-pot-no-booking.txt`, `isin-change.txt`), each through `parseDocument("FINANZEN_ZERO", …)`
 
 ## Epic 6: Data Safety & Operations
 

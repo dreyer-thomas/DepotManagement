@@ -1,0 +1,66 @@
+Baader Bank AG Weihenstephaner Straße 4 85716 Unterschleißheim
+T 00800 00 586336* F +49 89 5150 2442 service@baaderbank.de
+Herrn
+Max Mustermann
+Musterstraße 1
+12345 Musterstadt
+Wertpapierabrechnung: Kauf
+WPABRECHNUNG-063.115
+finanzen.net zero GmbH, Gartenstraße 67, 76135 Karlsruhe • Impressum unter: www.finanzen.net/zero/impressum
+finanzen.net zero GmbH erbringt Anlagevermittlung als gebundener Vermittler der DonauCapital Wertpapier GmbH
+Herausgeberin und verantwortlich für den Inhalt ist die Baader Bank Aktiengesellschaft • Weihenstephaner Straße 4 • 85716 Unterschleißheim • Deutschland
+Vorstand: Oliver Riedel (Vorsitzender), Kai Göhring, Martin Zoller • Vorsitzender des Aufsichtsrates: Dr. Louis Hagen • Amtsgericht München HRB 121537 • Sitz der
+Gesellschaft: Unterschleißheim • StNr. 143/107/04009 • USt-IdNr. DE114123893 • LEI: 529900JFOPPEDUR61H13 • T 00800 00 586336* • service@baaderbank.de
+* Kostenfreie Telefonnummer aus dem (inter-) nationalen Festnetz. Für Anrufe aus anderen Netzen können Gebühren anfallen.
+Gartenstraße 67
+76135 Karlsruhe
+www.finanzen.net/zero
++49 89 5455 8188
+Karlsruhe
+15.04.2026
+Max Mustermann
+Stamm-Nr.: 1234567 Portfolio: 1
+Depot-Nr.: 1234567001
+Vorgangs-Nr.: 100000001
+Referenz-Nr.: 2000000001
+KursWKN: 723610ISIN: DE0007236101
+Auftragsdatum:
+EUR
+Ausführungsplatz: GETTEX - MM Munich
+180,50
+Auftragszeit:
+15.04.2026
+09:12:30:00
+Nominale
+STK 12 Siemens AG
+Namens-Aktien o.N.
+Depotinhaber
+OrderroutingssystemArt der Auftragserteilung:
+Auftraggeber:
+EURKurswert 2.166,00
+Finanzkommission Baader 0,50EUR
+Vermittlungsentgelt Finanzen 2,10EUR
+Handelsplatzabhängige Gutschrift Baader 2,60 -EUR
+Valuta: 17.04.2026Zu Lasten Konto 1234567006 EUR 2.166,00
+Die Wertpapiere buchen wir zu Gunsten Ihres Depots.
+Nominale Kurs Ausführungsplatz
+Handels-
+datum
+Handels-
+uhrzeit
+Details zur Ausführung:
+GETTEX - MM Munich 15.04.2026STK 12 EUR 180,50 09:12:30:415
+Verwahrart: Girosammelverwahrung
+Lagerstelle: 100
+Lagerland: Deutschland
+Zeitzone der Handelsuhrzeit:
+MIC des Ausführungsplatzes: MUNC
+MEZ/MESZ
+Für die Ausführung dieses Auftrags gelten die Usancen des jeweiligen Ausführungsplatzes.
+Diese Auftragsbestätigung/Abrechnung wurde von der Baader Bank AG erstellt. Bitte prüfen Sie diese auf Richtigkeit und Vollständigkeit. Etwaige
+Einwendungen gegen diese Auftragsbestätigung/Abrechnung müssen nach Zugang unverzüglich bei der Baader Bank AG erhoben werden.
+Dieser Auftrag erfolgte ohne Empfehlung der Bank. Es wurde keine Anlageberatung und keine individuelle Aufklärung durch die Bank erbracht.
+Sofern keine Umsatzsteuer ausgewiesen ist, handelt es sich um eine umsatzsteuerbefreite Finanzdienstleistung.
+Dieses Dokument wurde maschinell erstellt und wird nicht unterschrieben.
+Einkünfte aus Kapitalvermögen im Sinne von § 20 EStG sind einkommensteuerpflichtig.
+Seite 1/1

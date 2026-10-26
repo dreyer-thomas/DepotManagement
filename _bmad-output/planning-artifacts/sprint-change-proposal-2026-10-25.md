@@ -170,3 +170,9 @@ NEW: ... by asset type (ETF, Fonds, Aktie, Zertifikat, Krypto, Guthaben, Unklass
 **Change.** New FR-19 / CAP-19 "Security detail". Story 4.6 rewritten as "Security Detail Page" (one page per Security, Depot switcher "Alle Depots"/single Depot, also for sold Securities, Transactions with Depot). New Story 4.7 "All-time Performance and Price Chart with Trades" (card "Gesamt seit Erstkauf" with realized, unrealized, dividends, fees, taxes, total, % return and Security XIRR; chart toggle Kurs/Wert with buy and sell markers). Amended: AD-10 (Security-level figures), spine capability map, PRD FR-19, SPEC CAP-19, EXPERIENCE.md (Position detail → Security detail), epics inventory and coverage map. Sprint status: `4-6-position-detail` replaced by `4-6-security-detail-page`, plus `4-7-...: backlog`.
 
 **Also fixed.** Stories 2.5–2.8 had been inserted into the Epic List section of `epics.md` (an anchor matched the list heading `### Epic 3`); they now sit in the Epic 2 section. Content unchanged.
+
+## Addendum E — finanzen.net zero Document Import (approved 2026-10-26)
+
+**Trigger.** After the ROBIN import worked, Tommy asked for finanzen.net zero as well. The PRD had kept it manual only because Parqet supported neither sync nor import for it — a parity assumption, not a requirement; SM-C1 is satisfied by Tommy's named use.
+
+**Change.** New Story 5.5 "finanzen.net zero / Baader Bank Parser" (buy, sell, dividend, fund distribution, tax refund as TAX, tax-pot notices without booking, corporate-action notices rejected with a hint). Seven anonymised real-layout fixtures under `test/fixtures/import/finanzen-zero/` (approved by Tommy). Amended: PRD FR-4 consequence, SPEC CAP-4 and non-goals, spine Deferred note, epics FR4 inventory, Epic 5 goal and coverage map. Sprint status gains `5-5-...: backlog`.

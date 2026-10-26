@@ -1,0 +1,74 @@
+DCUP-057.050
+finanzen.net zero GmbH, Gartenstraße 67, 76135 Karlsruhe • Impressum unter: www.finanzen.net/zero/impressum
+finanzen.net zero GmbH erbringt Anlagevermittlung als gebundener Vermittler der DonauCapital Wertpapier GmbH
+Herausgeberin und verantwortlich für den Inhalt ist die Baader Bank Aktiengesellschaft • Weihenstephaner Straße 4 • 85716 Unterschleißheim • Deutschland
+Vorstand: Oliver Riedel (Vorsitzender), Kai Göhring, Martin Zoller • Vorsitzender des Aufsichtsrates: Dr. Louis Hagen • Amtsgericht München HRB 121537 •
+Sitz der Gesellschaft: Unterschleißheim • StNr. 143/107/04009 • USt-IdNr. DE114123893 • LEI: 529900JFOPPEDUR61H13
+T 00800 00 586336* • service@baaderbank.de
+* Kostenfreie Telefonnummer aus dem (inter-) nationalen Festnetz. Für Anrufe aus anderen Netzen können Gebühren anfallen.
+Baader Bank AG Weihenstephaner Straße 4 85716 Unterschleißheim
+T 00800 00 586336* F +49 89 5150 2442 service@baaderbank.de
+Herrn
+Max Mustermann
+Musterstraße 1
+12345 Musterstadt
+Gartenstraße 67
+76135 Karlsruhe
+www.finanzen.net/zero
++49 89 5455 8188
+Karlsruhe
+22.07.2026
+Max Mustermann
+Stamm-Nr.: 1234567 Portfolio: 1
+Depot-Nr.: 1234567001
+Vorgangs-Nr.: 100000002
+Referenz-Nr.: 2000000002
+Dividendenabrechnung
+STK 10
+Ausschüttung
+Ex-Tag: 12.06.2026
+ISIN: US8740391003 WKN: 909800Nominale
+USD 0,70 p.STKTaiwan Semiconductor Manufacturing Co. Ltd.
+Reg.Shs (Spons.ADRs)/5 TA 10
+Zahlungszeitraum: 01.01.2026 - 31.12.2026
+Zahltag: 10.07.2026
+Umrechnungskurs: 1,14682EUR/USD
+Bruttobetrag USD 7,00
+Bruttobetrag EUR 6,10
+Kapitalertragsteuer 0,25 -EUR
+Quellensteuer 1,28 -EUR
+Gebühren extern ADR 0,05 -EUR
+4,52EURValuta: 10.07.2026Zu Gunsten Konto 1234567006
+Dieses Dokument wurde maschinell erstellt und wird nicht unterschrieben.
+Einkünfte aus Kapitalvermögen im Sinne von § 20 EStG sind einkommensteuerpflichtig.
+Bitte beachten Sie Ihre eventuelle Meldepflicht nach § 67 AWV.
+Seite 1/2
+DCUP-057.050
+finanzen.net zero GmbH, Gartenstraße 67, 76135 Karlsruhe • Impressum unter: www.finanzen.net/zero/impressum
+finanzen.net zero GmbH erbringt Anlagevermittlung als gebundener Vermittler der DonauCapital Wertpapier GmbH
+Herausgeberin und verantwortlich für den Inhalt ist die Baader Bank Aktiengesellschaft • Weihenstephaner Straße 4 • 85716 Unterschleißheim • Deutschland
+Vorstand: Oliver Riedel (Vorsitzender), Kai Göhring, Martin Zoller • Vorsitzender des Aufsichtsrates: Dr. Louis Hagen • Amtsgericht München HRB 121537 •
+Sitz der Gesellschaft: Unterschleißheim • StNr. 143/107/04009 • USt-IdNr. DE114123893 • LEI: 529900JFOPPEDUR61H13
+T 00800 00 586336* • service@baaderbank.de
+* Kostenfreie Telefonnummer aus dem (inter-) nationalen Festnetz. Für Anrufe aus anderen Netzen können Gebühren anfallen.
+Dividendenabrechnung
+Fortsetzung:
+Darstellung der steuerlichen Berechnungsgrundlagen:
+Merkposten / Steuertöpfe vorher Erhöhung/Reduktion nachher
+Kapitalertragsteuer EUR 1,00 EUR 1,53 EUR 2,53
+Kapitalertragsteuer EUR 2,53 EUR 1,28 - EUR 1,25
+Quellensteuer-Anrechnung
+angerechnete QueSt. allg. Erträge EUR 10,00 EUR 0,92 EUR 10,92
+Bemessungsgrundlagen Steuerpflicht brutto Steuerpflicht netto
+ausländische Dividende EUR 6,10 EUR 6,10
+Bemessungsgrundlage zur Kapitalertragsteuer EUR 6,10 EUR 6,10
+Quellensteuer-Anrechnung EUR 3,66 - EUR 3,66 -
+Steuerbeträge
+EUR 1,53 -1,53 -EURKapitalertragsteuer 25,00 %
+EUR 1,281,28EURKapitalertragsteuer 25,00 %
+EUR 1,28 -1,28 -EURQuellensteuer 21,00 %
+0,37 -EUR 0,37 -EURrückforderbarer Steuerbetrag
+Dieses Dokument wurde maschinell erstellt und wird nicht unterschrieben.
+Einkünfte aus Kapitalvermögen im Sinne von § 20 EStG sind einkommensteuerpflichtig.
+Bitte beachten Sie Ihre eventuelle Meldepflicht nach § 67 AWV.
+Seite 2/2

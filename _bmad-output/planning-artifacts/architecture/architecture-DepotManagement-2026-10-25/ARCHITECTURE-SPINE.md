@@ -275,7 +275,7 @@ graph LR
 - **Fallback provider for German ETFs if Yahoo breaks** — onvista adapter or paid EODHD (~€20/month), decided when an outage or coverage gap occurs; AD-9 makes it an adapter/mapping change.
 - **Cash Account balance when a Parqet export has no cash rows** — decided in the migration story with a real comdirect/ROBIN export; AD-6 and AD-14 still govern the resulting rows.
 - **Snapshot/caching tables** — added only if compute-on-read is measurably slow; bound by AD-1.
-- **finanzen.net zero document parser, spin-offs, mergers with cash** — out of v1 (PRD); parser registry and CorporateAction type leave room.
+- **Spin-offs, mergers with cash** — out of v1 (PRD); the CorporateAction type leaves room. (finanzen.net zero parser added as Story 5.5 on 2026-10-26; it plugs into the existing registry, no new invariant.)
 - **UI component structure, chart library, page layout** — no cross-epic divergence risk beyond MUI and the UI convention; chosen in the first UI story.
 - **Deployment automation (systemd unit, deploy script contents)** — decided in the deployment story; must respect AD-13 and AD-18.
 - **Multi-currency, multi-user** — non-goals for v1.
