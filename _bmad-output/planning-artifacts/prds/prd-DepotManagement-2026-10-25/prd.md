@@ -215,6 +215,20 @@ Tommy can analyse returns per month and year as a heatmap, the drawdown of his P
 - Drawdown is measured on the time-weighted performance index, so external flows never count as losses; it shows current and maximum drawdown with the duration and dates of the maximum phase.
 - Monthly returns are time-weighted; dividends can be shown gross or net, with trailing-12-month income and an estimate of the next 12 months based on the last 12.
 
+### 4.9 Planning & Taxes
+
+#### FR-23: Home-screen app
+Tommy can install the app on his phone or tablet home screen and use it full-screen.
+
+#### FR-24: Benchmark comparison
+Tommy can compare the time-weighted return of his Portfolio or a Depot with MSCI World, MSCI ACWI, DAX, S&P 500, the Portfolio or another Depot over the chosen Period.
+
+#### FR-25: Tax preview with Freistellungsauftrag
+Tommy can record a Freistellungsauftrag per broker and see per broker and year his taxable capital income under German rules (loss pots, Teilfreistellung), allowance used and left, and the estimated tax versus the tax withheld. Estimates only.
+
+#### FR-26: Target allocation and rebalancing
+Tommy can set target weights by equity region and asset class (global funds split by index weights), compare with his actual mix and get buy and sell suggestions with the estimated tax of each sale.
+
 ## 5. Cross-Cutting NFRs and Constraints
 - **Deployment:** Runs locally first; later as a web app on Tommy's Linux production server behind Nginx with TLS. Must be installable from the repository with a documented, simple setup.
 - **Privacy & security:** Financial data stays on Tommy's own machine/server; no third-party analytics. Once reachable over the network, access requires authentication (single user).

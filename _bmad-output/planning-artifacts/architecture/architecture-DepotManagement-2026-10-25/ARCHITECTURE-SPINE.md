@@ -157,7 +157,7 @@ graph TD
 
 - **Binds:** FR-1, FR-7, FR-10, FR-13, FR-14
 - **Prevents:** Transactions booked into an archived Depot silently vanishing from totals; prices, news and composition disagreeing on what is held.
-- **Rule:** Archiving is refused while the Depot has open Positions or a non-zero Cash Account balance. An archived Depot is read-only — the ledger rejects writes until it is unarchived — and is excluded from every aggregate but stays viewable. One core function `heldSecurities(ledger)` (open Positions in non-archived Depots) is the only definition of "held" for prices, news and overviews.
+- **Rule:** Archiving is refused while the Depot has open Positions or a non-zero Cash Account balance. An archived Depot is read-only — the ledger rejects writes until it is unarchived — and is excluded from every aggregate but stays viewable. One core function `heldSecurities(ledger)` (open Positions in non-archived Depots) is the only definition of "held" for prices, news and overviews. Benchmark Securities (Story 8.2, one reference table) are priced like held ones but are never held: they appear in no Position, total, news or analysis.
 
 ### AD-18 — Operational envelope `[ADOPTED]`
 
@@ -175,7 +175,13 @@ graph TD
 
 - **Binds:** FR-21, FR-13
 - **Prevents:** each analysis view guessing sectors or regions differently; provider refreshes overwriting the user's corrections; ETF classification diverging between screens.
-- **Rule:** The `classification` module owns one classification per Security (asset class, type, sector, industry, region, country, company size, currency), each value with its source `provider | rule | manual`. Providers follow the AD-9 pattern (outbound only ticker/ISIN, AD-13; results cached, refreshed by the scheduler); ETFs and funds are classified as a whole by one pure rules function on name/index; a `manual` value always wins and is never overwritten. Every analysis reads classifications only through this module; unclassified values show as "Unbekannt". Classification never blocks a ledger write. ETF look-through (X-Ray) is out of scope until a later decision.
+- **Rule:** The `classification` module owns one classification per Security (asset class, type, sector, industry, region, country, company size, currency), each value with its source `provider | rule | manual`. Providers follow the AD-9 pattern (outbound only ticker/ISIN, AD-13; results cached, refreshed by the scheduler); ETFs and funds are classified as a whole by one pure rules function on name/index; a `manual` value always wins and is never overwritten. Every analysis reads classifications only through this module; unclassified values show as "Unbekannt". Classification never blocks a ledger write. ETF look-through (X-Ray) is out of scope until a later decision; global funds may carry a region split by approximate index weights (rules table, editable, `manual` wins, Story 8.4), which region views and targets use.
+
+### AD-21 — Tax figures are advisory estimates from one core function
+
+- **Binds:** FR-25, FR-26
+- **Prevents:** the tax preview and the rebalancing proposal computing taxes differently; estimates being mistaken for bookings.
+- **Rule:** One pure core function computes taxable income, loss pots, Teilfreistellung, allowance usage and estimated tax per broker and year from ledger rows (FIFO results, AD-10), classifications (AD-20) and the Freistellungsauftrag settings; the tax preview and every sale estimate use it. Brokers are the tax unit: Depots of one broker share allowance and loss pots. Results are never booked and are always labelled as estimates; withheld tax comes only from the ledger. Out of scope until decided: church tax, loss carry-forwards, Vorabpauschale, foreign withholding tax credit.
 
 ## Consistency Conventions
 

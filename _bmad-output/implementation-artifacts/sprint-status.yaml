@@ -105,3 +105,11 @@ development_status:
   7-7-dividend-charts: done
   7-8-security-analyses: done
   epic-7-retrospective: optional
+
+  epic-8: backlog
+  8-1-home-screen-app: backlog
+  8-2-benchmark-comparison: backlog
+  8-3-tax-preview-with-freistellungsauftrag: backlog
+  8-4-region-weights-for-global-funds: backlog
+  8-5-target-allocation-and-rebalancing: backlog
+  epic-8-retrospective: optional

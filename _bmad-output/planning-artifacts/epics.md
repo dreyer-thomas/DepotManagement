@@ -44,6 +44,10 @@ FR18: Portfolio and Depot overviews and charts include Cash Account balances in 
 FR21: Tommy can see his Portfolio or a Depot split by asset class, type, sector, industry, region, country, company size and currency (ETFs and funds classified as a whole, manual override), with the Positions behind each segment.
 FR22: Tommy can analyse returns per month and year (heatmap), the drawdown of his Portfolio or a Depot over the chosen Period, realized gains and cash flow per month and year, and dividends per month, year and Security with trailing-12-month income and an estimate of the next 12 months.
 FR20: Tommy can reconcile a Depot against a broker statement position by position (persisted run with checks, finished explicitly) and book holding corrections (ADJUSTMENT: no cash, no realized gain, external flow in returns) or cash corrections.
+FR23: Tommy can install the app on the home screen of his phone or tablet and use it full-screen like a native app.
+FR24: Tommy can compare the time-weighted return of his Portfolio or a Depot with MSCI World, MSCI ACWI, DAX, S&P 500, the Portfolio or another Depot over the chosen Period.
+FR25: Tommy can record a Freistellungsauftrag per broker and see per broker and year the taxable income by German tax rules (stock and other loss pots, 30 % Teilfreistellung for equity funds), the allowance used and left, and the estimated tax compared with the tax withheld.
+FR26: Tommy can set target weights by equity region and asset class (global funds split into regions by editable index weights), see actual versus target, and get buy and sell suggestions to rebalance, with the estimated tax of each sale.
 FR19: Tommy can open a detail page per Security across all Depots (also when no longer held) showing news, price history with his buys and sells marked, the Transaction history with Depot, and the all-time result since the first buy (realized, unrealized, dividends, fees, taxes, total, return in % and XIRR).
 
 ### NonFunctional Requirements
@@ -135,6 +139,10 @@ FR19: Epic 4 - Security detail page and all-time performance (Stories 4.6, 4.7)
 FR21: Epic 7 - Security classification and allocation analysis (Stories 7.1, 7.2)
 FR22: Epic 7 - Return heatmap, realized gains, cash flow, dividends, drawdown, dividend charts, Security analyses (Stories 7.3–7.8)
 FR20: Epic 2 - Depot reconciliation and holding corrections (Story 2.9)
+FR23: Epic 8 - Home-screen app (Story 8.1)
+FR24: Epic 8 - Benchmark comparison (Story 8.2)
+FR25: Epic 8 - Tax preview with Freistellungsauftrag (Story 8.3)
+FR26: Epic 8 - Region weights for global funds, target allocation and rebalancing (Stories 8.4, 8.5)
 
 ## Epic List
 
@@ -189,6 +197,10 @@ Tommy can export and restore all data, gets a daily database backup, and runs De
 ### Epic 7: Analyses
 Tommy analyses his holdings like in Parqet: allocation by asset class, type, sector, industry, region, country, company size and currency (ETFs and funds as a whole), a monthly/yearly return heatmap, realized gains and cash flow per month and year, dividend history with trailing-12-month income, and the drawdown over the chosen Period.
 **FRs covered:** FR21, FR22 · **Also:** AR9, AR13, UX-DR8 (donut pattern)
+
+### Epic 8: Planning & Taxes
+Tommy installs the app on his phone, compares his returns with benchmarks and between Depots, sees his German capital-gains tax position per broker with the Freistellungsauftrag, and rebalances towards target weights by region and asset class.
+**FRs covered:** FR23, FR24, FR25, FR26
 
 **Action outside the epics:** take the Parqet CSV export of every portfolio before cancelling the Parqet subscription.
 
@@ -1063,3 +1075,89 @@ So that I can judge how one holding performed month by month and against its tre
 **And** the chart toggle gains "Performance": the Position's cumulative time-weighted return in % over the global Period (buys and sells are flows, not gains), with hover and the buy/sell/dividend markers
 **And** the "Kurs" view gains an optional overlay "Gleitender Durchschnitt" (200 days, switchable to 38 days), drawn dashed on split-adjusted prices and computed only from stored Prices; off by default, the choice persists per browser
 **And** the per-Security heatmap reuses the core heatmap function of Story 7.3 over the Position's daily valuation series; the performance line and the moving average are pure core functions with unit tests against hand-calculated references (including a split and a sale inside the Period)
+
+## Epic 8: Planning & Taxes
+
+Tommy uses the app like a native app on his phone, benchmarks his returns, keeps an eye on his German capital-gains tax per broker and rebalances towards a robo-advisor-style target allocation. Taxes are estimates for orientation; the broker's tax statement is authoritative.
+
+### Story 8.1: Home-Screen App
+
+As Tommy,
+I want to add DepotManagement to the home screen of my phone and tablet,
+So that it opens full-screen like a native app.
+
+**Acceptance Criteria:**
+
+**Given** the app served over HTTPS
+**When** I choose "Zum Home-Bildschirm" (iOS Safari) or "App installieren" (Android Chrome)
+**Then** a web app manifest (`app/manifest.ts`: name "DepotManagement", short name "Depot", `display: standalone`, start URL `/`, theme and background colours from the DESIGN.md tokens) and icons (192, 512, maskable, apple-touch-icon 180) make it installable, opening full-screen with the app's colours in the status bar for light and dark mode
+**And** the manifest, icons and login page are reachable without a session (the auth gate lets them through), every other route still requires login (AD-13)
+**And** no service worker or offline cache is added (data stays server-side; an offline start shows the browser's normal error)
+**And** the README notes that on iOS the installed app keeps its own login (sign in once there)
+**And** tests cover the manifest content and that the auth proxy allows exactly the manifest and icon paths
+
+### Story 8.2: Benchmark Comparison
+
+As Tommy,
+I want to compare my returns with market indices and between my Depots,
+So that I know whether my picks beat a simple index investment.
+
+**Acceptance Criteria:**
+
+**Given** the value chart on Overview and Depot detail (tabs Wertentwicklung · Drawdown)
+**When** I open the new tab "Performance"
+**Then** a line shows the cumulative time-weighted return (TTWROR, AD-10) of the scope over the global Period, rebased to 0 % at the Period start, with hover/tap values
+**And** a select "Vergleich mit" offers: keiner, MSCI World, MSCI ACWI, DAX, S&P 500, Gesamtportfolio (on Depot detail) and every other non-archived Depot; the chosen series is drawn as a second, dashed line with a legend, and the KPI row shows both returns and the difference in percentage points
+**And** the indices are represented by accumulating EUR UCITS ETFs (total return in EUR), held in one reference table with ISINs: MSCI World IE00B4L5Y983, MSCI ACWI IE00B6R52259, DAX DE0005933931, S&P 500 IE00B5BMR087; they become benchmark Securities that are priced like held ones (AD-9) but never appear in Positions, totals, news or analyses (AD-17 amended)
+**And** the benchmark return is the price return of that ETF from the last close on or before the Period start to the last close in the Period; a missing price history shows "Keine Kurse für den Vergleich" instead of a line
+**And** a Depot compared with another Depot or the Portfolio uses the same core TTWROR series as the Depot pages
+**And** the choice persists per browser; series and rebasing come from pure core functions with unit tests against a hand-calculated reference (including a deposit inside the Period)
+
+### Story 8.3: Tax Preview with Freistellungsauftrag
+
+As Tommy,
+I want to see my capital-gains tax position per broker for the year,
+So that I use my allowance well and spot withholding mistakes.
+
+**Acceptance Criteria:**
+
+**Given** Settings › "Steuern"
+**When** I enter a Freistellungsauftrag amount per broker and year (default 0; the sum across brokers above 1.000 € triggers a hint that the legal maximum for singles is 1.000 €, 2.000 € for couples)
+**Then** the new view Analysen › "Steuern" shows per broker and the chosen year: dividends and interest, realized gains and losses on stocks (Aktientopf), realized gains and losses on funds/ETFs after Teilfreistellung (30 % for equity funds by classification asset class Aktien; 0 % for others; manual override per Security), other income, the loss offsetting (stock losses only against stock gains; other losses against all income), the Freistellungsauftrag used and left, and the estimated tax (25 % Kapitalertragsteuer + 5,5 % Solidaritätszuschlag on the taxable amount)
+**And** it compares the estimate with the tax withheld per the ledger (TAX amounts on trades and dividends, standalone TAX Transactions) and shows the difference as "voraussichtliche Erstattung" or "voraussichtliche Nachbelastung"
+**And** a Portfolio total row sums the brokers; a hint states the scope: no church tax, no prior-year loss carry-forwards, no Vorabpauschale, foreign withholding tax not credited; estimates only
+**And** gains use FIFO realized results (AD-10) per sale date; Depots of the same broker share one allowance and one set of loss pots
+**And** a new `tax` core function computes everything from ledger rows, classifications and allowances; unit tests cover loss pot rules, Teilfreistellung, allowance usage and the withheld comparison against hand-calculated references
+**And** Freistellungsauftrag amounts are user settings stored through their owning module, included in export/restore
+
+### Story 8.4: Region Weights for Global Funds
+
+As Tommy,
+I want global ETFs split into regions by their index weights,
+So that region analyses and targets see the USA share inside my MSCI World.
+
+**Acceptance Criteria:**
+
+**Given** a fund or ETF whose name or index matches the rules table (MSCI World, MSCI ACWI, FTSE All-World, FTSE Developed, MSCI EM, STOXX Europe 600, S&P 500, …)
+**When** it is classified (Story 7.1)
+**Then** it gets a region split: approximate index weights per region USA, Europa, Japan, Pazifik ohne Japan, Schwellenländer, Sonstige (e.g. MSCI World ≈ USA 72, Europa 15, Japan 6, Pazifik ohne Japan 4, Sonstige 3), stored with source `rule`, dated in the table, summing to 100 %
+**And** on the Securities page the split can be edited per Security (percentages summing to 100 %, source `manual`, never overwritten by a refresh); unmatched funds keep their single region
+**And** the allocation view (Story 7.2) dimension "Region" distributes a fund's value by its split, so the donut shows e.g. USA including the US share of world ETFs; drill-down lists the fund under each region with its share
+**And** the split lives in the `classification` module (AD-20 amended); the rules table and the distribution are pure core functions with unit tests
+
+### Story 8.5: Target Allocation and Rebalancing
+
+As Tommy,
+I want to set target weights like a robo-advisor and get concrete trades,
+So that my Portfolio stays on the mix I chose.
+
+**Acceptance Criteria:**
+
+**Given** the new view Analysen › "Zielallokation" (scope Portfolio or one Depot)
+**When** I set target percentages for the segments Aktien USA, Aktien Europa, Aktien Japan, Aktien Pazifik ohne Japan, Aktien Schwellenländer, Anleihen, Gold/Rohstoffe, Immobilien, Krypto, Geldmarkt/Cash (only non-zero segments need a value; the sum must be 100 %)
+**Then** every holding's value is mapped to segments: equities by region (funds via their split, Story 8.4), others by asset class (AD-20), cash balances to Geldmarkt/Cash; a table shows per segment actual €, actual %, target %, deviation in points and in €
+**And** an optional amount "Neue Einzahlung" is distributed first to the most underweight segments
+**And** "Rebalancing-Vorschlag" lists buys per underweight segment (amount; the largest existing holding of that segment as the suggested instrument) and sells per overweight segment, choosing the holdings and FIFO lots with the lowest estimated tax first (losses before small gains); each sale shows the estimated realized gain and tax using Story 8.3 (allowance left, loss pots), and the total tax of the proposal
+**And** targets are stored per scope, editable any time; deviations under a threshold (default 2 points, editable) are marked as "im Rahmen" and produce no trade
+**And** suggestions are advisory: nothing is booked; the segment mapping, distribution of a deposit and the trade selection are pure core functions with unit tests against hand-calculated references
+

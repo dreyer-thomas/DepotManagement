@@ -93,6 +93,18 @@ CAP-N corresponds to PRD FR-N (CAP-19 added 2026-10-26).
 - **CAP-22** — Performance and income analysis
   - **intent:** Tommy can analyse monthly/yearly returns (Portfolio, Depot and per Security), drawdown, realized gains, cash flow and dividends.
   - **success:** The heatmap shows time-weighted monthly returns consistent with the Depot figures; realized gains, cash flow and dividends per month/year reconcile with the ledger; the dividend estimate is marked as such; monthly dividend bars split by Security sum to the month total; the drawdown is flow-neutral (time-weighted index) and its maximum, duration and dates match a hand-calculated reference.
+- **CAP-23** — Home-screen app
+  - **intent:** Tommy can install the app on his phone or tablet home screen.
+  - **success:** iOS and Android offer installation; it opens full-screen with the app's colours; every data route still requires login.
+- **CAP-24** — Benchmark comparison
+  - **intent:** Tommy can compare his time-weighted return with indices and between Depots.
+  - **success:** Both lines start at 0 % at the Period start; the index return equals the ETF price return over the Period; Depot comparisons use the same TTWROR as the Depot pages.
+- **CAP-25** — Tax preview with Freistellungsauftrag
+  - **intent:** Tommy can see his German capital-gains tax position per broker and year.
+  - **success:** Loss pots, Teilfreistellung and allowance usage match a hand-calculated reference; the estimate is compared with the tax withheld and labelled as an estimate.
+- **CAP-26** — Target allocation and rebalancing
+  - **intent:** Tommy can set robo-advisor-style targets and get rebalancing trades.
+  - **success:** Segment values sum to the scope value; global funds are split by region weights; proposed trades reach the targets within the threshold; each sale shows its estimated tax.
 
 ## Constraints
 
