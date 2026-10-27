@@ -59,6 +59,7 @@ import {
   type TransactionField,
   transactionTypeLabel,
 } from "./labels";
+import { ResponsiveLabel } from "../ResponsiveLabel";
 
 const TOUCH_TARGET = { minHeight: 44 };
 
@@ -518,7 +519,7 @@ export function TransactionDialog({
   );
 }
 
-/** Button that opens the "Neue Buchung" dialog. Each opening starts fresh. */
+/** Button that opens the "Neue Buchung" dialog ("Neu" on phones). Each opening starts fresh. */
 export function NewTransactionButton({
   depot,
   securities,
@@ -539,9 +540,10 @@ export function NewTransactionButton({
           setSession((value) => value + 1);
           setOpen(true);
         }}
+        aria-label="Neue Buchung"
         sx={TOUCH_TARGET}
       >
-        Neue Buchung
+        <ResponsiveLabel full="Neue Buchung" short="Neu" />
       </Button>
       <TransactionDialog
         open={open}

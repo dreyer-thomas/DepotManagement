@@ -1,6 +1,8 @@
 "use client";
 
+import EditCalendarOutlined from "@mui/icons-material/EditCalendarOutlined";
 import Alert from "@mui/material/Alert";
+import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Dialog from "@mui/material/Dialog";
 import DialogActions from "@mui/material/DialogActions";
@@ -36,7 +38,7 @@ export function customRangeError(from: string, to: string, today: string): strin
 const PILL = {
   minHeight: 44,
   minWidth: 44,
-  px: 1.5,
+  px: { xs: 1, sm: 1.5 },
   border: 0,
   borderRadius: "999px !important",
   textTransform: "none",
@@ -48,7 +50,8 @@ const PILL = {
 /**
  * Global Period selector (1M · YTD · 1J · 3J · Max · Benutzerdefiniert). A pill stores the choice via
  * the server action (cookie) and refreshes the page; "Benutzerdefiniert" opens a Von/Bis dialog whose
- * range must satisfy `from ≤ to ≤ today` before anything is saved.
+ * range must satisfy `from ≤ to ≤ today` before anything is saved. Below `sm` that pill shows a
+ * calendar icon instead of the word, so the row fits a phone.
  */
 export function PeriodSelector({ period, today }: { period: PeriodSelection; today: string }) {
   const router = useRouter();
@@ -140,9 +143,13 @@ export function PeriodSelector({ period, today }: { period: PeriodSelection; tod
           value="custom"
           onClick={openDialog}
           sx={PILL}
-          title={period.kind === "custom" ? periodLabel(period) : undefined}
+          aria-label="Benutzerdefiniert"
+          title={period.kind === "custom" ? periodLabel(period) : "Benutzerdefiniert"}
         >
-          Benutzerdefiniert
+          <EditCalendarOutlined aria-hidden fontSize="small" sx={{ display: { xs: "block", sm: "none" } }} />
+          <Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>
+            Benutzerdefiniert
+          </Box>
         </ToggleButton>
       </ToggleButtonGroup>
       <Dialog

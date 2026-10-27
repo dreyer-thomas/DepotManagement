@@ -97,7 +97,7 @@ describe("Depot detail page", () => {
       expect(html).toContain(`href="/depots/${id}?tab=${tab}"`);
     }
     expect(text).toContain("Noch keine Buchungen.");
-    const buttons = html.match(/<button[^>]*>Neue Buchung/g) ?? [];
+    const buttons = html.match(/<button[^>]*aria-label="Neue Buchung"[^>]*>(?:<style[^>]*>[^<]*<\/style>)?<span[^>]*>Neu<\/span>/g) ?? [];
     expect(buttons).toHaveLength(1);
     expect(buttons[0]).not.toMatch(/disabled/);
     expect(html.match(/<a[^>]*href="\/import\?depot=[^"]*"[^>]*>[\s\S]*?Dokumente importieren/g) ?? []).toHaveLength(1);
@@ -110,7 +110,7 @@ describe("Depot detail page", () => {
     const result = await recordTransaction({ depotId: id, type: "DEPOSIT", date: "2026-01-02", amount: "100" });
     if (!result.ok) throw new Error("setup failed");
     const html = renderHtml(await DepotDetailPage(props(id, "transactions")));
-    expect((html.match(/Dokumente importieren/g) ?? []).length).toBe(1);
+    expect((html.match(/<a[^>]*aria-label="Dokumente importieren"/g) ?? []).length).toBe(1);
     expect(html).toContain(`href="/import?depot=${id}"`);
   });
 
@@ -136,7 +136,7 @@ describe("Depot detail page", () => {
     expect(text).toMatch(/Oktober 2026 .*Verkauf AI Apple Inc\. 20\.10\.2026 2,5 Stück 325,00\u00a0€.*Kauf AI Apple Inc\. 01\.10\.2026 10 Stück 1\.234,50\u00a0€.*September 2026 .*Kauf .*15\.09\.2026 1 Stück 100,00\u00a0€/);
     expect(html).toContain("<table");
     expect(html).toContain("<th");
-    expect((html.match(/<button[^>]*>Neue Buchung/g) ?? []).length).toBe(1);
+    expect((html.match(/<button[^>]*aria-label="Neue Buchung"[^>]*>(?:<style[^>]*>[^<]*<\/style>)?<span[^>]*>Neu<\/span>/g) ?? []).length).toBe(1);
   });
 
   it("shows the empty state with one Neue Buchung button on the Buchungen tab", async () => {
@@ -144,7 +144,7 @@ describe("Depot detail page", () => {
     const tree = await DepotDetailPage(props(id, "transactions"));
     expect(renderText(tree)).toContain("Noch keine Buchungen.");
     expect(renderHtml(tree)).toMatch(selectedTab("Buchungen"));
-    expect((renderHtml(tree).match(/<button[^>]*>Neue Buchung/g) ?? []).length).toBe(1);
+    expect((renderHtml(tree).match(/<button[^>]*aria-label="Neue Buchung"[^>]*>(?:<style[^>]*>[^<]*<\/style>)?<span[^>]*>Neu<\/span>/g) ?? []).length).toBe(1);
   });
 
   it("shows the empty state with one Neue Buchung button on the Cash-Konto tab", async () => {
@@ -154,7 +154,7 @@ describe("Depot detail page", () => {
     expect(text).toContain("Noch keine Buchungen.");
     expect(text).not.toContain("Dieser Bereich folgt");
     expect(renderHtml(tree)).toMatch(selectedTab("Cash-Konto"));
-    expect((renderHtml(tree).match(/<button[^>]*>Neue Buchung/g) ?? []).length).toBe(1);
+    expect((renderHtml(tree).match(/<button[^>]*aria-label="Neue Buchung"[^>]*>(?:<style[^>]*>[^<]*<\/style>)?<span[^>]*>Neu<\/span>/g) ?? []).length).toBe(1);
   });
 
   async function bookMatrix(id: string) {
@@ -203,7 +203,7 @@ describe("Depot detail page", () => {
       ),
     );
     expect(html).toContain("<table");
-    expect((html.match(/<button[^>]*>Neue Buchung/g) ?? []).length).toBe(1);
+    expect((html.match(/<button[^>]*aria-label="Neue Buchung"[^>]*>(?:<style[^>]*>[^<]*<\/style>)?<span[^>]*>Neu<\/span>/g) ?? []).length).toBe(1);
   });
 
   it("pins the Cash row with the current balance last in Positionen", async () => {
@@ -295,7 +295,7 @@ describe("Depot detail page", () => {
     expect(text).toContain("Sortieren nach");
     expect(html).toContain("<table");
     expect(html).toMatch(/<th[^>]*aria-sort="descending"[^>]*>(?:(?!<\/th>).)*Wert/);
-    expect((html.match(/<button[^>]*>Neue Buchung/g) ?? []).length).toBe(1);
+    expect((html.match(/<button[^>]*aria-label="Neue Buchung"[^>]*>(?:<style[^>]*>[^<]*<\/style>)?<span[^>]*>Neu<\/span>/g) ?? []).length).toBe(1);
   });
 
   it("links each Position's Security to its page with this Depot selected", async () => {
@@ -384,7 +384,7 @@ describe("Depot detail page", () => {
     const tree = await DepotDetailPage(props(id));
     expect(renderText(tree)).toContain("Keine offenen Positionen. Cash-Konto 10,00\u00a0€");
     expect(renderText(tree)).not.toContain("Noch keine Buchungen.");
-    expect((renderHtml(tree).match(/<button[^>]*>Neue Buchung/g) ?? []).length).toBe(1);
+    expect((renderHtml(tree).match(/<button[^>]*aria-label="Neue Buchung"[^>]*>(?:<style[^>]*>[^<]*<\/style>)?<span[^>]*>Neu<\/span>/g) ?? []).length).toBe(1);
   });
 
   it("gives every Buchungen row an edit button labelled with its date", async () => {
@@ -452,7 +452,7 @@ describe("Depot detail page", () => {
       expect(text).toMatch(/Hauptdepot 1M YTD 1J 3J Max Benutzerdefiniert comdirect Archiviert Cash-Konto/);
       expect(text).toMatch(/Archiviertes Depot – nur lesbar\. Reaktivieren unter Einstellungen ?\./);
       expect(html).toMatch(/<a[^>]*href="\/settings"[^>]*>Einstellungen<\/a>/);
-      expect(html).not.toMatch(/<button[^>]*>Neue Buchung/);
+      expect(html).not.toMatch(/<button[^>]*aria-label="Neue Buchung"[^>]*>(?:<style[^>]*>[^<]*<\/style>)?<span[^>]*>Neu<\/span>/);
       expect(html).not.toContain("Dokumente importieren");
       expect(html).not.toContain("bearbeiten");
     }
@@ -469,7 +469,7 @@ describe("Depot detail page", () => {
     const tree = await DepotDetailPage(props(id));
     expect(renderText(tree)).toContain("Noch keine Buchungen.");
     expect(renderText(tree)).toContain("Archiviert");
-    expect(renderHtml(tree)).not.toMatch(/<button[^>]*>Neue Buchung/);
+    expect(renderHtml(tree)).not.toMatch(/<button[^>]*aria-label="Neue Buchung"[^>]*>(?:<style[^>]*>[^<]*<\/style>)?<span[^>]*>Neu<\/span>/);
     expect(renderHtml(tree)).not.toContain("Dokumente importieren");
   });
 
@@ -551,9 +551,9 @@ describe("Depot detail page", () => {
     expect(transactions).toContain("Alt AG");
     expect(transactions).not.toContain("Neu AG");
   });
-  /** The pressed pill of the Period selector (either attribute order). */
+  /** The pressed pill of the Period selector (either attribute order; text or aria-label). */
   function pressedPill(label: string): RegExp {
-    return new RegExp(`<button[^>]*aria-pressed="true"[^>]*>${label}<`);
+    return new RegExp(`<button(?=[^>]*aria-pressed="true")[^>]*(?:aria-label="${label}"[^>]*>|>${label}<)`);
   }
 
   it("shows the value summary for the stored custom Period with its label in the captions", async () => {
@@ -717,7 +717,7 @@ describe("Depot detail page", () => {
     expect(text).toContain("Investiertes Kapital 0,00\u00a0€");
     expect(heroHtml(html)).not.toMatch(/data-testid="Arrow(Up|Down)wardIcon"/);
     expect(text).toContain("Dividenden · Max 0,00\u00a0€");
-    expect(html).not.toMatch(/<button[^>]*>Neue Buchung/);
+    expect(html).not.toMatch(/<button[^>]*aria-label="Neue Buchung"[^>]*>(?:<style[^>]*>[^<]*<\/style>)?<span[^>]*>Neu<\/span>/);
     expect(html).not.toContain("bearbeiten");
     // The archived Depot shows the value chart too.
     expect(chartLabel(html)).toMatch(

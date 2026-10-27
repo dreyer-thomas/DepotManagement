@@ -27,10 +27,10 @@ const more: NavItem = { label: "Mehr", href: "/more", icon: MoreHoriz };
 export const drawerItems: readonly NavItem[] = [overview, depots, analyses, importItem, news, securities, settings];
 
 /** Bottom navigation (< md). */
-export const bottomItems: readonly NavItem[] = [overview, depots, news, more];
+export const bottomItems: readonly NavItem[] = [overview, depots, analyses, news, more];
 
 /** Destinations reachable through "Mehr" on phones. */
-export const moreItems: readonly NavItem[] = [analyses, importItem, securities, settings];
+export const moreItems: readonly NavItem[] = [importItem, securities, settings];
 
 /** True when `pathname` is `href` or one of its sub-routes ("/" matches only itself). */
 export function isActive(href: string, pathname: string): boolean {

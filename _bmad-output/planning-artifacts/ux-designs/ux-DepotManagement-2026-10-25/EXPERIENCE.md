@@ -106,7 +106,7 @@ Behavioral; visual specs in `DESIGN.md.Components`.
 | Breakpoint | Behavior |
 | --- | --- |
 | `≥ md` (900px+, MUI) | Permanent left drawer: Übersicht, Depots, Analysen, Import, Nachrichten, Wertpapiere, Einstellungen. KPI row in one line; chart and composition side by side on `lg`. Transaction form as dialog. |
-| `< md` | Bottom navigation: Übersicht · Depots · Nachrichten · Mehr (Analysen, Import, Wertpapiere, Einstellungen). FAB "+" for a new Transaction on Overview and Depot detail. KPI cards in a 2×2 grid; tables become stacked rows; forms full-screen. Import and migration work but are optimized for desktop. |
+| `< md` | Bottom navigation: Übersicht · Depots · Analysen · Nachrichten · Mehr (Import, Wertpapiere, Einstellungen). Action buttons use short labels on phones ("Neu", "Dokument"), the Period selector shows a calendar icon for "Benutzerdefiniert", and Position rows put the name on its own line. FAB "+" for a new Transaction on Overview and Depot detail. KPI cards in a 2×2 grid; tables become stacked rows; forms full-screen. Import and migration work but are optimized for desktop. |
 
 ## Inspiration & Anti-patterns
 

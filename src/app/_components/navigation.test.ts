@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeBottomHref, drawerItems, isActive, moreItems, navBadgeCount, openImportsLabel } from "./navigation";
+import { activeBottomHref, bottomItems, drawerItems, isActive, moreItems, navBadgeCount, openImportsLabel } from "./navigation";
 
 describe("isActive", () => {
   it("matches / only by itself", () => {
@@ -19,10 +19,11 @@ describe("activeBottomHref", () => {
     expect(activeBottomHref("/")).toBe("/");
     expect(activeBottomHref("/depots/abc")).toBe("/depots");
     expect(activeBottomHref("/news")).toBe("/news");
+    expect(activeBottomHref("/analyses")).toBe("/analyses");
     expect(activeBottomHref("/more")).toBe("/more");
   });
 
-  it.each(["/settings", "/import", "/securities", "/analyses"])("maps %s to /more", (path) => {
+  it.each(["/settings", "/import", "/securities"])("maps %s to /more", (path) => {
     expect(activeBottomHref(path)).toBe("/more");
   });
 
@@ -52,7 +53,7 @@ describe("openImportsLabel", () => {
 });
 
 describe("Analysen entry", () => {
-  it("sits between Depots and Import in the drawer and first under Mehr", () => {
+  it("sits between Depots and Import in the drawer and in the phone bottom navigation, not under Mehr", () => {
     expect(drawerItems.map((item) => item.label)).toEqual([
       "Übersicht",
       "Depots",
@@ -62,6 +63,7 @@ describe("Analysen entry", () => {
       "Wertpapiere",
       "Einstellungen",
     ]);
-    expect(moreItems[0]).toMatchObject({ label: "Analysen", href: "/analyses" });
+    expect(bottomItems.map((item) => item.label)).toEqual(["Übersicht", "Depots", "Analysen", "Nachrichten", "Mehr"]);
+    expect(moreItems.map((item) => item.label)).toEqual(["Import", "Wertpapiere", "Einstellungen"]);
   });
 });

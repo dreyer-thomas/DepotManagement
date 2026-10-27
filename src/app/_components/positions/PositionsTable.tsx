@@ -314,41 +314,32 @@ function PhoneList({
       <Card>
         <Box component="ul" aria-label="Positionen" sx={{ listStyle: "none", m: 0, p: 0 }}>
           {rows.map((position) => (
-            <Box
-              component="li"
-              key={position.security.id}
-              sx={{
-                display: "flex",
-                alignItems: "center",
-                gap: 1.5,
-                px: 2,
-                py: 1.25,
-                minHeight: 44,
-                borderBottom: 1,
-                borderColor: "divider",
-              }}
-            >
-              <SecurityLogo securityId={position.security.id} name={position.security.name} />
-              <Box sx={{ flex: 1, minWidth: 0 }}>
-                <Typography variant="body2" sx={{ fontWeight: 500, overflowWrap: "anywhere" }}>
+            <Box component="li" key={position.security.id} sx={{ px: 2, py: 1.25, minHeight: 44, borderBottom: 1, borderColor: "divider" }}>
+              {/* Line 1: logo and the full-width name (wraps), row menu. */}
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                <SecurityLogo securityId={position.security.id} name={position.security.name} />
+                <Typography variant="body2" sx={{ flex: 1, minWidth: 0, fontWeight: 500, overflowWrap: "anywhere" }}>
                   <SecurityLink securityId={position.security.id} depotId={depotId}>
                     {position.security.name}
                   </SecurityLink>
                 </Typography>
-                <Stack direction="row" sx={{ alignItems: "center", columnGap: 1, rowGap: 0.5, flexWrap: "wrap" }}>
+                {onAction ? <RowActions security={position.security} onAction={onAction} /> : null}
+              </Box>
+              {/* Line 2, under the name: quantity and price date left, value and Gain/Loss right. */}
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 0.5, pl: 5.5 }}>
+                <Stack direction="row" sx={{ flex: 1, minWidth: 0, alignItems: "center", columnGap: 1, rowGap: 0.5, flexWrap: "wrap" }}>
                   <Typography variant="caption" color="text.secondary" sx={{ fontVariantNumeric: "tabular-nums" }}>
                     {formatQuantity(position.quantity)} Stück
                   </Typography>
                   <PositionPriceDate position={position} today={today} />
                 </Stack>
+                <Stack spacing={0.5} sx={{ flexShrink: 0, alignItems: "flex-end", ...numeric }}>
+                  <Typography variant="body2" sx={{ fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>
+                    {money(position.value)}
+                  </Typography>
+                  <GainLoss position={position} />
+                </Stack>
               </Box>
-              <Stack spacing={0.5} sx={{ alignItems: "flex-end", ...numeric }}>
-                <Typography variant="body2" sx={{ fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>
-                  {money(position.value)}
-                </Typography>
-                <GainLoss position={position} />
-              </Stack>
-              {onAction ? <RowActions security={position.security} onAction={onAction} /> : null}
             </Box>
           ))}
           {rows.length === 0 ? (

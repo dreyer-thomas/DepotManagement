@@ -48,7 +48,7 @@ describe("MoreLinks open-import count", () => {
 });
 
 describe("Analysen navigation", () => {
-  it("lists Analysen between Depots and Import in the drawer and under Mehr", () => {
+  it("lists Analysen between Depots and Import in the drawer", () => {
     render(<AppShell openImports={0}>page</AppShell>);
     const { drawer } = navs();
     const labels = within(drawer)
@@ -58,10 +58,8 @@ describe("Analysen navigation", () => {
     expect(within(drawer).getByRole("link", { name: "Analysen", hidden: true }).getAttribute("href")).toBe("/analyses");
   });
 
-  it("offers Analysen first in the Mehr list", () => {
+  it("no longer lists Analysen under Mehr (it is in the bottom navigation)", () => {
     render(<MoreLinks />);
-    const links = screen.getAllByRole("link");
-    expect(links[0].textContent).toBe("Analysen");
-    expect(links[0].getAttribute("href")).toBe("/analyses");
+    expect(screen.getAllByRole("link").map((link) => link.textContent)).toEqual(["Import", "Wertpapiere", "Einstellungen"]);
   });
 });

@@ -3,8 +3,9 @@
 import FileUploadOutlined from "@mui/icons-material/FileUploadOutlined";
 import Button from "@mui/material/Button";
 import NextLink from "next/link";
+import { ResponsiveLabel } from "../ResponsiveLabel";
 
-/** "Dokumente importieren": opens `/import` with Depot `depotId` preselected. */
+/** "Dokumente importieren" ("Dokument" on phones): opens `/import` with Depot `depotId` preselected. */
 export function ImportDocumentsLink({ depotId }: { depotId: string }) {
   return (
     <Button
@@ -12,9 +13,10 @@ export function ImportDocumentsLink({ depotId }: { depotId: string }) {
       href={`/import?depot=${encodeURIComponent(depotId)}`}
       variant="outlined"
       startIcon={<FileUploadOutlined />}
+      aria-label="Dokumente importieren"
       sx={{ minHeight: 44 }}
     >
-      Dokumente importieren
+      <ResponsiveLabel full="Dokumente importieren" short="Dokument" />
     </Button>
   );
 }

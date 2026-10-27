@@ -177,7 +177,15 @@ export function AppShell({ children, openImports = 0 }: { children: ReactNode; o
               component={Link}
               href={href}
               aria-current={activeBottomHref(pathname) === href ? "page" : undefined}
-              sx={{ minWidth: 44, minHeight: 44 }}
+              sx={{
+                minWidth: 44,
+                minHeight: 44,
+                // Five entries share a 360 px phone: tighter padding, and a label that does not grow
+                // when selected, so "Nachrichten" fits.
+                px: 0.5,
+                "& .MuiBottomNavigationAction-label, & .MuiBottomNavigationAction-label.Mui-selected": { fontSize: "0.6875rem" },
+                "& .MuiBottomNavigationAction-label.Mui-selected": { fontWeight: 600 },
+              }}
             />
           ))}
         </BottomNavigation>
