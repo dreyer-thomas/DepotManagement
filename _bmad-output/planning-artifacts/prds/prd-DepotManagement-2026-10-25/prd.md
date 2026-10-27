@@ -146,7 +146,7 @@ Tommy can see the Portfolio or a Depot broken down by Position, by asset type (s
 **Description:** Current news about held Securities, so Tommy doesn't need a second app. Realizes UJ-1.
 
 #### FR-14: News on holdings
-Tommy can see news headlines from the last 14 days for held Securities, overall and per Security, each linking to the original article.
+Tommy can see news headlines from the last 14 days for held Securities, overall and per Security, each linking to the original article. Where the source provides one, a short teaser is readable in the app before opening the article.
 **Notes:** Quality should be comparable to Parqet's news (source unknown). A free news API that requires an API key is acceptable. Concrete source open — see Open Question 2.
 
 ### 4.6 Data Ownership

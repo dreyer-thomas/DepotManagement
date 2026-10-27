@@ -66,7 +66,7 @@ CAP-N corresponds to PRD FR-N (CAP-19 added 2026-10-26).
   - **success:** Shares per breakdown sum to the total value including cash.
 - **CAP-14** — News on holdings
   - **intent:** Tommy can see news headlines from the last 14 days for held Securities, overall and per Security.
-  - **success:** Each headline links to the original article; quality is comparable to Parqet's feed in Tommy's judgment.
+  - **success:** Each headline links to the original article; quality is comparable to Parqet's feed in Tommy's judgment; items with a source-provided teaser can be read in the app first.
 - **CAP-15** — Initial migration from Parqet
   - **intent:** Tommy can bring his full Transaction history for all Depots in once from Parqet CSV exports (`parqet-export-format.md`), one file per Depot with the target Depot selected.
   - **success:** Positions, invested capital and Cash Account balance per Depot match Parqet as of the export date; same-timestamp Security transfers become splits or ISIN changes, an unpaired TransferIn becomes a delivery at Parqet's cost, and the migration completes without per-row decisions (asset types estimated from names, editable later); an export without cash movements gets minimal funding deposits so the Cash Account never goes negative; a Depot can be deleted to redo a migration; every trade is booked even when Parqet's cash rows differ (missing money as deposit, extra outflow as tax), no migrated Cash Account goes negative, sub-0.001 rounding oversells are absorbed, and fee-only realized-gain differences are not deviations; documents later imported for migrated Transactions are detected as duplicates.

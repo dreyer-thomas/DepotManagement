@@ -121,7 +121,7 @@ graph TD
 
 - **Binds:** FR-14
 - **Prevents:** news concerns bleeding into ledger or backup; per-screen news fetching.
-- **Rule:** News providers follow the AD-9 provider pattern and query by company name or ticker (not ISIN) for the held Securities of AD-17. Initial set: Google News RSS (de + en) primary, `yahoo-finance2` search news secondary. Headlines are cached by `news`, are not ledger data, are not backed up, and link to the original article.
+- **Rule:** News providers follow the AD-9 provider pattern and query by company name or ticker (not ISIN) for the held Securities of AD-17. Initial set: Google News RSS (de + en) primary, `yahoo-finance2` search news secondary; Yahoo Finance RSS per symbol adds teaser texts (Story 3.8). Headlines and teasers are cached by `news`, are not ledger data, are not backed up, and link to the original article. Article pages are never fetched or scraped, and redirect/consent mechanisms of a provider are never circumvented.
 
 ### AD-12 — Backup and restore `[ADOPTED]`
 

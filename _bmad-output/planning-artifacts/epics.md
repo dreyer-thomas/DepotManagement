@@ -36,7 +36,7 @@ FR10: Tommy can see current value, invested capital and Gain/Loss (absolute and 
 FR11: Tommy can see a chart of value and invested capital over a selectable Period for the Portfolio or a single Depot.
 FR12: Tommy can see Gain/Loss for a selectable Period split into realized and unrealized with dividends and fees; TTWROR and XIRR side by side for Portfolio and each Depot; realized Gain/Loss uses FIFO and matches Parqet's `realizedgains` per sale after migration; shown gross with taxes paid in the Period as a separate figure.
 FR13: Tommy can see the Portfolio or a Depot broken down by Position, by asset type (stock, ETF, fund, certificate, crypto, cash) and by Depot; no ETF look-through.
-FR14: Tommy can see news headlines of the last 14 days for held Securities, overall and per Security, each linking to the original article.
+FR14: Tommy can see news headlines of the last 14 days for held Securities, overall and per Security, each linking to the original article; where the source provides one, a short teaser text is readable in the app before opening the article.
 FR15: Tommy can import his full Transaction history once from Parqet CSV exports, one file per Depot with target Depot selected; Positions, invested capital and Cash Account balance match Parqet at export date; same-timestamp Security transfers paired by ISIN → split, single out/in of different ISINs → ISIN change, unpaired TransferIn → delivery (BUY + equal DEPOSIT), only unpaired TransferOut flagged; no per-row decisions, asset types estimated from names; exports without cash rows get minimal funding deposits so cash never goes negative; cash rows are paired per instant and unmatched differences booked as TAX so no trade is skipped; sells exceeding the holding by ≤ 0.001 units are clamped with the shortfall carried to the next buy; inflow-side cash differences become DEPOSITs, outflow-side become TAX, and minimal funding applies to every export so cash never goes negative; Cash movements become Deposits, Withdrawals and cash sides; later imported documents for migrated Transactions are detected as duplicates. Depends on FR3 and FR17.
 FR16: Tommy can export all Depots and Transactions to an open file format and restore from it; export → restore into an empty instance reproduces identical Depots, Cash Accounts, Transactions, manual Prices and evaluations; restore replaces, never merges.
 FR17: Tommy can see balance and booking history of each Depot's Cash Account; buy, sell, dividend, fee and tax book their cash side automatically; Deposits and Withdrawals are entered manually and change only the Cash Account.
@@ -126,7 +126,7 @@ FR10: Epic 4 - Portfolio and Depot overview
 FR11: Epic 4 - Value development chart
 FR12: Epic 4 - Gain/Loss, TTWROR, XIRR
 FR13: Epic 4 - Composition
-FR14: Epic 3 - News on holdings
+FR14: Epic 3 - News on holdings, news teasers (Stories 3.7, 3.8)
 FR15: Epic 2 - One-time Parqet migration (Stories 2.3, 2.4; hands-off rework in 2.5; cash-less exports and Depot deletion in 2.6; robust cash pairing and rounding tolerance in 2.7; missing deposits and fee-aware gain comparison in 2.8)
 FR16: Epic 6 - Export and restore
 FR17: Epic 1 - Cash Account balance and history
@@ -626,6 +626,24 @@ So that I stay informed without a second app.
 **And** news refresh runs with the daily scheduler and on opening the page if the cache is older than a few hours
 **And** with no headlines the page shows "Keine Nachrichten der letzten 14 Tage." (UX-DR18)
 **And** provider parsing is unit-tested with recorded feeds.
+
+### Story 3.8: News Teasers
+
+As Tommy,
+I want to read a short teaser of a news item inside the app,
+So that I get the gist without wading through an overloaded website.
+
+**Acceptance Criteria:**
+
+**Given** held Securities with a Yahoo symbol (ProviderMapping or Yahoo search, AD-9) — stocks and crypto
+**When** news is refreshed
+**Then** a new news provider reads the Yahoo Finance RSS feed per symbol (`feeds.finance.yahoo.com/rss/2.0/headline?s=<symbol>&region=DE&lang=de-DE`), storing title, link, source, publication date and the item's description as `teaser` (plain text, tags and entities removed, trimmed to at most ~600 characters at a sentence or word boundary); only the symbol leaves the server (AD-13)
+**And** items older than 14 days are dropped, and only items whose title or teaser mentions the Security's name (normalized, legal-form suffixes like AG/SE/Inc. ignored) or symbol are kept, so loosely related press releases do not appear
+**And** the feed is unofficial: a failing, empty or malformed feed is a provider failure for that Security only and never breaks the news page; requests are spaced and the feed is fetched no more often than the existing news cache rule
+**And** Google News RSS stays as a headline-only source (all Securities, notably ETFs and certificates); when the same story arrives from both, the item with a teaser wins (de-duplication by URL or normalized title)
+**And** on "Nachrichten" and Security detail, an item with a teaser expands on tap/click (accordion, keyboard accessible) to show the teaser with source and date and a link "Zum Artikel" opening the original in a new tab; an item without a teaser keeps today's behaviour and opens the article directly; a small marker shows which items have a teaser
+**And** teasers are cached news data like headlines: not ledger data, not backed up, purged with the 14-day window (AD-11)
+**And** the RSS parsing (description cleanup, trimming, name filter, de-duplication) is unit-tested with recorded synthetic feeds; tests never hit Yahoo
 
 ## Epic 4: Overview & Performance
 

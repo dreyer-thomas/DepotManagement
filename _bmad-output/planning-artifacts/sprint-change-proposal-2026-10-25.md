@@ -216,3 +216,9 @@ NEW: ... by asset type (ETF, Fonds, Aktie, Zertifikat, Krypto, Guthaben, Unklass
 **Change.** New Story 7.8 "Security Analyses" on Security detail: Position heatmap (TTWROR, Q | M, link to the Portfolio heatmap), chart option "Performance" (cumulative TTWROR %), optional moving-average overlay (200/38 days) on "Kurs". Reuses the Story 7.3 core heatmap. FR-22 wording and EXPERIENCE.md Security detail row extended. Sprint status gains 7-8-security-analyses.
 
 **Amendment to Addendum J (2026-10-27).** After use, Tommy found "Monatlich (fortl.)" and "Breakdown" cluttered: both views are removed; "Monatlich (pro Jahr)" gets a year switcher (year field with previous/next arrows) in its card header. Core keeps the per-Security yield on cost (unused by the UI for now).
+
+## Addendum L — News Teasers (approved 2026-10-27)
+
+**Trigger.** News links jump straight to overloaded websites; Tommy wants a short text readable in the app first. Google News RSS (98 % of current items) carries no text, and its links pass a consent wall and JS redirect that we will not circumvent. Research: Yahoo Finance RSS per ticker delivers 2–4-sentence descriptions (German for .DE symbols) for stocks and crypto, nothing for ETFs; finanznachrichten.de (empty descriptions, headline-only terms), onvista, finanzen.net, Finnhub (US only), Alpha Vantage (premium), NewsAPI (no production use), Marketaux/EODHD (tiny free tiers) ruled out.
+
+**Change.** New Story 3.8 "News Teasers": Yahoo Finance RSS provider with teaser, name filter, 14-day window; Google News kept headline-only; de-duplication prefers teaser items; expandable items with "Zum Artikel". FR14/FR-14, CAP-14, AD-11 (no scraping, no circumvention), EXPERIENCE.md News row updated. Sprint status gains 3-8-news-teasers.
