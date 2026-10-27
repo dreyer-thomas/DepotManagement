@@ -44,3 +44,45 @@ export function newsTerm(name: string): string {
   }
   return term || name.trim();
 }
+
+/** Asset types whose Yahoo symbol has a headline feed with teasers (ETFs, funds and certificates do not). */
+const RSS_ASSET_TYPES = new Set(["STOCK", "UNCLASSIFIED", "CRYPTO"]);
+
+/** The fields of a Security that decide its Yahoo symbol. */
+export type YahooSymbolSource = {
+  assetType: string;
+  cryptoSymbol: string | null;
+  mapping: { provider: string | null; symbol: string | null } | null;
+};
+
+/**
+ * The Yahoo symbol whose RSS feed is read for a Security, or `undefined` when it is not queried: the YAHOO
+ * mapping symbol for STOCK and UNCLASSIFIED; for CRYPTO the YAHOO mapping symbol if any, else
+ * `<SYMBOL>-EUR` from the crypto symbol (Yahoo's crypto ticker convention).
+ */
+export function yahooSymbol(security: YahooSymbolSource): string | undefined {
+  if (!RSS_ASSET_TYPES.has(security.assetType)) return undefined;
+  const mapped = security.mapping?.provider === "YAHOO" ? (security.mapping.symbol ?? "").trim() : "";
+  if (mapped) return mapped;
+  if (security.assetType === "CRYPTO" && security.cryptoSymbol?.trim()) return `${security.cryptoSymbol.trim().toUpperCase()}-EUR`;
+  return undefined;
+}
+
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** `word` as a whole word of `text` (Unicode letters and digits are word characters). */
+function containsWord(text: string, word: string, flags: string): boolean {
+  return new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(word)}(?![\\p{L}\\p{N}])`, flags).test(text);
+}
+
+/**
+ * True when the text (title and teaser of an RSS item) mentions the Security: its news term (`newsTerm`)
+ * case-insensitively as a whole word, or the symbol base (part before the first `.` or `-`, `SAP.DE` →
+ * `SAP`) case-sensitively as a whole word.
+ */
+export function mentionsSecurity(text: string, name: string, symbol: string): boolean {
+  const term = newsTerm(name);
+  if (term && containsWord(text, term, "iu")) return true;
+  const base = symbol.split(/[.-]/)[0].trim();
+  return base !== "" && containsWord(text, base, "u");
+}

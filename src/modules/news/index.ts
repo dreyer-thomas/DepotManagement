@@ -7,6 +7,7 @@ export {
   NEWS_WINDOW_DAYS,
   newsNeedsRefresh,
   refreshNews,
+  YAHOO_RSS_SPACING_MS,
 } from "./news";
 export type {
   NewsDb,

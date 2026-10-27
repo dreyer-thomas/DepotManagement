@@ -10,8 +10,11 @@ export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>
 export const TITLE_MAX_LENGTH = 300;
 export const SOURCE_MAX_LENGTH = 100;
 
-/** One validated headline: an http(s) URL, a non-empty title and source, a UTC ISO publication instant. */
-export type FetchedArticle = { url: string; title: string; source: string; publishedAt: string };
+/**
+ * One validated headline: an http(s) URL, a non-empty title and source, a UTC ISO publication instant and,
+ * from providers that deliver one, a plain-text teaser (`null` = none; absent for headline-only providers).
+ */
+export type FetchedArticle = { url: string; title: string; source: string; publishedAt: string; teaser?: string | null };
 
 /** Result of one provider query: the valid articles (possibly none) or a provider error. */
 export type NewsLookup = { ok: true; articles: FetchedArticle[] } | { ok: false };
@@ -21,9 +24,15 @@ export const NEWS_ERROR = { ok: false } as const;
 /**
  * Validates one raw headline: the link must parse as an `http:`/`https:` URL, title and source are trimmed
  * (whitespace collapsed) and must not be empty (capped at 300/100 characters), the date must be valid.
- * Anything else drops the item (`undefined`).
+ * Anything else drops the item (`undefined`). A given teaser is passed through unchanged.
  */
-export function toArticle(raw: { url: string; title: string; source: string; published: Date | undefined }): FetchedArticle | undefined {
+export function toArticle(raw: {
+  url: string;
+  title: string;
+  source: string;
+  published: Date | undefined;
+  teaser?: string | null;
+}): FetchedArticle | undefined {
   let url: URL;
   try {
     url = new URL(raw.url.trim());
@@ -35,7 +44,9 @@ export function toArticle(raw: { url: string; title: string; source: string; pub
   const source = clean(raw.source, SOURCE_MAX_LENGTH);
   if (!title || !source) return undefined;
   if (!raw.published || Number.isNaN(raw.published.getTime())) return undefined;
-  return { url: url.href, title, source, publishedAt: raw.published.toISOString() };
+  const article: FetchedArticle = { url: url.href, title, source, publishedAt: raw.published.toISOString() };
+  if (raw.teaser !== undefined) article.teaser = raw.teaser;
+  return article;
 }
 
 function clean(value: string, max: number): string {

@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Synthetic Yahoo Finance RSS headline feed for the symbol SAP.DE. Fictitious headlines and text. -->
+<rss version="2.0">
+  <channel>
+    <title>Yahoo! Finance: SAP.DE News</title>
+    <link>https://finance.example.com/q/h?s=SAP.DE</link>
+    <description>Latest Financial News for SAP.DE</description>
+    <language>de-DE</language>
+    <item>
+      <title>SAP-Aktie legt nach Zahlen zu</title>
+      <link>https://finance.example.com/sap-zahlen</link>
+      <description>&lt;p&gt;SAP &amp;amp; Co&lt;/p&gt;</description>
+      <pubDate>Mon, 26 Oct 2026 08:00:00 +0000</pubDate>
+      <source url="https://muster.example.com">Muster Finanz</source>
+      <guid isPermaLink="false">yahoo-synthetic-1</guid>
+    </item>
+    <item>
+      <title>SAP hebt Prognose an</title>
+      <link>https://finance.example.com/sap-prognose</link>
+      <description>Der Softwarekonzern   hebt die Jahresprognose an.
+        Analysten zeigen sich &#252;berrascht.</description>
+      <pubDate>Mon, 26 Oct 2026 07:45:00 +0000</pubDate>
+      <guid isPermaLink="false">yahoo-synthetic-2</guid>
+    </item>
+    <item>
+      <title>Walldorfer Konzern im Fokus</title>
+      <link>https://finance.example.com/walldorf-fokus</link>
+      <description><![CDATA[<p>SAP stellt im Walldorfer Muster-Szenario neue Cloud-Dienste vor und erweitert das fiktive Angebot und erweitert das fiktive Angebot und erweitert das fiktive Angebot und erweitert das fiktive Angebot und erweitert das fiktive Angebot und erweitert das fiktive Angebot und erweitert das fiktive Angebot und erweitert das fiktive Angebot und erweitert das fiktive Angebot und erweitert das fiktive Angebot und erweitert das fiktive Angebot und erweitert das fiktive Angebot und erw. Weitere Einzelheiten folgen im erfundenen Bericht Weitere Einzelheiten folgen im erfundenen Bericht Weitere Einzelheiten folgen im erfundenen Bericht Weitere Einzelheiten folgen im erfundenen Bericht Weitere Einzelheiten folgen im erfundenen Bericht Weitere Einzelheiten folgen im erfundenen Bericht Weitere Einzelheiten folgen im erfundenen Bericht Weitere Einzelheiten folgen im erfundenen Bericht Weitere Einzelheite</p>]]></description>
+      <pubDate>Sun, 25 Oct 2026 12:00:00 +0000</pubDate>
+      <source>Beispiel Börse</source>
+      <guid isPermaLink="false">yahoo-synthetic-3</guid>
+    </item>
+    <item>
+      <title>Märkte schließen uneinheitlich</title>
+      <link>https://finance.example.com/maerkte</link>
+      <description>Die Börsen in Europa beenden den Tag ohne klare Richtung.</description>
+      <pubDate>Sun, 25 Oct 2026 16:00:00 +0000</pubDate>
+      <guid isPermaLink="false">yahoo-synthetic-4</guid>
+    </item>
+    <item>
+      <title>SAP vor drei Wochen im Feed</title>
+      <link>https://finance.example.com/sap-alt</link>
+      <description>SAP meldete damals erfundene Zahlen.</description>
+      <pubDate>Tue, 06 Oct 2026 09:00:00 +0000</pubDate>
+      <guid isPermaLink="false">yahoo-synthetic-5</guid>
+    </item>
+    <item>
+      <title>SAP ohne Kurztext</title>
+      <link>https://finance.example.com/sap-ohne-kurztext</link>
+      <description>   </description>
+      <pubDate>Sat, 24 Oct 2026 09:00:00 +0000</pubDate>
+      <guid isPermaLink="false">yahoo-synthetic-6</guid>
+    </item>
+    <item>
+      <title>Ohne Link</title>
+      <description>SAP ohne Link.</description>
+      <pubDate>Sat, 24 Oct 2026 10:00:00 +0000</pubDate>
+      <guid isPermaLink="false">yahoo-synthetic-7</guid>
+    </item>
+  </channel>
+</rss>

@@ -3,7 +3,7 @@ import { createTestDatabase, type TestDatabase } from "../../../test/helpers/tes
 import { type FetchCall, fakeFetch, recorded, recordedText } from "../../../test/helpers/providers";
 import { createDepot, ensureSecurity, recordTrade } from "@/modules/ledger";
 import { setMapping } from "@/modules/prices";
-import { listNews, NEWS_PER_SECURITY_LIMIT, newsNeedsRefresh, refreshNews } from "./index";
+import { clearNews, listNews, NEWS_PER_SECURITY_LIMIT, newsNeedsRefresh, refreshNews, YAHOO_RSS_SPACING_MS } from "./index";
 import type { FetchLike } from "./providers/shared";
 import type { YahooNewsSearch } from "./providers/yahoo";
 
@@ -34,16 +34,32 @@ const SAP_DE = () => rss(recordedText("google-news-rss-sap-de.xml"));
 const SAP_EN = () => rss(recordedText("google-news-rss-sap-en.xml"));
 const EMPTY = () => rss(recordedText("google-news-rss-empty.xml"));
 
-/** Fake fetch answering per edition (`hl=de` / `hl=en-US`). */
-function googleFetch(de: () => Response | Error, en: () => Response | Error) {
-  return fakeFetch((call: FetchCall) => (new URL(call.url).searchParams.get("hl") === "de" ? de() : en()));
+const YAHOO_RSS = () => rss(recordedText("yahoo-rss-sap.xml"));
+const isRss = (call: FetchCall) => new URL(call.url).hostname === "feeds.finance.yahoo.com";
+
+/**
+ * Fake fetch answering Google News per edition (`hl=de` / `hl=en-US`) and the Yahoo RSS feed separately
+ * (by default a network error, so a Yahoo-mapped Security keeps its Google/Yahoo-search headlines).
+ */
+function googleFetch(de: () => Response | Error, en: () => Response | Error, yahooRss: () => Response | Error = () => new TypeError("offline")) {
+  const fake = fakeFetch((call: FetchCall) => {
+    if (isRss(call)) return yahooRss();
+    return new URL(call.url).searchParams.get("hl") === "de" ? de() : en();
+  });
+  return { ...fake, googleCalls: () => fake.calls.filter((call) => !isRss(call)), rssCalls: () => fake.calls.filter(isRss) };
 }
 
 const yahoo = (value: unknown = recorded("yahoo-search-news-sap")) => vi.fn<YahooNewsSearch>(async () => value);
 const yahooFailing = () => vi.fn<YahooNewsSearch>(async () => Promise.reject(new Error("HTTP 429")));
 
-async function held(isin: string, name: string, quantity = "10"): Promise<string> {
-  const security = await ensureSecurity({ isin }, { name, assetType: "STOCK" }, db());
+async function held(
+  isin: string,
+  name: string,
+  quantity = "10",
+  assetType = "STOCK",
+  identifier: { isin: string } | { cryptoSymbol: string } = { isin },
+): Promise<string> {
+  const security = await ensureSecurity(identifier, { name, assetType }, db());
   if (!security.ok) throw new Error("setup failed");
   const trade = await recordTrade(
     { depotId, type: "BUY", date: "2026-10-01", quantity, price: "100", security: { id: security.security.id } },
@@ -53,8 +69,11 @@ async function held(isin: string, name: string, quantity = "10"): Promise<string
   return security.security.id;
 }
 
+/** No-op spacing (the spacing test injects its own). */
+const sleep = async () => {};
+
 const run = (fetch: FetchLike, search: YahooNewsSearch, options: { onlyStale?: boolean; now?: Date } = {}) =>
-  refreshNews({ now: NOW, ...options, deps: { fetch, search } }, db());
+  refreshNews({ now: NOW, ...options, deps: { fetch, search, sleep } }, db());
 
 const articles = (securityId: string) =>
   db().newsArticle.findMany({ where: { securityId }, orderBy: { publishedAt: "desc" } });
@@ -63,14 +82,14 @@ describe("refreshNews", () => {
   it("merges Google de, Google en and Yahoo: deduped, window applied, newest first, fetch recorded", async () => {
     const sap = await held("DE0007164600", "SAP SE");
     await setMapping(sap, { provider: "YAHOO", symbol: "SAP.DE" }, db());
-    const { fetch, calls } = googleFetch(SAP_DE, SAP_EN);
+    const { fetch, googleCalls } = googleFetch(SAP_DE, SAP_EN);
     const search = yahoo();
 
     expect(await run(fetch, search)).toEqual({ updated: 1, failed: [] });
 
     // Query privacy: only the name term; the ISIN appears in no request.
-    expect(calls).toHaveLength(2);
-    for (const call of calls) {
+    expect(googleCalls()).toHaveLength(2);
+    for (const call of googleCalls()) {
       expect(new URL(call.url).searchParams.get("q")).toBe('"SAP" when:14d');
       expect(call.url).not.toContain("DE0007164600");
     }
@@ -87,7 +106,7 @@ describe("refreshNews", () => {
       // 13 days old: kept; the 20-day-old item is dropped.
       ["SAP-Aktie: Was <Anleger> jetzt wissen müssen", "GOOGLE_NEWS", "2026-10-13T09:00:00.000Z"],
     ]);
-    expect(rows.every((row) => row.fetchedAt === NOW.toISOString())).toBe(true);
+    expect(rows.every((row) => row.fetchedAt === NOW.toISOString() && row.teaser === null)).toBe(true);
     expect(await db().newsFetch.findUnique({ where: { securityId: sap } })).toEqual({ securityId: sap, fetchedAt: NOW.toISOString() });
   });
 
@@ -190,6 +209,163 @@ describe("refreshNews", () => {
     expect(search).toHaveBeenCalledTimes(1);
   });
 
+  it("adds Yahoo RSS items with teasers: only the symbol is sent, unrelated and old items dropped, teaser wins duplicates", async () => {
+    const sap = await held("DE0007164600", "SAP SE");
+    await setMapping(sap, { provider: "YAHOO", symbol: "SAP.DE" }, db());
+    const { fetch, rssCalls } = googleFetch(SAP_DE, SAP_EN, YAHOO_RSS);
+
+    expect(await run(fetch, yahoo({ news: [] }))).toEqual({ updated: 1, failed: [] });
+
+    expect(rssCalls().map((call) => call.url)).toEqual([
+      "https://feeds.finance.yahoo.com/rss/2.0/headline?s=SAP.DE&region=DE&lang=de-DE",
+    ]);
+    const rows = await articles(sap);
+    expect(rows.map((row) => [row.title, row.provider, row.url])).toEqual([
+      ["SAP-Aktie legt nach Zahlen zu", "YAHOO_RSS", "https://finance.example.com/sap-zahlen"],
+      // Same normalized title as the Google de item: one row, the RSS item with its teaser replaces it.
+      ["SAP hebt Prognose an", "YAHOO_RSS", "https://finance.example.com/sap-prognose"],
+      ["SAP shares rise after earnings", "GOOGLE_NEWS", "https://wire.example.org/sap-earnings"],
+      // Kept: the teaser mentions SAP.
+      ["Walldorfer Konzern im Fokus", "YAHOO_RSS", "https://finance.example.com/walldorf-fokus"],
+      ["SAP & Partner: Cloud-Umsatz wächst – Analyse", "GOOGLE_NEWS", "https://news.example.com/sap-cloud?id=1&ref=rss"],
+      ["SAP ohne Kurztext", "YAHOO_RSS", "https://finance.example.com/sap-ohne-kurztext"],
+      ["SAP startet KI-Offensive", "GOOGLE_NEWS", "https://news.example.com/sap-shared"],
+      ["SAP-Aktie: Was <Anleger> jetzt wissen müssen", "GOOGLE_NEWS", "https://boerse.example.com/sap-anleger"],
+    ]);
+    const teasers = new Map(rows.map((row) => [row.title, row.teaser]));
+    expect(teasers.get("SAP-Aktie legt nach Zahlen zu")).toBe("SAP & Co");
+    expect(teasers.get("Walldorfer Konzern im Fokus")).toHaveLength(480);
+    expect(teasers.get("SAP ohne Kurztext")).toBeNull();
+    expect(teasers.get("SAP shares rise after earnings")).toBeNull();
+
+    const listed = await listNews(TODAY, sap, db());
+    expect(listed.articles[0]).toMatchObject({ title: "SAP-Aktie legt nach Zahlen zu", teaser: "SAP & Co" });
+    expect(listed.articles.find((article) => article.title === "SAP startet KI-Offensive")?.teaser).toBeNull();
+  });
+
+  it("replaces an earlier headline-only duplicate found by URL with the RSS item and its teaser", async () => {
+    const sap = await held("DE0007164600", "SAP SE");
+    await setMapping(sap, { provider: "YAHOO", symbol: "SAP.DE" }, db());
+    // Yahoo search delivers the RSS headline's URL without a teaser: the RSS item (later) replaces it.
+    const search = yahoo({
+      news: [
+        { title: "Anderer Titel", publisher: "Example", link: "https://finance.example.com/sap-zahlen", providerPublishTime: "2026-10-26T08:00:00Z" },
+      ],
+    });
+    await run(googleFetch(EMPTY, EMPTY, YAHOO_RSS).fetch, search);
+    const rows = await articles(sap);
+    expect(rows.filter((row) => row.url === "https://finance.example.com/sap-zahlen").map((row) => [row.title, row.provider])).toEqual([
+      ["SAP-Aktie legt nach Zahlen zu", "YAHOO_RSS"],
+    ]);
+  });
+
+  it("does not query Yahoo RSS for an ETF and derives the crypto symbol from the crypto symbol", async () => {
+    const etf = await held("IE00B4L5Y983", "iShares Core MSCI World UCITS ETF", "10", "ETF");
+    await setMapping(etf, { provider: "YAHOO", symbol: "EUNL.DE" }, db());
+    const btc = await held("", "Bitcoin", "1", "CRYPTO", { cryptoSymbol: "BTC" });
+    await setMapping(btc, { provider: "COINGECKO", symbol: "bitcoin" }, db());
+    const { fetch, rssCalls } = googleFetch(EMPTY, EMPTY, EMPTY);
+
+    await run(fetch, yahoo({ news: [] }));
+
+    expect(rssCalls().map((call) => new URL(call.url).searchParams.get("s"))).toEqual(["BTC-EUR"]);
+  });
+
+  it("keeps the Google headlines when Yahoo RSS fails or answers an empty or non-feed body", async () => {
+    const sap = await held("DE0007164600", "SAP SE");
+    await setMapping(sap, { provider: "YAHOO", symbol: "SAP.DE" }, db());
+    for (const reply of [() => rss("unavailable", 503), () => rss("<html></html>"), () => rss(recordedText("yahoo-rss-empty.xml"))]) {
+      warn.mockClear();
+      expect(await run(googleFetch(SAP_DE, EMPTY, reply).fetch, yahooFailing())).toEqual({ updated: 1, failed: [] });
+      const rows = await articles(sap);
+      expect(rows.length).toBeGreaterThan(0);
+      expect(rows.every((row) => row.provider === "GOOGLE_NEWS")).toBe(true);
+      const logged = warn.mock.calls.map((call) => call.join(" ")).join("\n");
+      expect(logged).toContain("Yahoo RSS");
+      expect(logged).not.toMatch(/https?:\/\/|SAP\.DE/);
+    }
+  });
+
+  it("marks the Security failed only when every queried provider including Yahoo RSS fails", async () => {
+    const sap = await held("DE0007164600", "SAP SE");
+    await setMapping(sap, { provider: "YAHOO", symbol: "SAP.DE" }, db());
+    const failing = () => rss("unavailable", 503);
+    expect(await run(googleFetch(failing, failing, YAHOO_RSS).fetch, yahooFailing())).toEqual({ updated: 1, failed: [] });
+    expect((await articles(sap)).every((row) => row.provider === "YAHOO_RSS")).toBe(true);
+    expect(await run(googleFetch(failing, failing, failing).fetch, yahooFailing())).toEqual({
+      updated: 0,
+      failed: [{ securityId: sap, name: "SAP SE" }],
+    });
+  });
+
+  it("spaces consecutive Yahoo RSS requests of a run", async () => {
+    const sap = await held("DE0007164600", "SAP SE");
+    const siemens = await held("DE0007236101", "Siemens AG");
+    await setMapping(sap, { provider: "YAHOO", symbol: "SAP.DE" }, db());
+    await setMapping(siemens, { provider: "YAHOO", symbol: "SIE.DE" }, db());
+    const { fetch, rssCalls } = googleFetch(EMPTY, EMPTY, YAHOO_RSS);
+    const delays: number[] = [];
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const deferredSleep = async (ms: number) => {
+      delays.push(ms);
+      await gate;
+    };
+
+    const running = refreshNews({ now: NOW, deps: { fetch, search: yahoo({ news: [] }), sleep: deferredSleep } }, db());
+    await vi.waitFor(() => expect(delays).toHaveLength(1));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    // The second RSS request waits for the spacing.
+    expect(rssCalls()).toHaveLength(1);
+    release();
+    await running;
+
+    expect(rssCalls()).toHaveLength(2);
+    expect(delays[0]).toBeGreaterThan(0);
+    expect(delays[0]).toBeLessThanOrEqual(YAHOO_RSS_SPACING_MS);
+    expect(YAHOO_RSS_SPACING_MS).toBeGreaterThanOrEqual(1000);
+  });
+
+  it("marks the Security failed when the RSS feed has no item mentioning it and every other provider fails", async () => {
+    const sap = await held("DE0007164600", "SAP SE");
+    await setMapping(sap, { provider: "YAHOO", symbol: "SAP.DE" }, db());
+    const unrelated = () =>
+      rss(`<rss><channel><item><title>Märkte schließen uneinheitlich</title><link>https://finance.example.com/maerkte</link>
+        <description>Die Börsen beenden den Tag ohne klare Richtung.</description><pubDate>Mon, 26 Oct 2026 08:00:00 +0000</pubDate></item></channel></rss>`);
+    const failing = () => rss("unavailable", 503);
+    expect(await run(googleFetch(failing, failing, unrelated).fetch, yahooFailing())).toEqual({
+      updated: 0,
+      failed: [{ securityId: sap, name: "SAP SE" }],
+    });
+    expect(await db().newsFetch.findUnique({ where: { securityId: sap } })).toBeNull();
+  });
+
+  it("keeps the first of two duplicates that both have a teaser", async () => {
+    const sap = await held("DE0007164600", "SAP SE");
+    await setMapping(sap, { provider: "YAHOO", symbol: "SAP.DE" }, db());
+    const item = (url: string, title: string, teaser: string) =>
+      `<item><title>${title}</title><link>${url}</link><description>${teaser}</description><pubDate>Mon, 26 Oct 2026 08:00:00 +0000</pubDate></item>`;
+    const body = () =>
+      rss(
+        `<rss><channel>${item("https://finance.example.com/erste", "SAP meldet Zahlen", "Erster Kurztext zu SAP.")}${item(
+          "https://finance.example.com/zweite",
+          "sap  MELDET zahlen",
+          "Zweiter Kurztext zu SAP.",
+        )}</channel></rss>`,
+      );
+    await run(googleFetch(EMPTY, EMPTY, body).fetch, yahoo({ news: [] }));
+    expect((await articles(sap)).map((row) => [row.url, row.teaser])).toEqual([["https://finance.example.com/erste", "Erster Kurztext zu SAP."]]);
+  });
+
+  it("purges teasers with their headlines on clearNews", async () => {
+    const sap = await held("DE0007164600", "SAP SE");
+    await setMapping(sap, { provider: "YAHOO", symbol: "SAP.DE" }, db());
+    await run(googleFetch(EMPTY, EMPTY, YAHOO_RSS).fetch, yahoo({ news: [] }));
+    expect(await db().newsArticle.count({ where: { teaser: { not: null } } })).toBeGreaterThan(0);
+    await clearNews(db());
+    expect(await db().newsArticle.count()).toBe(0);
+  });
+
   it("serializes concurrent runs", async () => {
     await held("DE0007164600", "SAP SE");
     let release: () => void = () => {};
@@ -263,6 +439,7 @@ describe("listNews / newsNeedsRefresh", () => {
       url: "https://a.example.com/Siemens%20heute",
       source: "Example",
       publishedAt: "2026-10-26T06:00:00.000Z",
+      teaser: null,
     });
   });
 

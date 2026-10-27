@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Synthetic Yahoo Finance RSS headline feed without items. -->
+<rss version="2.0">
+  <channel>
+    <title>Yahoo! Finance: XYZ.DE News</title>
+    <link>https://finance.example.com/q/h?s=XYZ.DE</link>
+    <description>Latest Financial News for XYZ.DE</description>
+  </channel>
+</rss>

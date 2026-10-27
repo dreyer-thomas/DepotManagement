@@ -4,7 +4,7 @@
 
 ## Goal
 
-Make the ledger built in Epics 1–2 reflect real market value without manual work: fetch current and daily historical Prices for every held Security (stocks/ETFs via Yahoo, certificates via onvista, crypto via CoinGecko/Binance), refresh them on a schedule and on demand, flag stale Prices, let Tommy enter manual Prices and fix provider mappings when sources fail, show a locally cached logo at every Security mention, and list the last 14 days of news for holdings. This supplies the price data Epic 4's valuation, charts and return metrics depend on, while keeping the app usable for free (manual Prices as fallback) and private (only symbols/ISINs/names leave the server).
+Make the ledger built in Epics 1–2 reflect real market value without manual work: fetch current and daily historical Prices for every held Security (stocks/ETFs via Yahoo, certificates via onvista, crypto via CoinGecko/Binance), refresh them on a schedule and on demand, flag stale Prices, let Tommy enter manual Prices and fix provider mappings when sources fail, show a locally cached logo at every Security mention, and list the last 14 days of news for holdings, with short in-app teasers where a source provides them. This supplies the price data Epic 4's valuation, charts and return metrics depend on, while keeping the app usable for free (manual Prices as fallback) and private (only symbols/ISINs/names leave the server).
 
 ## Stories
 
@@ -15,6 +15,7 @@ Make the ledger built in Epics 1–2 reflect real market value without manual wo
 - Story 3.5: Manual Prices
 - Story 3.6: Security Logos
 - Story 3.7: News on Holdings
+- Story 3.8: News Teasers
 
 ## Requirements & Constraints
 
@@ -22,6 +23,7 @@ Make the ledger built in Epics 1–2 reflect real market value without manual wo
 - Daily historical Prices back to each held Security's first Transaction; dates without a Price carry forward the last known Price (provider, manual or Transaction-derived) for value, charts and returns.
 - Manual Price entry/edit/delete for any Security; a manual Price wins over a provider Price for the same date everywhere and is never overwritten by the scheduler; it clears the stale flag only if dated within 3 days.
 - News: headlines of the last 14 days for held Securities, overall and filterable per Security, newest first, each linking to the original article (new tab).
+- News teasers: where available, show a short plain-text teaser (max ~600 chars, cut at sentence/word boundary) in the app before the user leaves for the article; only items mentioning the Security's name (legal-form suffixes ignored) or symbol are kept; no scraping of article pages and no circumventing consent walls/redirects.
 - Privacy: outbound requests carry only provider symbols, ISINs or company names — never quantities, values or Depot data. No third-party calls from the browser (logos served from the app's own route).
 - Cost: no paid service required; providers are free/unofficial and may break — fail soft (per-Security error, stale flag, manual Price), never break other fetches or ledger writes. No automatic failover between providers.
 - Tests never hit live providers: mapping resolver, every provider adapter and news parsing are unit-tested with recorded responses; a contract test on a Security with a known split proves unadjusted storage.
@@ -40,6 +42,7 @@ Make the ledger built in Epics 1–2 reflect real market value without manual wo
 - **Providers by asset:** stocks/ETFs `yahoo-finance2` 4.0.5 (instance API `new YahooFinance()`, `.DE`/`.F` tickers); certificates onvista unofficial JSON by ISIN; crypto CoinGecko Demo (365-day history) plus one-time Binance klines (`<SYMBOL>EUR`, 1d) backfill for older history.
 - **Scheduler:** in-process, registered from `instrumentation.ts`, `globalThis` guard against double start, never runs during `next build`; price fetch on start and daily; news refresh rides the daily run. Single Node process.
 - **News:** query by company name or ticker, never ISIN; Google News RSS (de + en, `hl=de&gl=DE&ceid=DE:de`) primary, `yahoo-finance2` search news secondary; merge and de-dupe by URL/title; cached; refresh on page open if cache older than a few hours. Not ledger data, not backed up.
+- **Teasers (3.8):** additional news provider reads the unofficial Yahoo Finance RSS per Yahoo symbol (`feeds.finance.yahoo.com/rss/2.0/headline?s=<symbol>&region=DE&lang=de-DE`) for stocks and crypto (ETFs get nothing there); item description stored as `teaser` (tags/entities stripped, trimmed). Google News stays headline-only for all Securities. On duplicates (URL or normalized title) the item with a teaser wins. Feed failure/empty/malformed = per-Security provider failure; requests spaced, fetched no more often than the existing news cache rule. Teasers are cached news, purged with the 14-day window, not backed up.
 - **Logos:** fetched once in the background when a Security is created or first held: logo.dev (by ISIN/ticker/crypto) primary, Elbstream fallback; certificates use issuer/underlying logo; crypto falls back to CoinGecko image. Stored under `DATA_DIR` with source and `fetchedAt`; manual upload (`source = manual`) always wins and is included in the JSON backup, fetched logos are not. A logo fetch never blocks a ledger write.
 - **Errors/validation:** zod at shell boundaries (provider responses, forms); expected failures return typed `{ ok: false, reason }` results. Logs never contain amounts or keys.
 
@@ -50,10 +53,11 @@ Make the ledger built in Epics 1–2 reflect real market value without manual wo
 - **Fetch failure:** row-level error naming the provider, with a "Kurs manuell eintragen" action.
 - **Logo component:** 32px round, served from local cache; missing logo shows deterministic-color initials immediately, no broken image, no layout shift; used at every Security mention.
 - **Nachrichten page:** headlines with logo + Security name, source, date, external link; Security filter; empty state "Keine Nachrichten der letzten 14 Tage."
+- **Teaser items (Nachrichten and Security detail):** a small marker flags items with a teaser; such an item expands on tap/click (keyboard-accessible accordion) to show teaser, source, date and a "Zum Artikel" link (new tab); items without a teaser open the article directly as before.
 - General: German, short factual microcopy; de-DE number/date formats; no optimistic writes; no hover-only actions; ≥ 44 px touch targets; works at phone width.
 
 ## Cross-Story Dependencies
 
 - Builds on Epic 1/2: `ledger` services (Securities, `ensureSecurity`, type change), CorporateActions (splits from 2.1 drive Yahoo un-adjustment and refetch), core held-set and Transaction-price fallback, Security logo placeholder component.
-- 3.1 (ProviderMapping, Securities page) precedes 3.2 and 3.4 (adapters use mappings). 3.2 creates the Price model and the provider interface that 3.4 and 3.5 reuse. 3.3 schedules the fetches from 3.2/3.4 and adds stale UI; 3.5's "Kurs manuell eintragen" is the action surfaced by 3.3's failure rows. 3.6 replaces 3.1's logo placeholder; 3.7 uses 3.6's logo component and 3.3's daily scheduler.
+- 3.1 (ProviderMapping, Securities page) precedes 3.2 and 3.4 (adapters use mappings). 3.2 creates the Price model and the provider interface that 3.4 and 3.5 reuse. 3.3 schedules the fetches from 3.2/3.4 and adds stale UI; 3.5's "Kurs manuell eintragen" is the action surfaced by 3.3's failure rows. 3.6 replaces 3.1's logo placeholder; 3.7 uses 3.6's logo component and 3.3's daily scheduler. 3.8 extends 3.7's `news` module, cache and page, uses 3.1's Yahoo mappings, and also touches the Security detail view's news list (Epic 4 detail page, if present).
 - Epic 4 (overview, charts, TTWROR/XIRR) consumes the core price resolver, carry-forward and `isStale` from this epic. Epic 6 export/restore must include Prices, ProviderMappings and manual logos but exclude news and fetched logos.

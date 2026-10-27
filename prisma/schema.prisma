@@ -245,6 +245,8 @@ model SecurityLogo {
 enum NewsProvider {
   GOOGLE_NEWS
   YAHOO
+  /// Yahoo Finance RSS headline feed per Yahoo symbol (story 3-8); items carry a teaser.
+  YAHOO_RSS
 }
 
 // Owned by the news module (AD-11). Cached headlines per held Security; not ledger data, never backed up.
@@ -259,6 +261,8 @@ model NewsArticle {
   /// UTC ISO timestamp of publication.
   publishedAt String
   provider    NewsProvider
+  /// Short plain-text teaser (tags and entities stripped, at most 600 characters); null = no teaser.
+  teaser      String?
   /// UTC ISO timestamp of the fetch.
   fetchedAt   String
 

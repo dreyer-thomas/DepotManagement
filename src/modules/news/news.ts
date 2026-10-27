@@ -7,9 +7,10 @@ import type { NewsProvider, Prisma } from "@/db/generated/prisma/client";
 import { listHeldSecurities, listSecurities } from "@/modules/ledger";
 import { listSecuritiesWithMappings } from "@/modules/prices";
 import { searchGoogleNews } from "./providers/google-news";
-import type { FetchedArticle, FetchLike, NewsLookup } from "./providers/shared";
+import { type FetchedArticle, type FetchLike, NEWS_ERROR, type NewsLookup } from "./providers/shared";
 import { searchYahooNews, type YahooNewsSearch } from "./providers/yahoo";
-import { newsTerm } from "./terms";
+import { searchYahooRss } from "./providers/yahoo-rss";
+import { mentionsSecurity, newsTerm, yahooSymbol } from "./terms";
 
 export type { NewsProvider } from "@/db/generated/prisma/client";
 
@@ -23,8 +24,13 @@ export const NEWS_PER_SECURITY_LIMIT = 30;
 /** Headlines of this many calendar days (today included) are kept and listed. */
 export const NEWS_WINDOW_DAYS = 14;
 
+/** Consecutive Yahoo RSS requests of a run start at least this many milliseconds apart. */
+export const YAHOO_RSS_SPACING_MS = 1000;
+
 /** External dependencies of the news refresh; each defaults to the real thing (tests inject fakes). */
-export type NewsDeps = { fetch?: FetchLike; search?: YahooNewsSearch };
+export type NewsDeps = { fetch?: FetchLike; search?: YahooNewsSearch; sleep?: (ms: number) => Promise<void> };
+
+const realSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 export type NewsRunFailure = { securityId: string; name: string };
 
@@ -49,6 +55,8 @@ export type NewsListArticle = {
   source: string;
   /** UTC ISO instant. */
   publishedAt: string;
+  /** Plain-text teaser shown in the app before the article; null = headline only. */
+  teaser: string | null;
 };
 
 export type NewsListing = { securities: { id: string; name: string }[]; articles: NewsListArticle[] };
@@ -101,21 +109,29 @@ type ProviderArticle = FetchedArticle & { provider: NewsProvider };
 
 /**
  * Merges the successful lookups (in provider order): articles of the window, de-duplicated by URL or
- * normalized title keeping the first, the newest `NEWS_PER_SECURITY_LIMIT`.
+ * normalized title — an article with a teaser replaces an earlier duplicate without one, otherwise the
+ * first wins — the newest `NEWS_PER_SECURITY_LIMIT`.
  */
 function merge(lookups: { provider: NewsProvider; lookup: NewsLookup }[], today: string): ProviderArticle[] {
-  const urls = new Set<string>();
-  const titles = new Set<string>();
+  const urls = new Map<string, number>();
+  const titles = new Map<string, number>();
   const merged: ProviderArticle[] = [];
   for (const { provider, lookup } of lookups) {
     if (!lookup.ok) continue;
     for (const article of lookup.articles) {
       if (!inWindow(article.publishedAt, today)) continue;
       const title = normalizedTitle(article.title);
-      if (urls.has(article.url) || titles.has(title)) continue;
-      urls.add(article.url);
-      titles.add(title);
-      merged.push({ ...article, provider });
+      const entry: ProviderArticle = { ...article, teaser: article.teaser ?? null, provider };
+      const duplicate = urls.get(article.url) ?? titles.get(title);
+      if (duplicate !== undefined) {
+        if (entry.teaser === null || merged[duplicate].teaser !== null) continue;
+        merged[duplicate] = entry;
+      } else {
+        merged.push(entry);
+      }
+      const index = duplicate ?? merged.length - 1;
+      urls.set(article.url, index);
+      titles.set(title, index);
     }
   }
   return merged.sort(byNewest).slice(0, NEWS_PER_SECURITY_LIMIT);
@@ -123,8 +139,10 @@ function merge(lookups: { provider: NewsProvider; lookup: NewsLookup }[], today:
 
 /**
  * Refreshes the news cache of the held Securities (all, or only stale ones with `onlyStale`), one Security
- * after another, its three lookups (Google News de, Google News en, Yahoo) concurrently. When all three fail nothing is written for that
- * Security (it stays stale); otherwise its articles are replaced and its `NewsFetch` set in one DB
+ * after another, its lookups (Google News de, Google News en, Yahoo search and — for stocks and crypto with
+ * a Yahoo symbol — the Yahoo RSS feed) concurrently. RSS items are kept only when they mention the
+ * Security; consecutive RSS requests are spaced by `YAHOO_RSS_SPACING_MS`. When every queried provider
+ * fails nothing is written for that Security (it stays stale); otherwise its articles are replaced and its `NewsFetch` set in one DB
  * transaction. Every run deletes the cache of Securities no longer held. Serialized in-process; provider
  * failures are part of the result, never thrown.
  */
@@ -133,6 +151,8 @@ export function refreshNews(options: RefreshNewsOptions = {}, db: NewsDb = prism
     const now = options.now ?? new Date();
     const fetch = options.deps?.fetch ?? globalThis.fetch;
     const search = options.deps?.search;
+    const sleep = options.deps?.sleep ?? realSleep;
+    let lastRssStart: number | undefined;
     const today = businessDate(now);
     const held = await listHeldSecurities(today, db);
     await inTransaction(db, async (tx) => {
@@ -149,17 +169,38 @@ export function refreshNews(options: RefreshNewsOptions = {}, db: NewsDb = prism
       if (!security) continue;
       const term = newsTerm(security.name);
       const yahooQuery = security.mapping?.provider === "YAHOO" && security.mapping.symbol ? security.mapping.symbol : term;
-      // The three lookups of one Security run concurrently; the merge order stays Google de → en → Yahoo.
-      const [googleDe, googleEn, yahoo] = await Promise.all([
+      const rssSymbol = yahooSymbol(security);
+      const rssLookup = async (symbol: string): Promise<NewsLookup> => {
+        if (lastRssStart !== undefined) {
+          const wait = YAHOO_RSS_SPACING_MS - (Date.now() - lastRssStart);
+          if (wait > 0) await sleep(wait);
+        }
+        lastRssStart = Date.now();
+        const lookup = await searchYahooRss(symbol, fetch);
+        if (!lookup.ok) return lookup;
+        const relevant = lookup.articles.filter((article) =>
+          mentionsSecurity(`${article.title}\n${article.teaser ?? ""}`, security.name, symbol),
+        );
+        // A feed without items mentioning the Security counts like an empty feed (provider failure).
+        if (relevant.length === 0) {
+          console.warn("News: Yahoo RSS answered without items mentioning the Security");
+          return NEWS_ERROR;
+        }
+        return { ok: true, articles: relevant };
+      };
+      // The lookups of one Security run concurrently; the merge order stays Google de → en → Yahoo → RSS.
+      const [googleDe, googleEn, yahoo, rss] = await Promise.all([
         searchGoogleNews(term, "de", fetch),
         searchGoogleNews(term, "en", fetch),
         searchYahooNews(yahooQuery, search),
+        rssSymbol === undefined ? undefined : rssLookup(rssSymbol),
       ]);
-      const lookups = [
-        { provider: "GOOGLE_NEWS" as const, lookup: googleDe },
-        { provider: "GOOGLE_NEWS" as const, lookup: googleEn },
-        { provider: "YAHOO" as const, lookup: yahoo },
+      const lookups: { provider: NewsProvider; lookup: NewsLookup }[] = [
+        { provider: "GOOGLE_NEWS", lookup: googleDe },
+        { provider: "GOOGLE_NEWS", lookup: googleEn },
+        { provider: "YAHOO", lookup: yahoo },
       ];
+      if (rss !== undefined) lookups.push({ provider: "YAHOO_RSS", lookup: rss });
       if (lookups.every(({ lookup }) => !lookup.ok)) {
         result.failed.push({ securityId, name: security.name });
         continue;
@@ -194,7 +235,7 @@ export async function listNews(today: string, securityId?: string, db: NewsDb = 
   const filter = securityId !== undefined && held.has(securityId) ? [securityId] : [...held];
   const rows = await db.newsArticle.findMany({
     where: { securityId: { in: filter } },
-    select: { id: true, securityId: true, title: true, url: true, source: true, publishedAt: true },
+    select: { id: true, securityId: true, title: true, url: true, source: true, publishedAt: true, teaser: true },
   });
   const articles = rows
     .filter((row) => inWindow(row.publishedAt, today))
@@ -209,7 +250,7 @@ export async function newsNeedsRefresh(now: Date, db: NewsDb = prisma): Promise<
   return (await staleOf(held, now, db)).length > 0;
 }
 
-/** Restore (story 6.2): deletes every cached headline and refresh marker inside the caller's transaction. */
+/** Restore (story 6.2): deletes every cached headline (teasers included) and refresh marker inside the caller's transaction. */
 export async function clearNews(db: NewsDb): Promise<void> {
   await db.newsArticle.deleteMany();
   await db.newsFetch.deleteMany();

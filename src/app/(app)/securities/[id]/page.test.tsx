@@ -213,6 +213,33 @@ describe("Security detail page", () => {
     expect(news).not.toContain("Apple-Meldung");
   });
 
+  it("shows a news item with a teaser as an accordion with the Kurztext marker", async () => {
+    const a = await depot("Alpha");
+    const id = await security();
+    await book({ depotId: a, type: "BUY", date: "2026-02-02", quantity: "10", price: "100", security: { id } });
+    await prisma.newsArticle.create({
+      data: {
+        securityId: id,
+        url: "https://finance.example.com/welt",
+        title: "Welt-Meldung mit Kurztext",
+        source: "Muster Finanz",
+        provider: "YAHOO_RSS",
+        teaser: "Ein erfundener Kurztext zur Welt-Meldung.",
+        publishedAt: `${addDays(TODAY, -1)}T08:00:00.000Z`,
+        fetchedAt: `${TODAY}T08:00:00.000Z`,
+      },
+    });
+    const html = section(renderHtml(await SecurityDetailPage(props(id))), 'id="security-news"');
+    expect(html).toMatch(/<button[^>]*aria-expanded="false"/);
+    expect(html).toMatch(/role="region"[^>]*hidden=""/);
+    const news = text(html);
+    expect(news).toContain("Welt-Meldung mit Kurztext");
+    expect(news).toContain("Kurztext");
+    expect(news).toContain("Ein erfundener Kurztext zur Welt-Meldung.");
+    expect(news).toContain("Zum Artikel");
+    expect(html).toContain('href="https://finance.example.com/welt" target="_blank" rel="noopener noreferrer"');
+  });
+
   it("shows a fully sold Security with its realized gain and no lots", async () => {
     const a = await depot("Alpha");
     const id = await security();

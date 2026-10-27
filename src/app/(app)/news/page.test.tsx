@@ -113,6 +113,40 @@ describe("News page", () => {
     expect(html).toContain('href="https://news.example.com/siemens" target="_blank" rel="noopener noreferrer"');
   });
 
+  it("renders a cached teaser item as a collapsed accordion with the Kurztext marker", async () => {
+    const { sap } = await seed();
+    await prisma.newsArticle.create({
+      data: {
+        securityId: sap,
+        title: "SAP-Aktie legt nach Zahlen zu",
+        url: "https://finance.example.com/sap-zahlen",
+        source: "Muster Finanz",
+        publishedAt: "2026-10-26T08:00:00.000Z",
+        provider: "YAHOO_RSS",
+        teaser: "SAP & Co melden erfundene Zahlen.",
+        fetchedAt: "2026-10-26T09:00:00.000Z",
+      },
+    });
+
+    const tree = await render();
+
+    const listed = findElement(tree, NewsList)?.props.articles as { title: string; teaser: string | null }[];
+    expect(listed.map((a) => [a.title, a.teaser])).toEqual([
+      ["SAP-Aktie legt nach Zahlen zu", "SAP & Co melden erfundene Zahlen."],
+      ["Siemens baut Werk aus", null],
+      ["SAP hebt Prognose an", null],
+    ]);
+    const html = renderHtml(tree);
+    expect(html).toMatch(/<button[^>]*aria-expanded="false"[^>]*aria-controls="[^"]+"/);
+    expect(html).toContain("Kurztext");
+    expect(html).toMatch(/role="region"[^>]*hidden=""/);
+    expect(html).toContain("SAP &amp; Co melden erfundene Zahlen.");
+    expect(html).toContain('href="https://finance.example.com/sap-zahlen" target="_blank" rel="noopener noreferrer"');
+    expect(html).toContain("Zum Artikel");
+    // Headline-only items stay direct links.
+    expect(html).toContain('href="https://news.example.com/siemens" target="_blank" rel="noopener noreferrer"');
+  });
+
   it("filters by the security search parameter and renders the auto refresh when the cache is stale", async () => {
     const { sap } = await seed();
 

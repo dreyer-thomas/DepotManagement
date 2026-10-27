@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { articleMeta, newsHref, newsPartialFailureMessage } from "./labels";
+import { articleMeta, newsHref, newsPartialFailureMessage, READ_ARTICLE_LABEL, TEASER_MARKER } from "./labels";
 
 describe("news labels", () => {
   it("formats the meta line with the Berlin date", () => {
@@ -10,6 +10,11 @@ describe("news labels", () => {
   it("counts failed Securities", () => {
     expect(newsPartialFailureMessage(1)).toBe("Nachrichten für 1 Wertpapier konnten nicht geladen werden.");
     expect(newsPartialFailureMessage(3)).toBe("Nachrichten für 3 Wertpapiere konnten nicht geladen werden.");
+  });
+
+  it("names the teaser marker and the article link in German", () => {
+    expect(TEASER_MARKER).toBe("Kurztext");
+    expect(READ_ARTICLE_LABEL).toBe("Zum Artikel");
   });
 
   it("builds the filter URLs", () => {

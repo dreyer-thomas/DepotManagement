@@ -1,6 +1,7 @@
 // Google News RSS search (AD-17): headlines by company name, in German and English editions. Only the
 // query term (never an ISIN, quantity, value or Depot data) leaves the server. The feed is parsed by a
 // minimal RSS reader (no XML dependency) pinned by synthetic fixtures.
+import { element, isFeed, items, pubDate } from "./rss";
 import { type FetchedArticle, type FetchLike, NEWS_ERROR, type NewsLookup, PROVIDER_TIMEOUT_MS, toArticle } from "./shared";
 
 export type GoogleNewsEdition = "de" | "en";
@@ -16,41 +17,6 @@ export function googleNewsUrl(term: string, edition: GoogleNewsEdition): string 
   return `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&${EDITIONS[edition]}`;
 }
 
-const NAMED_ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
-
-/** Decodes XML entities: the predefined ones (+ `&nbsp;`), `&#N;` and `&#xH;`; unknown ones stay. */
-export function decodeEntities(text: string): string {
-  return text.replace(/&(#x[0-9a-fA-F]+|#[0-9]+|[a-zA-Z]+);/g, (entity, body: string) => {
-    if (body.startsWith("#")) {
-      const code = body[1] === "x" || body[1] === "X" ? Number.parseInt(body.slice(2), 16) : Number.parseInt(body.slice(1), 10);
-      try {
-        return String.fromCodePoint(code);
-      } catch {
-        return entity;
-      }
-    }
-    return NAMED_ENTITIES[body] ?? entity;
-  });
-}
-
-/** Text content of an element body: CDATA sections verbatim, the rest entity-decoded, tags dropped. */
-export function textContent(body: string): string {
-  let text = "";
-  const cdata = /<!\[CDATA\[([\s\S]*?)\]\]>/g;
-  let last = 0;
-  for (let match = cdata.exec(body); match; match = cdata.exec(body)) {
-    text += decodeEntities(body.slice(last, match.index).replace(/<[^>]*>/g, ""));
-    text += match[1];
-    last = match.index + match[0].length;
-  }
-  return text + decodeEntities(body.slice(last).replace(/<[^>]*>/g, ""));
-}
-
-function element(item: string, name: string): string | undefined {
-  const match = new RegExp(`<${name}(?:\\s[^>]*)?>([\\s\\S]*?)</${name}>`).exec(item);
-  return match ? textContent(match[1]) : undefined;
-}
-
 /** `Headline - Source` → `Headline` (only when the title ends with exactly that source). */
 function stripSource(title: string, source: string): string {
   const trimmed = title.trim();
@@ -63,16 +29,15 @@ function stripSource(title: string, source: string): string {
  * valid link, title, source or RFC 822 date are dropped.
  */
 export function parseGoogleNewsRss(body: string): FetchedArticle[] | undefined {
-  if (!/<channel[\s>]/.test(body)) return undefined;
+  if (!isFeed(body)) return undefined;
   const articles: FetchedArticle[] = [];
-  for (const [, item] of body.matchAll(/<item(?:\s[^>]*)?>([\s\S]*?)<\/item>/g)) {
+  for (const item of items(body)) {
     const source = element(item, "source") ?? "";
-    const pubDate = element(item, "pubDate");
     const article = toArticle({
       url: element(item, "link") ?? "",
       title: stripSource(element(item, "title") ?? "", source),
       source,
-      published: pubDate?.trim() ? new Date(pubDate.trim()) : undefined,
+      published: pubDate(item),
     });
     if (article) articles.push(article);
   }

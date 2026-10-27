@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from "vitest";
 import { fakeFetch, recordedText } from "../../../../test/helpers/providers";
-import { decodeEntities, googleNewsUrl, parseGoogleNewsRss, searchGoogleNews, textContent } from "./google-news";
+import { googleNewsUrl, parseGoogleNewsRss, searchGoogleNews } from "./google-news";
+import { decodeEntities, textContent } from "./rss";
 import { TITLE_MAX_LENGTH } from "./shared";
 
 const rss = (body: string, status = 200) => new Response(body, { status, headers: { "Content-Type": "application/xml" } });

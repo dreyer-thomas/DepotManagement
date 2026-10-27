@@ -5,8 +5,7 @@ import Link from "@mui/material/Link";
 import Typography from "@mui/material/Typography";
 import type { NewsListArticle } from "@/modules/news";
 import { AppLink } from "../depots/DepotLink";
-import { articleMeta, NEW_TAB_HINT, NEWS_EMPTY_TEXT } from "../news/labels";
-import { visuallyHidden } from "../news/NewsList";
+import { articleMeta, NEW_TAB_HINT, NEWS_EMPTY_TEXT, visuallyHidden } from "../news/labels";
 import { SecurityLogo } from "../securities/SecurityLogo";
 import { CardHeading } from "./CardHeading";
 

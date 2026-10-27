@@ -8,6 +8,23 @@ export const NEWS_SESSION_EXPIRED_TEXT = "Sitzung abgelaufen. Bitte erneut anmel
 /** Screen-reader hint inside each article link (it opens in a new tab). */
 export const NEW_TAB_HINT = " (öffnet in neuem Tab)";
 export const ALL_SECURITIES_LABEL = "Alle Wertpapiere";
+/** Marker on a news item that expands to an in-app teaser. */
+export const TEASER_MARKER = "Kurztext";
+/** Link from an expanded teaser to the original article (new tab). */
+export const READ_ARTICLE_LABEL = "Zum Artikel";
+
+/** Hidden visually, read by screen readers (same rules as MUI's `visuallyHidden`). */
+export const visuallyHidden = {
+  border: 0,
+  clip: "rect(0 0 0 0)",
+  height: "1px",
+  margin: "-1px",
+  overflow: "hidden",
+  padding: 0,
+  position: "absolute",
+  whiteSpace: "nowrap",
+  width: "1px",
+} as const;
 
 /** Alert text after a refresh in which some Securities' news could not be loaded. */
 export function newsPartialFailureMessage(count: number): string {
