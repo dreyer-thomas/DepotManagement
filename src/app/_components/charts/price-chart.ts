@@ -28,8 +28,27 @@ export type PricePlotData = {
   sells: (number | null)[];
 };
 
+/** One day of the moving-average overlay (story 7-8): decimal string or `null` while too few closes. */
+export type PriceChartAverage = { date: string; average: string | null };
+
+/** The overlay's window in stored closes. */
+export type PriceChartAverageWindow = "200" | "38";
+
+/** The optional dashed moving-average overlay of the price chart. */
+export type PriceChartAverageOverlay = { window: PriceChartAverageWindow; points: readonly PriceChartAverage[] };
+
 export const TRADE_LABELS = { BUY: "Kauf", SELL: "Verkauf" } as const;
 export const NO_PRICE_HISTORY_TEXT = "Kein Kursverlauf vorhanden.";
+
+/** Caption when the overlay is on but no day has an average: `Zu wenig gespeicherte Kurse für GD 200.` */
+export function noAverageText(window: PriceChartAverageWindow): string {
+  return `Zu wenig gespeicherte Kurse für ${averageLabel(window)}.`;
+}
+
+/** True when at least one day of the overlay has an average. */
+export function hasAverage(overlay: PriceChartAverageOverlay | undefined): boolean {
+  return overlay !== undefined && overlay.points.some((point) => point.average !== null);
+}
 
 /** True when at least one day has a price. */
 export function hasPriceHistory(points: readonly PriceChartPoint[]): boolean {
@@ -56,6 +75,29 @@ export function toPricePlotData(points: readonly PriceChartPoint[], trades: read
   return { dates: points.map((point) => utcDate(point.date)), prices, buys: marker("BUY"), sells: marker("SELL") };
 }
 
+/** Plot coordinates of the overlay, index-aligned with the price points by date (`null` = gap). */
+export function toAveragePlotData(points: readonly PriceChartPoint[], averages: readonly PriceChartAverage[]): (number | null)[] {
+  const byDate = new Map(averages.map((point) => [point.date, point.average]));
+  return points.map((point) => {
+    const average = byDate.get(point.date);
+    return average == null ? null : Number(average);
+  });
+}
+
+/** Tooltip label of the overlay: `GD 200`, `GD 38`. */
+export function averageLabel(window: PriceChartAverageWindow): string {
+  return `GD ${window}`;
+}
+
+/** The overlay's tooltip line of a day: label and the average as money, `–` without one. */
+export function averageTooltipLine(
+  date: string,
+  overlay: PriceChartAverageOverlay,
+): { label: string; value: string } {
+  const average = overlay.points.find((point) => point.date === date)?.average ?? null;
+  return { label: averageLabel(overlay.window), value: average === null ? "–" : formatMoney(average) };
+}
+
 /** `Kauf · Depot A · 20 Stück à 50,00 € (split-bereinigt)`. */
 export function tradeLine(trade: PriceChartTrade): string {
   const base = `${TRADE_LABELS[trade.type]} · ${trade.depotName} · ${formatQuantity(trade.quantity)} Stück à ${formatMoney(trade.price)}`;
@@ -80,9 +122,14 @@ function count(n: number, singular: string, plural: string): string {
 
 /**
  * Text alternative, e.g. `Kursverlauf 01.01.2026 – 26.10.2026: Kurs von 100,00 € auf 112,46 €, 2 Käufe,
- * 1 Verkauf` — first and last known price of the range.
+ * 1 Verkauf` — first and last known price of the range; with the overlay `…, mit gleitendem Durchschnitt
+ * 200 Tage` appended.
  */
-export function priceChartAriaLabel(points: readonly PriceChartPoint[], trades: readonly PriceChartTrade[]): string {
+export function priceChartAriaLabel(
+  points: readonly PriceChartPoint[],
+  trades: readonly PriceChartTrade[],
+  averageWindow?: PriceChartAverageWindow,
+): string {
   const first = points.at(0);
   const last = points.at(-1);
   const priced = points.filter((point) => point.price !== null);
@@ -93,7 +140,8 @@ export function priceChartAriaLabel(points: readonly PriceChartPoint[], trades: 
   const sells = trades.length - buys;
   return (
     `Kursverlauf ${formatDate(first.date)} – ${formatDate(last.date)}: Kurs von ${formatMoney(from)} auf ${formatMoney(to)}, ` +
-    `${count(buys, "Kauf", "Käufe")}, ${count(sells, "Verkauf", "Verkäufe")}`
+    `${count(buys, "Kauf", "Käufe")}, ${count(sells, "Verkauf", "Verkäufe")}` +
+    (averageWindow ? `, mit gleitendem Durchschnitt ${averageWindow} Tage` : "")
   );
 }
 

@@ -33,9 +33,25 @@ export function depotLabel(depot: { name: string; archived: boolean }): string {
   return depot.archived ? `${depot.name} (archiviert)` : depot.name;
 }
 
-/** Hero chart modes: "Kurs" (price with trades), "Wert" (value development) and "Drawdown" (price drawdown). */
+/**
+ * Hero chart modes: "Kurs" (price with trades), "Wert" (value development), "Performance" (cumulative
+ * TTWROR of the holding) and "Drawdown" (price drawdown).
+ */
 export type ChartMode = SecurityChartMode;
-export const CHART_MODE_LABELS: Record<ChartMode, string> = { price: "Kurs", value: "Wert", drawdown: "Drawdown" };
+export const CHART_MODE_LABELS: Record<ChartMode, string> = {
+  price: "Kurs",
+  value: "Wert",
+  performance: "Performance",
+  drawdown: "Drawdown",
+};
+
+/** The "Kurs" overlay switch and its window toggle (story 7-8). */
+export const MOVING_AVERAGE_LABEL = "Gleitender Durchschnitt";
+export const MOVING_AVERAGE_WINDOW_LABELS = { "200": "200 Tage", "38": "38 Tage" } as const;
+
+/** Heatmap card of the Security page (story 7-8). */
+export const SECURITY_HEATMAP_HEADING = "Performance-Heatmap";
+export const PORTFOLIO_HEATMAP_LINK_TEXT = "Zur Heatmap des gesamten Portfolios";
 
 export const TOTAL_HEADING = "Gesamt seit Erstkauf";
 

@@ -27,7 +27,7 @@ import { PERIOD_COOKIE } from "@/app/_actions/period-cookie";
 import { archiveDepot, createDepot, ensureSecurity, recordIsinChange, recordSplit, recordTransaction, type RecordTransactionInput } from "@/modules/ledger";
 import { SecurityActions } from "../../../_components/security-detail/SecurityActions";
 import { SecurityHero } from "../../../_components/security-detail/SecurityHero";
-import { SECURITY_CHART_COOKIE } from "../../../_components/charts/chart-preference";
+import { MOVING_AVERAGE_COOKIE, SECURITY_CHART_COOKIE } from "../../../_components/charts/chart-preference";
 import { securityDetail } from "@/modules/ledger";
 import { storedPriceHistory } from "@/modules/prices";
 import SecurityDetailPage, { generateMetadata } from "./page";
@@ -354,7 +354,7 @@ describe("Security detail page", () => {
     expect(chart.props.initialMode).toBe("price");
     expect(chart.props.drawdown).toEqual(detail.drawdown);
     expect(chart.props.dividends).toEqual([{ depotName: "Alpha", date: "2026-03-02", amount: "8" }]);
-    expect(text(section(renderHtml(tree), 'aria-label="Wert"', "Aufschlüsselung"))).toMatch(/Kurs Wert Drawdown/);
+    expect(text(section(renderHtml(tree), 'aria-label="Wert"', "Aufschlüsselung"))).toMatch(/Kurs Wert Performance Drawdown/);
 
     cookieJar.set(SECURITY_CHART_COOKIE, "drawdown");
     const hero = section(renderHtml(await SecurityDetailPage(props(id))), 'aria-label="Wert"', "Aufschlüsselung");
@@ -381,5 +381,38 @@ describe("Security detail page", () => {
     expect(card).toContain("Investiert gesamt 1.001,00 €");
     expect(card).toContain("Rendite auf Investiert +19,78 %");
     expect(card).toContain("XIRR +19,78 %");
+  });
+  it("Security analyses: performance line, moving averages and stored overlay on the chart; heatmap card after the total", async () => {
+    const a = await depot("Alpha");
+    const id = await security();
+    await book({ depotId: a, type: "BUY", date: "2025-03-03", quantity: "10", price: "100", security: { id } });
+    await providerPrice(id, "2025-08-01", "120");
+    await book({ depotId: a, type: "SELL", date: "2025-09-01", quantity: "10", price: "110", security: { id } });
+    const detail = (await securityDetail(id, undefined, { kind: "preset", preset: "MAX" }, TODAY, undefined, { storedPrices: storedPriceHistory }))!;
+
+    const tree = await SecurityDetailPage(props(id));
+    const chart = findElement(tree, SecurityHero)!.props.chart as { props: Record<string, unknown> };
+    expect(chart.props.performance).toEqual(detail.performanceLine);
+    expect(chart.props.movingAverages).toEqual(detail.movingAverages);
+    expect(chart.props.initialMovingAverage).toBe("off");
+    expect(detail.performanceLine.at(-1)?.performance).toBe(detail.performance.ttwror);
+
+    const html = renderHtml(tree);
+    expect(html.indexOf('id="security-total"')).toBeLessThan(html.indexOf('id="security-heatmap"'));
+    expect(html.indexOf('id="security-heatmap"')).toBeLessThan(html.indexOf('id="security-lots"'));
+    const card = section(html, 'id="security-heatmap"', 'id="security-lots"');
+    expect(text(card)).toContain("Performance-Heatmap");
+    expect(text(card)).toMatch(/Jan Feb Mär .* Dez Gesamt/);
+    expect(text(card)).toContain("2025");
+    expect(text(card)).not.toContain("2026");
+    expect(card).toContain('href="/analyses?tab=returns&amp;scope=portfolio&amp;dimension=assetClass"');
+    expect(text(card)).toContain("Zur Heatmap des gesamten Portfolios");
+
+    cookieJar.set(MOVING_AVERAGE_COOKIE, "38");
+    const stored = findElement(await SecurityDetailPage(props(id)), SecurityHero)!.props.chart as { props: Record<string, unknown> };
+    expect(stored.props.initialMovingAverage).toBe("38");
+    cookieJar.set(MOVING_AVERAGE_COOKIE, "x");
+    const invalid = findElement(await SecurityDetailPage(props(id)), SecurityHero)!.props.chart as { props: Record<string, unknown> };
+    expect(invalid.props.initialMovingAverage).toBe("off");
   });
 });

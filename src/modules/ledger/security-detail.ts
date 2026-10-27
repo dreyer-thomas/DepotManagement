@@ -4,16 +4,22 @@ import { type Drawdown, drawdown } from "@/core/drawdown";
 import { type PeriodSelection, resolvePeriod } from "@/core/period";
 import { computePositions } from "@/core/positions";
 import type { ResolvedPrice } from "@/core/prices";
+import { type HeatmapYear, returnHeatmap } from "@/core/return-heatmap";
 import type { PeriodPerformance } from "@/core/returns";
 import {
   currentSecurityId,
+  type MovingAveragePoint,
+  type PerformancePoint,
   type PricePoint,
   securityChain,
   type SecurityDividend,
   securityDividends,
+  securityFlowRows,
   type SecurityLot,
   securityLots,
+  securityMovingAverage,
   securityPerformance,
+  securityPerformanceLine,
   securityPrice,
   securityPriceSeries,
   securitySeries,
@@ -25,7 +31,7 @@ import {
   securityTrades,
   sumSecurityPerformance,
 } from "@/core/security";
-import { type ValuationPoint, type ValuationRow, valuationSeries } from "@/core/valuation";
+import { sumValuationSeries, type ValuationPoint, type ValuationRow, valuationSeries } from "@/core/valuation";
 import { loadCorporateActions } from "./corporate-actions";
 import type { LedgerDb } from "./depots";
 import { lineageObservations, type StoredPriceLoader } from "./positions";
@@ -74,7 +80,16 @@ export type SecurityDetail = {
   dividends: SecurityDividend[];
   /** Drawdown of `priceSeries` (split-adjusted, so a split is never a drop; no price = `null`). */
   drawdown: Drawdown;
+  /** Cumulative TTWROR of the scope's Security flows per Period day (ratio strings; last = `performance.ttwror`). */
+  performanceLine: PerformancePoint[];
+  /** Moving averages (200 / 38 stored closes) of `priceSecurity` for `from..to`, split-adjusted as of `to`. */
+  movingAverages: Record<MovingAverageWindow, MovingAveragePoint[]>;
+  /** All-time monthly heatmap of the scope's Security series (first row..today), years without a return dropped. */
+  heatmap: HeatmapYear[];
 };
+
+/** Moving-average windows in stored closes. */
+export type MovingAverageWindow = "200" | "38";
 
 type ChainRow = ValuationRow & { depotId: string; price: string | null };
 
@@ -176,6 +191,22 @@ export async function securityDetail(
   const trades = securityTrades(periodRows, actions, to);
   const priceSeries = securityPriceSeries(observations, priceSecurity.id, actions, from, to);
 
+  // All-time heatmap from the day before the scope's first row to today, independent of the Period.
+  let heatmap: HeatmapYear[] = [];
+  if (firstDate !== null && firstDate <= today) {
+    let all: { start: ValuationPoint; series: readonly ValuationPoint[] };
+    if (from === firstDate && to === today) all = summed;
+    else {
+      const allStart = addDays(firstDate, -1);
+      const perDepot = scope.map((depot) =>
+        securitySeries(valuationSeries(rowsByDepot.get(depot.id)!, observations, actions, allStart, today)),
+      );
+      const points = sumValuationSeries(perDepot);
+      all = { start: points[0], series: points.slice(1) };
+    }
+    heatmap = returnHeatmap(all.start, all.series, securityFlowRows(scopeRows), today).filter((year) => year.total !== null);
+  }
+
   return {
     security,
     depots,
@@ -202,5 +233,11 @@ export async function securityDetail(
     trades,
     dividends: securityDividends(periodRows),
     drawdown: drawdown(priceSeries.map((point) => ({ date: point.date, level: point.price }))),
+    performanceLine: securityPerformanceLine(summed.start, summed.series, scopeRows),
+    movingAverages: {
+      "200": securityMovingAverage(observations, priceSecurity.id, actions, from, to, 200),
+      "38": securityMovingAverage(observations, priceSecurity.id, actions, from, to, 38),
+    },
+    heatmap,
   };
 }

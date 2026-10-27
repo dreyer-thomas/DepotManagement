@@ -16,7 +16,10 @@ import {
   type PeriodPerformance,
   periodCashFlows,
   portfolioPerformance,
+  ratioString,
+  ReturnDecimal,
   ttwror,
+  ttwrorIndex,
   xirr,
 } from "./returns";
 import { periodFlows, type ValuationPoint, type ValuationRow } from "./valuation";
@@ -442,4 +445,80 @@ export function securityDividends(rows: readonly SecurityTradeRow[]): SecurityDi
     .filter((row) => row.type === "DIVIDEND")
     .map((row) => ({ depotName: row.depotName, date: row.date, sequence: row.sequence, amount: row.amount }))
     .sort((a, b) => (a.date !== b.date ? (a.date < b.date ? -1 : 1) : a.sequence - b.sequence));
+}
+
+/** One day of the Security performance line: cumulative TTWROR since the series start (ratio string). */
+export type PerformancePoint = { date: string; performance: string };
+
+/**
+ * The Security's time-weighted performance line over `series` (a `securitySeries`, or the summed
+ * series for "Alle Depots"), `start` the point of the day before: per day the TTWROR index of the
+ * Security flows (`securityFlowRows(rows)`) − 1, so buys and sells are flows, never gains. `"0"` before
+ * anything is invested. The last point equals the Period TTWROR whenever that is non-null.
+ */
+export function securityPerformanceLine(
+  start: ValuationPoint,
+  series: readonly ValuationPoint[],
+  rows: readonly ValuationRow[],
+): PerformancePoint[] {
+  return ttwrorIndex(start, series, securityFlowRows(rows)).map(({ date, level }) => ({
+    date,
+    performance: ratioString(new ReturnDecimal(level).minus(1)),
+  }));
+}
+
+/** One day of a moving average: decimal string (10 decimal places, canonical) or `null`. */
+export type MovingAveragePoint = { date: string; average: string | null };
+
+/** Decimal places of a moving average. */
+const AVERAGE_DECIMALS = 10;
+
+/**
+ * Moving average of the stored closes of `securityId` for each day `from..to` (inclusive): stored Prices
+ * only (source `provider`/`manual`, never `transaction`), carried to the Securities and units as of `to`
+ * (as `securityPriceSeries`, so a split is never a drop); one close per date, the resolver winner of that
+ * date (manual > provider). Each day's average is the arithmetic mean of the last `window` closes dated
+ * on or before it (history before `from` counts), rounded half-up to 10 decimal places; `null` while
+ * fewer than `window` closes exist. Empty when `from > to`.
+ */
+export function securityMovingAverage(
+  observations: readonly PriceObservation[],
+  securityId: string,
+  actions: CorporateActions,
+  from: string,
+  to: string,
+  window: number,
+): MovingAveragePoint[] {
+  if (from > to) return [];
+  const own = adjustedObservations(
+    observations.filter((observation) => observation.source !== "transaction"),
+    actions,
+    to,
+  )
+    .filter((observation) => observation.securityId === securityId && observation.date <= to)
+    .sort(compareObservations);
+  // The last observation of a date is its resolver winner.
+  const closes: { date: string; price: string }[] = [];
+  for (const observation of own) {
+    const last = closes[closes.length - 1];
+    if (last && last.date === observation.date) last.price = observation.price;
+    else closes.push({ date: observation.date, price: observation.price });
+  }
+
+  const points: MovingAveragePoint[] = [];
+  let next = 0;
+  let sum = new ExactDecimal(0);
+  for (let day = from; day <= to; day = addDays(day, 1)) {
+    while (next < closes.length && closes[next].date <= day) {
+      sum = sum.plus(closes[next].price);
+      if (next >= window) sum = sum.minus(closes[next - window].price);
+      next++;
+    }
+    const average =
+      next >= window && window > 0
+        ? canonicalDecimal(sum.dividedBy(window).toDecimalPlaces(AVERAGE_DECIMALS, ExactDecimal.ROUND_HALF_UP))
+        : null;
+    points.push({ date: day, average });
+  }
+  return points;
 }

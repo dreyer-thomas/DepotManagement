@@ -119,6 +119,11 @@ export function allocationAriaLabel(dimensionLabel: string, segments: readonly C
 export const HEATMAP_MONTH_LABELS = ["Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"] as const;
 export const HEATMAP_QUARTER_LABELS = ["Q1", "Q2", "Q3", "Q4"] as const;
 export const HEATMAP_YEAR_LABEL = "Jahr";
+/** Year-total column of the Security heatmap (story 7-8). */
+export const HEATMAP_TOTAL_LABEL = "Gesamt";
+/** Granularity toggle of the Security heatmap: quarters or months. */
+export const HEATMAP_GRANULARITIES = ["Q", "M"] as const;
+export type HeatmapGranularity = (typeof HEATMAP_GRANULARITIES)[number];
 export const HEATMAP_RUNNING_LABEL = "laufend";
 export const HEATMAP_EMPTY_TEXT = "Noch keine Transaktionen.";
 

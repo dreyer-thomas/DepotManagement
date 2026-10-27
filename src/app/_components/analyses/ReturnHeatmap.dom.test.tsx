@@ -157,4 +157,37 @@ describe("ReturnHeatmap", () => {
     expect(screen.getByText("Noch keine Transaktionen.")).toBeTruthy();
     expect(screen.queryByRole("table")).toBeNull();
   });
+  it("Security variant: own heading, Q | M toggle with Gesamt, footer; months tappable in M", async () => {
+    const user = userEvent.setup({ delay: null });
+    renderView({
+      scope: "all",
+      years: YEARS,
+      heading: "Performance-Heatmap",
+      headingId: "security-heatmap-heading",
+      granularityToggle: true,
+      footer: <a href="/analysen">Zur Heatmap</a>,
+    });
+    expect(screen.getByRole("region", { name: "Performance-Heatmap" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Zur Heatmap" })).toBeTruthy();
+    const headers = () => within(screen.getByRole("table")).getAllByRole("columnheader").map((cell) => cell.textContent);
+    const cells = () => within(within(screen.getByRole("table")).getAllByRole("row")[1]).getAllByRole("cell").map((c) => c.textContent);
+    const monthButton = screen.getByRole("button", { name: "M (Monate)" });
+    expect(monthButton.getAttribute("aria-pressed")).toBe("true");
+    expect(headers()).toEqual(["Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez", "Gesamt"]);
+    expect(cells()).toEqual([`+10,00${NBSP}%`, `-10,00${NBSP}%`, `+3,21${NBSP}%laufend`, ...Array(9).fill(""), `+2,10${NBSP}%`]);
+    await user.click(screen.getByRole("button", { name: `Januar 2026: +10,00${NBSP}%` }));
+    expect(screen.getByRole("region", { name: "Januar 2026" })).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Q (Quartale)" }));
+    expect(headers()).toEqual(["Q1", "Q2", "Q3", "Q4", "Gesamt"]);
+    expect(cells()).toEqual([`+2,10${NBSP}%`, "–", "–", "–", `+2,10${NBSP}%`]);
+    expect(screen.queryByRole("region", { name: "Januar 2026" })).toBeNull();
+    const toggle = screen.getByRole("button", { name: "Q (Quartale)" });
+    expect(cssOf(toggle)).toContain("min-height:44px");
+
+    // Back to M: the earlier tapped month stays closed.
+    await user.click(screen.getByRole("button", { name: "M (Monate)" }));
+    expect(screen.queryByRole("region", { name: "Januar 2026" })).toBeNull();
+    expect(screen.getByRole("button", { name: `Januar 2026: +10,00${NBSP}%` }).getAttribute("aria-pressed")).toBe("false");
+  });
 });

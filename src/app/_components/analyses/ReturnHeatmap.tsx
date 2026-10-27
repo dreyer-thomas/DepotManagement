@@ -6,18 +6,23 @@ import Box from "@mui/material/Box";
 import ButtonBase from "@mui/material/ButtonBase";
 import Card from "@mui/material/Card";
 import CardContent from "@mui/material/CardContent";
+import ToggleButton from "@mui/material/ToggleButton";
+import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import Typography from "@mui/material/Typography";
 import type { SxProps, Theme } from "@mui/material/styles";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import type { HeatmapMonth, HeatmapYear } from "@/core/return-heatmap";
 import { formatDate, formatMoney, formatMonth, formatPercent } from "@/core/format";
 import { CardHeading } from "../overview/CardHeading";
 import {
   HEATMAP_EMPTY_TEXT,
+  HEATMAP_GRANULARITIES,
   HEATMAP_MONTH_LABELS,
   HEATMAP_QUARTER_LABELS,
   HEATMAP_RUNNING_LABEL,
+  HEATMAP_TOTAL_LABEL,
   HEATMAP_YEAR_LABEL,
+  type HeatmapGranularity,
   heatmapCellTone,
   heatmapTintAlpha,
 } from "./labels";
@@ -27,7 +32,20 @@ export type ReturnHeatmapProps = {
   scope: string;
   /** Years newest first (`core/return-heatmap`). */
   years: readonly HeatmapYear[];
+  /** Card heading; default "Rendite je Monat". */
+  heading?: string;
+  /** Id of the heading element; default `heatmap-heading`. */
+  headingId?: string;
+  /**
+   * Security variant (story 7-8): a "Q | M" toggle (default M) instead of the fixed months + quarters +
+   * "Jahr" columns — M shows the 12 months, Q the four quarters, each followed by "Gesamt".
+   */
+  granularityToggle?: boolean;
+  /** Optional content below the grid (e.g. a link). */
+  footer?: ReactNode;
 };
+
+const DEFAULT_HEADING_ID = "heatmap-heading";
 
 const percentText = (ratio: string | null) => (ratio === null ? "–" : formatPercent(ratio));
 
@@ -119,7 +137,7 @@ function TotalCell({ ratio, strong = false }: { ratio: string | null; strong?: b
   );
 }
 
-function Detail({ month }: { month: HeatmapMonth }) {
+function Detail({ month, headingId }: { month: HeatmapMonth; headingId: string }) {
   const entries: [string, string][] = [
     ["Startwert", formatMoney(month.startValue)],
     ["Endwert", formatMoney(month.endValue)],
@@ -128,8 +146,8 @@ function Detail({ month }: { month: HeatmapMonth }) {
     ["Transaktionen", String(month.transactions)],
   ];
   return (
-    <Box component="section" aria-labelledby="heatmap-detail-heading" sx={{ mt: 2 }}>
-      <CardHeading id="heatmap-detail-heading">{`${monthLabel(month)}${month.running ? ` (${HEATMAP_RUNNING_LABEL})` : ""}`}</CardHeading>
+    <Box component="section" aria-labelledby={headingId} sx={{ mt: 2 }}>
+      <CardHeading id={headingId}>{`${monthLabel(month)}${month.running ? ` (${HEATMAP_RUNNING_LABEL})` : ""}`}</CardHeading>
       <Typography variant="caption" color="text.secondary" component="p" sx={{ mb: 1 }}>
         {`${formatDate(month.from)} – ${formatDate(month.to)}`}
       </Typography>
@@ -154,25 +172,71 @@ function Detail({ month }: { month: HeatmapMonth }) {
  * green/red by sign (stronger with magnitude) and always showing the signed value. Tapping a month shows
  * its figures below; tapping it again closes them. The grid scrolls sideways inside the card.
  */
-export function ReturnHeatmap({ scope, years }: ReturnHeatmapProps) {
+export function ReturnHeatmap({
+  scope,
+  years,
+  heading = "Rendite je Monat",
+  headingId = DEFAULT_HEADING_ID,
+  granularityToggle = false,
+  footer,
+}: ReturnHeatmapProps) {
   const [selection, setSelection] = useState<{ scope: string; month: string } | null>(null);
+  const [granularity, setGranularity] = useState<HeatmapGranularity>("M");
+  const showMonths = !granularityToggle || granularity === "M";
+  const showQuarters = !granularityToggle || granularity === "Q";
+  const columns = [
+    ...(showMonths ? HEATMAP_MONTH_LABELS : []),
+    ...(showQuarters ? HEATMAP_QUARTER_LABELS : []),
+    granularityToggle ? HEATMAP_TOTAL_LABEL : HEATMAP_YEAR_LABEL,
+  ];
+  const detailId = headingId === DEFAULT_HEADING_ID ? "heatmap-detail-heading" : `${headingId}-detail`;
   const selectedKey = selection?.scope === scope ? selection.month : null;
   const selected = years.flatMap((year) => year.months).find((month) => month !== null && month.month === selectedKey) ?? null;
 
   return (
-    <Card component="section" aria-labelledby="heatmap-heading" sx={{ minWidth: 0 }}>
+    <Card component="section" aria-labelledby={headingId} sx={{ minWidth: 0 }}>
       <CardContent>
-        <CardHeading id="heatmap-heading">Rendite je Monat</CardHeading>
+        {granularityToggle ? (
+          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1, flexWrap: "wrap" }}>
+            <CardHeading id={headingId}>{heading}</CardHeading>
+            {years.length > 0 ? (
+              <ToggleButtonGroup
+                value={granularity}
+                exclusive
+                size="small"
+                aria-label="Zeitraster"
+                onChange={(_, next: HeatmapGranularity | null) => {
+                  if (next === null) return;
+                  setGranularity(next);
+                  setSelection(null);
+                }}
+              >
+                {HEATMAP_GRANULARITIES.map((value) => (
+                  <ToggleButton
+                    key={value}
+                    value={value}
+                    aria-label={value === "Q" ? "Q (Quartale)" : "M (Monate)"}
+                    sx={{ minHeight: 44, minWidth: 44, px: 1.5, textTransform: "none" }}
+                  >
+                    {value}
+                  </ToggleButton>
+                ))}
+              </ToggleButtonGroup>
+            ) : null}
+          </Box>
+        ) : (
+          <CardHeading id={headingId}>{heading}</CardHeading>
+        )}
         {years.length === 0 ? (
           <Typography variant="body2">{HEATMAP_EMPTY_TEXT}</Typography>
         ) : (
           <>
             <Box sx={{ overflowX: "auto", maxWidth: "100%" }}>
-              <Box component="table" aria-labelledby="heatmap-heading" sx={{ borderCollapse: "collapse", width: "100%" }}>
+              <Box component="table" aria-labelledby={headingId} sx={{ borderCollapse: "collapse", width: "100%" }}>
                 <thead>
                   <tr>
                     <Box component="td" sx={{ ...headerCell, ...yearColumn }} />
-                    {[...HEATMAP_MONTH_LABELS, ...HEATMAP_QUARTER_LABELS, HEATMAP_YEAR_LABEL].map((label) => (
+                    {columns.map((label) => (
                       <Box component="th" scope="col" key={label} sx={headerCell}>
                         {label}
                       </Box>
@@ -185,7 +249,7 @@ export function ReturnHeatmap({ scope, years }: ReturnHeatmapProps) {
                       <Box component="th" scope="row" sx={{ ...headerCell, ...yearColumn, color: "text.primary", fontSize: 13 }}>
                         {year.year}
                       </Box>
-                      {year.months.map((month, index) =>
+                      {(showMonths ? year.months : []).map((month, index) =>
                         month === null ? (
                           <Box component="td" key={index} sx={cellBase} />
                         ) : (
@@ -197,7 +261,7 @@ export function ReturnHeatmap({ scope, years }: ReturnHeatmapProps) {
                           />
                         ),
                       )}
-                      {year.quarters.map((quarter, index) => (
+                      {(showQuarters ? year.quarters : []).map((quarter, index) => (
                         <TotalCell key={`q${index}`} ratio={quarter} />
                       ))}
                       <TotalCell ratio={year.total} strong />
@@ -206,9 +270,10 @@ export function ReturnHeatmap({ scope, years }: ReturnHeatmapProps) {
                 </tbody>
               </Box>
             </Box>
-            {selected ? <Detail month={selected} /> : null}
+            {selected && showMonths ? <Detail month={selected} headingId={detailId} /> : null}
           </>
         )}
+        {footer}
       </CardContent>
     </Card>
   );

@@ -5,7 +5,7 @@ import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { readSecurityChartMode } from "@/app/_actions/chart-preference-cookie";
+import { readMovingAverage, readSecurityChartMode } from "@/app/_actions/chart-preference-cookie";
 import { readPeriod } from "@/app/_actions/period-cookie";
 import { NewsList } from "@/app/_components/news/NewsList";
 import { CardHeading } from "@/app/_components/overview/CardHeading";
@@ -17,6 +17,7 @@ import { NO_TRANSACTIONS_TEXT, securityCaption } from "@/app/_components/securit
 import { PriceLine } from "@/app/_components/security-detail/PriceLine";
 import { SecurityActions } from "@/app/_components/security-detail/SecurityActions";
 import { SecurityChart } from "@/app/_components/security-detail/SecurityChart";
+import { SecurityHeatmap } from "@/app/_components/security-detail/SecurityHeatmap";
 import { SecurityHero } from "@/app/_components/security-detail/SecurityHero";
 import { SecurityKpis } from "@/app/_components/security-detail/SecurityKpis";
 import { SecurityTotal } from "@/app/_components/security-detail/SecurityTotal";
@@ -41,8 +42,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 /**
  * One Security across all Depots or one Depot (story 4-6), also when no longer held: header with the
- * actions menu, Depot switcher, hero (value, Period gain/loss, TTWROR, XIRR, price line, Kurs/Wert/Drawdown
- * chart, breakdown), KPIs, "Gesamt seit Erstkauf" (story 4-7), open FIFO lots, Transaction history and
+ * actions menu, Depot switcher, hero (value, Period gain/loss, TTWROR, XIRR, price line,
+ * Kurs/Wert/Performance/Drawdown chart with the optional moving average, breakdown), KPIs, "Gesamt seit
+ * Erstkauf" (story 4-7), "Performance-Heatmap" (story 7-8), open FIFO lots, Transaction history and
  * 14-day news. Every figure comes from
  * `core` via `securityDetail` (AD-10); no provider call during render.
  */
@@ -57,12 +59,13 @@ export default async function SecurityDetailPage({ params, searchParams }: Props
   if (!detail) notFound();
   const { security } = detail;
   const booked = detail.depots.length > 0;
-  const [splits, isinChanges, securities, news, chartMode] = await Promise.all([
+  const [splits, isinChanges, securities, news, chartMode, movingAverage] = await Promise.all([
     listSplits(),
     listIsinChanges(),
     listSecurities(),
     booked ? listNews(today, security.id) : Promise.resolve(null),
     readSecurityChartMode(),
+    readMovingAverage(),
   ]);
 
   // "Neue Buchung": the selected Depot when it is not archived; for "Alle Depots" every non-archived booking Depot.
@@ -125,12 +128,16 @@ export default async function SecurityDetailPage({ params, searchParams }: Props
                 }))}
                 drawdown={detail.drawdown}
                 dividends={detail.dividends.map(({ depotName, date, amount }) => ({ depotName, date, amount }))}
+                performance={detail.performanceLine}
+                movingAverages={detail.movingAverages}
                 initialMode={chartMode}
+                initialMovingAverage={movingAverage}
               />
             }
           />
           <SecurityKpis snapshot={detail.snapshot} dividends={detail.performance.dividends} periodLabel={periodLabel(period)} />
           <SecurityTotal total={detail.total} />
+          <SecurityHeatmap scope={detail.selected ?? "all"} years={detail.heatmap} />
           <FifoLots groups={detail.lots} />
           <SecurityTransactions
             securityId={security.id}

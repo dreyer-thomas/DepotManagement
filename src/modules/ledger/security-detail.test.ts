@@ -260,4 +260,56 @@ describe("securityDetail", () => {
     });
     expect(detail?.dividends).toEqual([{ depotName: "Alpha", date: "2026-03-05", sequence: expect.any(Number), amount: "12" }]);
   });
+  it("Security analyses: all-time heatmap of a sold Security, performance line parity, moving averages from stored Prices", async () => {
+    await book(depotA, { type: "BUY", date: "2024-03-04", quantity: "10", price: "100", security: { id: securityId } });
+    await book(depotB, { type: "BUY", date: "2024-05-02", quantity: "5", price: "102", security: { id: securityId } });
+    await book(depotA, { type: "SELL", date: "2025-06-02", quantity: "10", price: "120", security: { id: securityId } });
+    await book(depotB, { type: "SELL", date: "2025-06-03", quantity: "5", price: "121", security: { id: securityId } });
+    const closes = Array.from({ length: 40 }, (_, index) => {
+      const day = new Date(Date.UTC(2025, 3, 1 + index)).toISOString().slice(0, 10);
+      return provider(day, String(100 + index));
+    });
+    const storedPrices = async (_ids: string[], asOf: string) =>
+      [provider("2024-12-31", "110"), ...closes, { ...provider("2025-05-10", "999"), id: "m", source: "manual" as const }].filter(
+        (p) => p.date <= asOf,
+      );
+    const today = "2026-10-27";
+
+    const all = await securityDetail(securityId, undefined, MAX, today, db(), { storedPrices });
+    expect(all?.heatmap.map((year) => year.year)).toEqual([2025, 2024]);
+    const y2025 = all!.heatmap[0];
+    expect(y2025.months.slice(6).every((month) => month !== null && month.return === null)).toBe(true);
+    expect(y2025.months[5]?.return).not.toBeNull();
+    expect(all?.heatmap[1].months.slice(0, 2)).toEqual([null, null]);
+    expect(all?.performanceLine).toHaveLength(all!.series.length);
+    expect(all?.performanceLine.at(-1)?.performance).toBe(all?.performance.ttwror);
+
+    // Heatmap parity: a year's total is the TTWROR of that year's Security series (up to the monthly rounding).
+    const year2024 = await securityDetail(securityId, undefined, { kind: "custom", from: "2024-03-04", to: "2024-12-31" }, today, db(), {
+      storedPrices,
+    });
+    const total2024 = all!.heatmap[1].total!;
+    expect(Math.abs(Number(total2024) - Number(year2024!.performance.ttwror))).toBeLessThan(1e-15);
+    // The rebuilt all-time heatmap (non-MAX Period, two Depots) equals the MAX one.
+    expect(year2024?.heatmap).toEqual(all?.heatmap);
+
+    // A custom Period: the heatmap stays all-time; parity and moving averages follow the Period.
+    const custom = await securityDetail(securityId, depotA, { kind: "custom", from: "2025-05-01", to: "2025-05-12" }, today, db(), {
+      storedPrices,
+    });
+    expect(custom?.heatmap.map((year) => year.year)).toEqual([2025, 2024]);
+    const maxA = await securityDetail(securityId, depotA, MAX, today, db(), { storedPrices });
+    expect(custom?.heatmap).toEqual(maxA?.heatmap);
+    expect(custom?.performanceLine.map((point) => point.date)).toEqual(custom?.series.map((point) => point.date));
+    expect(custom?.performanceLine.at(-1)?.performance).toBe(custom?.performance.ttwror);
+    expect(custom?.movingAverages["200"].every((point) => point.average === null)).toBe(true);
+    const ma38 = custom!.movingAverages["38"];
+    expect(ma38).toHaveLength(12);
+    // Closes 2024-12-31 110, 04-01..05-10 = 100..139 (manual 999 wins on 05-10); trade prices never count.
+    expect(ma38[0]).toEqual({ date: "2025-05-01", average: null });
+    expect(ma38.find((point) => point.date === "2025-05-07")?.average).not.toBeNull();
+    expect(ma38.find((point) => point.date === "2025-05-08")?.average).toBe("118.5");
+    // 05-10: closes 102..138 plus the manual 999 → 5439 / 38.
+    expect(ma38.find((point) => point.date === "2025-05-10")?.average).toBe("143.1315789474");
+  });
 });

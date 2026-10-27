@@ -231,6 +231,94 @@ describe("SecurityChart", () => {
     expect(screen.getByRole("figure").getAttribute("aria-label")).toMatch(/^Drawdown /);
   });
 
+  const performance = [
+    { date: "2026-10-21", performance: "0" },
+    { date: "2026-10-22", performance: "0.05" },
+  ];
+  const movingAverages = {
+    "200": [
+      { date: "2026-10-21", average: null },
+      { date: "2026-10-22", average: null },
+    ],
+    "38": [
+      { date: "2026-10-21", average: "98" },
+      { date: "2026-10-22", average: "99.5" },
+    ],
+  };
+
+  it("offers Performance between Wert and Drawdown and shows the performance line", async () => {
+    const user = userEvent.setup({ delay: null });
+    render(
+      <ThemeProvider theme={theme}>
+        <SecurityChart
+          valuePoints={valuePoints}
+          pricePoints={pricePoints}
+          trades={trades}
+          drawdown={drawdown}
+          dividends={dividends}
+          performance={performance}
+        />
+      </ThemeProvider>,
+    );
+    const group = screen.getByRole("group", { name: "Diagramm" });
+    expect(within(group).getAllByRole("button").map((button) => button.textContent)).toEqual(["Kurs", "Wert", "Performance", "Drawdown"]);
+    await user.click(within(group).getByRole("button", { name: "Performance" }));
+    expect(screen.getByRole("figure").getAttribute("aria-label")).toBe("Performance 21.10.2026 – 22.10.2026: +5,00\u00a0%");
+    expect(document.cookie).toContain("dm_security_chart=performance");
+    document.cookie = "dm_security_chart=; path=/; max-age=0";
+  });
+
+  it("Kurs overlay: switch on, pick 38 Tage, stored in a cookie; starts from the stored choice", async () => {
+    const user = userEvent.setup({ delay: null });
+    const { unmount } = render(
+      <ThemeProvider theme={theme}>
+        <SecurityChart valuePoints={valuePoints} pricePoints={pricePoints} trades={trades} movingAverages={movingAverages} />
+      </ThemeProvider>,
+    );
+    const toggle = screen.getByRole("switch", { name: "Gleitender Durchschnitt" });
+    expect((toggle as HTMLInputElement).checked).toBe(false);
+    expect(screen.queryByRole("group", { name: "Zeitfenster" })).toBeNull();
+    expect(screen.getByRole("figure").getAttribute("aria-label")).not.toContain("gleitendem");
+
+    await user.click(toggle);
+    expect(document.cookie).toContain("dm_moving_average=200");
+    const windows = screen.getByRole("group", { name: "Zeitfenster" });
+    expect(within(windows).getByRole("button", { name: "200 Tage" }).getAttribute("aria-pressed")).toBe("true");
+    // Too few stored closes for 200: nothing drawn, no suffix, a hint instead.
+    expect(screen.getByRole("figure").getAttribute("aria-label")).not.toContain("gleitendem");
+    expect(screen.getByText("Zu wenig gespeicherte Kurse für GD 200.")).toBeTruthy();
+    await user.click(within(windows).getByRole("button", { name: "38 Tage" }));
+    expect(document.cookie).toContain("dm_moving_average=38");
+    expect(screen.getByRole("figure").getAttribute("aria-label")).toMatch(/mit gleitendem Durchschnitt 38 Tage$/);
+    expect(screen.queryByText("Zu wenig gespeicherte Kurse für GD 38.")).toBeNull();
+    await waitFor(() => {
+      if (!document.querySelector('.MuiLineChart-line[data-series="average"]')) throw new Error("not drawn yet");
+    });
+
+    // Not shown outside "Kurs".
+    await user.click(screen.getByRole("button", { name: "Wert" }));
+    expect(screen.queryByRole("switch", { name: "Gleitender Durchschnitt" })).toBeNull();
+    unmount();
+
+    render(
+      <ThemeProvider theme={theme}>
+        <SecurityChart
+          valuePoints={valuePoints}
+          pricePoints={pricePoints}
+          trades={trades}
+          movingAverages={movingAverages}
+          initialMovingAverage="38"
+        />
+      </ThemeProvider>,
+    );
+    expect((screen.getByRole("switch", { name: "Gleitender Durchschnitt" }) as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByRole("button", { name: "38 Tage" }).getAttribute("aria-pressed")).toBe("true");
+    await user.click(screen.getByRole("switch", { name: "Gleitender Durchschnitt" }));
+    expect(document.cookie).toContain("dm_moving_average=off");
+    document.cookie = "dm_moving_average=; path=/; max-age=0";
+    document.cookie = "dm_security_chart=; path=/; max-age=0";
+  });
+
   it("shows the no-price text in Kurs mode without any price", () => {
     render(
       <ThemeProvider theme={theme}>

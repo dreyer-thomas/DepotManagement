@@ -2,6 +2,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   chartPreferenceCookie,
+  MOVING_AVERAGE_COOKIE,
+  parseMovingAverage,
   parseSecurityChartMode,
   parseValueChartTab,
   SECURITY_CHART_COOKIE,
@@ -18,8 +20,19 @@ describe("parseValueChartTab / parseSecurityChartMode", () => {
     expect(parseSecurityChartMode("value")).toBe("value");
     expect(parseSecurityChartMode("drawdown")).toBe("drawdown");
     expect(parseSecurityChartMode("price")).toBe("price");
-    expect(parseSecurityChartMode("performance")).toBe("price");
+    expect(parseSecurityChartMode("performance")).toBe("performance");
+    expect(parseSecurityChartMode("Performance")).toBe("price");
     expect(parseSecurityChartMode(null)).toBe("price");
+  });
+});
+
+describe("parseMovingAverage", () => {
+  it("accepts off, 200 and 38; anything else is off", () => {
+    expect(parseMovingAverage("38")).toBe("38");
+    expect(parseMovingAverage("200")).toBe("200");
+    expect(parseMovingAverage("off")).toBe("off");
+    expect(parseMovingAverage("x")).toBe("off");
+    expect(parseMovingAverage(undefined)).toBe("off");
   });
 });
 
@@ -38,11 +51,14 @@ describe("storeChartPreference", () => {
   afterEach(() => {
     document.cookie = `${VALUE_CHART_TAB_COOKIE}=; path=/; max-age=0`;
     document.cookie = `${SECURITY_CHART_COOKIE}=; path=/; max-age=0`;
+    document.cookie = `${MOVING_AVERAGE_COOKIE}=; path=/; max-age=0`;
   });
 
   it("writes the cookie in the browser", () => {
     storeChartPreference(VALUE_CHART_TAB_COOKIE, "drawdown");
     storeChartPreference(SECURITY_CHART_COOKIE, "value");
+    storeChartPreference(MOVING_AVERAGE_COOKIE, "38");
+    expect(document.cookie).toContain("dm_moving_average=38");
     expect(document.cookie).toContain("dm_chart_tab=drawdown");
     expect(document.cookie).toContain("dm_security_chart=value");
   });

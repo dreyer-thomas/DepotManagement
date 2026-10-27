@@ -9,7 +9,9 @@ import {
   securityChain,
   securityFlowRows,
   securityLots,
+  securityMovingAverage,
   securityPerformance,
+  securityPerformanceLine,
   securityPrice,
   securityPriceSeries,
   securitySeries,
@@ -19,7 +21,7 @@ import {
   securityTrades,
   sumSecurityPerformance,
 } from "./security";
-import { type ValuationRow, valuationSeries } from "./valuation";
+import { type ValuationPoint, type ValuationRow, valuationSeries } from "./valuation";
 
 type Row = ValuationRow & { id: string; price: string | null };
 
@@ -435,5 +437,106 @@ describe("securityDividends", () => {
       { depotName: "B", date: "2026-05-02", sequence: 7, amount: "12.5" },
     ]);
     expect(securityDividends([])).toEqual([]);
+  });
+});
+
+const point = (date: string, value: string): ValuationPoint => ({
+  date,
+  value,
+  positionsValue: value,
+  cash: "0",
+  investedCapital: "0",
+});
+
+describe("securityPerformanceLine", () => {
+  it("Sale in Period: buys and sells are flows, not gains", () => {
+    const rows = [row("BUY", "2026-02-01", { quantity: "10", amount: "100" }), row("SELL", "2026-02-03", { quantity: "5", amount: "60" })];
+    const series = [point("2026-02-01", "100"), point("2026-02-02", "110"), point("2026-02-03", "60"), point("2026-02-04", "50")];
+    expect(securityPerformanceLine(point("2026-01-31", "0"), series, rows)).toEqual([
+      { date: "2026-02-01", performance: "0" },
+      { date: "2026-02-02", performance: "0.1" },
+      { date: "2026-02-03", performance: "0.2" },
+      { date: "2026-02-04", performance: "0" },
+    ]);
+  });
+
+  it("'0' before anything is invested", () => {
+    const rows = [row("BUY", "2026-02-02", { quantity: "1", amount: "100" })];
+    const series = [point("2026-02-01", "0"), point("2026-02-02", "100"), point("2026-02-03", "105")];
+    expect(securityPerformanceLine(point("2026-01-31", "0"), series, rows).map((p) => p.performance)).toEqual(["0", "0", "0.05"]);
+  });
+
+  it("Split in Period: the split is no drop", () => {
+    const rows = [buy("2026-02-01", "10", "10")];
+    const actions: CorporateActions = { splits: [{ securityId: "s1", date: "2026-02-02", ratioOld: "1", ratioNew: "2" }], isinChanges: [] };
+    const observations = [...tradeObservations(rows), provider("2026-02-02", "5.5")];
+    const { start, series } = evaluate(rows, observations, "2026-02-01", "2026-02-02", actions);
+    expect(series.map((p) => p.value)).toEqual(["100", "110"]);
+    expect(securityPerformanceLine(start, series, rows).map((p) => p.performance)).toEqual(["0", "0.1"]);
+  });
+
+  it("Parity: last point equals the Period TTWROR, single Depot and two Depots", () => {
+    const rowsA = [buy("2026-01-02", "10", "100"), sell("2026-01-05", "4", "110"), row("DIVIDEND", "2026-01-06", { amount: "7" })];
+    const rowsB = [buy("2026-01-03", "5", "105"), buy("2026-01-07", "2", "98", { fee: "1" })];
+    const observations = [
+      ...tradeObservations([...rowsA, ...rowsB]),
+      provider("2026-01-04", "103"),
+      provider("2026-01-06", "101.5"),
+      provider("2026-01-08", "99"),
+    ];
+    const a = evaluate(rowsA, observations, "2026-01-02", "2026-01-08");
+    const b = evaluate(rowsB, observations, "2026-01-02", "2026-01-08");
+    expect(a.performance.ttwror).not.toBeNull();
+    expect(securityPerformanceLine(a.start, a.series, rowsA).at(-1)?.performance).toBe(a.performance.ttwror);
+    const summed = sumSecurityPerformance([a, b]);
+    expect(summed.performance.ttwror).not.toBeNull();
+    expect(securityPerformanceLine(summed.start, summed.series, [...rowsA, ...rowsB]).at(-1)?.performance).toBe(
+      summed.performance.ttwror,
+    );
+  });
+});
+
+describe("securityMovingAverage", () => {
+  const manual = (date: string, price: string): PriceObservation => ({ ...provider(date, price), id: `m-${date}`, source: "manual" });
+  const transaction: PriceObservation = { id: "t", securityId: "s1", date: "2026-01-03", sequence: 1, price: "100", source: "transaction" };
+  const observations = [
+    provider("2026-01-01", "10"),
+    provider("2026-01-02", "12"),
+    provider("2026-01-05", "14"),
+    provider("2026-01-06", "16"),
+    manual("2026-01-05", "15"),
+    transaction,
+  ];
+
+  it("window 3: stored Prices only, manual wins on a date, null while fewer closes", () => {
+    expect(securityMovingAverage(observations, "s1", NONE, "2026-01-01", "2026-01-06", 3)).toEqual([
+      { date: "2026-01-01", average: null },
+      { date: "2026-01-02", average: null },
+      { date: "2026-01-03", average: null },
+      { date: "2026-01-04", average: null },
+      { date: "2026-01-05", average: "12.3333333333" },
+      { date: "2026-01-06", average: "14.3333333333" },
+    ]);
+  });
+
+  it("Split: closes before the split are adjusted to the units as of the end", () => {
+    const actions: CorporateActions = { splits: [{ securityId: "s1", date: "2026-01-04", ratioOld: "1", ratioNew: "2" }], isinChanges: [] };
+    const points = securityMovingAverage(observations, "s1", actions, "2026-01-01", "2026-01-06", 3);
+    expect(points.map((p) => p.average)).toEqual([null, null, null, null, "8.6666666667", "12.3333333333"]);
+  });
+
+  it("Lookback: closes before from count", () => {
+    const closes = [provider("2026-01-01", "1"), provider("2026-01-02", "2"), provider("2026-01-03", "4")];
+    expect(securityMovingAverage(closes, "s1", NONE, "2026-01-03", "2026-01-03", 3)).toEqual([
+      { date: "2026-01-03", average: "2.3333333333" },
+    ]);
+  });
+
+  it("No stored Prices: all null; other Securities ignored; empty when from > to", () => {
+    expect(securityMovingAverage([transaction, provider("2026-01-01", "5", "s2")], "s1", NONE, "2026-01-01", "2026-01-02", 1)).toEqual([
+      { date: "2026-01-01", average: null },
+      { date: "2026-01-02", average: null },
+    ]);
+    expect(securityMovingAverage(observations, "s1", NONE, "2026-01-02", "2026-01-01", 3)).toEqual([]);
   });
 });
