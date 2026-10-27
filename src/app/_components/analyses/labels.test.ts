@@ -3,6 +3,16 @@ import { DIMENSIONS, type ClassifiedAssetType } from "@/core/classification";
 import type { Classification, DimensionValue } from "@/modules/classification";
 import {
   ALLOCATION_DIMENSIONS,
+  ANALYSIS_TABS,
+  cashFlowAriaLabel,
+  gainsBucketLabel,
+  gainsBucketShortLabel,
+  gainsBuckets,
+  gainsChartAriaLabel,
+  gainsSalesInRange,
+  gainsYears,
+  negateAmount,
+  sumGainsBuckets,
   allocationDimension,
   allocationHoldings,
   allocationHref,
@@ -15,6 +25,7 @@ import {
 } from "./labels";
 import { getContrastRatio } from "@mui/material/styles";
 import { colors } from "@/theme/tokens";
+import type { GainsBucket, GainsSale } from "@/core/gains-analysis";
 
 function dimension(value: string | null, manual: string | null = null): DimensionValue {
   return {
@@ -61,6 +72,7 @@ describe("analyses labels", () => {
 
   it("knows the Rendite tab and builds its URL keeping scope and dimension", () => {
     expect(analysisTab("returns")).toBe("returns");
+    expect(analysisTab("gains")).toBe("gains");
     expect(analysisHref("returns", "d1", "region")).toBe("/analyses?tab=returns&scope=d1&dimension=region");
   });
 
@@ -121,5 +133,61 @@ describe("analyses labels", () => {
       "currency",
     );
     expect(holdings[0].group).toBe("EUR");
+  });
+});
+
+describe("gains labels", () => {
+  const NBSP = "\u00a0";
+  const bucket = (period: string, values: Partial<GainsBucket> = {}): GainsBucket => ({
+    period,
+    realized: "0",
+    dividends: "0",
+    fees: "0",
+    taxes: "0",
+    deposits: "0",
+    withdrawals: "0",
+    netCashFlow: "0",
+    ...values,
+  });
+  const MONTHS = [bucket("2025-12", { realized: "5" }), bucket("2026-01", { realized: "77.6", dividends: "30", fees: "0.5", taxes: "12.5" }), bucket("2026-02", { realized: "-10", deposits: "100", withdrawals: "40", netCashFlow: "60" })];
+  const YEARS = [bucket("2025", { realized: "5" }), bucket("2026", { realized: "67.6", dividends: "30", fees: "0.5", taxes: "12.5", deposits: "100", withdrawals: "40", netCashFlow: "60" })];
+
+  it("adds the Gewinne tab after Rendite", () => {
+    expect(ANALYSIS_TABS.map((tab) => tab.label)).toEqual(["Aufteilung", "Rendite", "Gewinne"]);
+  });
+
+  it("picks years newest first and the buckets and sales of a view", () => {
+    expect(gainsYears(YEARS)).toEqual(["2026", "2025"]);
+    expect(gainsBuckets(MONTHS, YEARS, "months", "2026").map((b) => b.period)).toEqual(["2026-01", "2026-02"]);
+    expect(gainsBuckets(MONTHS, YEARS, "years", "2026").map((b) => b.period)).toEqual(["2025", "2026"]);
+    const sale = (date: string) => ({ date }) as GainsSale;
+    const sales = [sale("2025-12-01"), sale("2026-02-01")];
+    expect(gainsSalesInRange(sales, "months", "2026")).toEqual([sales[1]]);
+    expect(gainsSalesInRange(sales, "years", "2026")).toEqual(sales);
+  });
+
+  it("negates an amount exactly", () => {
+    expect(negateAmount("0.5")).toBe("-0.5");
+    expect(negateAmount("-300")).toBe("300");
+    expect(negateAmount("0")).toBe("0");
+    expect(negateAmount("0.00")).toBe("0");
+  });
+
+  it("labels buckets and sums a range", () => {
+    expect(gainsBucketShortLabel("2026-03")).toBe("Mär");
+    expect(gainsBucketShortLabel("2026")).toBe("2026");
+    expect(gainsBucketLabel("2026-03")).toBe("März 2026");
+    expect(sumGainsBuckets(MONTHS.slice(1))).toEqual({ realized: "67.6", dividends: "30", fees: "0.5", taxes: "12.5", deposits: "100", withdrawals: "40", netCashFlow: "60" });
+  });
+
+  it("builds the chart text alternatives with signed values", () => {
+    const months = MONTHS.slice(1);
+    expect(gainsChartAriaLabel(months, { dividends: false, fees: false })).toBe(
+      `Realisierte Gewinne: Januar 2026 Realisiert +77,60${NBSP}€; Februar 2026 Realisiert -10,00${NBSP}€`,
+    );
+    expect(gainsChartAriaLabel(months.slice(0, 1), { dividends: true, fees: true })).toBe(
+      `Realisierte Gewinne: Januar 2026 Realisiert +77,60${NBSP}€, Dividenden +30,00${NBSP}€, Gebühren -0,50${NBSP}€`,
+    );
+    expect(cashFlowAriaLabel(months)).toBe(`Kapitalfluss (netto): Januar 2026 0,00${NBSP}€; Februar 2026 +60,00${NBSP}€`);
   });
 });

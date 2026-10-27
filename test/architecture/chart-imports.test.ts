@@ -1,7 +1,7 @@
 /**
  * Architecture guard: the chart library is wrapped in the chart components (story 4.3; story 4.7 adds the
- * price chart). Only `src/app/_components/charts/ValueChart.tsx` and `PriceChart.tsx` may import
- * `@mui/x-charts` (or any of its subpaths).
+ * price chart, story 7.4 the bar chart). Only `src/app/_components/charts/ValueChart.tsx`, `PriceChart.tsx`
+ * and `BarsChart.tsx` may import `@mui/x-charts` (or any of its subpaths).
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
@@ -10,7 +10,11 @@ import { describe, expect, it } from "vitest";
 
 const SRC_DIR = resolve(__dirname, "../../src");
 const WRAPPER = join(SRC_DIR, "app/_components/charts/ValueChart.tsx");
-const WRAPPERS = new Set([WRAPPER, join(SRC_DIR, "app/_components/charts/PriceChart.tsx")]);
+const WRAPPERS = new Set([
+  WRAPPER,
+  join(SRC_DIR, "app/_components/charts/PriceChart.tsx"),
+  join(SRC_DIR, "app/_components/charts/BarsChart.tsx"),
+]);
 const CHART_PACKAGE = /^@mui\/x-charts(\/|$)/;
 
 function listSourceFiles(dir: string): string[] {
@@ -37,7 +41,7 @@ function findViolations(files: { path: string; source: string }[]): string[] {
 }
 
 describe("chart library import guard", () => {
-  it("only ValueChart.tsx and PriceChart.tsx import @mui/x-charts", () => {
+  it("only ValueChart.tsx, PriceChart.tsx and BarsChart.tsx import @mui/x-charts", () => {
     const files = listSourceFiles(SRC_DIR).map((path) => ({ path, source: readFileSync(path, "utf8") }));
     expect(files.some((file) => file.path === WRAPPER)).toBe(true);
     const violations = findViolations(files);

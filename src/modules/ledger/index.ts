@@ -79,6 +79,8 @@ export { latestTradePrices, listPositions, listRealizedSales } from "./positions
 export type { ListPositionsOptions, PositionRecord, RealizedSaleRecord, StoredPriceLoader } from "./positions";
 export { depotValuation, portfolioValuation, returnSeries } from "./valuation";
 export type { DepotValuation, DepotValuationOptions, PortfolioValuation, ReturnScope, ReturnSeries } from "./valuation";
+export { gainsInput } from "./gains";
+export type { GainsInput } from "./gains";
 export { securityDetail } from "./security-detail";
 export type { SecurityDetail, SecurityDetailDepot, SecurityDetailOptions, SecurityTransactionRecord } from "./security-detail";
 export type { PeriodPerformance } from "@/core/returns";

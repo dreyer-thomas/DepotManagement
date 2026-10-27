@@ -8,9 +8,10 @@ const listClassifications = vi.hoisted(() => vi.fn());
 const latestStoredPrices = vi.hoisted(() => vi.fn());
 const storedPriceHistory = vi.hoisted(() => vi.fn());
 const returnSeries = vi.hoisted(() => vi.fn());
+const gainsInput = vi.hoisted(() => vi.fn());
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn(), push: vi.fn(), refresh: vi.fn() }) }));
-vi.mock("@/modules/ledger", () => ({ listDepots, listPositions, returnSeries }));
+vi.mock("@/modules/ledger", () => ({ gainsInput, listDepots, listPositions, returnSeries }));
 vi.mock("@/modules/classification", () => ({ listClassifications }));
 vi.mock("@/modules/prices", () => ({ latestStoredPrices, storedPriceHistory }));
 
@@ -19,6 +20,9 @@ import { AllocationView, type AllocationViewProps } from "@/app/_components/anal
 import { AnalysisFilters } from "@/app/_components/analyses/AnalysisFilters";
 import { AnalysisTabs } from "@/app/_components/analyses/AnalysisTabs";
 import { ReturnHeatmap, type ReturnHeatmapProps } from "@/app/_components/analyses/ReturnHeatmap";
+import { GainsView, type GainsViewProps } from "@/app/_components/analyses/GainsView";
+import { NO_CORPORATE_ACTIONS } from "@/core/corporate-actions";
+import { gainsAnalysis } from "@/core/gains-analysis";
 import { returnHeatmap } from "@/core/return-heatmap";
 import { renderHtml } from "../../../../test/helpers/render-text";
 import AnalysesPage, { metadata } from "./page";
@@ -64,6 +68,7 @@ beforeEach(() => {
   listPositions.mockReset();
   listClassifications.mockReset();
   returnSeries.mockReset();
+  gainsInput.mockReset();
   listDepots.mockResolvedValue([depot("a", "Hauptdepot", "100"), depot("b", "Zweitdepot", "0"), depot("z", "Altdepot", "0", true)]);
   listPositions.mockImplementation(async (depotId: string) =>
     depotId === "a"
@@ -216,6 +221,59 @@ describe("Analyses page", () => {
     it("shows the empty text without Transactions", async () => {
       returnSeries.mockResolvedValue({ start: point("2026-10-25", "0"), series: [point(TODAY, "0")], rows: [] });
       expect(renderText(await page({ tab: "returns" }))).toContain("Noch keine Transaktionen.");
+    });
+  });
+  describe("Gewinne tab", () => {
+    const row = (type: string, date: string, input: Record<string, string | null> = {}) => ({
+      securityId: null,
+      type,
+      date,
+      sequence: 1,
+      quantity: null,
+      price: null,
+      amount: "0",
+      fee: "0",
+      tax: "0",
+      ...input,
+    });
+    const INPUT = {
+      depots: [
+        {
+          depotId: "b",
+          rows: [
+            row("DEPOSIT", "2026-01-10", { amount: "2000" }),
+            { ...row("BUY", "2026-01-10", { securityId: "sap", quantity: "10", price: "100", amount: "1000", fee: "1" }), sequence: 2 },
+            row("SELL", "2026-03-05", { securityId: "sap", quantity: "4", price: "120", amount: "480", fee: "2", tax: "5" }),
+          ],
+        },
+      ],
+      actions: NO_CORPORATE_ACTIONS,
+      securityNames: { sap: "SAP SE" },
+    };
+
+    it("loads the scope's ledger input and renders the gains view without other tab data", async () => {
+      gainsInput.mockResolvedValue(INPUT);
+      const tree = await page({ tab: "gains", scope: "b", dimension: "sector" });
+      expect(gainsInput).toHaveBeenCalledWith({ depotId: "b" });
+      expect(listPositions).not.toHaveBeenCalled();
+      expect(returnSeries).not.toHaveBeenCalled();
+      const props = findElement(tree, GainsView)?.props as unknown as GainsViewProps;
+      expect(props.analysis).toEqual(gainsAnalysis(INPUT.depots, INPUT.actions, TODAY));
+      expect(props.analysis.years[0]).toMatchObject({ realized: "77.6", deposits: "2000" });
+      expect(props).toMatchObject({ securityNames: { sap: "SAP SE" }, today: TODAY });
+      expect(findElement(tree, AnalysisFilters)?.props).toMatchObject({ tab: "gains", scope: "b", dimension: "sector" });
+      expect(findElement(tree, AnalysisTabs)?.props).toMatchObject({ value: "gains", scope: "b", dimension: "sector" });
+      const html = renderHtml(tree);
+      expect(html).toContain('role="tabpanel" id="analysis-tabpanel-gains"');
+      expect(html).toContain('href="/analyses?tab=returns&amp;scope=b&amp;dimension=sector"');
+      expect(html).not.toContain(">Dimension<");
+    });
+
+    it("uses the Portfolio scope by default and shows the empty text without Transactions", async () => {
+      gainsInput.mockResolvedValue({ depots: [], actions: NO_CORPORATE_ACTIONS, securityNames: {} });
+      const tree = await page({ tab: "gains" });
+      expect(gainsInput).toHaveBeenCalledWith("portfolio");
+      expect(renderText(tree)).toContain("Noch keine Transaktionen.");
     });
   });
 });

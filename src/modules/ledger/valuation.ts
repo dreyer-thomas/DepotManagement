@@ -29,8 +29,8 @@ export type DepotValuation = {
 
 type DepotRow = ValuationRow & { securityId: string | null };
 
-/** The Depot's ledger rows as the valuation needs them. */
-function loadRows(depotId: string, db: LedgerDb): Promise<DepotRow[]> {
+/** The Depot's ledger rows as the valuation needs them (module-internal; also read by `gains`). */
+export function loadRows(depotId: string, db: LedgerDb): Promise<DepotRow[]> {
   return db.transaction.findMany({
     where: { depotId },
     select: { securityId: true, type: true, date: true, sequence: true, quantity: true, price: true, amount: true, fee: true, tax: true },

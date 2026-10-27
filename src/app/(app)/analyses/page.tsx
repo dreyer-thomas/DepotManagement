@@ -6,6 +6,7 @@ import type { Metadata } from "next";
 import { AllocationView } from "@/app/_components/analyses/AllocationView";
 import { AnalysisFilters } from "@/app/_components/analyses/AnalysisFilters";
 import { AnalysisTabs } from "@/app/_components/analyses/AnalysisTabs";
+import { GainsView } from "@/app/_components/analyses/GainsView";
 import { ReturnHeatmap } from "@/app/_components/analyses/ReturnHeatmap";
 import {
   type AllocationDimension,
@@ -24,9 +25,10 @@ import { AppLink } from "@/app/_components/depots/DepotLink";
 import { PageTitle } from "@/app/_components/Placeholder";
 import { allocation } from "@/core/allocation";
 import { businessDate } from "@/core/dates";
+import { gainsAnalysis } from "@/core/gains-analysis";
 import { returnHeatmap } from "@/core/return-heatmap";
 import { listClassifications } from "@/modules/classification";
-import { listDepots, listPositions, returnSeries } from "@/modules/ledger";
+import { gainsInput, listDepots, listPositions, returnSeries } from "@/modules/ledger";
 import { latestStoredPrices, storedPriceHistory } from "@/modules/prices";
 
 export const metadata: Metadata = { title: "Analysen" };
@@ -78,7 +80,16 @@ async function returnsPanel({ scope, today }: { scope: string; today: string }) 
 }
 
 /**
- * Analysen (FR-21, FR-22): tabs Aufteilung and Rendite over the Portfolio or one non-archived Depot,
+ * Gewinne: realized gains (FIFO per Depot), dividends, fees, taxes and net Kapitalfluss per month and
+ * year of the scope's ledger (FR-22), from one core function.
+ */
+async function gainsPanel({ scope, today }: { scope: string; today: string }) {
+  const { depots, actions, securityNames } = await gainsInput(scope === PORTFOLIO_SCOPE ? "portfolio" : { depotId: scope });
+  return <GainsView analysis={gainsAnalysis(depots, actions, today)} securityNames={securityNames} today={today} />;
+}
+
+/**
+ * Analysen (FR-21, FR-22): tabs Aufteilung, Rendite and Gewinne over the Portfolio or one non-archived Depot,
  * scope (and dimension) in the URL. Everything is computed on read; nothing is stored; no provider call.
  */
 export default async function AnalysesPage({ searchParams }: Props) {
@@ -113,6 +124,8 @@ export default async function AnalysesPage({ searchParams }: Props) {
         <AnalysisFilters tab={tab} depots={depots.map(({ id, name }) => ({ id, name }))} scope={scope} dimension={dimension} />
         {tab === "returns" ? (
           await returnsPanel({ scope, today })
+        ) : tab === "gains" ? (
+          await gainsPanel({ scope, today })
         ) : (
           await allocationPanel({ depots, scope, dimension, today })
         )}

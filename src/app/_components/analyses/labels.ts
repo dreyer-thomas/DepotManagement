@@ -1,16 +1,18 @@
 import type { AllocationHolding, AllocationLabels } from "@/core/allocation";
 import type { CompositionHolding, CompositionSegment } from "@/core/composition";
 import Decimal from "decimal.js";
-import { formatMoney, formatShare } from "@/core/format";
+import { formatMoney, formatMonth, formatShare } from "@/core/format";
+import type { GainsBucket, GainsSale } from "@/core/gains-analysis";
 import type { AssetType } from "@/modules/ledger";
 import type { Classification } from "@/modules/classification";
 import { ratioTone } from "../security-detail/labels";
 import { ASSET_TYPE_LABELS } from "../transactions/labels";
 
-/** Analysen tabs, driven by `?tab=`; later stories add Gewinne and Dividenden. */
+/** Analysen tabs, driven by `?tab=`; a later story adds Dividenden. */
 export const ANALYSIS_TABS = [
   { value: "allocation", label: "Aufteilung" },
   { value: "returns", label: "Rendite" },
+  { value: "gains", label: "Gewinne" },
 ] as const;
 
 export type AnalysisTab = (typeof ANALYSIS_TABS)[number]["value"];
@@ -140,4 +142,101 @@ export function heatmapCellTone(ratio: string | null): HeatmapTone {
  */
 export function heatmapTintAlpha(intensity: number, mode: "light" | "dark"): number {
   return 0.12 + (mode === "light" ? 0.48 : 0.28) * intensity;
+}
+
+/** Gewinne tab: views, layers, headings and texts. */
+export const GAINS_VIEWS = [
+  { value: "months", label: "Monate" },
+  { value: "years", label: "Jahre" },
+] as const;
+
+export type GainsView = (typeof GAINS_VIEWS)[number]["value"];
+
+export const GAINS_LABELS = {
+  view: "Ansicht",
+  year: "Jahr",
+  dividendsLayer: "Dividenden",
+  feesLayer: "Gebühren",
+  gainsHeading: "Realisierte Gewinne",
+  cashFlowHeading: "Kapitalfluss",
+  realized: "Realisiert",
+  dividends: "Dividenden",
+  fees: "Gebühren",
+  taxes: "Steuern gezahlt",
+  deposits: "Einzahlungen",
+  withdrawals: "Auszahlungen",
+  net: "Netto",
+  period: "Zeitraum",
+  sales: "Verkäufe",
+  bestHeading: "Beste Verkäufe",
+  worstHeading: "Schlechteste Verkäufe",
+} as const;
+
+export const GAINS_EMPTY_TEXT = "Noch keine Transaktionen.";
+export const GAINS_NO_BEST_TEXT = "Keine Verkäufe mit Gewinn.";
+export const GAINS_NO_WORST_TEXT = "Keine Verkäufe mit Verlust.";
+export const GAINS_NO_SALES_TEXT = "Keine Verkäufe im Zeitraum.";
+
+/** `-value` as a decimal string (`"0"` for zero): fees and withdrawals shown as money going out. */
+export function negateAmount(value: string): string {
+  const negated = new Decimal(value).negated();
+  return negated.isZero() ? "0" : negated.toFixed();
+}
+
+/** Years of the analysis, newest first (the "Jahr" select). */
+export function gainsYears(years: readonly GainsBucket[]): string[] {
+  return years.map((year) => year.period).reverse();
+}
+
+/** The buckets a view shows: the months of `year` (Monate) or every year (Jahre). */
+export function gainsBuckets(months: readonly GainsBucket[], years: readonly GainsBucket[], view: GainsView, year: string): GainsBucket[] {
+  return view === "years" ? [...years] : months.filter((month) => month.period.startsWith(`${year}-`));
+}
+
+/** The sales a view covers: those dated in `year` (Monate) or all (Jahre). */
+export function gainsSalesInRange(sales: readonly GainsSale[], view: GainsView, year: string): GainsSale[] {
+  return view === "years" ? [...sales] : sales.filter((sale) => sale.date.startsWith(`${year}-`));
+}
+
+/** Short axis/table label of a bucket: `Jan` for a month, `2026` for a year. */
+export function gainsBucketShortLabel(period: string): string {
+  return period.length === 7 ? HEATMAP_MONTH_LABELS[Number(period.slice(5, 7)) - 1] : period;
+}
+
+/** Full label of a bucket: `Januar 2026` for a month, `2026` for a year. */
+export function gainsBucketLabel(period: string): string {
+  return period.length === 7 ? formatMonth(`${period}-01`) : period;
+}
+
+type BucketAmount = Exclude<keyof GainsBucket, "period">;
+
+/** Σ of each amount over `buckets` (the summary of the selected range). */
+export function sumGainsBuckets(buckets: readonly GainsBucket[]): Omit<GainsBucket, "period"> {
+  const keys: BucketAmount[] = ["realized", "dividends", "fees", "taxes", "deposits", "withdrawals", "netCashFlow"];
+  return Object.fromEntries(
+    keys.map((key) => {
+      const sum = buckets.reduce((total, bucket) => total.plus(bucket[key]), new Decimal(0));
+      return [key, sum.isZero() ? "0" : sum.toFixed()];
+    }),
+  ) as Omit<GainsBucket, "period">;
+}
+
+/**
+ * Text alternative of the gains chart: `Realisierte Gewinne: Januar 2026 Realisiert +77,60 €, Dividenden
+ * +30,00 €, Gebühren -0,50 €; …` (fees as their negative contribution; only switched-on layers).
+ */
+export function gainsChartAriaLabel(buckets: readonly GainsBucket[], layers: { dividends: boolean; fees: boolean }): string {
+  const parts = buckets.map((bucket) => {
+    const values = [`${GAINS_LABELS.realized} ${formatMoney(bucket.realized, { sign: true })}`];
+    if (layers.dividends) values.push(`${GAINS_LABELS.dividends} ${formatMoney(bucket.dividends, { sign: true })}`);
+    if (layers.fees) values.push(`${GAINS_LABELS.fees} ${formatMoney(negateAmount(bucket.fees), { sign: true })}`);
+    return `${gainsBucketLabel(bucket.period)} ${values.join(", ")}`;
+  });
+  return `${GAINS_LABELS.gainsHeading}: ${parts.join("; ")}`;
+}
+
+/** Text alternative of the Kapitalfluss chart: `Kapitalfluss (netto): Januar 2026 +2.000,00 €; …`. */
+export function cashFlowAriaLabel(buckets: readonly GainsBucket[]): string {
+  const parts = buckets.map((bucket) => `${gainsBucketLabel(bucket.period)} ${formatMoney(bucket.netCashFlow, { sign: true })}`);
+  return `${GAINS_LABELS.cashFlowHeading} (netto): ${parts.join("; ")}`;
 }
