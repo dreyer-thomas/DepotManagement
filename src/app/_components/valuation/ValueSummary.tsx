@@ -177,7 +177,7 @@ export function ValueSummary({
         <Kpi label="Investiertes Kapital" value={formatMoney(investedCapital)} color="primary.main" />
         <Kpi label={`Dividenden · ${periodLabel}`} value={formatMoney(dividends)} color="accent.main" />
         <Kpi label="Guthaben" value={formatMoney(cash)} color="cash.main" />
-        <Kpi label={`Steuern gezahlt · ${periodLabel}`} value={formatMoney(taxesPaid)} color="chart.series4" note="separat ausgewiesen" />
+        <Kpi label={`Steuern gezahlt · ${periodLabel}`} value={formatMoney(taxesPaid)} color="chart.series4" />
       </Box>
     </Box>
   );
