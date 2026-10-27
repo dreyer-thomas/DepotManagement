@@ -9,9 +9,10 @@ const latestStoredPrices = vi.hoisted(() => vi.fn());
 const storedPriceHistory = vi.hoisted(() => vi.fn());
 const returnSeries = vi.hoisted(() => vi.fn());
 const gainsInput = vi.hoisted(() => vi.fn());
+const listSecurities = vi.hoisted(() => vi.fn());
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn(), push: vi.fn(), refresh: vi.fn() }) }));
-vi.mock("@/modules/ledger", () => ({ gainsInput, listDepots, listPositions, returnSeries }));
+vi.mock("@/modules/ledger", () => ({ gainsInput, listDepots, listPositions, listSecurities, returnSeries }));
 vi.mock("@/modules/classification", () => ({ listClassifications }));
 vi.mock("@/modules/prices", () => ({ latestStoredPrices, storedPriceHistory }));
 
@@ -71,6 +72,8 @@ beforeEach(() => {
   listClassifications.mockReset();
   returnSeries.mockReset();
   gainsInput.mockReset();
+  listSecurities.mockReset();
+  listSecurities.mockResolvedValue([]);
   listDepots.mockResolvedValue([depot("a", "Hauptdepot", "100"), depot("b", "Zweitdepot", "0"), depot("z", "Altdepot", "0", true)]);
   listPositions.mockImplementation(async (depotId: string) =>
     depotId === "a"
@@ -311,8 +314,9 @@ describe("Analyses page", () => {
     it("loads the scope's ledger and today's Positions with stored Prices and renders the dividends view", async () => {
       gainsInput.mockResolvedValue(INPUT);
       listPositions.mockImplementation(async (depotId: string) =>
-        depotId === "a" ? [{ security: { id: "sap", name: "SAP SE", assetType: "STOCK" }, quantity: "20", value: "2000" }] : [],
+        depotId === "a" ? [{ security: { id: "sap", name: "SAP SE", assetType: "STOCK" }, quantity: "20", value: "2000", costBasis: "1100" }] : [],
       );
+      listSecurities.mockResolvedValue([{ id: "sap", name: "SAP SE", isin: "DE0007164600", cryptoSymbol: null, assetType: "STOCK" }]);
       const tree = await page({ tab: "dividends", dimension: "sector" });
       expect(gainsInput).toHaveBeenCalledWith("portfolio");
       expect(listPositions.mock.calls.map((call) => call[0])).toEqual(["a", "b"]);
@@ -322,7 +326,7 @@ describe("Analyses page", () => {
       const props = findElement(tree, DividendsView)?.props as unknown as DividendsViewProps;
       const expected = dividendAnalysis(
         [
-          { ...INPUT.depots[0], positions: [{ securityId: "sap", quantity: "20", value: "2000" }] },
+          { ...INPUT.depots[0], positions: [{ securityId: "sap", quantity: "20", value: "2000", costBasis: "1100" }] },
           { ...INPUT.depots[1], positions: [] },
         ],
         INPUT.actions,
@@ -331,6 +335,9 @@ describe("Analyses page", () => {
       expect(props.analysis).toEqual(expected);
       expect(props.analysis.trailing).toMatchObject({ gross: "60", net: "44.5", payingValue: "2000", grossYield: "0.03" });
       expect(props).toMatchObject({ securityNames: { sap: "SAP SE" }, today: TODAY, depotId: null });
+      expect(props.analysis.bySecurity[0]).toMatchObject({ costBasis: "1100", grossYieldOnCost: "0.05454545454545454545" });
+      expect(props.securities).toEqual({ sap: { name: "SAP SE", isin: "DE0007164600", cryptoSymbol: null, assetType: "STOCK" } });
+      expect(listSecurities).toHaveBeenCalledTimes(1);
       expect(findElement(tree, AnalysisFilters)?.props).toMatchObject({ tab: "dividends", scope: "portfolio", dimension: "sector" });
       expect(findElement(tree, GainsView)).toBeFalsy();
       const html = renderHtml(tree);

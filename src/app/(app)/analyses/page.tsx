@@ -30,7 +30,7 @@ import { dividendAnalysis } from "@/core/dividend-analysis";
 import { gainsAnalysis } from "@/core/gains-analysis";
 import { returnHeatmap } from "@/core/return-heatmap";
 import { listClassifications } from "@/modules/classification";
-import { gainsInput, listDepots, listPositions, returnSeries } from "@/modules/ledger";
+import { gainsInput, listDepots, listPositions, listSecurities, returnSeries } from "@/modules/ledger";
 import { latestStoredPrices, storedPriceHistory } from "@/modules/prices";
 
 export const metadata: Metadata = { title: "Analysen" };
@@ -93,23 +93,36 @@ async function gainsPanel({ scope, today }: { scope: string; today: string }) {
 /**
  * Dividenden: payments per month / year / Security, trailing-12-month income and yield over today's
  * paying Positions (stored Prices, as on the Aufteilung tab) and the next 12 months' estimate (FR-22),
- * from one core function.
+ * plus the per-Security monthly split, year lines, forecast and yield on cost (today's Cost Basis), from
+ * one core function. Security metadata (ISIN, symbol, type) feeds the Breakdown selector.
  */
 async function dividendsPanel({ scope, today }: { scope: string; today: string }) {
-  const { depots, actions, securityNames } = await gainsInput(scope === PORTFOLIO_SCOPE ? "portfolio" : { depotId: scope });
+  const [{ depots, actions, securityNames }, securityList] = await Promise.all([
+    gainsInput(scope === PORTFOLIO_SCOPE ? "portfolio" : { depotId: scope }),
+    listSecurities(),
+  ]);
   const positionsByDepot = await Promise.all(
     depots.map((depot) => listPositions(depot.depotId, today, undefined, { storedPrices: latestStoredPrices })),
   );
   const inputs = depots.map((depot, index) => ({
     ...depot,
-    positions: positionsByDepot[index].map((position) => ({ securityId: position.security.id, quantity: position.quantity, value: position.value })),
+    positions: positionsByDepot[index].map((position) => ({
+      securityId: position.security.id,
+      quantity: position.quantity,
+      value: position.value,
+      costBasis: position.costBasis,
+    })),
   }));
+  const securities = Object.fromEntries(
+    securityList.map((security) => [security.id, { name: security.name, isin: security.isin, cryptoSymbol: security.cryptoSymbol, assetType: security.assetType }]),
+  );
   return (
     <DividendsView
       analysis={dividendAnalysis(inputs, actions, today)}
       securityNames={securityNames}
       today={today}
       depotId={scope === PORTFOLIO_SCOPE ? null : scope}
+      securities={securities}
     />
   );
 }

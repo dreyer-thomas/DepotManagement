@@ -15,7 +15,12 @@ function row(type: string, date: string, input: Partial<GainsRow> = {}): GainsRo
 const buy = (date: string, securityId: string, quantity: string, amount: string) => row("BUY", date, { securityId, quantity, amount, price: "1" });
 const sell = (date: string, securityId: string, quantity: string, amount: string) => row("SELL", date, { securityId, quantity, amount, price: "1" });
 const dividend = (date: string, securityId: string, amount: string, input: Partial<GainsRow> = {}) => row("DIVIDEND", date, { securityId, amount, ...input });
-const position = (securityId: string, quantity: string, value: string | null): DividendPosition => ({ securityId, quantity, value });
+const position = (securityId: string, quantity: string, value: string | null, costBasis = "0"): DividendPosition => ({
+  securityId,
+  quantity,
+  value,
+  costBasis,
+});
 
 const HAND_ROWS = [
   buy("2025-01-02", "x", "10", "500"),
@@ -23,7 +28,7 @@ const HAND_ROWS = [
   buy("2026-03-01", "x", "10", "600"),
   dividend("2026-05-10", "x", "40", { tax: "10" }),
 ];
-const HAND: DividendDepotInput = { depotId: "d1", rows: HAND_ROWS, positions: [position("x", "20", "2000")] };
+const HAND: DividendDepotInput = { depotId: "d1", rows: HAND_ROWS, positions: [position("x", "20", "2000", "1100")] };
 
 const analyse = (depots: DividendDepotInput[], actions: CorporateActions = NO_CORPORATE_ACTIONS, today = TODAY) => dividendAnalysis(depots, actions, today);
 
@@ -56,7 +61,20 @@ describe("dividendAnalysis", () => {
       { period: "2025", gross: "20", net: "14.5" },
       { period: "2026", gross: "60", net: "44.5" },
     ]);
-    expect(result.bySecurity).toEqual([{ securityId: "x", count: 2, gross: "60", net: "44.5", lastDate: "2026-05-10" }]);
+    expect(result.bySecurity).toEqual([
+      {
+        securityId: "x",
+        count: 2,
+        gross: "60",
+        net: "44.5",
+        lastDate: "2026-05-10",
+        trailingGross: "60",
+        trailingNet: "44.5",
+        costBasis: "1100",
+        grossYieldOnCost: "0.05454545454545454545",
+        netYieldOnCost: "0.04045454545454545455",
+      },
+    ]);
   });
 
   it("computes trailing income and yield over the 1J Period, matching periodFlows", () => {
@@ -160,7 +178,20 @@ describe("dividendAnalysis", () => {
     const result = analyse([a, b]);
     expect(result.trailing).toMatchObject({ gross: "15", payingValue: "1000", grossYield: "0.015" });
     expect(result.expected).toEqual([{ depotId: "b", securityId: "x", date: "2027-01-10", basedOn: "2026-01-10", gross: "10", net: "10" }]);
-    expect(result.bySecurity).toEqual([{ securityId: "x", count: 2, gross: "15", net: "15", lastDate: "2026-01-10" }]);
+    expect(result.bySecurity).toEqual([
+      {
+        securityId: "x",
+        count: 2,
+        gross: "15",
+        net: "15",
+        lastDate: "2026-01-10",
+        trailingGross: "15",
+        trailingNet: "15",
+        costBasis: "0",
+        grossYieldOnCost: null,
+        netYieldOnCost: null,
+      },
+    ]);
   });
 
   it("raises net by a tax refund", () => {
@@ -209,6 +240,9 @@ describe("dividendAnalysis", () => {
       trailing: { from: "2025-10-27", to: TODAY, gross: "0", net: "0", payingValue: "0", grossYield: null, netYield: null },
       expected: [],
       expectedMonths: [],
+      monthsBySecurity: [],
+      yearLines: [],
+      forecast: [...Array<null>(9).fill(null), ...Array(3).fill({ gross: "0", net: "0" })],
     });
   });
 
@@ -217,5 +251,96 @@ describe("dividendAnalysis", () => {
     expect(result.trailing.gross).toBe("60");
     expect(result.months.at(-1)?.period).toBe("2026-10");
     expect(result.bySecurity[0]).toMatchObject({ count: 2, lastDate: "2026-05-10" });
+  });
+  describe("story 7.7 charts", () => {
+    const Z = { gross: "0", net: "0" };
+    const sumSplit = (securities: readonly { gross: string; net: string }[]) => ({
+      gross: canonicalDecimal(securities.reduce((sum, s) => sum.plus(s.gross), new ExactDecimal(0))),
+      net: canonicalDecimal(securities.reduce((sum, s) => sum.plus(s.net), new ExactDecimal(0))),
+    });
+
+    it("splits the hand reference per month, builds year lines, forecast and yield on cost", () => {
+      const result = analyse([HAND]);
+      expect(result.monthsBySecurity.map((m) => m.period)).toEqual(result.months.map((m) => m.period));
+      expect(result.monthsBySecurity.filter((m) => m.securities.length > 0)).toEqual([
+        { period: "2025-11", securities: [{ securityId: "x", gross: "20", net: "14.5" }] },
+        { period: "2026-05", securities: [{ securityId: "x", gross: "40", net: "30" }] },
+      ]);
+      result.monthsBySecurity.forEach((m, i) => {
+        if (m.securities.length > 0) expect(sumSplit(m.securities)).toEqual({ gross: result.months[i].gross, net: result.months[i].net });
+        else expect(result.months[i]).toMatchObject(Z);
+      });
+      const y25 = { gross: "20", net: "14.5" };
+      const y26 = { gross: "40", net: "30" };
+      expect(result.yearLines).toEqual([
+        { year: "2025", points: [...Array(10).fill(Z), y25, y25] },
+        { year: "2026", points: [...Array(4).fill(Z), ...Array(6).fill(y26), null, null] },
+      ]);
+      expect(result.forecast).toEqual([...Array(9).fill(null), y26, { gross: "80", net: "59" }, { gross: "80", net: "59" }]);
+      // 7.5 outputs unchanged.
+      expect(result.years).toEqual([
+        { period: "2025", gross: "20", net: "14.5" },
+        { period: "2026", gross: "40", net: "30" },
+      ]);
+      expect(result.trailing).toMatchObject({ gross: "60", net: "44.5", payingValue: "2000", grossYield: "0.03" });
+    });
+
+    it("splits two Securities paid in one month in bySecurity order", () => {
+      const rows = [buy("2026-01-02", "y", "1", "100"), buy("2026-01-02", "x", "1", "100"), dividend("2026-03-05", "y", "5"), dividend("2026-03-10", "x", "10")];
+      const result = analyse([{ depotId: "d1", rows, positions: [position("x", "1", "100", "100"), position("y", "1", "100", "100")] }]);
+      expect(result.bySecurity.map((s) => s.securityId)).toEqual(["x", "y"]);
+      const march = result.monthsBySecurity.find((m) => m.period === "2026-03");
+      expect(march?.securities).toEqual([
+        { securityId: "x", gross: "10", net: "10" },
+        { securityId: "y", gross: "5", net: "5" },
+      ]);
+      expect(result.months.find((m) => m.period === "2026-03")).toEqual({ period: "2026-03", gross: "15", net: "15" });
+    });
+
+    it("keeps a sold Security in split and lines with no Cost Basis and no yield on cost", () => {
+      const rows = [buy("2025-06-01", "z", "10", "1000"), dividend("2026-02-01", "z", "15"), sell("2026-06-01", "z", "10", "1100")];
+      const result = analyse([{ depotId: "d1", rows, positions: [] }]);
+      expect(result.monthsBySecurity.find((m) => m.period === "2026-02")?.securities).toEqual([{ securityId: "z", gross: "15", net: "15" }]);
+      expect(result.yearLines.find((l) => l.year === "2026")?.points[1]).toEqual({ gross: "15", net: "15" });
+      expect(result.bySecurity[0]).toMatchObject({ trailingGross: "15", costBasis: null, grossYieldOnCost: null, netYieldOnCost: null });
+    });
+
+    it("sums Cost Basis and trailing income across two Depots", () => {
+      const a: DividendDepotInput = { depotId: "a", rows: [buy("2025-06-01", "x", "5", "500"), dividend("2026-01-10", "x", "5")], positions: [position("x", "5", "600", "500")] };
+      const b: DividendDepotInput = { depotId: "b", rows: [buy("2025-06-01", "x", "10", "1000"), dividend("2026-01-10", "x", "10")], positions: [position("x", "10", "1200", "1000")] };
+      const [x] = analyse([a, b]).bySecurity;
+      expect(x).toMatchObject({ trailingGross: "15", trailingNet: "15", costBasis: "1500", grossYieldOnCost: "0.01", netYieldOnCost: "0.01" });
+    });
+
+    it("ignores a zero-quantity Position and keeps older payments out of the trailing income", () => {
+      const rows = [buy("2024-06-01", "x", "10", "1000"), dividend("2024-12-01", "x", "7"), dividend("2026-01-10", "x", "10")];
+      const result = analyse([{ depotId: "d1", rows, positions: [position("x", "0", "0", "999")] }]);
+      expect(result.bySecurity[0]).toMatchObject({ gross: "17", trailingGross: "10", costBasis: null, grossYieldOnCost: null });
+    });
+
+    it("leaves expected payments of next year out of the forecast", () => {
+      const rows = [buy("2025-06-01", "x", "10", "1000"), dividend("2026-01-15", "x", "10")];
+      const result = analyse([{ depotId: "d1", rows, positions: [position("x", "10", "1000", "1000")] }]);
+      expect(result.expected.map((e) => e.date)).toEqual(["2027-01-15"]);
+      expect(result.forecast.slice(9)).toEqual([{ gross: "10", net: "10" }, { gross: "10", net: "10" }, { gross: "10", net: "10" }]);
+    });
+
+    it("forecasts only December when today is in December", () => {
+      const rows = [buy("2025-01-02", "x", "10", "1000"), dividend("2025-12-05", "x", "10"), dividend("2025-12-20", "x", "4"), dividend("2026-03-01", "x", "6")];
+      const result = analyse([{ depotId: "d1", rows, positions: [position("x", "10", "1000", "1000")] }], NO_CORPORATE_ACTIONS, "2026-12-10");
+      expect(result.expected.map((e) => e.date)).toEqual(["2026-12-20", "2027-03-01"]);
+      expect(result.forecast).toEqual([...Array(11).fill(null), { gross: "10", net: "10" }]);
+      expect(result.yearLines.find((l) => l.year === "2026")?.points[11]).toEqual({ gross: "6", net: "6" });
+    });
+
+    it("draws zero lines and empty splits without dividends", () => {
+      const result = analyse([{ depotId: "d1", rows: [row("DEPOSIT", "2026-09-01", { amount: "100" })], positions: [] }]);
+      expect(result.monthsBySecurity).toEqual([
+        { period: "2026-09", securities: [] },
+        { period: "2026-10", securities: [] },
+      ]);
+      expect(result.yearLines).toEqual([{ year: "2026", points: [...Array(10).fill(Z), null, null] }]);
+      expect(result.forecast).toEqual([...Array(9).fill(null), Z, Z, Z]);
+    });
   });
 });

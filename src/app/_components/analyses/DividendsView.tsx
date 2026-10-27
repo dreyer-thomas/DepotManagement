@@ -1,10 +1,15 @@
 "use client";
 
+import ArrowBack from "@mui/icons-material/ArrowBack";
+import ArrowForward from "@mui/icons-material/ArrowForward";
 import Box from "@mui/material/Box";
 import Card from "@mui/material/Card";
 import CardContent from "@mui/material/CardContent";
+import FormControlLabel from "@mui/material/FormControlLabel";
+import IconButton from "@mui/material/IconButton";
 import MenuItem from "@mui/material/MenuItem";
 import Stack from "@mui/material/Stack";
+import Switch from "@mui/material/Switch";
 import TextField from "@mui/material/TextField";
 import ToggleButton from "@mui/material/ToggleButton";
 import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
@@ -18,9 +23,26 @@ import { CardHeading } from "../overview/CardHeading";
 import { SecurityLink } from "../security-detail/SecurityLink";
 import { SecurityLogo } from "../securities/SecurityLogo";
 import { Kpi } from "@/app/_components/valuation/Kpi";
+import { DividendStackedChart } from "./DividendStackedChart";
+import { DividendYearLinesChart } from "./DividendYearLinesChart";
 import { Summary, ValueTable } from "./GainsView";
 import {
   DIVIDEND_BUCKET_HEADINGS,
+  DIVIDEND_FORECAST_NOTE,
+  type DividendSecurityMeta,
+  breakdownDefaultMonth,
+  breakdownKpis,
+  breakdownMonthLabel,
+  breakdownSecurityFacts,
+  breakdownSinceLabel,
+  dividendColor,
+  dividendForecastLabel,
+  dividendPayingSecurities,
+  dividendSplits,
+  dividendStackedAriaLabel,
+  dividendYearLinesAriaLabel,
+  gainsBucketLabel,
+  lastYearPoint,
   DIVIDEND_EMPTY_TEXT,
   DIVIDEND_ESTIMATE_NOTE,
   DIVIDEND_LABELS,
@@ -54,7 +76,11 @@ export type DividendsViewProps = {
   today: string;
   /** The Depot of a single-Depot scope (Security links open it); `null` for the Portfolio. */
   depotId?: string | null;
+  /** Security id → name, ISIN / crypto symbol and type (Breakdown selector). */
+  securities?: Readonly<Record<string, DividendSecurityMeta>>;
 };
+
+const NO_SECURITIES: Readonly<Record<string, DividendSecurityMeta>> = {};
 
 /** Chart coordinate of a decimal string (presentation edge only). */
 const plot = (value: string) => Number(value);
@@ -85,18 +111,30 @@ function ListRow({ securityId, depotId, name, caption, amount }: { securityId: s
   );
 }
 
+/** Short month label with a two-digit year (`Mai 26`), for ranges spanning several years. */
+const monthYearLabel = (period: string) => `${gainsBucketShortLabel(period)} ${period.slice(2, 4)}`;
+
 /**
  * Dividenden (FR-22): KPI row (12-month income, yield, estimate), a Brutto/Netto toggle for every figure
- * and the views Monate (of a chosen year), Jahre, Kumuliert, Wertpapiere and Erwartet (labelled as an
- * estimate). View, year and mode are client state; every figure comes from `core/dividend-analysis`.
+ * and the views Monatlich (pro Jahr) and Monatlich (fortl.) stacked by Security, Jahre, Akkumuliert,
+ * Akkumuliert (pro Jahr) with an optional forecast, Breakdown of one Security, Wertpapiere and Erwartet
+ * (labelled as an estimate). View, year, mode and selections are client state; every figure comes from
+ * `core/dividend-analysis`.
  */
-export function DividendsView({ analysis, securityNames, today, depotId = null }: DividendsViewProps) {
+export function DividendsView({ analysis, securityNames, today, depotId = null, securities: securityMeta = NO_SECURITIES }: DividendsViewProps) {
   const theme = useTheme();
-  const accent = (theme.vars ?? theme).palette.accent?.main ?? theme.palette.info.main;
+  const palette = (theme.vars ?? theme).palette;
+  const accent = palette.accent?.main ?? theme.palette.info.main;
+  const seriesColors = [palette.chart?.series1, palette.chart?.series2, palette.chart?.series3, palette.chart?.series4, palette.chart?.series5].map(
+    (color) => color ?? theme.palette.primary.main,
+  );
   const ids = useId().replace(/[^a-zA-Z0-9_-]/g, "");
   const [view, setView] = useState<DividendView>("months");
   const [chosenYear, setChosenYear] = useState(today.slice(0, 4));
   const [mode, setMode] = useState<DividendMode>("gross");
+  const [forecastOn, setForecastOn] = useState(false);
+  const [breakdownSecurity, setBreakdownSecurity] = useState<string | null>(null);
+  const [breakdownMonth, setBreakdownMonth] = useState<string | null>(null);
 
   if (analysis.months.length === 0) {
     return (
@@ -115,6 +153,210 @@ export function DividendsView({ analysis, securityNames, today, depotId = null }
   const amount = (item: { gross: string; net: string }) => formatMoney(dividendAmount(item, mode));
   const name = (securityId: string) => securityNames[securityId] ?? securityId;
   const modeLabel = dividendModeLabel(mode);
+  const securityIndex = new Map(analysis.bySecurity.map((security, index) => [security.securityId, index]));
+  const colorOf = (securityId: string) => dividendColor(securityIndex.get(securityId) ?? 0, seriesColors);
+
+  function noneCard(heading: string) {
+    return (
+      <Card component="section" aria-labelledby={`${ids}-chart`} sx={{ minWidth: 0 }}>
+        <CardContent>
+          <CardHeading id={`${ids}-chart`}>{heading}</CardHeading>
+          <Typography variant="body2">{DIVIDEND_NONE_TEXT}</Typography>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  function stackedCard(stackedView: "months" | "running") {
+    const heading = DIVIDEND_BUCKET_HEADINGS[stackedView];
+    if (analysis.bySecurity.length === 0) return noneCard(heading);
+    const splits = dividendSplits(analysis, stackedView, year);
+    const buckets = dividendBuckets(analysis, stackedView, year);
+    return (
+      <Card component="section" aria-labelledby={`${ids}-chart`} sx={{ minWidth: 0 }}>
+        <CardContent>
+          <CardHeading id={`${ids}-chart`}>{heading}</CardHeading>
+          <DividendStackedChart
+            ariaLabel={dividendStackedAriaLabel(heading, buckets, splits, securityNames, mode)}
+            categories={buckets.map((bucket) => (stackedView === "running" ? monthYearLabel(bucket.period) : gainsBucketShortLabel(bucket.period)))}
+            buckets={buckets}
+            splits={splits}
+            securityIds={dividendPayingSecurities(analysis.bySecurity, splits)}
+            colorOf={colorOf}
+            name={name}
+            mode={mode}
+          />
+          <Summary entries={[[`${DIVIDEND_LABELS.total} (${modeLabel})`, formatMoney(dividendRangeTotal(buckets, stackedView, mode))]]} />
+          <ValueTable<DividendBucket> caption={heading} buckets={buckets} columns={[[modeLabel, amount]]} />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  function yearLinesCard() {
+    const heading = DIVIDEND_LABELS.yearLinesHeading;
+    const forecast = forecastOn ? analysis.forecast : null;
+    const rows = analysis.yearLines.map((line) => ({ period: line.year, value: lastYearPoint(line.points) }));
+    const december = forecast?.[11] ?? null;
+    return (
+      <Card component="section" aria-labelledby={`${ids}-chart`} sx={{ minWidth: 0 }}>
+        <CardContent>
+          <CardHeading id={`${ids}-chart`}>{heading}</CardHeading>
+          <FormControlLabel
+            sx={{ ...control, mx: 0 }}
+            control={<Switch checked={forecastOn} onChange={(event) => setForecastOn(event.target.checked)} />}
+            label={DIVIDEND_LABELS.forecast}
+          />
+          {forecastOn ? (
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+              {DIVIDEND_FORECAST_NOTE}
+            </Typography>
+          ) : null}
+          <DividendYearLinesChart
+            ariaLabel={dividendYearLinesAriaLabel(analysis.yearLines, forecast, today, mode)}
+            lines={analysis.yearLines}
+            forecast={forecast}
+            today={today}
+            mode={mode}
+            colorOf={(index) => dividendColor(index, seriesColors)}
+          />
+          {december !== null ? <Summary entries={[[`${dividendForecastLabel(today.slice(0, 4))} Dez.`, amount(december)]]} /> : null}
+          <ValueTable<{ period: string; value: { gross: string; net: string } | null }>
+            caption={heading}
+            buckets={rows}
+            columns={[[modeLabel, (row) => (row.value === null ? formatMoney("0") : amount(row.value))]]}
+          />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  function breakdownCard() {
+    const heading = DIVIDEND_LABELS.breakdownHeading;
+    const splits = dividendSplits(analysis, "running", year);
+    const buckets = dividendBuckets(analysis, "running", year);
+    const paying = dividendPayingSecurities(analysis.bySecurity, splits);
+    if (paying.length === 0) return noneCard(heading);
+    const chosenIndex = Math.max(0, breakdownSecurity === null ? 0 : paying.indexOf(breakdownSecurity));
+    const chosen = paying[chosenIndex];
+    const month =
+      breakdownMonth !== null && splits.some((split) => split.period === breakdownMonth) ? breakdownMonth : (breakdownDefaultMonth(splits, chosen) as string);
+    const choose = (securityId: string) => {
+      setBreakdownSecurity(securityId);
+      setBreakdownMonth(null);
+    };
+    const kpis = breakdownKpis(splits, chosen, month, mode);
+    const security = analysis.bySecurity[securityIndex.get(chosen) ?? 0];
+    const facts = breakdownSecurityFacts(securityMeta[chosen]);
+    return (
+      <Card component="section" aria-labelledby={`${ids}-chart`} sx={{ minWidth: 0 }}>
+        <CardContent>
+          <CardHeading id={`${ids}-chart`}>{heading}</CardHeading>
+          <Stack direction="row" spacing={1} sx={{ alignItems: "center", mt: 1 }}>
+            <IconButton aria-label={DIVIDEND_LABELS.previous} disabled={chosenIndex === 0} onClick={() => choose(paying[chosenIndex - 1])} sx={{ width: 44, height: 44 }}>
+              <ArrowBack />
+            </IconButton>
+            <TextField
+              select
+              size="small"
+              label={DIVIDEND_LABELS.security}
+              value={chosen}
+              onChange={(event) => choose(event.target.value)}
+              slotProps={{ inputLabel: { shrink: true } }}
+              sx={{ flex: 1, minWidth: 0, maxWidth: 420, "& .MuiInputBase-root": control }}
+            >
+              {paying.map((securityId) => (
+                <MenuItem key={securityId} value={securityId} sx={{ ...control, gap: 1.5 }}>
+                  <SecurityLogo securityId={securityId} name={name(securityId)} />
+                  <Box component="span" sx={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+                    <Box component="span" sx={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {name(securityId)}
+                    </Box>
+                    {securityMeta[securityId] ? (
+                      <Typography component="span" variant="caption" color="text.secondary" sx={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {breakdownSecurityFacts(securityMeta[securityId])
+                          .map(([term, value]) => (term === DIVIDEND_LABELS.wkn ? `${term} ${value}` : value))
+                          .join(" · ")}
+                      </Typography>
+                    ) : null}
+                  </Box>
+                </MenuItem>
+              ))}
+            </TextField>
+            <IconButton
+              aria-label={DIVIDEND_LABELS.next}
+              disabled={chosenIndex === paying.length - 1}
+              onClick={() => choose(paying[chosenIndex + 1])}
+              sx={{ width: 44, height: 44 }}
+            >
+              <ArrowForward />
+            </IconButton>
+          </Stack>
+          {facts.length > 0 ? (
+            <Box
+              component="dl"
+              aria-label={name(chosen)}
+              sx={{ m: 0, mt: 1, display: "flex", flexWrap: "wrap", columnGap: 2, rowGap: 0.5, "& dd": { m: 0, ml: 0.5, fontWeight: 500 } }}
+            >
+              {facts.map(([term, value]) => (
+                <Box key={term} sx={{ display: "flex" }}>
+                  <Typography component="dt" variant="body2" color="text.secondary">
+                    {term}
+                  </Typography>
+                  <Typography component="dd" variant="body2">
+                    {value}
+                  </Typography>
+                </Box>
+              ))}
+            </Box>
+          ) : null}
+          <TextField
+            select
+            size="small"
+            label={DIVIDEND_LABELS.month}
+            value={month}
+            onChange={(event) => setBreakdownMonth(event.target.value)}
+            slotProps={{ inputLabel: { shrink: true } }}
+            sx={{ mt: 2, width: { xs: "100%", sm: 200 }, "& .MuiInputBase-root": control }}
+          >
+            {[...splits].reverse().map((split) => (
+              <MenuItem key={split.period} value={split.period} sx={control}>
+                {gainsBucketLabel(split.period)}
+              </MenuItem>
+            ))}
+          </TextField>
+          <DividendStackedChart
+            ariaLabel={dividendStackedAriaLabel(heading, buckets, splits, securityNames, mode)}
+            categories={buckets.map((bucket) => monthYearLabel(bucket.period))}
+            buckets={buckets}
+            splits={splits}
+            securityIds={paying}
+            colorOf={colorOf}
+            name={name}
+            mode={mode}
+            chosen={chosen}
+            onMonthClick={(index) => {
+              if (splits[index]) setBreakdownMonth(splits[index].period);
+            }}
+          />
+          <Box
+            component="section"
+            aria-label={`${DIVIDEND_LABELS.kpis} ${name(chosen)}`}
+            sx={{ mt: 2, display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "repeat(3, minmax(0, 1fr))" }, gap: 1.5 }}
+          >
+            <Kpi label={breakdownMonthLabel(month)} value={formatMoney(kpis.month)} color="accent.main" note={modeLabel} />
+            <Kpi label={breakdownSinceLabel(month)} value={formatMoney(kpis.sinceJanuary)} color="accent.main" note={modeLabel} />
+            <Kpi
+              label={DIVIDEND_LABELS.yieldOnCost}
+              value={dividendYieldText(mode === "net" ? security.netYieldOnCost : security.grossYieldOnCost)}
+              color="accent.main"
+              note={modeLabel}
+            />
+          </Box>
+        </CardContent>
+      </Card>
+    );
+  }
 
   const bucketSeries = (buckets: readonly DividendBucket[]): BarsSeries[] => [
     {
@@ -293,7 +535,13 @@ export function DividendsView({ analysis, securityNames, today, depotId = null }
         ? securitiesCard(analysis.bySecurity)
         : view === "expected"
           ? bucketCard("expected", expectedList(analysis.expected))
-          : bucketCard(view)}
+          : view === "months" || view === "running"
+            ? stackedCard(view)
+            : view === "yearLines"
+              ? yearLinesCard()
+              : view === "breakdown"
+                ? breakdownCard()
+                : bucketCard(view)}
     </Stack>
   );
 }

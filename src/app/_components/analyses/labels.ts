@@ -2,11 +2,12 @@ import type { AllocationHolding, AllocationLabels } from "@/core/allocation";
 import type { CompositionHolding, CompositionSegment } from "@/core/composition";
 import Decimal from "decimal.js";
 import { formatDate, formatMoney, formatMonth, formatPercent, formatShare } from "@/core/format";
-import type { DividendAnalysis, DividendBucket, DividendSecurity } from "@/core/dividend-analysis";
+import type { DividendAnalysis, DividendBucket, DividendMonthSplit, DividendSecurity, DividendYearLine, DividendYearPoint } from "@/core/dividend-analysis";
 import type { GainsBucket, GainsSale } from "@/core/gains-analysis";
 import type { AssetType } from "@/modules/ledger";
 import type { Classification } from "@/modules/classification";
 import { ratioTone } from "../security-detail/labels";
+import { LOGO_COLORS } from "../securities/security-logo";
 import { ASSET_TYPE_LABELS } from "../transactions/labels";
 
 /** Analysen tabs, driven by `?tab=`. */
@@ -245,9 +246,12 @@ export function cashFlowAriaLabel(buckets: readonly GainsBucket[]): string {
 
 /** Dividenden tab: views, amount modes, headings and texts. */
 export const DIVIDEND_VIEWS = [
-  { value: "months", label: "Monate" },
+  { value: "months", label: "Monatlich (pro Jahr)" },
+  { value: "running", label: "Monatlich (fortl.)" },
   { value: "years", label: "Jahre" },
-  { value: "cumulative", label: "Kumuliert" },
+  { value: "cumulative", label: "Akkumuliert" },
+  { value: "yearLines", label: "Akkumuliert (pro Jahr)" },
+  { value: "breakdown", label: "Breakdown" },
   { value: "securities", label: "Wertpapiere" },
   { value: "expected", label: "Erwartet" },
 ] as const;
@@ -270,8 +274,23 @@ export const DIVIDEND_LABELS = {
   yield: "Dividendenrendite 12 Monate",
   expectedKpi: "Erwartet 12 Monate (Schätzung)",
   monthsHeading: "Dividenden pro Monat",
+  runningHeading: "Dividenden pro Monat (fortlaufend)",
   yearsHeading: "Dividenden pro Jahr",
   cumulativeHeading: "Dividenden kumuliert",
+  yearLinesHeading: "Dividenden akkumuliert pro Jahr",
+  breakdownHeading: "Dividenden-Breakdown",
+  forecast: "Prognose",
+  security: "Wertpapier",
+  month: "Monat",
+  previous: "Vorheriges",
+  next: "Nächstes",
+  monthKpi: "Im ",
+  sinceKpi: "Seit Jan. ",
+  yieldOnCost: "Pers. Div-Rendite",
+  type: "Typ",
+  isin: "ISIN",
+  wkn: "WKN",
+  symbol: "Symbol",
   securitiesHeading: "Dividenden nach Wertpapier",
   expectedHeading: "Erwartete Dividenden (Schätzung)",
   expectedList: "Erwartete Zahlungen",
@@ -282,13 +301,15 @@ export const DIVIDEND_EMPTY_TEXT = "Noch keine Transaktionen.";
 export const DIVIDEND_NONE_TEXT = "Noch keine Dividenden.";
 export const DIVIDEND_NO_EXPECTED_TEXT = "Keine erwarteten Zahlungen.";
 export const DIVIDEND_ESTIMATE_NOTE = "Schätzung: Zahlungen der letzten 12 Monate in denselben Monaten, mit aktuellem Bestand.";
+export const DIVIDEND_FORECAST_NOTE = "Schätzung: erwartete Zahlungen bis Dezember (siehe Erwartet).";
 export const DIVIDEND_MISSING = "–";
 
 /** The bucket views with their chart headings. */
-export type DividendBucketView = Exclude<DividendView, "securities">;
+export type DividendBucketView = Exclude<DividendView, "securities" | "yearLines" | "breakdown">;
 
 export const DIVIDEND_BUCKET_HEADINGS: Record<DividendBucketView, string> = {
   months: DIVIDEND_LABELS.monthsHeading,
+  running: DIVIDEND_LABELS.runningHeading,
   years: DIVIDEND_LABELS.yearsHeading,
   cumulative: DIVIDEND_LABELS.cumulativeHeading,
   expected: DIVIDEND_LABELS.expectedHeading,
@@ -310,6 +331,8 @@ export function dividendBuckets(analysis: DividendAnalysis, view: DividendBucket
   switch (view) {
     case "months":
       return analysis.months.filter((month) => month.period.startsWith(`${year}-`));
+    case "running":
+      return analysis.months.slice(dividendRunningStart(analysis));
     case "years":
       return [...analysis.years];
     case "cumulative":
@@ -355,4 +378,149 @@ export function dividendCountText(count: number, lastDate: string): string {
 /** `15.11.2026 · aus Zahlung vom 15.11.2025`. */
 export function expectedDividendText(date: string, basedOn: string): string {
   return `${formatDate(date)} · aus Zahlung vom ${formatDate(basedOn)}`;
+}
+
+/**
+ * Colour of the `index`-th entry (a Security's index in `bySecurity`, or a year's index): the five theme
+ * series colours, then `LOGO_COLORS`, cycling — so a Security keeps its colour in every view.
+ */
+export function dividendColor(index: number, series: readonly string[]): string {
+  const palette = [...series.slice(0, 5), ...LOGO_COLORS];
+  return palette[((index % palette.length) + palette.length) % palette.length];
+}
+
+/** WKN embedded in a German ISIN (`DE000` + WKN + check digit): characters 6–11; `null` otherwise. */
+export function wknOf(isin: string | null): string | null {
+  return isin !== null && /^DE000[A-Z0-9]{6}[0-9]$/.test(isin) ? isin.slice(5, 11) : null;
+}
+
+/** Index in `months` of the first month with a payment ("Monatlich (fortl.)" and Breakdown start); `months.length` without. */
+export function dividendRunningStart(analysis: Pick<DividendAnalysis, "months" | "monthsBySecurity">): number {
+  const index = analysis.monthsBySecurity.findIndex((month) => month.securities.length > 0);
+  return index === -1 ? analysis.months.length : index;
+}
+
+/** The month splits a stacked view shows: the months of `year`, or every month from the first payment on (fortl.). */
+export function dividendSplits(analysis: Pick<DividendAnalysis, "months" | "monthsBySecurity">, view: "months" | "running", year: string): DividendMonthSplit[] {
+  return view === "running"
+    ? analysis.monthsBySecurity.slice(dividendRunningStart(analysis))
+    : analysis.monthsBySecurity.filter((month) => month.period.startsWith(`${year}-`));
+}
+
+/** The Securities paying in `splits`, in `bySecurity` order. */
+export function dividendPayingSecurities(bySecurity: readonly DividendSecurity[], splits: readonly DividendMonthSplit[]): string[] {
+  const paying = new Set(splits.flatMap((month) => month.securities.map((security) => security.securityId)));
+  return bySecurity.map((security) => security.securityId).filter((id) => paying.has(id));
+}
+
+/** Amount of one Security in a month split (`"0"` when it did not pay). */
+export function dividendSplitAmount(split: DividendMonthSplit, securityId: string, mode: DividendMode): string {
+  const entry = split.securities.find((security) => security.securityId === securityId);
+  return entry ? dividendAmount(entry, mode) : "0";
+}
+
+/**
+ * Text alternative of a stacked chart: `Dividenden pro Monat (Brutto): Mai 2026 40,00 € (SAP SE 40,00 €);
+ * Juni 2026 0,00 €; …` — each month's total and its Securities' amounts.
+ */
+export function dividendStackedAriaLabel(
+  heading: string,
+  buckets: readonly DividendBucket[],
+  splits: readonly DividendMonthSplit[],
+  names: Readonly<Record<string, string>>,
+  mode: DividendMode,
+): string {
+  const parts = buckets.map((bucket, i) => {
+    const securities = splits[i]?.securities ?? [];
+    const detail = securities.map((security) => `${names[security.securityId] ?? security.securityId} ${formatMoney(dividendAmount(security, mode))}`);
+    return `${gainsBucketLabel(bucket.period)} ${formatMoney(dividendAmount(bucket, mode))}${detail.length > 0 ? ` (${detail.join(", ")})` : ""}`;
+  });
+  return `${heading} (${dividendModeLabel(mode)}): ${parts.join("; ")}`;
+}
+
+/** The last non-null point of a line (December, or today's month for today's year). */
+export function lastYearPoint(points: readonly DividendYearPoint[]): { gross: string; net: string } | null {
+  for (let i = points.length - 1; i >= 0; i -= 1) {
+    const point = points[i];
+    if (point !== null) return point;
+  }
+  return null;
+}
+
+/** `Prognose 2026 (Schätzung)`. */
+export function dividendForecastLabel(year: string): string {
+  return `${DIVIDEND_LABELS.forecast} ${year} (Schätzung)`;
+}
+
+/** `Jan 0,00 €, …, Dez 20,00 €`: every non-null month of a line. */
+function yearPointsText(points: readonly DividendYearPoint[], mode: DividendMode): string {
+  return points
+    .flatMap((point, i) => (point === null ? [] : [`${HEATMAP_MONTH_LABELS[i]} ${formatMoney(dividendAmount(point, mode))}`]))
+    .join(", ");
+}
+
+/**
+ * Text alternative of the year lines, every non-null month's cumulative value per year:
+ * `Dividenden akkumuliert pro Jahr (Brutto): 2025: Jan 0,00 €, …, Dez 20,00 €; 2026: …`, plus
+ * `; Prognose 2026 (Schätzung): Okt 40,00 €, Nov 80,00 €, Dez 80,00 €` when the forecast is on.
+ */
+export function dividendYearLinesAriaLabel(lines: readonly DividendYearLine[], forecast: readonly DividendYearPoint[] | null, today: string, mode: DividendMode): string {
+  const parts = lines.map((line) => `${line.year}: ${yearPointsText(line.points, mode)}`);
+  if (forecast !== null && forecast.some((point) => point !== null)) {
+    parts.push(`${dividendForecastLabel(today.slice(0, 4))}: ${yearPointsText(forecast, mode)}`);
+  }
+  return `${DIVIDEND_LABELS.yearLinesHeading} (${dividendModeLabel(mode)}): ${parts.join("; ")}`;
+}
+
+/** Breakdown default month: the latest month (period) in `splits` with a payment of `securityId`; `null` without. */
+export function breakdownDefaultMonth(splits: readonly DividendMonthSplit[], securityId: string): string | null {
+  for (let i = splits.length - 1; i >= 0; i -= 1) {
+    if (splits[i].securities.some((security) => security.securityId === securityId)) return splits[i].period;
+  }
+  return null;
+}
+
+/**
+ * Breakdown KPIs of `securityId` for the month `period` (`YYYY-MM`): its amount that month and its sum from
+ * January of that year through that month (decimal strings).
+ */
+export function breakdownKpis(
+  splits: readonly DividendMonthSplit[],
+  securityId: string,
+  period: string,
+  mode: DividendMode,
+): { month: string; sinceJanuary: string } {
+  const year = period.slice(0, 4);
+  let since = new Decimal(0);
+  let month = "0";
+  for (const split of splits) {
+    if (!split.period.startsWith(`${year}-`) || split.period > period) continue;
+    const amount = dividendSplitAmount(split, securityId, mode);
+    since = since.plus(amount);
+    if (split.period === period) month = amount;
+  }
+  return { month, sinceJanuary: since.isZero() ? "0" : since.toFixed() };
+}
+
+/** `Im Mai 2026`. */
+export function breakdownMonthLabel(period: string): string {
+  return `${DIVIDEND_LABELS.monthKpi}${gainsBucketLabel(period)}`;
+}
+
+/** `Seit Jan. 2026`. */
+export function breakdownSinceLabel(period: string): string {
+  return `${DIVIDEND_LABELS.sinceKpi}${period.slice(0, 4)}`;
+}
+
+/** Security data the Breakdown selector shows. */
+export type DividendSecurityMeta = { name: string; isin: string | null; cryptoSymbol: string | null; assetType: AssetType };
+
+/** Selector lines of a Security: type, ISIN (or crypto symbol) and WKN, `–` where missing. */
+export function breakdownSecurityFacts(meta: DividendSecurityMeta | undefined): [string, string][] {
+  if (!meta) return [];
+  const facts: [string, string][] = [[DIVIDEND_LABELS.type, ASSET_TYPE_LABELS[meta.assetType] ?? meta.assetType]];
+  if (meta.cryptoSymbol !== null) facts.push([DIVIDEND_LABELS.symbol, meta.cryptoSymbol]);
+  else facts.push([DIVIDEND_LABELS.isin, meta.isin ?? DIVIDEND_MISSING]);
+  facts.push([DIVIDEND_LABELS.wkn, wknOf(meta.isin) ?? DIVIDEND_MISSING]);
+  return facts;
 }

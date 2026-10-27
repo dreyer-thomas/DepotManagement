@@ -6,6 +6,18 @@ import {
   ANALYSIS_TABS,
   cashFlowAriaLabel,
   DIVIDEND_VIEWS,
+  breakdownDefaultMonth,
+  breakdownKpis,
+  breakdownMonthLabel,
+  breakdownSecurityFacts,
+  breakdownSinceLabel,
+  dividendColor,
+  dividendPayingSecurities,
+  dividendRunningStart,
+  dividendSplits,
+  dividendStackedAriaLabel,
+  dividendYearLinesAriaLabel,
+  wknOf,
   dividendAmount,
   dividendBuckets,
   dividendChartAriaLabel,
@@ -208,42 +220,95 @@ describe("dividend labels", () => {
   const NBSP = "\u00a0";
   const ANALYSIS: DividendAnalysis = {
     months: [
+      { period: "2025-10", gross: "0", net: "0" },
       { period: "2025-11", gross: "20", net: "14.5" },
       { period: "2025-12", gross: "0", net: "0" },
-      { period: "2026-01", gross: "40", net: "30" },
+      { period: "2026-01", gross: "45", net: "35" },
     ],
     years: [
       { period: "2025", gross: "20", net: "14.5" },
-      { period: "2026", gross: "40", net: "30" },
+      { period: "2026", gross: "45", net: "35" },
     ],
     cumulative: [
       { period: "2025", gross: "20", net: "14.5" },
-      { period: "2026", gross: "60", net: "44.5" },
+      { period: "2026", gross: "65", net: "49.5" },
     ],
-    bySecurity: [{ securityId: "x", count: 2, gross: "60", net: "44.5", lastDate: "2026-01-10" }],
+    bySecurity: [
+      {
+        securityId: "x",
+        count: 2,
+        gross: "60",
+        net: "44.5",
+        lastDate: "2026-01-10",
+        trailingGross: "60",
+        trailingNet: "44.5",
+        costBasis: "1100",
+        grossYieldOnCost: "0.05454545454545454545",
+        netYieldOnCost: "0.04045454545454545455",
+      },
+      {
+        securityId: "y",
+        count: 1,
+        gross: "5",
+        net: "5",
+        lastDate: "2026-01-20",
+        trailingGross: "5",
+        trailingNet: "5",
+        costBasis: null,
+        grossYieldOnCost: null,
+        netYieldOnCost: null,
+      },
+    ],
     trailing: { from: "2025-01-31", to: "2026-01-31", gross: "60", net: "44.5", payingValue: "2000", grossYield: "0.03", netYield: "0.02225" },
     expected: [],
     expectedMonths: [
       { period: "2026-01", gross: "0", net: "0" },
       { period: "2026-02", gross: "40", net: "29" },
     ],
+    monthsBySecurity: [
+      { period: "2025-10", securities: [] },
+      { period: "2025-11", securities: [{ securityId: "x", gross: "20", net: "14.5" }] },
+      { period: "2025-12", securities: [] },
+      {
+        period: "2026-01",
+        securities: [
+          { securityId: "x", gross: "40", net: "30" },
+          { securityId: "y", gross: "5", net: "5" },
+        ],
+      },
+    ],
+    yearLines: [
+      { year: "2025", points: [...Array(10).fill({ gross: "0", net: "0" }), { gross: "20", net: "14.5" }, { gross: "20", net: "14.5" }] },
+      { year: "2026", points: [{ gross: "45", net: "35" }, ...Array(11).fill(null)] },
+    ],
+    forecast: [{ gross: "45", net: "35" }, { gross: "85", net: "64" }, ...Array(10).fill({ gross: "85", net: "64" })],
   };
 
   it("lists the views in order", () => {
-    expect(DIVIDEND_VIEWS.map((view) => view.label)).toEqual(["Monate", "Jahre", "Kumuliert", "Wertpapiere", "Erwartet"]);
+    expect(DIVIDEND_VIEWS.map((view) => view.label)).toEqual([
+      "Monatlich (pro Jahr)",
+      "Monatlich (fortl.)",
+      "Jahre",
+      "Akkumuliert",
+      "Akkumuliert (pro Jahr)",
+      "Breakdown",
+      "Wertpapiere",
+      "Erwartet",
+    ]);
   });
 
   it("picks the buckets of a view and their total by mode", () => {
-    expect(dividendBuckets(ANALYSIS, "months", "2025").map((b) => b.period)).toEqual(["2025-11", "2025-12"]);
+    expect(dividendBuckets(ANALYSIS, "months", "2025").map((b) => b.period)).toEqual(["2025-10", "2025-11", "2025-12"]);
+    expect(dividendBuckets(ANALYSIS, "running", "2025").map((b) => b.period)).toEqual(["2025-11", "2025-12", "2026-01"]);
     expect(dividendBuckets(ANALYSIS, "years", "2025")).toEqual(ANALYSIS.years);
     expect(dividendBuckets(ANALYSIS, "cumulative", "2025")).toEqual(ANALYSIS.cumulative);
     expect(dividendBuckets(ANALYSIS, "expected", "2025")).toEqual(ANALYSIS.expectedMonths);
     expect(dividendAmount(ANALYSIS.years[0], "gross")).toBe("20");
     expect(dividendAmount(ANALYSIS.years[0], "net")).toBe("14.5");
-    expect(sumDividendAmounts(ANALYSIS.years, "net")).toBe("44.5");
+    expect(sumDividendAmounts(ANALYSIS.years, "net")).toBe("49.5");
     expect(sumDividendAmounts([], "net")).toBe("0");
-    expect(dividendRangeTotal(ANALYSIS.years, "years", "gross")).toBe("60");
-    expect(dividendRangeTotal(ANALYSIS.cumulative, "cumulative", "net")).toBe("44.5");
+    expect(dividendRangeTotal(ANALYSIS.years, "years", "gross")).toBe("65");
+    expect(dividendRangeTotal(ANALYSIS.cumulative, "cumulative", "net")).toBe("49.5");
     expect(dividendRangeTotal([], "cumulative", "net")).toBe("0");
   });
 
@@ -254,10 +319,75 @@ describe("dividend labels", () => {
   });
 
   it("builds the text alternatives and list captions", () => {
-    expect(dividendChartAriaLabel("Dividenden pro Jahr", ANALYSIS.years, "net")).toBe(`Dividenden pro Jahr (Netto): 2025 14,50${NBSP}€; 2026 30,00${NBSP}€`);
-    expect(dividendSecuritiesAriaLabel(ANALYSIS.bySecurity, { x: "SAP SE" }, "gross")).toBe(`Dividenden nach Wertpapier (Brutto): SAP SE 60,00${NBSP}€`);
+    expect(dividendChartAriaLabel("Dividenden pro Jahr", ANALYSIS.years, "net")).toBe(`Dividenden pro Jahr (Netto): 2025 14,50${NBSP}€; 2026 35,00${NBSP}€`);
+    expect(dividendSecuritiesAriaLabel(ANALYSIS.bySecurity.slice(0, 1), { x: "SAP SE" }, "gross")).toBe(`Dividenden nach Wertpapier (Brutto): SAP SE 60,00${NBSP}€`);
     expect(dividendCountText(2, "2026-01-10")).toBe("2 Zahlungen · zuletzt 10.01.2026");
     expect(dividendCountText(1, "2026-01-10")).toBe("1 Zahlung · zuletzt 10.01.2026");
     expect(expectedDividendText("2026-11-15", "2025-11-15")).toBe("15.11.2026 · aus Zahlung vom 15.11.2025");
+  });
+  it("colours by index through the theme series, then the logo colours, cycling", () => {
+    const series = ["s1", "s2", "s3", "s4", "s5"];
+    expect(dividendColor(0, series)).toBe("s1");
+    expect(dividendColor(4, series)).toBe("s5");
+    expect(dividendColor(5, series)).toBe("#00695C");
+    expect(dividendColor(12, series)).toBe("#1B5E20");
+    expect(dividendColor(13, series)).toBe("s1");
+  });
+
+  it("derives the WKN from a German ISIN only", () => {
+    expect(wknOf("DE0007164600")).toBe("716460");
+    expect(wknOf("US0378331005")).toBeNull();
+    expect(wknOf(null)).toBeNull();
+    expect(breakdownSecurityFacts({ name: "SAP SE", isin: "DE0007164600", cryptoSymbol: null, assetType: "STOCK" })).toEqual([
+      ["Typ", "Aktie"],
+      ["ISIN", "DE0007164600"],
+      ["WKN", "716460"],
+    ]);
+    expect(breakdownSecurityFacts({ name: "Apple", isin: "US0378331005", cryptoSymbol: null, assetType: "STOCK" }).at(-1)).toEqual(["WKN", "–"]);
+    expect(breakdownSecurityFacts({ name: "Bitcoin", isin: null, cryptoSymbol: "BTC", assetType: "CRYPTO" }).slice(1)).toEqual([
+      ["Symbol", "BTC"],
+      ["WKN", "–"],
+    ]);
+  });
+
+  it("starts the running range at the first payment and lists paying Securities in bySecurity order", () => {
+    expect(dividendRunningStart(ANALYSIS)).toBe(1);
+    expect(dividendRunningStart({ months: ANALYSIS.months.slice(0, 1), monthsBySecurity: ANALYSIS.monthsBySecurity.slice(0, 1) })).toBe(1);
+    expect(dividendSplits(ANALYSIS, "running", "2025").map((m) => m.period)).toEqual(["2025-11", "2025-12", "2026-01"]);
+    expect(dividendSplits(ANALYSIS, "months", "2025").map((m) => m.period)).toEqual(["2025-10", "2025-11", "2025-12"]);
+    expect(dividendPayingSecurities(ANALYSIS.bySecurity, dividendSplits(ANALYSIS, "months", "2025"))).toEqual(["x"]);
+    expect(dividendPayingSecurities(ANALYSIS.bySecurity, ANALYSIS.monthsBySecurity)).toEqual(["x", "y"]);
+  });
+
+  it("builds the stacked and year-lines text alternatives", () => {
+    const splits = dividendSplits(ANALYSIS, "running", "2025");
+    const buckets = dividendBuckets(ANALYSIS, "running", "2025");
+    expect(dividendStackedAriaLabel("Dividenden pro Monat", buckets, splits, { x: "SAP SE", y: "Yolo AG" }, "gross")).toBe(
+      `Dividenden pro Monat (Brutto): November 2025 20,00${NBSP}€ (SAP SE 20,00${NBSP}€); Dezember 2025 0,00${NBSP}€; Januar 2026 45,00${NBSP}€ (SAP SE 40,00${NBSP}€, Yolo AG 5,00${NBSP}€)`,
+    );
+    const zeros = (labels: string[]) => labels.map((m) => `${m} 0,00${NBSP}€`).join(", ");
+    const MONTHS10 = ["Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt"];
+    expect(dividendYearLinesAriaLabel(ANALYSIS.yearLines, null, "2026-01-31", "net")).toBe(
+      `Dividenden akkumuliert pro Jahr (Netto): 2025: ${zeros(MONTHS10)}, Nov 14,50${NBSP}€, Dez 14,50${NBSP}€; 2026: Jan 35,00${NBSP}€`,
+    );
+    const forecastMonths = ["Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"].map((m) => `${m} 85,00${NBSP}€`).join(", ");
+    expect(dividendYearLinesAriaLabel(ANALYSIS.yearLines, ANALYSIS.forecast, "2026-01-31", "gross")).toBe(
+      `Dividenden akkumuliert pro Jahr (Brutto): 2025: ${zeros(MONTHS10)}, Nov 20,00${NBSP}€, Dez 20,00${NBSP}€; 2026: Jan 45,00${NBSP}€; Prognose 2026 (Schätzung): Jan 45,00${NBSP}€, ${forecastMonths}`,
+    );
+    expect(dividendYearLinesAriaLabel(ANALYSIS.yearLines, Array(12).fill(null), "2026-01-31", "gross")).not.toContain("Prognose");
+  });
+
+  it("computes the Breakdown default month and KPIs", () => {
+    const splits = dividendSplits(ANALYSIS, "running", "2025");
+    expect(breakdownDefaultMonth(splits, "x")).toBe("2026-01");
+    expect(breakdownDefaultMonth(splits, "z")).toBeNull();
+    expect(breakdownKpis(splits, "x", "2026-01", "gross")).toEqual({ month: "40", sinceJanuary: "40" });
+    expect(breakdownKpis(splits, "x", "2025-12", "net")).toEqual({ month: "0", sinceJanuary: "14.5" });
+    expect(breakdownKpis(splits, "y", "2025-11", "gross")).toEqual({ month: "0", sinceJanuary: "0" });
+    expect(breakdownMonthLabel("2026-05")).toBe("Im Mai 2026");
+    expect(breakdownSinceLabel("2026-05")).toBe("Seit Jan. 2026");
+    expect(dividendYieldText(ANALYSIS.bySecurity[0].grossYieldOnCost)).toBe(`5,45${NBSP}%`);
+    expect(dividendYieldText(ANALYSIS.bySecurity[0].netYieldOnCost)).toBe(`4,05${NBSP}%`);
+    expect(dividendYieldText(ANALYSIS.bySecurity[1].grossYieldOnCost)).toBe("–");
   });
 });
