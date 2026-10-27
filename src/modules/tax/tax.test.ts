@@ -113,6 +113,13 @@ describe("taxPreviewInput", () => {
 
     const input = await taxPreviewInput(db());
     expect(input.brokers).toEqual(["COMDIRECT", "FINANZEN_ZERO"]);
+    // Each Depot keeps its id (the rebalancing proposal appends hypothetical sales per Depot).
+    expect(input.depots.map((entry) => [entry.depotId, entry.broker]).sort()).toEqual(
+      [
+        [comdirect, "COMDIRECT"],
+        [archived, "FINANZEN_ZERO"],
+      ].sort(),
+    );
     expect(input.securities[etf]).toEqual({ category: "fund", teilfreistellung: "0.3" });
     expect(input.securities[stock]).toEqual({ category: "stock", teilfreistellung: "0" });
 

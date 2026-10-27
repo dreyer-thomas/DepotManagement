@@ -18,6 +18,7 @@ vi.mock("next/headers", () => ({
 
 import { prisma } from "@/db";
 import { createExport, EXPORT_SCHEMA_VERSION, exportFileSchema, serializeExport } from "@/modules/backup";
+import { setTargetAllocation } from "@/modules/rebalancing";
 import { setTaxAllowances } from "@/modules/tax";
 import { createDepot, ensureSecurity } from "@/modules/ledger";
 import { saveManualLogo } from "@/modules/logos";
@@ -38,6 +39,7 @@ beforeEach(async () => {
   process.env.DATA_DIR = dataDir;
   fakes.current.state.incoming.set(SESSION_COOKIE, await createSessionToken("tester", SECRET));
   await prisma.securityLogo.deleteMany();
+  await prisma.targetAllocation.deleteMany();
   await prisma.security.deleteMany();
   await prisma.depot.deleteMany();
 });
@@ -69,6 +71,7 @@ describe("GET /api/export", () => {
     if (!security.ok) throw new Error("setup failed");
     expect(await saveManualLogo(security.security.id, PNG)).toEqual({ ok: true });
     expect(await setTaxAllowances("2026", { COMDIRECT: "801" })).toEqual({ ok: true });
+    expect(await setTargetAllocation("portfolio", { equityUsa: "70", bonds: "30" }, "3")).toMatchObject({ ok: true });
 
     const response = await GET();
     expect(response.status).toBe(200);
@@ -84,6 +87,7 @@ describe("GET /api/export", () => {
     expect(file.depots.map((depot) => depot.name)).toEqual(["Hauptdepot"]);
     expect(file.logos).toHaveLength(1);
     expect(file.taxAllowances).toMatchObject([{ broker: "COMDIRECT", year: 2026, amount: "801" }]);
+    expect(file.targetAllocations).toMatchObject([{ scope: "portfolio", weights: { equityUsa: "70", bonds: "30" }, threshold: "3" }]);
     expect(Buffer.from(file.logos[0]!.data, "base64")).toEqual(Buffer.from(PNG));
     expect(text).toBe(serializeExport(await createExport()));
   });

@@ -7,7 +7,7 @@ const TS = "2026-10-26T10:00:00.000Z";
 /** A small, consistent synthetic export file. */
 function base(): ExportFile {
   return {
-    schemaVersion: 4,
+    schemaVersion: 5,
     depots: [
       { id: "d1", name: "Hauptdepot", broker: "COMDIRECT", archived: false },
       { id: "d2", name: "Zweitdepot", broker: "FINANZEN_ZERO", archived: false },
@@ -66,6 +66,10 @@ function base(): ExportFile {
       { id: "a2", broker: "COMDIRECT", year: 2025, amount: "1000" },
     ],
     teilfreistellungOverrides: [{ id: "o1", securityId: "s1", rate: "0.15" }],
+    targetAllocations: [
+      { id: "t1", scope: "portfolio", weights: { equityUsa: "60", bonds: "40" }, threshold: "2" },
+      { id: "t2", scope: "d1", weights: { cash: "100" }, threshold: "0.5" },
+    ],
   };
 }
 
@@ -75,7 +79,7 @@ describe("checkConsistency", () => {
   it("accepts a consistent file and an empty one", () => {
     expect(checkConsistency(base())).toEqual({ ok: true });
     const empty = base();
-    for (const key of ["depots", "securities", "providerMappings", "transactions", "corporateActions", "reconciliationRuns", "prices", "logos", "classifications", "taxAllowances", "teilfreistellungOverrides"] as const) {
+    for (const key of ["depots", "securities", "providerMappings", "transactions", "corporateActions", "reconciliationRuns", "prices", "logos", "classifications", "taxAllowances", "teilfreistellungOverrides", "targetAllocations"] as const) {
       empty[key] = [];
     }
     expect(checkConsistency(empty)).toEqual({ ok: true });
@@ -128,6 +132,13 @@ describe("checkConsistency", () => {
     ["unknown override security", (f) => (f.teilfreistellungOverrides[0].securityId = "nope"), "teilfreistellungOverrides.0.securityId"],
     ["two overrides of one Security", (f) => f.teilfreistellungOverrides.push({ ...f.teilfreistellungOverrides[0], id: "o2" }), "teilfreistellungOverrides.1.securityId"],
     ["rate outside the list", (f) => (f.teilfreistellungOverrides[0].rate = "0.2"), "teilfreistellungOverrides.0.rate"],
+    ["duplicate target allocation id", (f) => f.targetAllocations.push({ ...f.targetAllocations[0], scope: "d2" }), "targetAllocations.2.id"],
+    ["two target allocations of one scope", (f) => f.targetAllocations.push({ ...f.targetAllocations[0], id: "t3" }), "targetAllocations.2.scope"],
+    ["unknown target allocation scope", (f) => (f.targetAllocations[1].scope = "nope"), "targetAllocations.1.scope"],
+    ["target weights not summing to 100", (f) => (f.targetAllocations[0].weights = { equityUsa: "60", bonds: "39.5" }), "targetAllocations.0.weights"],
+    ["non-canonical target weight", (f) => (f.targetAllocations[0].weights = { equityUsa: "60.0", bonds: "40" }), "targetAllocations.0.weights"],
+    ["zero target weight", (f) => (f.targetAllocations[1].weights = { cash: "100", bonds: "0" }), "targetAllocations.1.weights"],
+    ["invalid threshold", (f) => (f.targetAllocations[0].threshold = "100.5"), "targetAllocations.0.threshold"],
   ])("rejects a %s with its path", (_label, mutate, path) => {
     const file = base();
     mutate(file);

@@ -146,7 +146,7 @@ describe("Settings page", () => {
     const section = findBackupSection(tree);
     expect(section).toBeDefined();
     expect(renderText(section as never)).toContain("Datensicherung");
-    expect(renderText(section as never)).toContain("Freistellungsaufträge und Teilfreistellungen");
+    expect(renderText(section as never)).toContain("Freistellungsaufträge, Teilfreistellungen und Zielallokationen");
     expect(findElement(section, ExportButton)).toBeDefined();
   });
 

@@ -9,6 +9,7 @@ import { exportClassifications } from "@/modules/classification";
 import { exportLedgerData } from "@/modules/ledger";
 import { exportManualLogos, type LogoDeps } from "@/modules/logos";
 import { exportPriceData } from "@/modules/prices";
+import { exportTargetAllocations } from "@/modules/rebalancing";
 import { exportTaxSettings } from "@/modules/tax";
 import { EXPORT_SCHEMA_VERSION, exportFileSchema, type ExportFile } from "./schema";
 
@@ -35,6 +36,7 @@ export async function createExport(deps: ExportDeps = {}, db: BackupDb = prisma)
     const logos = await exportManualLogos(deps, tx);
     const classifications = await exportClassifications(tx);
     const tax = await exportTaxSettings(tx);
+    const targetAllocations = await exportTargetAllocations(tx);
     return {
       schemaVersion: EXPORT_SCHEMA_VERSION,
       depots: ledger.depots,
@@ -48,6 +50,7 @@ export async function createExport(deps: ExportDeps = {}, db: BackupDb = prisma)
       classifications,
       taxAllowances: tax.taxAllowances,
       teilfreistellungOverrides: tax.teilfreistellungOverrides,
+      targetAllocations,
     };
   });
   const parsed = exportFileSchema.safeParse(file);

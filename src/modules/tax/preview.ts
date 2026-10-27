@@ -1,11 +1,18 @@
 import { prisma } from "@/db";
+import type { GainsRow } from "@/core/gains-analysis";
 import { type TaxPreviewInput, type TaxSecurity, taxSecurity } from "@/core/tax";
 import { listClassifications } from "@/modules/classification";
 import { BROKERS, type Broker, taxLedgerInput } from "@/modules/ledger";
 import { listTaxAllowances, listTeilfreistellungOverrides, type TaxDb } from "./settings";
 
-/** Everything `core/tax` `taxPreview` needs except "today". */
-export type TaxPreviewData = Omit<TaxPreviewInput, "today" | "brokers"> & { brokers: Broker[] };
+/**
+ * Everything `core/tax` `taxPreview` needs except "today"; each Depot keeps its id so the rebalancing
+ * proposal (story 8.5) can append hypothetical sales per Depot.
+ */
+export type TaxPreviewData = Omit<TaxPreviewInput, "today" | "brokers" | "depots"> & {
+  depots: { depotId: string; broker: Broker; rows: GainsRow[] }[];
+  brokers: Broker[];
+};
 
 /**
  * Gathers the tax preview input: every Depot's rows (archived included) with its broker, the corporate
@@ -25,7 +32,7 @@ export async function taxPreviewInput(db: TaxDb = prisma): Promise<TaxPreviewDat
   }
   const used = new Set(ledger.depots.map((depot) => depot.broker));
   return {
-    depots: ledger.depots.map((depot) => ({ broker: depot.broker, rows: depot.rows })),
+    depots: ledger.depots.map((depot) => ({ depotId: depot.depotId, broker: depot.broker, rows: depot.rows })),
     actions: ledger.actions,
     securities,
     allowances,

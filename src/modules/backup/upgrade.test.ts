@@ -3,34 +3,39 @@ import { EXPORT_SCHEMA_VERSION } from "./schema";
 import { UPGRADES, upgradeExport } from "./upgrade";
 
 describe("upgradeExport", () => {
-  it("upgrades a version-1 document to version 4 with no classifications and no tax settings", () => {
-    expect(EXPORT_SCHEMA_VERSION).toBe(4);
-    expect(Object.keys(UPGRADES)).toEqual(["1", "2", "3"]);
+  it("upgrades a version-1 document to version 5 with no classifications, tax settings or target allocations", () => {
+    expect(EXPORT_SCHEMA_VERSION).toBe(5);
+    expect(Object.keys(UPGRADES)).toEqual(["1", "2", "3", "4"]);
     expect(upgradeExport({ schemaVersion: 1, depots: [] })).toEqual({
       ok: true,
-      document: { schemaVersion: 4, depots: [], classifications: [], taxAllowances: [], teilfreistellungOverrides: [] },
+      document: { schemaVersion: 5, depots: [], classifications: [], taxAllowances: [], teilfreistellungOverrides: [], targetAllocations: [] },
     });
   });
 
-  it("upgrades a version-2 document to version 4 with no tax settings", () => {
+  it("upgrades a version-2 document to version 5 with no tax settings", () => {
     expect(upgradeExport({ schemaVersion: 2, depots: [], classifications: [] })).toEqual({
       ok: true,
-      document: { schemaVersion: 4, depots: [], classifications: [], taxAllowances: [], teilfreistellungOverrides: [] },
+      document: { schemaVersion: 5, depots: [], classifications: [], taxAllowances: [], teilfreistellungOverrides: [], targetAllocations: [] },
     });
   });
 
-  it("upgrades a version-3 document to version 4 with no manual region split per classification", () => {
+  it("upgrades a version-3 document to version 5 with no manual region split per classification", () => {
     const classification = { id: "k1", securityId: "s1", assetClass: null, sector: "Halbleiter", region: "Europa" };
     expect(upgradeExport({ schemaVersion: 3, depots: [], classifications: [classification], taxAllowances: [] })).toEqual({
       ok: true,
-      document: { schemaVersion: 4, depots: [], classifications: [{ ...classification, regionSplit: null }], taxAllowances: [] },
+      document: { schemaVersion: 5, depots: [], classifications: [{ ...classification, regionSplit: null }], taxAllowances: [], targetAllocations: [] },
     });
     // A malformed classifications value is passed on for the schema to reject.
-    expect(upgradeExport({ schemaVersion: 3, classifications: "x" })).toEqual({ ok: true, document: { schemaVersion: 4, classifications: "x" } });
+    expect(upgradeExport({ schemaVersion: 3, classifications: "x" })).toEqual({ ok: true, document: { schemaVersion: 5, classifications: "x", targetAllocations: [] } });
+  });
+
+  it("upgrades a version-4 document to version 5 with no target allocations", () => {
+    const raw = { schemaVersion: 4, depots: [], classifications: [], taxAllowances: [], teilfreistellungOverrides: [] };
+    expect(upgradeExport(raw)).toEqual({ ok: true, document: { ...raw, schemaVersion: 5, targetAllocations: [] } });
   });
 
   it("returns a current-version document unchanged", () => {
-    const raw = { schemaVersion: 4, depots: [], classifications: [], taxAllowances: [], teilfreistellungOverrides: [] };
+    const raw = { schemaVersion: 5, depots: [], classifications: [], taxAllowances: [], teilfreistellungOverrides: [], targetAllocations: [] };
     expect(upgradeExport(raw)).toEqual({ ok: true, document: raw });
   });
 
@@ -52,7 +57,7 @@ describe("upgradeExport", () => {
   });
 
   it("rejects a newer version as unsupported", () => {
-    expect(upgradeExport({ schemaVersion: 5 })).toEqual({ ok: false, reason: "version-unsupported" });
+    expect(upgradeExport({ schemaVersion: 6 })).toEqual({ ok: false, reason: "version-unsupported" });
   });
 
   it.each([

@@ -92,4 +92,8 @@ export async function seedFullLedger(c: PrismaClient, dataDir: string): Promise<
   await c.taxAllowance.create({ data: { id: "fsa-2", broker: "FINANZEN_ZERO", year: 2026, amount: "199", updatedAt: TS } });
   await c.taxAllowance.create({ data: { id: "fsa-1", broker: "COMDIRECT", year: 2026, amount: "801", updatedAt: TS } });
   await c.teilfreistellungOverride.create({ data: { id: "tfs-a", securityId: "sec-a", rate: "0.15", updatedAt: TS } });
+  // Target allocations (story 8.5): the Portfolio and a Depot (exported); a deleted Depot's row (not exported).
+  await c.targetAllocation.create({ data: { id: "ta-p", scope: "portfolio", weights: '{"equityUsa":"60","bonds":"37.5","cash":"2.5"}', threshold: "2", updatedAt: TS } });
+  await c.targetAllocation.create({ data: { id: "ta-a", scope: "depot-a", weights: '{"cash":"100"}', threshold: "0.5", updatedAt: TS } });
+  await c.targetAllocation.create({ data: { id: "ta-x", scope: "gone-depot", weights: '{"cash":"100"}', threshold: "2", updatedAt: TS } });
 }

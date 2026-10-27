@@ -207,9 +207,11 @@ describe("gains labels", () => {
   const MONTHS = [bucket("2025-12", { realized: "5" }), bucket("2026-01", { realized: "77.6", dividends: "30", fees: "0.5", taxes: "12.5" }), bucket("2026-02", { realized: "-10", deposits: "100", withdrawals: "40", netCashFlow: "60" })];
   const YEARS = [bucket("2025", { realized: "5" }), bucket("2026", { realized: "67.6", dividends: "30", fees: "0.5", taxes: "12.5", deposits: "100", withdrawals: "40", netCashFlow: "60" })];
 
-  it("adds the Gewinne tab after Rendite and Steuern after Dividenden", () => {
-    expect(ANALYSIS_TABS.map((tab) => tab.label)).toEqual(["Aufteilung", "Rendite", "Gewinne", "Dividenden", "Steuern"]);
+  it("adds the Gewinne tab after Rendite, Steuern after Dividenden and Zielallokation after Steuern", () => {
+    expect(ANALYSIS_TABS.map((tab) => tab.label)).toEqual(["Aufteilung", "Rendite", "Gewinne", "Dividenden", "Steuern", "Zielallokation"]);
     expect(ANALYSIS_TABS[4].value).toBe("taxes");
+    expect(ANALYSIS_TABS[5].value).toBe("targets");
+    expect(analysisTab("targets")).toBe("targets");
   });
 
   it("picks years newest first and the buckets and sales of a view", () => {

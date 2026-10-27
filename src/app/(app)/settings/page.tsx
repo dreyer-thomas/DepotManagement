@@ -82,7 +82,7 @@ export default async function SettingsPage() {
           Datensicherung
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Lade alle Daten als JSON-Datei herunter: Depots, Buchungen, Kurse, hochgeladene Logos, Freistellungsaufträge und Teilfreistellungen. Aus einer
+          Lade alle Daten als JSON-Datei herunter: Depots, Buchungen, Kurse, hochgeladene Logos, Freistellungsaufträge, Teilfreistellungen und Zielallokationen. Aus einer
           solchen Datei kannst du alle Daten wiederherstellen; dabei werden die vorhandenen Daten ersetzt.
         </Typography>
         <Stack direction={{ xs: "column", sm: "row" }} spacing={2} sx={{ alignItems: "flex-start" }}>

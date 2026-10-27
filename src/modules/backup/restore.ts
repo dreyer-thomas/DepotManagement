@@ -13,6 +13,7 @@ import { replaceAllLedger } from "@/modules/ledger";
 import { checkManualLogos, type LogoRestoreFiles, replaceAllLogos } from "@/modules/logos";
 import { clearNews } from "@/modules/news";
 import { replaceAllPrices } from "@/modules/prices";
+import { replaceAllTargetAllocations } from "@/modules/rebalancing";
 import { replaceAllTaxSettings } from "@/modules/tax";
 import { checkConsistency } from "./consistency";
 import { type BackupDb, createExport, EXPORT_TIMEOUT_MS, exportFileName, serializeExport } from "./export";
@@ -127,6 +128,7 @@ export async function restoreExport(input: string, deps: RestoreDeps = {}, db: B
       logoFiles = await replaceAllLogos(file.logos, { env: deps.env, now: () => now }, tx);
       await replaceAllClassifications(file.classifications, tx, () => now);
       await replaceAllTaxSettings({ taxAllowances: file.taxAllowances, teilfreistellungOverrides: file.teilfreistellungOverrides }, tx, () => now);
+      await replaceAllTargetAllocations(file.targetAllocations, tx, () => now);
       return staging;
     });
   } catch (error) {
@@ -143,7 +145,7 @@ export async function restoreExport(input: string, deps: RestoreDeps = {}, db: B
     console.warn(`Restore: removing old files failed (${errorName(error)})`);
   }
   console.info(
-    `Restore: replaced all data (${file.depots.length} depots, ${file.transactions.length} transactions, ${file.prices.length} prices, ${file.logos.length} logos, ${file.classifications.length} classifications, ${file.taxAllowances.length} tax allowances, ${file.teilfreistellungOverrides.length} Teilfreistellung overrides)`,
+    `Restore: replaced all data (${file.depots.length} depots, ${file.transactions.length} transactions, ${file.prices.length} prices, ${file.logos.length} logos, ${file.classifications.length} classifications, ${file.taxAllowances.length} tax allowances, ${file.teilfreistellungOverrides.length} Teilfreistellung overrides, ${file.targetAllocations.length} target allocations)`,
   );
   return { ok: true, backupFileName };
 }

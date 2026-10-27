@@ -43,8 +43,14 @@ describe("createExport", () => {
       "classifications",
       "taxAllowances",
       "teilfreistellungOverrides",
+      "targetAllocations",
     ]);
-    expect(file.schemaVersion).toBe(4);
+    expect(file.schemaVersion).toBe(5);
+    // Target allocations of the Portfolio and existing Depots only (sorted by scope).
+    expect(file.targetAllocations).toEqual([
+      { id: "ta-a", scope: "depot-a", weights: { cash: "100" }, threshold: "0.5" },
+      { id: "ta-p", scope: "portfolio", weights: { equityUsa: "60", bonds: "37.5", cash: "2.5" }, threshold: "2" },
+    ]);
     expect(file.taxAllowances).toEqual([
       { id: "fsa-1", broker: "COMDIRECT", year: 2026, amount: "801" },
       { id: "fsa-2", broker: "FINANZEN_ZERO", year: 2026, amount: "199" },
@@ -193,6 +199,7 @@ describe("createExport", () => {
       classifications: [],
       taxAllowances: [],
       teilfreistellungOverrides: [],
+      targetAllocations: [],
     });
   });
 
@@ -293,8 +300,12 @@ describe("exportFileSchema", () => {
     await seedFullLedger();
     const file = await createExport(deps(), db());
     expect(exportFileSchema.safeParse({ ...file, schemaVersion: 1 }).success).toBe(false);
-    expect(exportFileSchema.safeParse({ ...file, schemaVersion: 3 }).success).toBe(false);
-    expect(exportFileSchema.safeParse({ ...file, schemaVersion: 5 }).success).toBe(false);
+    expect(exportFileSchema.safeParse({ ...file, schemaVersion: 4 }).success).toBe(false);
+    expect(exportFileSchema.safeParse({ ...file, schemaVersion: 6 }).success).toBe(false);
+    // Target weights only for known segments, as decimal strings.
+    expect(exportFileSchema.safeParse({ ...file, targetAllocations: [{ ...file.targetAllocations[0], weights: { gold: "100" } }] }).success).toBe(false);
+    expect(exportFileSchema.safeParse({ ...file, targetAllocations: [{ ...file.targetAllocations[0], weights: { cash: 100 } }] }).success).toBe(false);
+    expect(exportFileSchema.safeParse({ ...file, targetAllocations: [{ ...file.targetAllocations[0], threshold: "x" }] }).success).toBe(false);
     expect(exportFileSchema.safeParse({ ...file, taxAllowances: [{ ...file.taxAllowances[0], amount: "-1" }] }).success).toBe(false);
     const classifications = [{ ...file.classifications[0], region: "Mars" }];
     expect(exportFileSchema.safeParse({ ...file, classifications }).success).toBe(false);

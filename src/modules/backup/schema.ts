@@ -1,14 +1,16 @@
 // The export file contract (story 6.1, AD-12): one versioned JSON document with every stored ledger,
 // price and manual-logo row, the manual classification overrides (version 2, story 7.1) and the tax settings
-// (version 3, story 8.3) and the manual region splits (version 4, story 8.4). Decimals and dates are the stored strings; nothing derived is included.
+// (version 3, story 8.3), the manual region splits (version 4, story 8.4) and the target allocations
+// (version 5, story 8.5). Decimals and dates are the stored strings; nothing derived is included.
 // Restore (story 6.2) parses files with this schema; older versions are upgraded before parsing.
 import { z } from "zod";
 import { ASSET_CLASSES, COMPANY_SIZES, CURRENCY_PATTERN, REGIONS } from "@/core/classification";
 import { isBusinessDate } from "@/core/dates";
 import { isDecimalString } from "@/core/decimal";
+import { SEGMENTS, type Segment } from "@/core/rebalancing";
 import { regionSplitFromRecord, SPLIT_REGIONS, type SplitRegion } from "@/core/region-split";
 
-export const EXPORT_SCHEMA_VERSION = 4;
+export const EXPORT_SCHEMA_VERSION = 5;
 
 const id = z.string().min(1);
 const decimal = z.string().refine(isDecimalString, "decimal string expected");
@@ -142,6 +144,17 @@ export const teilfreistellungOverrideRecordSchema = z.strictObject({
   rate: decimal,
 });
 
+/**
+ * Target allocation of one scope (rebalancing module): `scope` is "portfolio" or a Depot id; weights are
+ * percent per segment (non-zero only); the consistency check enforces valid weights summing to 100 and the threshold.
+ */
+export const targetAllocationRecordSchema = z.strictObject({
+  id,
+  scope: id,
+  weights: z.strictObject(Object.fromEntries(SEGMENTS.map((segment) => [segment, decimal.optional()])) as Record<Segment, z.ZodOptional<typeof decimal>>),
+  threshold: decimal,
+});
+
 /** The whole export file; keys appear in this order in the serialized JSON. */
 export const exportFileSchema = z.strictObject({
   schemaVersion: z.literal(EXPORT_SCHEMA_VERSION),
@@ -156,6 +169,7 @@ export const exportFileSchema = z.strictObject({
   classifications: z.array(classificationRecordSchema),
   taxAllowances: z.array(taxAllowanceRecordSchema),
   teilfreistellungOverrides: z.array(teilfreistellungOverrideRecordSchema),
+  targetAllocations: z.array(targetAllocationRecordSchema),
 });
 
 export type ExportFile = z.infer<typeof exportFileSchema>;

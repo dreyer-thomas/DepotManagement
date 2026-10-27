@@ -11,12 +11,14 @@ const storedPriceHistory = vi.hoisted(() => vi.fn());
 const returnSeries = vi.hoisted(() => vi.fn());
 const gainsInput = vi.hoisted(() => vi.fn());
 const taxPreviewInput = vi.hoisted(() => vi.fn());
+const getTargetAllocation = vi.hoisted(() => vi.fn());
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn(), push: vi.fn(), refresh: vi.fn() }) }));
 vi.mock("@/modules/ledger", () => ({ gainsInput, listDepots, listPositions, returnSeries }));
 vi.mock("@/modules/classification", () => ({ listClassifications, listRegionSplits }));
 vi.mock("@/modules/prices", () => ({ latestStoredPrices, storedPriceHistory }));
 vi.mock("@/modules/tax", () => ({ taxPreviewInput }));
+vi.mock("@/modules/rebalancing", () => ({ getTargetAllocation }));
 
 import { DIMENSIONS } from "@/core/classification";
 import { AllocationView, type AllocationViewProps } from "@/app/_components/analyses/AllocationView";
@@ -31,6 +33,7 @@ import { gainsAnalysis } from "@/core/gains-analysis";
 import { returnHeatmap } from "@/core/return-heatmap";
 import { taxPreview } from "@/core/tax";
 import { TaxView } from "@/app/_components/tax/TaxView";
+import { TargetAllocationView, type TargetAllocationViewProps } from "@/app/_components/rebalancing/TargetAllocationView";
 import { renderHtml } from "../../../../test/helpers/render-text";
 import AnalysesPage, { metadata } from "./page";
 
@@ -434,6 +437,106 @@ describe("Analyses page", () => {
       expect(text).toContain("Steuern");
       expect(text).toContain("Nicht berücksichtigt: Kirchensteuer");
       expect(text).toContain("übersteigt 1.000");
+    });
+  });
+  describe("Zielallokation tab", () => {
+    const TARGETS = {
+      equityUsa: "40",
+      equityEurope: "40",
+      equityJapan: "0",
+      equityPacificExJapan: "0",
+      equityEmerging: "0",
+      bonds: "0",
+      commodities: "0",
+      realEstate: "0",
+      crypto: "0",
+      cash: "20",
+    };
+    const TAX = {
+      depots: [
+        {
+          depotId: "a",
+          broker: "COMDIRECT",
+          rows: [
+            { securityId: "us", type: "BUY", date: "2026-01-02", sequence: 1, quantity: "10", price: "50", amount: "500", fee: "0", tax: "0" },
+            { securityId: "world", type: "BUY", date: "2026-01-02", sequence: 2, quantity: "10", price: "100", amount: "1000", fee: "0", tax: "0" },
+          ],
+        },
+        { depotId: "b", broker: "FINANZEN_ZERO", rows: [] },
+      ],
+      actions: NO_CORPORATE_ACTIONS,
+      securities: { us: { category: "stock", teilfreistellung: "0" }, world: { category: "fund", teilfreistellung: "0.3" } },
+      allowances: [{ broker: "COMDIRECT", year: 2026, amount: "1000" }],
+      brokers: ["COMDIRECT", "FINANZEN_ZERO"],
+    };
+    const priced = (id: string, name: string, assetType: string, quantity: string, price: string) => ({
+      security: { id, name, assetType },
+      quantity,
+      price,
+      value: String(Number(quantity) * Number(price)),
+    });
+
+    beforeEach(() => {
+      listPositions.mockImplementation(async (depotId: string) =>
+        depotId === "a" ? [priced("us", "US Stock", "STOCK", "10", "70"), priced("world", "Welt ETF", "ETF", "10", "100"), position("np", "Ohne Kurs", "STOCK", null)] : [],
+      );
+      listClassifications.mockResolvedValue({
+        us: classification("STOCK", { assetClass: { value: "Aktien" }, region: { value: "USA" }, country: { value: "USA" } }),
+        world: classification("ETF", { assetClass: { value: "Aktien" }, region: { value: "Welt" } }),
+      });
+      listRegionSplits.mockResolvedValue({ world: { effective: { weights: [{ region: "USA", weight: "50" }, { region: "Europa", weight: "40" }, { region: "Sonstige", weight: "10" }] } } });
+      taxPreviewInput.mockResolvedValue(TAX);
+      getTargetAllocation.mockReset();
+    });
+
+    const viewOf = (tree: unknown) => findElement(tree, TargetAllocationView)?.props as unknown as TargetAllocationViewProps;
+
+    it("maps the scope's priced Positions and cash to segments and shows the proposal for a deposit", async () => {
+      getTargetAllocation.mockResolvedValue({ targets: TARGETS, threshold: "2" });
+      const tree = await page({ tab: "targets", scope: "a", deposit: "300" });
+      expect(getTargetAllocation).toHaveBeenCalledWith("a");
+      expect(listPositions).toHaveBeenCalledWith("a", TODAY, undefined, { storedPrices: latestStoredPrices });
+      const props = viewOf(tree);
+      expect(props.scope).toBe("a");
+      expect(props.depositText).toBe("300");
+      expect(props.depositInvalid).toBe(false);
+      // US stock 700 + 50 % of the ETF 500 = 1.200 USA; Europa 400; Sonstige 100 unassigned; cash 100.
+      expect(props.result).toMatchObject({ total: "1800", assignable: "1700", unassigned: { value: "100", holdings: [{ securityId: "world", depotId: "a", value: "100" }] } });
+      expect(props.result.segments.map((row) => [row.segment, row.value]).filter(([, value]) => value !== "0")).toEqual([
+        ["equityUsa", "1200"],
+        ["equityEurope", "400"],
+        ["cash", "100"],
+      ]);
+      // Base 2.000: USA 800 (sell 400), Europa 800 (buy 400), cash 400 (buy 300).
+      expect(props.result.proposal).toMatchObject({
+        deposit: "300",
+        buys: [
+          { segment: "equityEurope", amount: "400", instrument: { kind: "security", securityId: "world" } },
+          { segment: "cash", amount: "300", instrument: { kind: "cash" } },
+        ],
+        totalSells: "400",
+        cashLeft: "0",
+      });
+      expect(props.securityNames).toMatchObject({ us: "US Stock", world: "Welt ETF" });
+      expect(props.depotNames).toMatchObject({ a: "Hauptdepot", z: "Altdepot" });
+      const html = renderHtml(tree);
+      expect(html).toContain('role="tabpanel" id="analysis-tabpanel-targets"');
+      expect(html).toContain(">Bereich<");
+      const text = renderText(tree);
+      expect(text).toContain("Rebalancing-Vorschlag");
+      expect(text).toContain("Vorschlag – es wird nichts gebucht.");
+    });
+
+    it("shows actual values only without stored targets and treats an invalid deposit as 0", async () => {
+      getTargetAllocation.mockResolvedValue(null);
+      const tree = await page({ tab: "targets", deposit: "abc" });
+      expect(getTargetAllocation).toHaveBeenCalledWith("portfolio");
+      const props = viewOf(tree);
+      expect(props.result.proposal).toBeNull();
+      expect(props.depositInvalid).toBe(true);
+      // Portfolio: cash of both non-archived Depots (100 + 0).
+      expect(props.result.total).toBe("1800");
+      expect(renderText(tree)).toContain("Noch keine Zielallokation gespeichert.");
     });
   });
 });

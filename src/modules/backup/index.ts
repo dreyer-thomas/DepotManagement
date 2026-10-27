@@ -1,6 +1,6 @@
 // The backup module owns the JSON export/restore, export schema upgrades and the daily DB file backup
 // with its in-process scheduler and status (story 6.3). It reaches other modules only through their
-// entry points (`ledger`, `prices`, `logos`, `classification`, `tax`, and for the restore's cache clearing `import` and `news`).
+// entry points (`ledger`, `prices`, `logos`, `classification`, `tax`, `rebalancing`, and for the restore's cache clearing `import` and `news`).
 export { createExport, EXPORT_TIMEOUT_MS, exportFileName, serializeExport } from "./export";
 export type { BackupDb, ExportDeps } from "./export";
 export { EXPORT_SCHEMA_VERSION, exportFileSchema } from "./schema";

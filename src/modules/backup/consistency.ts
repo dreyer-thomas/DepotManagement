@@ -1,6 +1,7 @@
 // Pure consistency check of a schema-valid export file (story 6.2): ids are unique per record kind, every
 // reference resolves and the database's unique keys hold, so a restore fails before writing instead of
 // on a constraint. The returned path names the offending field, never its value.
+import { isThreshold, PORTFOLIO_SCOPE, targetsFromRecord } from "@/core/rebalancing";
 import { TEILFREISTELLUNG_RATES } from "@/core/tax";
 import type { ExportFile } from "./schema";
 
@@ -49,6 +50,7 @@ export function checkConsistency(file: ExportFile): ConsistencyResult {
     idsOf(file.classifications, "classifications");
     idsOf(file.taxAllowances, "taxAllowances");
     idsOf(file.teilfreistellungOverrides, "teilfreistellungOverrides");
+    idsOf(file.targetAllocations, "targetAllocations");
 
     const names = new Set<string>();
     file.depots.forEach((depot, i) => unique(names, depot.name, `depots.${i}.name`));
@@ -117,6 +119,15 @@ export function checkConsistency(file: ExportFile): ConsistencyResult {
       resolves(securityIds, override.securityId, `teilfreistellungOverrides.${i}.securityId`);
       unique(overridden, override.securityId, `teilfreistellungOverrides.${i}.securityId`);
       if (!(TEILFREISTELLUNG_RATES as readonly string[]).includes(override.rate)) throw new Inconsistent(`teilfreistellungOverrides.${i}.rate`);
+    });
+
+    // One target allocation per scope; the scope is the Portfolio or a Depot; valid weights and threshold.
+    const scopes = new Set<string>();
+    file.targetAllocations.forEach((allocation, i) => {
+      unique(scopes, allocation.scope, `targetAllocations.${i}.scope`);
+      if (allocation.scope !== PORTFOLIO_SCOPE) resolves(depotIds, allocation.scope, `targetAllocations.${i}.scope`);
+      if (targetsFromRecord(allocation.weights) === null) throw new Inconsistent(`targetAllocations.${i}.weights`);
+      if (!isThreshold(allocation.threshold)) throw new Inconsistent(`targetAllocations.${i}.threshold`);
     });
   } catch (error) {
     if (error instanceof Inconsistent) return { ok: false, path: error.path };

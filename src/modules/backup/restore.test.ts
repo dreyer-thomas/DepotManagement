@@ -88,6 +88,7 @@ async function seedOtherData(i: Instance): Promise<void> {
   await c.newsFetch.create({ data: { securityId: "other-sec", fetchedAt: TS } });
   await c.taxAllowance.create({ data: { id: "other-fsa", broker: "DEUTSCHE_BANK", year: 2025, amount: "500", updatedAt: TS } });
   await c.teilfreistellungOverride.create({ data: { id: "other-tfs", securityId: "other-sec", rate: "0.6", updatedAt: TS } });
+  await c.targetAllocation.create({ data: { id: "other-ta", scope: "other-depot", weights: '{"bonds":"100"}', threshold: "2", updatedAt: TS } });
   const batch = await c.importBatch.create({
     data: {
       id: "batch1",
@@ -193,14 +194,20 @@ describe("restoreExport", () => {
     expect(await target.testDb.client.teilfreistellungOverride.findMany()).toEqual([
       expect.objectContaining({ id: "tfs-a", securityId: "sec-a", rate: "0.15" }),
     ]);
+    // Target allocations are back (the deleted Depot's row was not exported).
+    expect(await target.testDb.client.targetAllocation.findMany({ orderBy: { id: "asc" } })).toEqual([
+      expect.objectContaining({ id: "ta-a", scope: "depot-a", weights: '{"cash":"100"}', threshold: "0.5" }),
+      expect.objectContaining({ id: "ta-p", scope: "portfolio", weights: '{"equityUsa":"60","bonds":"37.5","cash":"2.5"}', threshold: "2" }),
+    ]);
     // The automatic export of the (empty) target was written first.
     expect(readdirSync(target.backupDir)).toEqual([BACKUP_NAME]);
     expect(JSON.parse(readFileSync(join(target.backupDir, BACKUP_NAME), "utf8"))).toMatchObject({
-      schemaVersion: 4,
+      schemaVersion: 5,
       depots: [],
       classifications: [],
       taxAllowances: [],
       teilfreistellungOverrides: [],
+      targetAllocations: [],
     });
   });
 
@@ -227,6 +234,7 @@ describe("restoreExport", () => {
     expect(await c.securityLogo.findMany({ where: { source: "FETCHED" } })).toEqual([]);
     expect(await c.depot.findUnique({ where: { id: "other-depot" } })).toBeNull();
     expect(await c.taxAllowance.findUnique({ where: { id: "other-fsa" } })).toBeNull();
+    expect(await c.targetAllocation.findUnique({ where: { id: "other-ta" } })).toBeNull();
     expect(await c.teilfreistellungOverride.count()).toBe(1);
     const logo = await c.securityLogo.findUniqueOrThrow({ where: { securityId: "sec-b" } });
     expect(readdirSync(join(target.dataDir, "logos"))).toEqual([logo.fileName]);
@@ -241,6 +249,7 @@ describe("restoreExport", () => {
     const version2 = { ...current, schemaVersion: 2, classifications: version3Classifications };
     delete version2.taxAllowances;
     delete version2.teilfreistellungOverrides;
+    delete version2.targetAllocations;
     await target.testDb.client.taxAllowance.create({ data: { broker: "COMDIRECT", year: 2024, amount: "100", updatedAt: TS } });
 
     expect(await restoreInto(target, JSON.stringify(version2))).toEqual({ ok: true, backupFileName: BACKUP_NAME });
@@ -251,6 +260,7 @@ describe("restoreExport", () => {
       classifications: onlyOverrides(current.classifications),
       taxAllowances: [],
       teilfreistellungOverrides: [],
+      targetAllocations: [],
     });
   });
 
@@ -258,11 +268,24 @@ describe("restoreExport", () => {
     await seedFullLedger(source.testDb.client, source.dataDir);
     const current = JSON.parse(await exportOf(source));
     const version3 = { ...current, schemaVersion: 3, classifications: withoutRegionSplits(current.classifications) };
+    delete version3.targetAllocations;
     await seedFullLedger(target.testDb.client, target.dataDir);
 
     expect(await restoreInto(target, JSON.stringify(version3))).toEqual({ ok: true, backupFileName: expect.any(String) });
     expect(await target.testDb.client.securityClassification.count({ where: { regionSplitManual: { not: null } } })).toBe(0);
-    expect(JSON.parse(await exportOf(target))).toEqual({ ...current, classifications: onlyOverrides(current.classifications) });
+    expect(JSON.parse(await exportOf(target))).toEqual({ ...current, classifications: onlyOverrides(current.classifications), targetAllocations: [] });
+  });
+
+  it("restores a version-4 file with no target allocations, replacing the previous ones", async () => {
+    await seedFullLedger(source.testDb.client, source.dataDir);
+    const current = JSON.parse(await exportOf(source));
+    const version4 = { ...current, schemaVersion: 4 };
+    delete version4.targetAllocations;
+    await seedFullLedger(target.testDb.client, target.dataDir);
+
+    expect(await restoreInto(target, JSON.stringify(version4))).toEqual({ ok: true, backupFileName: expect.any(String) });
+    expect(await target.testDb.client.targetAllocation.count()).toBe(0);
+    expect(JSON.parse(await exportOf(target))).toEqual({ ...current, targetAllocations: [] });
   });
 
   it("accepts a file with a UTF-8 byte order mark", async () => {
@@ -318,7 +341,7 @@ describe("restoreExport", () => {
     });
 
     it("a newer schema version", async () => {
-      await expectRejected(JSON.stringify({ ...file, schemaVersion: 5 }), { ok: false, reason: "version-unsupported" });
+      await expectRejected(JSON.stringify({ ...file, schemaVersion: 6 }), { ok: false, reason: "version-unsupported" });
     });
 
     it("a dangling reference", async () => {

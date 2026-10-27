@@ -9,6 +9,8 @@ import { AnalysisTabs } from "@/app/_components/analyses/AnalysisTabs";
 import { DividendsView } from "@/app/_components/analyses/DividendsView";
 import { GainsView } from "@/app/_components/analyses/GainsView";
 import { ReturnHeatmap } from "@/app/_components/analyses/ReturnHeatmap";
+import { TargetAllocationView } from "@/app/_components/rebalancing/TargetAllocationView";
+import { parseDepositParam } from "@/app/_components/rebalancing/labels";
 import { TaxView } from "@/app/_components/tax/TaxView";
 import {
   type AllocationDimension,
@@ -29,17 +31,19 @@ import { allocation } from "@/core/allocation";
 import { businessDate } from "@/core/dates";
 import { dividendAnalysis } from "@/core/dividend-analysis";
 import { gainsAnalysis } from "@/core/gains-analysis";
+import { type RebalancingHolding, rebalancing } from "@/core/rebalancing";
 import { returnHeatmap } from "@/core/return-heatmap";
 import { taxPreview } from "@/core/tax";
 import { listClassifications, listRegionSplits } from "@/modules/classification";
 import { gainsInput, listDepots, listPositions, returnSeries } from "@/modules/ledger";
 import { latestStoredPrices, storedPriceHistory } from "@/modules/prices";
+import { getTargetAllocation } from "@/modules/rebalancing";
 import { taxPreviewInput } from "@/modules/tax";
 
 export const metadata: Metadata = { title: "Analysen" };
 
 type Props = {
-  searchParams?: Promise<{ tab?: string | string[]; scope?: string | string[]; dimension?: string | string[] }>;
+  searchParams?: Promise<{ tab?: string | string[]; scope?: string | string[]; dimension?: string | string[]; deposit?: string | string[] }>;
 };
 
 type Depot = Awaited<ReturnType<typeof listDepots>>[number];
@@ -135,7 +139,69 @@ async function taxesPanel({ today }: { today: string }) {
 }
 
 /**
- * Analysen (FR-21, FR-22): tabs Aufteilung, Rendite, Gewinne, Dividenden and Steuern over the Portfolio or one non-archived Depot,
+ * Zielallokation (story 8.5): today's priced Positions (stored Prices, as on the Aufteilung tab) and cash of
+ * the scope mapped to the ten segments via the classification module (funds by their region split), the
+ * scope's stored targets and an advisory rebalancing proposal for an optional `?deposit=`, whose sells are
+ * taxed with the tax module's input (every Depot of the broker). Computed on read; nothing is booked.
+ */
+async function targetsPanel({ depots, all, scope, today, depositParam }: { depots: Depot[]; all: Depot[]; scope: string; today: string; depositParam: string | string[] | undefined }) {
+  const inScope = scope === PORTFOLIO_SCOPE ? depots : depots.filter((depot) => depot.id === scope);
+  const [positionsByDepot, classifications, regionSplits, tax, allocation] = await Promise.all([
+    Promise.all(inScope.map((depot) => listPositions(depot.id, today, undefined, { storedPrices: latestStoredPrices }))),
+    listClassifications(),
+    listRegionSplits(),
+    taxPreviewInput(),
+    getTargetAllocation(scope),
+  ]);
+  const securityNames: Record<string, string> = {};
+  const holdings: RebalancingHolding[] = inScope.flatMap((depot, index) =>
+    positionsByDepot[index].flatMap((position) => {
+      if (position.value === null || position.price === null) return [];
+      const { id, name, assetType } = position.security;
+      securityNames[id] = name;
+      const classification = classifications[id];
+      return [
+        {
+          securityId: id,
+          depotId: depot.id,
+          quantity: position.quantity,
+          price: position.price,
+          value: position.value,
+          classification: {
+            type: classification?.type ?? assetType,
+            assetClass: classification?.assetClass.value ?? null,
+            region: classification?.region.value ?? null,
+            country: classification?.country.value ?? null,
+          },
+          split: regionSplits[id]?.effective?.weights ?? null,
+        },
+      ];
+    }),
+  );
+  const { deposit, invalid, text } = parseDepositParam(depositParam);
+  const result = rebalancing({
+    holdings,
+    cash: inScope.map((depot) => ({ depotId: depot.id, value: depot.cashBalance })),
+    targets: allocation,
+    deposit,
+    tax,
+    today,
+  });
+  return (
+    <TargetAllocationView
+      scope={scope}
+      result={result}
+      allocation={allocation}
+      securityNames={securityNames}
+      depotNames={Object.fromEntries(all.map((depot) => [depot.id, depot.name]))}
+      depositText={text}
+      depositInvalid={invalid}
+    />
+  );
+}
+
+/**
+ * Analysen (FR-21, FR-22): tabs Aufteilung, Rendite, Gewinne, Dividenden, Steuern and Zielallokation over the Portfolio or one non-archived Depot,
  * scope (and dimension) in the URL. Everything is computed on read; nothing is stored; no provider call.
  */
 export default async function AnalysesPage({ searchParams }: Props) {
@@ -176,6 +242,8 @@ export default async function AnalysesPage({ searchParams }: Props) {
           await dividendsPanel({ scope, today })
         ) : tab === "taxes" ? (
           await taxesPanel({ today })
+        ) : tab === "targets" ? (
+          await targetsPanel({ depots, all, scope, today, depositParam: params.deposit })
         ) : (
           await allocationPanel({ depots, scope, dimension, today })
         )}

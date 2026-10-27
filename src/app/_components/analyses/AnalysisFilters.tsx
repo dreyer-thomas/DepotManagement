@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { ALLOCATION_DIMENSIONS, type AllocationDimension, type AnalysisTab, PORTFOLIO_LABEL, PORTFOLIO_SCOPE, analysisHref } from "./labels";
 
 /**
- * "Bereich" (Portfolio or one non-archived Depot; hidden on the Steuern tab, whose unit is the broker)
+ * "Bereich" (Portfolio or one non-archived Depot, also on Zielallokation; hidden on the Steuern tab, whose unit is the broker)
  * and, on the Aufteilung tab, "Dimension"; each change replaces the URL, keeping the tab and the other value.
  */
 export function AnalysisFilters({

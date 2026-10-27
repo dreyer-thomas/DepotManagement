@@ -412,3 +412,16 @@ model TeilfreistellungOverride {
   /// UTC ISO timestamp of the last write.
   updatedAt  String
 }
+
+// Owned by the rebalancing module (story 8.5). Target allocation per scope: `scope` is "portfolio" or a
+// Depot id (no FK: a Depot scope's row is ignored once the Depot is gone); `weights` is JSON segment →
+// percent (canonical decimal strings, non-zero only, summing to 100); `threshold` is the deviation in
+// percentage points below which a segment is "im Rahmen". User data, part of the AD-12 export/restore.
+model TargetAllocation {
+  id        String @id @default(cuid())
+  scope     String @unique
+  weights   String
+  threshold String
+  /// UTC ISO timestamp of the last write.
+  updatedAt String
+}

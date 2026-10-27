@@ -67,6 +67,16 @@ describe("AnalysisFilters", () => {
     expect(replace).toHaveBeenCalledWith("/analyses?tab=returns&scope=d1&dimension=sector", { scroll: false });
   });
 
+  it("shows 'Bereich' without the dimension on the Zielallokation tab", async () => {
+    const user = userEvent.setup({ delay: null });
+    render(<AnalysisFilters tab="targets" depots={depots} scope="portfolio" dimension="sector" />);
+    expect(screen.queryByRole("combobox", { name: "Dimension" })).toBeNull();
+    await user.click(screen.getByRole("combobox", { name: "Bereich" }));
+    const options = await screen.findAllByRole("option");
+    await user.click(options[2]);
+    expect(replace).toHaveBeenCalledWith("/analyses?tab=targets&scope=d2&dimension=sector", { scroll: false });
+  });
+
   it("is keyboard-operable", async () => {
     const user = userEvent.setup({ delay: null });
     render(<AnalysisFilters tab="allocation" depots={depots} scope="portfolio" dimension="assetClass" />);
