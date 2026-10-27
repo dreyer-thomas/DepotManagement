@@ -42,6 +42,10 @@ export async function proxy(request: NextRequest) {
   return response;
 }
 
+// Public without a session: the login page, Next's static assets, the web app manifest and exactly the
+// four home-screen icons of `src/app/app-icons.ts` (story 8-1; `manifest.test.ts` cross-checks the list).
 export const config = {
-  matcher: ["/((?!login(?:/|$)|_next/static|_next/image|favicon\\.ico$).*)"],
+  matcher: [
+    "/((?!login(?:/|$)|_next/static|_next/image|favicon\\.ico$|manifest\\.webmanifest$|icons/(?:icon-192|icon-512|icon-maskable-512|apple-touch-icon)\\.png$).*)",
+  ],
 };

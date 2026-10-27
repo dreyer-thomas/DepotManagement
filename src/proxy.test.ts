@@ -113,14 +113,18 @@ describe("proxy for server actions", () => {
 });
 
 describe("proxy matcher", () => {
-  it.each(["/login", "/login?next=%2Fdepots", "/_next/static/chunks/main.js", "/_next/image?url=x", "/favicon.ico"])(
+  it.each(["/login", "/login?next=%2Fdepots", "/_next/static/chunks/main.js", "/_next/image?url=x", "/favicon.ico",
+    "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png", "/icons/icon-maskable-512.png",
+    "/icons/apple-touch-icon.png"])(
     "does not guard the public path %s",
     (url) => {
       expect(unstable_doesMiddlewareMatch({ config, url })).toBe(false);
     },
   );
 
-  it.each(["/", "/depots", "/depots?x=1", "/api/anything", "/settings", "/loginx", "/favicon.ico.bak"])(
+  it.each(["/", "/depots", "/depots?x=1", "/api/anything", "/settings", "/loginx", "/favicon.ico.bak",
+    "/icons/other.png", "/icons/", "/icons", "/manifest.json", "/manifest.webmanifest.bak", "/icons/icon-192.png.bak",
+    "/x/icons/icon-192.png", "/x/manifest.webmanifest"])(
     "guards %s",
     (url) => {
       expect(unstable_doesMiddlewareMatch({ config, url })).toBe(true);

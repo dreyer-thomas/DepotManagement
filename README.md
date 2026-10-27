@@ -99,6 +99,12 @@ If a variable is missing, empty or invalid, `npm run dev` and `npm start` print 
 
 After login the session lasts 7 days and is not extended; then you log in again. The session cookie is `HttpOnly` and `SameSite=Lax`. It is marked `Secure` when the request came in over HTTPS, as reported by a TLS-terminating reverse proxy in `X-Forwarded-Proto`. "Abmelden" in the top bar ends the session. Changing `SESSION_SECRET` or `AUTH_USERNAME` logs out every open session. Changing the password (`AUTH_PASSWORD_HASH`) does not end existing sessions; rotate `SESSION_SECRET` too to log out everywhere.
 
+### Home-screen app
+
+The app can be added to a phone's home screen and then opens full-screen, without browser bars, in the app's colours (status bar follows the phone's light or dark mode). Use "Zum Home-Bildschirm" in iOS Safari or "App installieren" in Android Chrome. This needs the HTTPS deployment. Only the login page, `/manifest.webmanifest` and the four files under `/icons/` are reachable without a login. On iOS the installed app keeps its own cookies apart from Safari, so log in once inside the app. There is no offline mode and no service worker: all data stays on the server and the app needs a connection.
+
+The icons in `public/icons/` are generated from an inline SVG in the primary colour of `src/theme/tokens.ts`; after changing that colour run `node scripts/generate-icons.mjs` and commit the PNGs.
+
 ## Data export
 
 Settings → "Datensicherung" → "Exportieren" downloads all data as one JSON file (`GET /api/export`, login required). The file is named `depotmanagement-export-<YYYYMMDD-HHMMSS>.json` (Europe/Berlin time of the download) and is pretty-printed with two spaces. It carries no timestamp inside, so the same data always yields the same file.
