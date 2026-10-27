@@ -133,7 +133,7 @@ FR17: Epic 1 - Cash Account balance and history
 FR18: Epic 4 - Cash in overviews and return metrics
 FR19: Epic 4 - Security detail page and all-time performance (Stories 4.6, 4.7)
 FR21: Epic 7 - Security classification and allocation analysis (Stories 7.1, 7.2)
-FR22: Epic 7 - Return heatmap, realized gains, cash flow, dividends, drawdown, dividend charts (Stories 7.3–7.7)
+FR22: Epic 7 - Return heatmap, realized gains, cash flow, dividends, drawdown, dividend charts, Security analyses (Stories 7.3–7.8)
 FR20: Epic 2 - Depot reconciliation and holding corrections (Story 2.9)
 
 ## Epic List
@@ -1030,3 +1030,18 @@ So that I see which holdings pay when and whether my income grows.
 **And** a new view "Breakdown" shows the stacked monthly bars with a Security selector (logo, name, type, ISIN, WKN; up/down arrows step through the paying Securities); the chosen Security's segments are highlighted, the others dimmed; KPIs "Im <Monat>" (amount in the clicked month, default the latest month with a payment), "Seit Jan. <Jahr>" (sum since January of that year) and "Pers. Div-Rendite" (its dividends of the last 12 months ÷ its current Cost Basis; "–" when not held)
 **And** the Brutto/Netto toggle and the scope (Portfolio or one Depot) apply to every view; "Wertpapiere" and "Erwartet" stay unchanged
 **And** the per-Security monthly split, the yearly cumulative lines and the yield on cost come from `core/dividend-analysis` over the ledger, with unit tests
+
+### Story 7.8: Security Analyses
+
+As Tommy,
+I want the analyses I have for my Portfolio also on the page of a single Security,
+So that I can judge how one holding performed month by month and against its trend.
+
+**Acceptance Criteria:**
+
+**Given** Security detail (scope "Alle Depots" or one Depot from its switcher)
+**Then** a card "Performance-Heatmap" shows the time-weighted return (TTWROR, AD-10) of this Position per month with a "Gesamt" column per year, and a toggle "Q | M" switching between quarters and months; colours, signs and empty cells as in Story 7.3 (months without holding stay "–"); a link "Zur Heatmap des gesamten Portfolios" opens Analysen › Rendite
+**And** for a Security no longer held the heatmap covers the months it was held
+**And** the chart toggle gains "Performance": the Position's cumulative time-weighted return in % over the global Period (buys and sells are flows, not gains), with hover and the buy/sell/dividend markers
+**And** the "Kurs" view gains an optional overlay "Gleitender Durchschnitt" (200 days, switchable to 38 days), drawn dashed on split-adjusted prices and computed only from stored Prices; off by default, the choice persists per browser
+**And** the per-Security heatmap reuses the core heatmap function of Story 7.3 over the Position's daily valuation series; the performance line and the moving average are pure core functions with unit tests against hand-calculated references (including a split and a sale inside the Period)
