@@ -1,10 +1,11 @@
 // @vitest-environment happy-dom
 import { ThemeProvider } from "@mui/material/styles";
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerDomCleanup } from "../../../../test/helpers/dom";
 import { theme } from "@/theme/theme";
+import type { ValueChartTab } from "@/app/_components/charts/chart-preference";
 import { ValueChartTabs } from "./ValueChartTabs";
 
 registerDomCleanup();
@@ -43,10 +44,22 @@ afterEach(() => {
   document.cookie = "dm_chart_tab=; path=/; max-age=0";
 });
 
-function renderTabs(initialTab: "performance" | "drawdown" = "performance") {
+const COMPARISON = {
+  scopeLabel: "Portfolio",
+  line: [
+    { date: "2026-01-31", performance: "0" },
+    { date: "2026-02-01", performance: "0.1" },
+    { date: "2026-02-02", performance: "-0.01" },
+  ],
+  ttwror: "-0.01",
+  options: [{ key: "msci-world", label: "MSCI World", line: null, ttwror: null }],
+  initialChoice: "none",
+};
+
+function renderTabs(initialTab: ValueChartTab = "performance", comparison: typeof COMPARISON | null = COMPARISON) {
   return render(
     <ThemeProvider theme={theme}>
-      <ValueChartTabs points={POINTS} drawdown={DRAWDOWN} initialTab={initialTab} />
+      <ValueChartTabs points={POINTS} drawdown={DRAWDOWN} initialTab={initialTab} comparison={comparison ?? undefined} />
     </ThemeProvider>,
   );
 }
@@ -68,6 +81,25 @@ describe("ValueChartTabs", () => {
 
     await user.click(screen.getByRole("tab", { name: "Wertentwicklung" }));
     expect(document.cookie).toContain("dm_chart_tab=performance");
+  });
+
+  it("orders the tabs Wertentwicklung, Performance, Drawdown and shows the TTWROR comparison in place", async () => {
+    const user = userEvent.setup({ delay: null });
+    renderTabs();
+    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["Wertentwicklung", "Performance", "Drawdown"]);
+    await user.click(screen.getByRole("tab", { name: "Performance" }));
+    expect(screen.getByRole("figure").getAttribute("aria-label")).toBe("Performance 31.01.2026 – 02.02.2026: Portfolio -1,00\u00a0%");
+    expect(screen.getByRole("combobox", { name: "Vergleich mit" })).toBeTruthy();
+    expect(document.cookie).toContain("dm_chart_tab=ttwror");
+  });
+
+  it("starts in the stored Performance tab; without comparison data the tab is left out", () => {
+    renderTabs("ttwror");
+    expect(screen.getByRole("tab", { name: "Performance" }).getAttribute("aria-selected")).toBe("true");
+    cleanup();
+    renderTabs("ttwror", null);
+    expect(screen.queryByRole("tab", { name: "Performance" })).toBeNull();
+    expect(screen.getByRole("tab", { name: "Wertentwicklung" }).getAttribute("aria-selected")).toBe("true");
   });
 
   it("starts in the stored tab", () => {

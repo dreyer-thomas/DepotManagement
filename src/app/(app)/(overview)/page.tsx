@@ -5,7 +5,7 @@ import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import { readValueChartTab } from "@/app/_actions/chart-preference-cookie";
+import { readBenchmarkChoice, readValueChartTab } from "@/app/_actions/chart-preference-cookie";
 import { readPeriod } from "@/app/_actions/period-cookie";
 import { CompositionCard } from "@/app/_components/composition/CompositionCard";
 import { COMPOSITION_LABELS, compositionHoldings } from "@/app/_components/composition/labels";
@@ -21,10 +21,11 @@ import { TopPositions } from "@/app/_components/overview/TopPositions";
 import { PeriodSelector } from "@/app/_components/period/PeriodSelector";
 import { PageTitle } from "@/app/_components/Placeholder";
 import { ValueSummary } from "@/app/_components/valuation/ValueSummary";
+import { comparisonChoiceKeys, comparisonOptions } from "@/app/_components/valuation/comparison-options";
 import { compositionByAssetType, compositionByDepot, compositionByPosition } from "@/core/composition";
 import { businessDate } from "@/core/dates";
 import { periodLabel } from "@/core/period";
-import { listDepots, listPositions, listSecurities, portfolioValuation } from "@/modules/ledger";
+import { benchmarkLines, listDepots, listPositions, listSecurities, portfolioValuation } from "@/modules/ledger";
 import { listNews } from "@/modules/news";
 import { latestStoredPrices, securityPriceInfo, storedPriceHistory } from "@/modules/prices";
 
@@ -125,13 +126,32 @@ export default async function OverviewPage() {
     );
   }
 
-  const [priceInfo, positionsByDepot, news, chartTab] = await Promise.all([
+  const [priceInfo, positionsByDepot, news, chartTab, benchmarks] = await Promise.all([
     securityPriceInfo(today),
     // Stored manual / provider Prices win over Transaction prices (resolver), as on the Positions tab.
     Promise.all(portfolio.depots.map((depot) => listPositions(depot.id, today, undefined, { storedPrices: latestStoredPrices }))),
     listNews(today),
     readValueChartTab(),
+    // Benchmark ETFs: stored Prices only (no provider call), on the Portfolio line's dates.
+    benchmarkLines(portfolio.start.date, portfolio.to, undefined, { storedPrices: storedPriceHistory }),
   ]);
+  // "Vergleich mit": the indices and every non-archived Depot over the same Period (no Gesamtportfolio).
+  const options = comparisonOptions({
+    benchmarks,
+    depots: portfolio.depots.map(({ id, name, valuation }) => ({
+      id,
+      name,
+      line: valuation.performanceLine,
+      ttwror: valuation.performance.ttwror,
+    })),
+  });
+  const comparison = {
+    scopeLabel: "Portfolio",
+    line: portfolio.performanceLine,
+    ttwror: portfolio.performance.ttwror,
+    options,
+    initialChoice: await readBenchmarkChoice(comparisonChoiceKeys(options)),
+  };
   const staleCount = Object.values(priceInfo).filter((info) => info.stale).length;
   const held: DepotPosition[] = portfolio.depots.flatMap((depot, index) =>
     positionsByDepot[index].map((position) => ({ depotId: depot.id, depotName: depot.name, position })),
@@ -168,6 +188,7 @@ export default async function OverviewPage() {
         series={portfolio.series}
         drawdown={portfolio.drawdown}
         chartTab={chartTab}
+        comparison={comparison}
       />
       <Box sx={row}>
         <TopPositions entries={topPositions(held)} today={today} />

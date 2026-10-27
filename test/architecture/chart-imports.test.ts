@@ -1,8 +1,9 @@
 /**
  * Architecture guard: the chart library is wrapped in the chart components (story 4.3; story 4.7 adds the
  * price chart, story 7.4 the bar chart, story 7.6 the drawdown chart, story 7.7 the dividend year-lines
- * chart, story 7.8 the performance chart). Only `src/app/_components/charts/ValueChart.tsx`,
- * `PriceChart.tsx`, `BarsChart.tsx`, `DrawdownChart.tsx`, `PerformanceChart.tsx` and
+ * chart, story 7.8 the performance chart, story 8.2 the comparison chart). Only
+ * `src/app/_components/charts/ValueChart.tsx`, `PriceChart.tsx`, `BarsChart.tsx`, `DrawdownChart.tsx`,
+ * `PerformanceChart.tsx`, `ComparisonChart.tsx` and
  * `src/app/_components/analyses/DividendYearLinesChart.tsx` may import
  * `@mui/x-charts` (or any of its subpaths).
  */
@@ -19,6 +20,7 @@ const WRAPPERS = new Set([
   join(SRC_DIR, "app/_components/charts/BarsChart.tsx"),
   join(SRC_DIR, "app/_components/charts/DrawdownChart.tsx"),
   join(SRC_DIR, "app/_components/charts/PerformanceChart.tsx"),
+  join(SRC_DIR, "app/_components/charts/ComparisonChart.tsx"),
   join(SRC_DIR, "app/_components/analyses/DividendYearLinesChart.tsx"),
 ]);
 const CHART_PACKAGE = /^@mui\/x-charts(\/|$)/;
@@ -47,7 +49,7 @@ function findViolations(files: { path: string; source: string }[]): string[] {
 }
 
 describe("chart library import guard", () => {
-  it("only ValueChart.tsx, PriceChart.tsx, BarsChart.tsx, DrawdownChart.tsx, PerformanceChart.tsx and DividendYearLinesChart.tsx import @mui/x-charts", () => {
+  it("only ValueChart.tsx, PriceChart.tsx, BarsChart.tsx, DrawdownChart.tsx, PerformanceChart.tsx, ComparisonChart.tsx and DividendYearLinesChart.tsx import @mui/x-charts", () => {
     const files = listSourceFiles(SRC_DIR).map((path) => ({ path, source: readFileSync(path, "utf8") }));
     expect(files.some((file) => file.path === WRAPPER)).toBe(true);
     const violations = findViolations(files);

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestDatabase, type TestDatabase } from "../../../test/helpers/test-db";
 import { type FetchCall, fakeFetch, json, recorded } from "../../../test/helpers/providers";
-import { createDepot, ensureSecurity, listPositions, recordSplit, recordTrade, updateTransaction } from "@/modules/ledger";
+import { createDepot, ensureBenchmarkSecurities, ensureSecurity, listHeldSecurities, listPositions, recordSplit, recordTrade, updateTransaction } from "@/modules/ledger";
 import {
   backfillHeldPrices,
   deleteManualPrice,
@@ -88,6 +88,14 @@ async function providerRows(securityId: string) {
     orderBy: { date: "asc" },
     select: { date: true, price: true, fetchedAt: true },
   });
+}
+
+/**
+ * Creates the benchmark Securities (as the first price run with ledger rows does) mapped as markers, so
+ * a run makes no mapping lookup for them (tests counting provider calls).
+ */
+async function benchmarkMarkers() {
+  for (const securityId of await ensureBenchmarkSecurities(db())) await mapTo(securityId, null, null);
 }
 
 const mapping = (securityId: string) => db().providerMapping.findUnique({ where: { securityId } });
@@ -217,6 +225,7 @@ describe("refreshPrices", () => {
     await mapTo(sap, "YAHOO", "SAP.DE");
     await mapTo(marker, null, null);
     await mapTo(sold, "YAHOO", "NVD.DE");
+    await benchmarkMarkers();
     const chart = charts({ "SAP.DE": recorded("yahoo-chart-sap-de") });
     const { fetch, calls } = fakeFetch(new Error("unexpected fetch"));
     expect(await refreshPrices("2026-10-23", deps(chart, fetch), db())).toEqual({ updated: 1, failed: [] });
@@ -297,6 +306,8 @@ describe("refreshPrices", () => {
 
 describe("certificates and crypto", () => {
   const GOLD = "DE000A0S9GB0";
+
+  beforeEach(benchmarkMarkers);
 
   async function cryptoSecurity(symbol: string, name: string) {
     const result = await ensureSecurity({ cryptoSymbol: symbol }, { name, assetType: "CRYPTO" }, db());
@@ -466,6 +477,85 @@ describe("certificates and crypto", () => {
     expect(calls.every((call) => !call.url.includes("binance"))).toBe(true);
     expect(chart).toHaveBeenCalledTimes(1);
     expect(console.warn).toHaveBeenCalledWith(`Prices: ONVISTA ${GOLD} failed (network)`);
+  });
+});
+
+describe("benchmark ETFs", () => {
+  const WORLD = "IE00B4L5Y983";
+  const benchmarkId = async (isin: string) => (await db().security.findUnique({ where: { isin }, select: { id: true } }))?.id;
+
+  it("creates no benchmark Security while the ledger has no row", async () => {
+    expect(await refreshPrices("2026-10-23", deps(charts({})), db())).toEqual({ updated: 0, failed: [] });
+    expect(await db().security.count()).toBe(0);
+  });
+
+  it("creates the four benchmark ETFs on a run with a ledger row and tries to map them", async () => {
+    const sap = await security(SAP, "SAP SE");
+    await buy(sap, "2026-10-13");
+    // SAP is mapped already: only the benchmarks need a lookup in this run.
+    await mapTo(sap, "YAHOO", "SAP.DE");
+    const search = vi.fn(async (query: string) => {
+      throw new Error(`no network in tests (${query})`);
+    });
+    await refreshPrices("2026-10-23", { ...deps(charts({})), search }, db());
+    const benchmarks = await db().security.findMany({
+      where: { isin: { in: [WORLD, "IE00B6R52259", "DE0005933931", "IE00B5BMR087"] } },
+      select: { assetType: true },
+    });
+    expect(benchmarks).toHaveLength(4);
+    expect(benchmarks.every((row) => row.assetType === "ETF")).toBe(true);
+    expect(search.mock.calls.map(([query]) => query)).toContain(WORLD);
+    expect(await listHeldSecurities("2026-10-23", db())).toEqual([sap]);
+  });
+
+  it("backfills a mapped benchmark from 10 days before the 3J start on a young ledger, yet never holds it", async () => {
+    const sap = await security(SAP, "SAP SE");
+    await buy(sap, "2026-10-23");
+    await mapTo(sap, "YAHOO", "SAP.DE");
+    await benchmarkMarkers();
+    const world = (await benchmarkId(WORLD))!;
+    await db().providerMapping.update({ where: { securityId: world }, data: { provider: "YAHOO", symbol: "EUNL.DE" } });
+    const chart = charts({ "SAP.DE": recorded("yahoo-chart-sap-de"), "EUNL.DE": recorded("yahoo-chart-sap-de") });
+
+    expect(await refreshPrices("2026-10-23", deps(chart), db())).toEqual({ updated: 2, failed: [] });
+    // today − 36 months − 10 days: every preset Period has a base close.
+    const worldCall = chart.mock.calls.find(([symbol]) => symbol === "EUNL.DE")!;
+    expect(worldCall[1]).toMatchObject({ period1: "2023-10-13", period2: "2026-10-24" });
+    expect((await providerRows(world)).map((row) => row.date)[0]).toBe("2026-10-13");
+    expect(await providerRows(world)).toHaveLength(9);
+    expect(await mapping(world)).toMatchObject({ historyFrom: "2023-10-13", fetchError: null });
+
+    // Not held: no Position, no stale flag; the held Security keeps its own.
+    expect(await listHeldSecurities("2026-10-23", db())).toEqual([sap]);
+    expect((await listPositions(depotId, "2026-10-23", db())).map((position) => position.security.id)).toEqual([sap]);
+    const info = await securityPriceInfo("2026-10-30", db());
+    expect(info[world]).toMatchObject({ date: "2026-10-23", stale: false });
+    expect(info[sap]).toMatchObject({ stale: true });
+
+    // A backfill-only run has nothing left to do; a first ledger date before the 3J start moves the benchmark start.
+    expect(await backfillHeldPrices("2026-10-23", deps(chart), db())).toEqual({ updated: 0, failed: [] });
+    await buy(sap, "2023-03-20");
+    await backfillHeldPrices("2026-10-23", deps(chart), db());
+    expect(chart.mock.calls.filter(([symbol]) => symbol === "EUNL.DE").at(-1)?.[1]).toMatchObject({ period1: "2023-03-10" });
+  });
+
+  it("uses the same Security for a held benchmark ISIN, backfilled from the earlier of both dates", async () => {
+    // The benchmark start (first ledger date or 3J start, − 10 days) is never after the held ETF's own first activity.
+    const sap = await security(SAP, "SAP SE");
+    await buy(sap, "2026-10-17");
+    await benchmarkMarkers();
+    const world = (await benchmarkId(WORLD))!;
+    await buy(world, "2026-10-20", "2", "100");
+    await db().providerMapping.update({ where: { securityId: world }, data: { provider: "YAHOO", symbol: "EUNL.DE" } });
+    const chart = charts({ "EUNL.DE": recorded("yahoo-chart-sap-de") });
+
+    expect(await refreshPrices("2026-10-23", deps(chart), db())).toEqual({ updated: 1, failed: [] });
+    expect(chart.mock.calls[0][1]).toMatchObject({ period1: "2023-10-13" });
+    expect(await db().security.count({ where: { isin: WORLD } })).toBe(1);
+    expect((await listHeldSecurities("2026-10-23", db())).sort()).toEqual([sap, world].sort());
+    expect((await listPositions(depotId, "2026-10-23", db())).map((position) => position.security.id).sort()).toEqual(
+      [sap, world].sort(),
+    );
   });
 });
 

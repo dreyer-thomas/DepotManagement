@@ -58,8 +58,10 @@ export {
   ASSET_TYPES,
   changeSecurityType,
   cryptoSymbolSchema,
+  ensureBenchmarkSecurities,
   ensureSecurity,
   firstActivityDates,
+  firstLedgerDate,
   getSecurity,
   ISIN_ASSET_TYPES,
   isinSchema,
@@ -77,8 +79,8 @@ export type {
 } from "./securities";
 export { latestTradePrices, listPositions, listRealizedSales } from "./positions";
 export type { ListPositionsOptions, PositionRecord, RealizedSaleRecord, StoredPriceLoader } from "./positions";
-export { depotValuation, portfolioValuation, returnSeries } from "./valuation";
-export type { DepotValuation, DepotValuationOptions, PortfolioValuation, ReturnScope, ReturnSeries } from "./valuation";
+export { benchmarkLines, depotValuation, portfolioValuation, returnSeries } from "./valuation";
+export type { BenchmarkLines, DepotValuation, DepotValuationOptions, PortfolioValuation, ReturnScope, ReturnSeries } from "./valuation";
 export { gainsInput } from "./gains";
 export type { GainsInput } from "./gains";
 export { securityDetail } from "./security-detail";

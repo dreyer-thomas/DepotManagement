@@ -18,7 +18,8 @@ vi.mock("next/headers", () => ({
 import { prisma } from "@/db";
 import { addDays } from "@/core/dates";
 import { ExactDecimal } from "@/core/decimal";
-import { formatMoney, formatPercent } from "@/core/format";
+import { returnDifference } from "@/core/benchmarks";
+import { formatMoney, formatPercent, formatPercentagePoints } from "@/core/format";
 import { DEFAULT_PERIOD, type PeriodSelection } from "@/core/period";
 import { PERIOD_COOKIE } from "@/app/_actions/period-cookie";
 import {
@@ -39,10 +40,16 @@ import { CompositionCard, type CompositionCardProps } from "../../_components/co
 import { CreateDepotButton } from "../../_components/depots/DepotDialogs";
 import { NewTransactionFab } from "../../_components/overview/NewTransactionFab";
 import { PeriodSelector } from "../../_components/period/PeriodSelector";
-import { ValueSummary } from "../../_components/valuation/ValueSummary";
-import { VALUE_CHART_TAB_COOKIE } from "../../_components/charts/chart-preference";
+import { ValueSummary, type ValueSummaryProps } from "../../_components/valuation/ValueSummary";
+
+import { BENCHMARK_COOKIE, VALUE_CHART_TAB_COOKIE } from "../../_components/charts/chart-preference";
 import OverviewLoading from "./loading";
 import OverviewPage from "./page";
+
+/** The Performance tab data the page passes to the hero. */
+function comparisonOf(tree: unknown) {
+  return (findElement(tree, ValueSummary)!.props as ValueSummaryProps).comparison!;
+}
 
 const TODAY = "2026-10-26";
 
@@ -265,6 +272,57 @@ describe("Overview page", () => {
 
     cookieJar.set(VALUE_CHART_TAB_COOKIE, "bogus");
     expect(findElement(await OverviewPage(), ValueSummary)!.props.chartTab).toBe("performance");
+  });
+
+  it("gives the Performance tab the Portfolio line, the indices and every non-archived Depot, with the stored choice", async () => {
+    const { a, b, world, old } = await twoDepots();
+    // A close before the MAX start (2025-08-31) bases the MSCI World line (the held ETF has its ISIN).
+    await prisma.price.create({ data: { securityId: world, date: "2025-08-29", source: "PROVIDER", price: "80", fetchedAt: "2025-08-29T18:00:00.000Z" } });
+    cookieJar.set(PERIOD_COOKIE, "MAX");
+    const portfolio = await portfolioValuation({ kind: "preset", preset: "MAX" }, TODAY, undefined, { storedPrices: storedPriceHistory });
+    const comparison = comparisonOf(await OverviewPage());
+    expect(comparison.scopeLabel).toBe("Portfolio");
+    expect(comparison.line).toEqual(portfolio.performanceLine);
+    expect(comparison.line[0]).toEqual({ date: "2025-08-31", performance: "0" });
+    expect(comparison.line.at(-1)!.performance).toBe(portfolio.performance.ttwror);
+    expect(comparison.ttwror).toBe(portfolio.performance.ttwror);
+    expect(comparison.options.map((option) => [option.key, option.label])).toEqual([
+      ["msci-world", "MSCI World"],
+      ["msci-acwi", "MSCI ACWI"],
+      ["dax", "DAX"],
+      ["sp500", "S&P 500"],
+      [`depot:${a}`, "Hauptdepot"],
+      [`depot:${b}`, "Zweitdepot"],
+    ]);
+    const msciWorld = comparison.options[0].line!;
+    expect(msciWorld.map((point) => point.date)).toEqual(comparison.line.map((point) => point.date));
+    // 93,21 / 80 − 1 on the last stored close, carried to today.
+    expect(msciWorld.at(-1)!.performance).toBe("0.165125");
+    expect(comparison.options[1].line).toBeNull();
+    expect(comparison.options[5].line).toEqual(portfolio.depots[1].valuation.performanceLine);
+    expect(comparison.options[5].ttwror).toBe(portfolio.depots[1].valuation.performance.ttwror);
+    expect(comparison.options[0].ttwror).toBe("0.165125");
+    expect(comparison.options[1].ttwror).toBeNull();
+    expect(comparison.initialChoice).toBe("none");
+
+    for (const [stored, expected] of [
+      [`depot:${b}`, `depot:${b}`],
+      ["msci-world", "msci-world"],
+      ["portfolio", "none"],
+      [`depot:${old}`, "none"],
+    ]) {
+      cookieJar.set(BENCHMARK_COOKIE, stored);
+      expect(comparisonOf(await OverviewPage()).initialChoice).toBe(expected);
+    }
+
+    cookieJar.set(VALUE_CHART_TAB_COOKIE, "ttwror");
+    cookieJar.set(BENCHMARK_COOKIE, "msci-world");
+    const hero = text(heroHtml(renderHtml(await OverviewPage())));
+    expect(hero).toContain("Wertentwicklung Performance Drawdown");
+    expect(hero).toContain("Vergleich mit");
+    expect(hero).toContain("MSCI World +16,51 %");
+    expect(hero).toContain(text(`Differenz ${formatPercentagePoints(returnDifference(portfolio.performance.ttwror, "0.165125")!)}`));
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it("shows Zusammensetzung beside Top-Positionen: Typ by default, three views, Positions-tab values plus cash", async () => {

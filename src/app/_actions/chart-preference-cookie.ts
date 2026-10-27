@@ -2,8 +2,10 @@
 // the client writes these cookies (`chart-preference.ts`), server pages read the initial state here.
 import { cookies } from "next/headers";
 import {
+  BENCHMARK_COOKIE,
   MOVING_AVERAGE_COOKIE,
   type MovingAverageChoice,
+  parseBenchmarkChoice,
   parseMovingAverage,
   parseSecurityChartMode,
   parseValueChartTab,
@@ -26,4 +28,9 @@ export async function readSecurityChartMode(): Promise<SecurityChartMode> {
 /** The stored moving-average overlay of the "Kurs" chart; default `off`. */
 export async function readMovingAverage(): Promise<MovingAverageChoice> {
   return parseMovingAverage((await cookies()).get(MOVING_AVERAGE_COOKIE)?.value);
+}
+
+/** The stored "Vergleich mit" choice when it is one of `availableKeys` on this page; otherwise `none`. */
+export async function readBenchmarkChoice(availableKeys: readonly string[]): Promise<string> {
+  return parseBenchmarkChoice((await cookies()).get(BENCHMARK_COOKIE)?.value, availableKeys);
 }

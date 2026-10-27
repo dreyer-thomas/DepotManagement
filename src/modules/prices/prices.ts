@@ -3,6 +3,7 @@
 // Fetch failures are typed per Security, recorded on its mapping row and returned; they never throw,
 // never stop other Securities and never touch existing Price rows.
 import { prisma } from "@/db";
+import { benchmarkStartDate } from "@/core/benchmarks";
 import type { Split } from "@/core/corporate-actions";
 import { addDays, isBusinessDate } from "@/core/dates";
 import { ExactDecimal } from "@/core/decimal";
@@ -10,7 +11,9 @@ import { parseDecimalInput } from "@/core/decimal-input";
 import { isStale, type PriceObservation, type PriceSource, resolvePrice } from "@/core/prices";
 import type { PriceProvider } from "@/db/generated/prisma/client";
 import {
+  ensureBenchmarkSecurities,
   firstActivityDates,
+  firstLedgerDate,
   getSecurity,
   latestTradePrices,
   listHeldSecurities,
@@ -88,22 +91,33 @@ async function loadSplits(db: PricesDb): Promise<Split[]> {
 }
 
 /**
- * Plans for the held Securities mapped to Yahoo, onvista or CoinGecko: a full backfill from the first activity date when
- * `historyFrom` is unset or later than it; otherwise (unless `backfillOnly`) an incremental refresh from
- * `REFRESH_OVERLAP_DAYS` before the latest stored provider Price.
+ * Plans for the held Securities and the benchmark ETFs (`core/benchmarks`, created once the ledger has a
+ * row) mapped to Yahoo, onvista or CoinGecko: a full backfill from the target's first date — a held
+ * Security's first activity date, a benchmark's `benchmarkStartDate` (back to the `3J` preset start; the earlier one when a benchmark is
+ * also held) — when `historyFrom` is unset or later than it; otherwise (unless `backfillOnly`) an
+ * incremental refresh from `REFRESH_OVERLAP_DAYS` before the latest stored provider Price. Benchmarks are
+ * priced only: `listHeldSecurities` stays the definition of held.
  */
 async function heldPlans(today: string, backfillOnly: boolean, deps: PriceDeps, db: PricesDb): Promise<Plan[]> {
+  const firstLedger = await firstLedgerDate(db);
+  const benchmarkIds = firstLedger === null ? [] : await ensureBenchmarkSecurities(db);
   try {
     await resolveMissingMappings(deps, db);
   } catch (error) {
     console.warn(`Prices: mapping resolution failed (${error instanceof Error ? error.name : "unknown"})`);
   }
-  const mappings = await mappingsOf(await listHeldSecurities(today, db), FETCHED_PROVIDERS, db);
+  const targets = [...new Set([...(await listHeldSecurities(today, db)), ...benchmarkIds])];
+  const mappings = await mappingsOf(targets, FETCHED_PROVIDERS, db);
   if (mappings.length === 0) return [];
   const firstDates = await firstActivityDates(
     mappings.map((mapping) => mapping.securityId),
     db,
   );
+  if (firstLedger !== null) {
+    const benchmarkFrom = benchmarkStartDate(firstLedger, today);
+    // benchmarkFrom ≤ first ledger date − 10 days, so it is never after a held benchmark's own first activity.
+    for (const securityId of benchmarkIds) firstDates.set(securityId, benchmarkFrom);
+  }
   const plans: Plan[] = [];
   for (const { securityId, provider, symbol, historyFrom } of mappings) {
     const first = firstDates.get(securityId);

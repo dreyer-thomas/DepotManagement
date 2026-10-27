@@ -15,8 +15,14 @@ import {
 import type { DrawdownChartPoint, DrawdownSummary } from "@/app/_components/charts/drawdown-chart";
 import { ValueChart } from "@/app/_components/charts/ValueChart";
 import type { ChartPoint } from "@/app/_components/charts/value-chart";
+import type { PerformanceComparison } from "./comparison-options";
+import { PerformancePanel } from "./PerformancePanel";
 
-export const VALUE_CHART_TAB_LABELS: Record<ValueChartTab, string> = { performance: "Wertentwicklung", drawdown: "Drawdown" };
+export const VALUE_CHART_TAB_LABELS: Record<ValueChartTab, string> = {
+  performance: "Wertentwicklung",
+  ttwror: "Performance",
+  drawdown: "Drawdown",
+};
 
 export type ValueChartTabsProps = {
   /** The value chart's points (decimal strings). */
@@ -25,14 +31,18 @@ export type ValueChartTabsProps = {
   drawdown: DrawdownSummary & { points: readonly DrawdownChartPoint[] };
   /** The stored tab (cookie) for the first render. */
   initialTab: ValueChartTab;
+  /** The Performance tab's line and comparisons; without it the tab is left out. */
+  comparison?: PerformanceComparison;
 };
 
 /**
- * Tabs "Wertentwicklung | Drawdown" of the hero card: the value chart or the drawdown chart with its KPI
- * row. Switching never reloads the page; the choice is stored in the shared `dm_chart_tab` cookie.
+ * Tabs "Wertentwicklung | Performance | Drawdown" of the hero card: the value chart, the TTWROR
+ * comparison (when `comparison` is given) or the drawdown chart with its KPI row. Switching never reloads
+ * the page; the choice is stored in the shared `dm_chart_tab` cookie.
  */
-export function ValueChartTabs({ points, drawdown, initialTab }: ValueChartTabsProps) {
-  const [tab, setTab] = useState<ValueChartTab>(initialTab);
+export function ValueChartTabs({ points, drawdown, initialTab, comparison }: ValueChartTabsProps) {
+  const tabs = VALUE_CHART_TABS.filter((value) => value !== "ttwror" || comparison);
+  const [tab, setTab] = useState<ValueChartTab>(tabs.includes(initialTab) ? initialTab : "performance");
   const id = useId().replace(/[^a-zA-Z0-9_-]/g, "");
   const tabId = (value: ValueChartTab) => `value-chart-tab-${id}-${value}`;
   const panelId = (value: ValueChartTab) => `value-chart-panel-${id}-${value}`;
@@ -48,7 +58,7 @@ export function ValueChartTabs({ points, drawdown, initialTab }: ValueChartTabsP
         }}
         sx={{ minHeight: 44 }}
       >
-        {VALUE_CHART_TABS.map((value) => (
+        {tabs.map((value) => (
           <Tab
             key={value}
             value={value}
@@ -62,6 +72,8 @@ export function ValueChartTabs({ points, drawdown, initialTab }: ValueChartTabsP
       <Box role="tabpanel" id={panelId(tab)} aria-labelledby={tabId(tab)}>
         {tab === "performance" ? (
           <ValueChart points={points} />
+        ) : tab === "ttwror" && comparison ? (
+          <PerformancePanel {...comparison} />
         ) : (
           <DrawdownChart points={drawdown.points} summary={drawdown} />
         )}

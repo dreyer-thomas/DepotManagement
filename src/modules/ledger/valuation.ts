@@ -1,13 +1,16 @@
 import { prisma } from "@/db";
 import { type PeriodSelection, resolvePeriod } from "@/core/period";
 import { addDays } from "@/core/dates";
+import { BENCHMARKS, type BenchmarkKey, indexPerformanceLine, type PerformancePoint, priceReturnLine } from "@/core/benchmarks";
 import { type Drawdown, drawdown } from "@/core/drawdown";
 import { type PeriodPerformance, periodPerformance, portfolioPerformance, ttwrorIndex } from "@/core/returns";
 import type { CorporateActions } from "@/core/corporate-actions";
+import { securityPriceSeries } from "@/core/security";
 import { periodFlows, sumValuationSeries, type ValuationPoint, type ValuationRow, valuationSeries } from "@/core/valuation";
 import { loadCorporateActions } from "./corporate-actions";
 import type { LedgerDb } from "./depots";
 import { lineageObservations, type StoredPriceLoader } from "./positions";
+import { findSecurityByKey } from "./securities";
 
 export type DepotValuationOptions = { storedPrices?: StoredPriceLoader };
 
@@ -28,11 +31,27 @@ export type DepotValuation = {
   performance: PeriodPerformance;
   /** Drawdown of the Period's TTWROR index (base `1` on `start.date`), same series and rows. */
   drawdown: Drawdown;
+  /**
+   * Cumulative TTWROR per day (`core/benchmarks`), `"0"` on `start.date`, then one point per series day;
+   * the last point equals `performance.ttwror` whenever that is non-null.
+   */
+  performanceLine: PerformancePoint[];
 };
 
-/** Drawdown of the TTWROR index over `series` (same flow rules as `ttwror`), based at `1` on `start.date`. */
-function indexDrawdown(start: ValuationPoint, series: readonly ValuationPoint[], rows: readonly ValuationRow[]): Drawdown {
-  return drawdown(ttwrorIndex(start, series, rows), { date: start.date, level: "1" });
+/**
+ * Drawdown and performance line of the TTWROR index over `series` (same flow rules as `ttwror`), based at
+ * `1` on `start.date`: one `ttwrorIndex` call for both.
+ */
+function indexFigures(
+  start: ValuationPoint,
+  series: readonly ValuationPoint[],
+  rows: readonly ValuationRow[],
+): { drawdown: Drawdown; performanceLine: PerformancePoint[] } {
+  const index = ttwrorIndex(start, series, rows);
+  return {
+    drawdown: drawdown(index, { date: start.date, level: "1" }),
+    performanceLine: indexPerformanceLine(start.date, index),
+  };
 }
 
 type DepotRow = ValuationRow & { securityId: string | null };
@@ -86,7 +105,7 @@ async function valuationOver(
       series,
       ...periodFlows(rows, from, to),
       performance: periodPerformance(rows, start, series, actions),
-      drawdown: indexDrawdown(start, series, rows),
+      ...indexFigures(start, series, rows),
     },
   };
 }
@@ -124,6 +143,8 @@ export type PortfolioValuation = {
   performance: PeriodPerformance;
   /** Drawdown of the TTWROR index over the summed series and all Depots' rows (as `performance.ttwror`). */
   drawdown: Drawdown;
+  /** Cumulative TTWROR per day of the same index, `"0"` on `start.date` (last point = `performance.ttwror`). */
+  performanceLine: PerformancePoint[];
   /** True when any of the Depots has a ledger row. */
   hasTransactions: boolean;
   /** Each non-archived Depot (name order) evaluated over exactly `from..to`. */
@@ -161,7 +182,7 @@ export async function portfolioValuation(
     dividends: portfolio.performance.dividends,
     taxesPaid: portfolio.performance.taxesPaid,
     performance: portfolio.performance,
-    drawdown: indexDrawdown(portfolio.start, portfolio.series, parts.flatMap(({ rows }) => rows)),
+    ...indexFigures(portfolio.start, portfolio.series, parts.flatMap(({ rows }) => rows)),
     hasTransactions: firstDate !== null,
     depots: depots.map((depot, index) => ({ id: depot.id, name: depot.name, valuation: evaluated[index].valuation })),
   };
@@ -206,4 +227,32 @@ export async function returnSeries(
   const parts = await Promise.all((rowsByDepot.length > 0 ? rowsByDepot : [[]]).map((own) => seriesOver(own, from, to, db, storedPrices)));
   const [start] = sumValuationSeries(parts.map((part) => [part.start]));
   return { start, series: sumValuationSeries(parts.map((part) => part.series)), rows };
+}
+
+/** Per benchmark its price-return line, or `null` without its Security or a base price. */
+export type BenchmarkLines = Record<BenchmarkKey, PerformancePoint[] | null>;
+
+/**
+ * The price-return line of every benchmark ETF (`core/benchmarks`) over `startDate..to` (inclusive; pass a
+ * valuation's `start.date` and `to`, so the lines share the scope line's dates): the daily resolver price
+ * (manual > provider > Transaction price, carried forward, split-adjusted) divided by the price on
+ * `startDate`, − 1. `null` when the benchmark Security does not exist yet or has no price on or before
+ * `startDate`. Same price inputs as `depotValuation`. Read-only; no provider call.
+ */
+export async function benchmarkLines(
+  startDate: string,
+  to: string,
+  db: LedgerDb = prisma,
+  { storedPrices }: DepotValuationOptions = {},
+): Promise<BenchmarkLines> {
+  const actions = await loadCorporateActions(db);
+  const lines = await Promise.all(
+    BENCHMARKS.map(async (benchmark) => {
+      const security = await findSecurityByKey({ isin: benchmark.isin }, db);
+      if (!security) return null;
+      const observations = await lineageObservations([security.id], actions, to, db, storedPrices);
+      return priceReturnLine(securityPriceSeries(observations, security.id, actions, startDate, to));
+    }),
+  );
+  return Object.fromEntries(BENCHMARKS.map((benchmark, index) => [benchmark.key, lines[index]])) as BenchmarkLines;
 }

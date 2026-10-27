@@ -22,13 +22,19 @@ vi.mock("next/headers", () => ({
 
 import { prisma } from "@/db";
 import { findElement } from "../../../../../test/helpers/next-mocks";
-import { ValueSummary } from "../../../_components/valuation/ValueSummary";
-import { VALUE_CHART_TAB_COOKIE } from "../../../_components/charts/chart-preference";
+import { ValueSummary, type ValueSummaryProps } from "../../../_components/valuation/ValueSummary";
+
+import { BENCHMARK_COOKIE, VALUE_CHART_TAB_COOKIE } from "../../../_components/charts/chart-preference";
 import { businessDate } from "@/core/dates";
 import { DEFAULT_PERIOD } from "@/core/period";
 import { storedPriceHistory } from "@/modules/prices";
-import { archiveDepot, createDepot, depotValuation, finishReconciliation, openReconciliation, recordIsinChange, recordSplit, recordTrade, recordTransaction, type RecordTransactionInput, updateTransaction } from "@/modules/ledger";
+import { archiveDepot, createDepot, depotValuation, ensureBenchmarkSecurities, portfolioValuation, finishReconciliation, openReconciliation, recordIsinChange, recordSplit, recordTrade, recordTransaction, type RecordTransactionInput, updateTransaction } from "@/modules/ledger";
 import DepotDetailPage, { generateMetadata } from "./page";
+
+/** The Performance tab data the page passes to the hero. */
+function comparisonOf(tree: unknown) {
+  return (findElement(tree, ValueSummary)!.props as ValueSummaryProps).comparison!;
+}
 
 beforeEach(async () => {
   cookieJar.clear();
@@ -573,7 +579,7 @@ describe("Depot detail page", () => {
         // Period Gain/Loss: 1.731,10 − 0 − (2000 − 300 + 3,50 refund − 12,50 dividend tax) = 40,10.
         "+40,10\u00a0€ · TTWROR +2,00\u00a0% XIRR +4,69\u00a0%",
         // The chart tabs of the hero card.
-        "Wertentwicklung Drawdown",
+        "Wertentwicklung Performance Drawdown",
         "Aufschlüsselung",
         "Realisiert 0,00\u00a0€ Unrealisiert -5,00\u00a0€ Dividenden +50,00\u00a0€ Gebühren -4,90\u00a0€",
         "Steuern gezahlt nicht in Gewinn/Verlust enthalten +9,00\u00a0€",
@@ -630,6 +636,116 @@ describe("Depot detail page", () => {
     expect(chartLabel(html)).toMatch(/^Drawdown .*: maximaler Drawdown 0,00\u00a0%$/);
   });
 
+  it("offers indices, Gesamtportfolio and the other non-archived Depots on the Performance tab, never itself", async () => {
+    const { id } = await depot();
+    const other = await createDepot({ name: "Zweitdepot", broker: "COMDIRECT" });
+    const archived = await createDepot({ name: "Altdepot", broker: "COMDIRECT" });
+    if (!other.ok || !archived.ok) throw new Error("setup failed");
+    await recordTransaction({ depotId: id, type: "DEPOSIT", date: "2026-02-01", amount: "1000" });
+    await recordTransaction({ depotId: other.depot.id, type: "DEPOSIT", date: "2026-03-01", amount: "500" });
+    expect(await archiveDepot(archived.depot.id)).toMatchObject({ ok: true });
+    cookieJar.set("dm_period", "custom:2026-01-01:2026-06-30");
+
+    const valuation = await depotValuation(id, { kind: "custom", from: "2026-01-01", to: "2026-06-30" }, businessDate(new Date()), undefined, {
+      storedPrices: storedPriceHistory,
+    });
+    const portfolio = await portfolioValuation({ kind: "custom", from: "2026-01-01", to: "2026-06-30" }, businessDate(new Date()), undefined, {
+      storedPrices: storedPriceHistory,
+    });
+    const comparison = comparisonOf(await DepotDetailPage(props(id)));
+    expect(comparison.scopeLabel).toBe("Hauptdepot");
+    expect(comparison.line).toEqual(valuation.performanceLine);
+    expect(comparison.line.at(-1)!.performance).toBe(valuation.performance.ttwror ?? "0");
+    // The KPI return is the hero's Period TTWROR, not the line end.
+    expect(comparison.ttwror).toBe(valuation.performance.ttwror);
+    expect(comparison.options.map((option) => [option.key, option.label])).toEqual([
+      ["msci-world", "MSCI World"],
+      ["msci-acwi", "MSCI ACWI"],
+      ["dax", "DAX"],
+      ["sp500", "S&P 500"],
+      ["portfolio", "Gesamtportfolio"],
+      [`depot:${other.depot.id}`, "Zweitdepot"],
+    ]);
+    // No benchmark Security yet: no line, no return.
+    expect(comparison.options.slice(0, 4).every((option) => option.line === null && option.ttwror === null)).toBe(true);
+    expect(comparison.options[4].line).toEqual(portfolio.performanceLine);
+    expect(comparison.options[4].ttwror).toBe(portfolio.performance.ttwror);
+    expect(comparison.options[5].ttwror).toBe(portfolio.depots.find((entry) => entry.id === other.depot.id)!.valuation.performance.ttwror);
+    expect(comparison.options[5].line!.map((point) => point.date)).toEqual(comparison.line.map((point) => point.date));
+
+    cookieJar.set(BENCHMARK_COOKIE, "portfolio");
+    expect(comparisonOf(await DepotDetailPage(props(id))).initialChoice).toBe("portfolio");
+    cookieJar.set(BENCHMARK_COOKIE, `depot:${id}`);
+    expect(comparisonOf(await DepotDetailPage(props(id))).initialChoice).toBe("none");
+
+    // A chosen index without prices: the hint instead of a second line, no comparison KPIs.
+    cookieJar.set(BENCHMARK_COOKIE, "dax");
+    cookieJar.set(VALUE_CHART_TAB_COOKIE, "ttwror");
+    const hero = heroHtml(renderHtml(await DepotDetailPage(props(id))));
+    expect(hero).toContain("Vergleich mit");
+    expect(hero).toContain("Keine Kurse für den Vergleich");
+    expect(hero).not.toContain("Differenz");
+  });
+
+  it("aligns Gesamtportfolio and an earlier-started Depot to the Depot's own MAX Period, starting at 0", async () => {
+    const { id } = await depot();
+    const other = await createDepot({ name: "Zweitdepot", broker: "COMDIRECT" });
+    if (!other.ok) throw new Error("setup failed");
+    await recordTransaction({ depotId: other.depot.id, type: "DEPOSIT", date: "2026-01-15", amount: "500" });
+    await recordTransaction({ depotId: id, type: "DEPOSIT", date: "2026-03-01", amount: "1000" });
+    cookieJar.set("dm_period", "MAX");
+
+    const today = businessDate(new Date());
+    const valuation = await depotValuation(id, { kind: "preset", preset: "MAX" }, today, undefined, { storedPrices: storedPriceHistory });
+    expect(valuation.start.date).toBe("2026-02-28");
+    const comparison = comparisonOf(await DepotDetailPage(props(id)));
+    const dates = comparison.line.map((point) => point.date);
+    expect(comparison.line[0]).toEqual({ date: "2026-02-28", performance: "0" });
+    expect(dates.at(-1)).toBe(today);
+    const portfolio = comparison.options.find((option) => option.key === "portfolio")!;
+    const zweitdepot = comparison.options.find((option) => option.key === `depot:${other.depot.id}`)!;
+    for (const option of [portfolio, zweitdepot]) {
+      expect(option.line![0]).toEqual({ date: "2026-02-28", performance: "0" });
+      expect(option.line!.map((point) => point.date)).toEqual(dates);
+    }
+    // Same AD-10 valuation as the Depot pages over exactly the Depot's Period.
+    const custom = await portfolioValuation({ kind: "custom", from: valuation.from, to: valuation.to }, today, undefined, {
+      storedPrices: storedPriceHistory,
+    });
+    expect(portfolio.line).toEqual(custom.performanceLine);
+    expect(portfolio.ttwror).toBe(custom.performance.ttwror);
+  });
+
+  it("draws a priced index on the Depot's dates, based on the last close on or before the start point", async () => {
+    const { id } = await depot();
+    await recordTransaction({ depotId: id, type: "DEPOSIT", date: "2026-03-01", amount: "1000" });
+    const [world] = await ensureBenchmarkSecurities();
+    const close = (date: string, price: string) =>
+      prisma.price.create({ data: { securityId: world, date, source: "PROVIDER", price, fetchedAt: `${date}T18:00:00.000Z` } });
+    // Friday close before the Saturday start point (2026-02-28), then a later close.
+    await close("2026-02-27", "100");
+    await close("2026-03-10", "110");
+    cookieJar.set("dm_period", "MAX");
+
+    const comparison = comparisonOf(await DepotDetailPage(props(id)));
+    const msciWorld = comparison.options.find((option) => option.key === "msci-world")!;
+    expect(msciWorld.line!.map((point) => point.date)).toEqual(comparison.line.map((point) => point.date));
+    expect(msciWorld.line![0]).toEqual({ date: "2026-02-28", performance: "0" });
+    expect(msciWorld.line!.find((point) => point.date === "2026-03-09")!.performance).toBe("0");
+    expect(msciWorld.line!.find((point) => point.date === "2026-03-10")!.performance).toBe("0.1");
+    expect(msciWorld.line!.at(-1)!.performance).toBe("0.1");
+    expect(msciWorld.ttwror).toBe("0.1");
+    // The benchmark ETF is no Position of the Depot.
+    expect(renderText(await DepotDetailPage(props(id)))).not.toContain("iShares Core MSCI World");
+
+    cookieJar.set(BENCHMARK_COOKIE, "msci-world");
+    cookieJar.set(VALUE_CHART_TAB_COOKIE, "ttwror");
+    const hero = heroHtml(renderHtml(await DepotDetailPage(props(id))));
+    expect(hero).toContain("MSCI World");
+    expect(hero).toContain("+10,00\u00a0%");
+    expect(hero).not.toContain("Keine Kurse für den Vergleich");
+  });
+
   it("shows a Period loss with the loss tone, a downward arrow and a minus sign", async () => {
     const { id } = await depot();
     const book = async (input: Omit<RecordTransactionInput, "depotId">) => {
@@ -652,7 +768,7 @@ describe("Depot detail page", () => {
     const tree = await DepotDetailPage(props(id));
     const text = renderText(tree);
     const html = renderHtml(tree);
-    expect(text).toContain("Gesamtwert 800,00\u00a0€ Stand 28.02.2026 -200,00\u00a0€ · TTWROR -20,00\u00a0% XIRR -77,87\u00a0% Wertentwicklung Drawdown Aufschlüsselung");
+    expect(text).toContain("Gesamtwert 800,00\u00a0€ Stand 28.02.2026 -200,00\u00a0€ · TTWROR -20,00\u00a0% XIRR -77,87\u00a0% Wertentwicklung Performance Drawdown Aufschlüsselung");
     expect(text).toContain("Unrealisiert -200,00\u00a0€");
     expect(heroHtml(html)).toMatch(/<svg[^>]*data-testid="ArrowDownwardIcon"/);
     expect(heroHtml(html)).not.toContain('data-testid="ArrowUpwardIcon"');
@@ -667,7 +783,7 @@ describe("Depot detail page", () => {
     const tree = await DepotDetailPage(props(id));
     const text = renderText(tree);
     const hero = heroHtml(renderHtml(tree));
-    expect(text).toContain("Gesamtwert 0,00\u00a0€ Stand 31.01.2026 0,00\u00a0€ XIRR – Wertentwicklung Drawdown Aufschlüsselung");
+    expect(text).toContain("Gesamtwert 0,00\u00a0€ Stand 31.01.2026 0,00\u00a0€ XIRR – Wertentwicklung Performance Drawdown Aufschlüsselung");
     const heroText = text.slice(text.indexOf("Gesamtwert"), text.indexOf("Aufschlüsselung"));
     expect(heroText).not.toBe("");
     expect(heroText).not.toContain("TTWROR");
@@ -692,7 +808,7 @@ describe("Depot detail page", () => {
       const tree = await DepotDetailPage(props(id));
       const text = renderText(tree);
       expect(renderHtml(tree)).toMatch(pressedPill("1J"));
-      expect(text).toContain("Gesamtwert 1.931,10\u00a0€ +240,10\u00a0€ · TTWROR +13,79\u00a0% XIRR +17,26\u00a0% Wertentwicklung Drawdown Aufschlüsselung");
+      expect(text).toContain("Gesamtwert 1.931,10\u00a0€ +240,10\u00a0€ · TTWROR +13,79\u00a0% XIRR +17,26\u00a0% Wertentwicklung Performance Drawdown Aufschlüsselung");
       expect(text).toMatch(/Investiertes Kapital 1\.005,00\u00a0€/);
       expect(text).toContain("Dividenden · 1J 50,00\u00a0€");
       expect(text).toContain("Steuern gezahlt · 1J 9,00\u00a0€");
@@ -712,7 +828,7 @@ describe("Depot detail page", () => {
     const html = renderHtml(tree);
     expect(html).toMatch(pressedPill("Max"));
     // Deposit and full Withdrawal: no gain; the breakdown is still shown read-only.
-    expect(text).toContain("Gesamtwert 0,00\u00a0€ 0,00\u00a0€ · TTWROR 0,00\u00a0% XIRR 0,00\u00a0% Wertentwicklung Drawdown Aufschlüsselung");
+    expect(text).toContain("Gesamtwert 0,00\u00a0€ 0,00\u00a0€ · TTWROR 0,00\u00a0% XIRR 0,00\u00a0% Wertentwicklung Performance Drawdown Aufschlüsselung");
     expect(text).toContain("Aufschlüsselung Realisiert 0,00\u00a0€ Unrealisiert 0,00\u00a0€ Dividenden 0,00\u00a0€ Gebühren 0,00\u00a0€");
     expect(text).toContain("Investiertes Kapital 0,00\u00a0€");
     expect(heroHtml(html)).not.toMatch(/data-testid="Arrow(Up|Down)wardIcon"/);

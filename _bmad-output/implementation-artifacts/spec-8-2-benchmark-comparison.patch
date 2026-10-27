@@ -1,0 +1,2096 @@
+diff --git a/src/app/(app)/(overview)/page.test.tsx b/src/app/(app)/(overview)/page.test.tsx
+index 0324a43..e505dab 100644
+--- a/src/app/(app)/(overview)/page.test.tsx
++++ b/src/app/(app)/(overview)/page.test.tsx
+@@ -39,11 +39,17 @@ import { CompositionCard, type CompositionCardProps } from "../../_components/co
+ import { CreateDepotButton } from "../../_components/depots/DepotDialogs";
+ import { NewTransactionFab } from "../../_components/overview/NewTransactionFab";
+ import { PeriodSelector } from "../../_components/period/PeriodSelector";
+-import { ValueSummary } from "../../_components/valuation/ValueSummary";
+-import { VALUE_CHART_TAB_COOKIE } from "../../_components/charts/chart-preference";
++import { ValueSummary, type ValueSummaryProps } from "../../_components/valuation/ValueSummary";
++
++import { BENCHMARK_COOKIE, VALUE_CHART_TAB_COOKIE } from "../../_components/charts/chart-preference";
+ import OverviewLoading from "./loading";
+ import OverviewPage from "./page";
+ 
++/** The Performance tab data the page passes to the hero. */
++function comparisonOf(tree: unknown) {
++  return (findElement(tree, ValueSummary)!.props as ValueSummaryProps).comparison!;
++}
++
+ const TODAY = "2026-10-26";
+ 
+ /** A synthetic ISIN: the 11-character body plus its valid check digit. */
+@@ -267,6 +273,53 @@ describe("Overview page", () => {
+     expect(findElement(await OverviewPage(), ValueSummary)!.props.chartTab).toBe("performance");
+   });
+ 
++  it("gives the Performance tab the Portfolio line, the indices and every non-archived Depot, with the stored choice", async () => {
++    const { a, b, world, old } = await twoDepots();
++    // A close before the MAX start (2025-08-31) bases the MSCI World line (the held ETF has its ISIN).
++    await prisma.price.create({ data: { securityId: world, date: "2025-08-29", source: "PROVIDER", price: "80", fetchedAt: "2025-08-29T18:00:00.000Z" } });
++    cookieJar.set(PERIOD_COOKIE, "MAX");
++    const portfolio = await portfolioValuation({ kind: "preset", preset: "MAX" }, TODAY, undefined, { storedPrices: storedPriceHistory });
++    const comparison = comparisonOf(await OverviewPage());
++    expect(comparison.scopeLabel).toBe("Portfolio");
++    expect(comparison.line).toEqual(portfolio.performanceLine);
++    expect(comparison.line[0]).toEqual({ date: "2025-08-31", performance: "0" });
++    expect(comparison.line.at(-1)!.performance).toBe(portfolio.performance.ttwror);
++    expect(comparison.options.map((option) => [option.key, option.label])).toEqual([
++      ["msci-world", "MSCI World"],
++      ["msci-acwi", "MSCI ACWI"],
++      ["dax", "DAX"],
++      ["sp500", "S&P 500"],
++      [`depot:${a}`, "Hauptdepot"],
++      [`depot:${b}`, "Zweitdepot"],
++    ]);
++    const msciWorld = comparison.options[0].line!;
++    expect(msciWorld.map((point) => point.date)).toEqual(comparison.line.map((point) => point.date));
++    // 93,21 / 80 − 1 on the last stored close, carried to today.
++    expect(msciWorld.at(-1)!.performance).toBe("0.165125");
++    expect(comparison.options[1].line).toBeNull();
++    expect(comparison.options[5].line).toEqual(portfolio.depots[1].valuation.performanceLine);
++    expect(comparison.initialChoice).toBe("none");
++
++    for (const [stored, expected] of [
++      [`depot:${b}`, `depot:${b}`],
++      ["msci-world", "msci-world"],
++      ["portfolio", "none"],
++      [`depot:${old}`, "none"],
++    ]) {
++      cookieJar.set(BENCHMARK_COOKIE, stored);
++      expect(comparisonOf(await OverviewPage()).initialChoice).toBe(expected);
++    }
++
++    cookieJar.set(VALUE_CHART_TAB_COOKIE, "ttwror");
++    cookieJar.set(BENCHMARK_COOKIE, "msci-world");
++    const hero = text(heroHtml(renderHtml(await OverviewPage())));
++    expect(hero).toContain("Wertentwicklung Performance Drawdown");
++    expect(hero).toContain("Vergleich mit");
++    expect(hero).toContain("MSCI World +16,51 %");
++    expect(hero).toMatch(/Differenz [+-]?[\d.,]+ Pp\./);
++    expect(fetchSpy).not.toHaveBeenCalled();
++  });
++
+   it("shows Zusammensetzung beside Top-Positionen: Typ by default, three views, Positions-tab values plus cash", async () => {
+     const { a, b } = await twoDepots();
+     cookieJar.set(PERIOD_COOKIE, "1M");
+diff --git a/src/app/(app)/(overview)/page.tsx b/src/app/(app)/(overview)/page.tsx
+index eea23ce..787557e 100644
+--- a/src/app/(app)/(overview)/page.tsx
++++ b/src/app/(app)/(overview)/page.tsx
+@@ -5,7 +5,7 @@ import Stack from "@mui/material/Stack";
+ import Typography from "@mui/material/Typography";
+ import type { Metadata } from "next";
+ import type { ReactNode } from "react";
+-import { readValueChartTab } from "@/app/_actions/chart-preference-cookie";
++import { readBenchmarkChoice, readValueChartTab } from "@/app/_actions/chart-preference-cookie";
+ import { readPeriod } from "@/app/_actions/period-cookie";
+ import { CompositionCard } from "@/app/_components/composition/CompositionCard";
+ import { COMPOSITION_LABELS, compositionHoldings } from "@/app/_components/composition/labels";
+@@ -21,10 +21,11 @@ import { TopPositions } from "@/app/_components/overview/TopPositions";
+ import { PeriodSelector } from "@/app/_components/period/PeriodSelector";
+ import { PageTitle } from "@/app/_components/Placeholder";
+ import { ValueSummary } from "@/app/_components/valuation/ValueSummary";
++import { comparisonChoiceKeys, comparisonOptions } from "@/app/_components/valuation/comparison-options";
+ import { compositionByAssetType, compositionByDepot, compositionByPosition } from "@/core/composition";
+ import { businessDate } from "@/core/dates";
+ import { periodLabel } from "@/core/period";
+-import { listDepots, listPositions, listSecurities, portfolioValuation } from "@/modules/ledger";
++import { benchmarkLines, listDepots, listPositions, listSecurities, portfolioValuation } from "@/modules/ledger";
+ import { listNews } from "@/modules/news";
+ import { latestStoredPrices, securityPriceInfo, storedPriceHistory } from "@/modules/prices";
+ 
+@@ -125,13 +126,26 @@ export default async function OverviewPage() {
+     );
+   }
+ 
+-  const [priceInfo, positionsByDepot, news, chartTab] = await Promise.all([
++  const [priceInfo, positionsByDepot, news, chartTab, benchmarks] = await Promise.all([
+     securityPriceInfo(today),
+     // Stored manual / provider Prices win over Transaction prices (resolver), as on the Positions tab.
+     Promise.all(portfolio.depots.map((depot) => listPositions(depot.id, today, undefined, { storedPrices: latestStoredPrices }))),
+     listNews(today),
+     readValueChartTab(),
++    // Benchmark ETFs: stored Prices only (no provider call), on the Portfolio line's dates.
++    benchmarkLines(portfolio.start.date, portfolio.to, undefined, { storedPrices: storedPriceHistory }),
+   ]);
++  // "Vergleich mit": the indices and every non-archived Depot over the same Period (no Gesamtportfolio).
++  const options = comparisonOptions({
++    benchmarks,
++    depots: portfolio.depots.map(({ id, name, valuation }) => ({ id, name, line: valuation.performanceLine })),
++  });
++  const comparison = {
++    scopeLabel: "Portfolio",
++    line: portfolio.performanceLine,
++    options,
++    initialChoice: await readBenchmarkChoice(comparisonChoiceKeys(options)),
++  };
+   const staleCount = Object.values(priceInfo).filter((info) => info.stale).length;
+   const held: DepotPosition[] = portfolio.depots.flatMap((depot, index) =>
+     positionsByDepot[index].map((position) => ({ depotId: depot.id, depotName: depot.name, position })),
+@@ -168,6 +182,7 @@ export default async function OverviewPage() {
+         series={portfolio.series}
+         drawdown={portfolio.drawdown}
+         chartTab={chartTab}
++        comparison={comparison}
+       />
+       <Box sx={row}>
+         <TopPositions entries={topPositions(held)} today={today} />
+diff --git a/src/app/(app)/depots/[id]/page.test.tsx b/src/app/(app)/depots/[id]/page.test.tsx
+index d7563cc..e6cbe83 100644
+--- a/src/app/(app)/depots/[id]/page.test.tsx
++++ b/src/app/(app)/depots/[id]/page.test.tsx
+@@ -22,14 +22,20 @@ vi.mock("next/headers", () => ({
+ 
+ import { prisma } from "@/db";
+ import { findElement } from "../../../../../test/helpers/next-mocks";
+-import { ValueSummary } from "../../../_components/valuation/ValueSummary";
+-import { VALUE_CHART_TAB_COOKIE } from "../../../_components/charts/chart-preference";
++import { ValueSummary, type ValueSummaryProps } from "../../../_components/valuation/ValueSummary";
++
++import { BENCHMARK_COOKIE, VALUE_CHART_TAB_COOKIE } from "../../../_components/charts/chart-preference";
+ import { businessDate } from "@/core/dates";
+ import { DEFAULT_PERIOD } from "@/core/period";
+ import { storedPriceHistory } from "@/modules/prices";
+-import { archiveDepot, createDepot, depotValuation, finishReconciliation, openReconciliation, recordIsinChange, recordSplit, recordTrade, recordTransaction, type RecordTransactionInput, updateTransaction } from "@/modules/ledger";
++import { archiveDepot, createDepot, depotValuation, portfolioValuation, finishReconciliation, openReconciliation, recordIsinChange, recordSplit, recordTrade, recordTransaction, type RecordTransactionInput, updateTransaction } from "@/modules/ledger";
+ import DepotDetailPage, { generateMetadata } from "./page";
+ 
++/** The Performance tab data the page passes to the hero. */
++function comparisonOf(tree: unknown) {
++  return (findElement(tree, ValueSummary)!.props as ValueSummaryProps).comparison!;
++}
++
+ beforeEach(async () => {
+   cookieJar.clear();
+   await prisma.reconciliationRun.deleteMany();
+@@ -573,7 +579,7 @@ describe("Depot detail page", () => {
+         // Period Gain/Loss: 1.731,10 − 0 − (2000 − 300 + 3,50 refund − 12,50 dividend tax) = 40,10.
+         "+40,10\u00a0€ · TTWROR +2,00\u00a0% XIRR +4,69\u00a0%",
+         // The chart tabs of the hero card.
+-        "Wertentwicklung Drawdown",
++        "Wertentwicklung Performance Drawdown",
+         "Aufschlüsselung",
+         "Realisiert 0,00\u00a0€ Unrealisiert -5,00\u00a0€ Dividenden +50,00\u00a0€ Gebühren -4,90\u00a0€",
+         "Steuern gezahlt nicht in Gewinn/Verlust enthalten +9,00\u00a0€",
+@@ -630,6 +636,53 @@ describe("Depot detail page", () => {
+     expect(chartLabel(html)).toMatch(/^Drawdown .*: maximaler Drawdown 0,00\u00a0%$/);
+   });
+ 
++  it("offers indices, Gesamtportfolio and the other non-archived Depots on the Performance tab, never itself", async () => {
++    const { id } = await depot();
++    const other = await createDepot({ name: "Zweitdepot", broker: "COMDIRECT" });
++    const archived = await createDepot({ name: "Altdepot", broker: "COMDIRECT" });
++    if (!other.ok || !archived.ok) throw new Error("setup failed");
++    await recordTransaction({ depotId: id, type: "DEPOSIT", date: "2026-02-01", amount: "1000" });
++    await recordTransaction({ depotId: other.depot.id, type: "DEPOSIT", date: "2026-03-01", amount: "500" });
++    expect(await archiveDepot(archived.depot.id)).toMatchObject({ ok: true });
++    cookieJar.set("dm_period", "custom:2026-01-01:2026-06-30");
++
++    const valuation = await depotValuation(id, { kind: "custom", from: "2026-01-01", to: "2026-06-30" }, businessDate(new Date()), undefined, {
++      storedPrices: storedPriceHistory,
++    });
++    const portfolio = await portfolioValuation({ kind: "custom", from: "2026-01-01", to: "2026-06-30" }, businessDate(new Date()), undefined, {
++      storedPrices: storedPriceHistory,
++    });
++    const comparison = comparisonOf(await DepotDetailPage(props(id)));
++    expect(comparison.scopeLabel).toBe("Hauptdepot");
++    expect(comparison.line).toEqual(valuation.performanceLine);
++    expect(comparison.line.at(-1)!.performance).toBe(valuation.performance.ttwror ?? "0");
++    expect(comparison.options.map((option) => [option.key, option.label])).toEqual([
++      ["msci-world", "MSCI World"],
++      ["msci-acwi", "MSCI ACWI"],
++      ["dax", "DAX"],
++      ["sp500", "S&P 500"],
++      ["portfolio", "Gesamtportfolio"],
++      [`depot:${other.depot.id}`, "Zweitdepot"],
++    ]);
++    // No benchmark Security yet: no line.
++    expect(comparison.options.slice(0, 4).every((option) => option.line === null)).toBe(true);
++    expect(comparison.options[4].line).toEqual(portfolio.performanceLine);
++    expect(comparison.options[5].line!.map((point) => point.date)).toEqual(comparison.line.map((point) => point.date));
++
++    cookieJar.set(BENCHMARK_COOKIE, "portfolio");
++    expect(comparisonOf(await DepotDetailPage(props(id))).initialChoice).toBe("portfolio");
++    cookieJar.set(BENCHMARK_COOKIE, `depot:${id}`);
++    expect(comparisonOf(await DepotDetailPage(props(id))).initialChoice).toBe("none");
++
++    // A chosen index without prices: the hint instead of a second line, no comparison KPIs.
++    cookieJar.set(BENCHMARK_COOKIE, "dax");
++    cookieJar.set(VALUE_CHART_TAB_COOKIE, "ttwror");
++    const hero = heroHtml(renderHtml(await DepotDetailPage(props(id))));
++    expect(hero).toContain("Vergleich mit");
++    expect(hero).toContain("Keine Kurse für den Vergleich");
++    expect(hero).not.toContain("Differenz");
++  });
++
+   it("shows a Period loss with the loss tone, a downward arrow and a minus sign", async () => {
+     const { id } = await depot();
+     const book = async (input: Omit<RecordTransactionInput, "depotId">) => {
+@@ -652,7 +705,7 @@ describe("Depot detail page", () => {
+     const tree = await DepotDetailPage(props(id));
+     const text = renderText(tree);
+     const html = renderHtml(tree);
+-    expect(text).toContain("Gesamtwert 800,00\u00a0€ Stand 28.02.2026 -200,00\u00a0€ · TTWROR -20,00\u00a0% XIRR -77,87\u00a0% Wertentwicklung Drawdown Aufschlüsselung");
++    expect(text).toContain("Gesamtwert 800,00\u00a0€ Stand 28.02.2026 -200,00\u00a0€ · TTWROR -20,00\u00a0% XIRR -77,87\u00a0% Wertentwicklung Performance Drawdown Aufschlüsselung");
+     expect(text).toContain("Unrealisiert -200,00\u00a0€");
+     expect(heroHtml(html)).toMatch(/<svg[^>]*data-testid="ArrowDownwardIcon"/);
+     expect(heroHtml(html)).not.toContain('data-testid="ArrowUpwardIcon"');
+@@ -667,7 +720,7 @@ describe("Depot detail page", () => {
+     const tree = await DepotDetailPage(props(id));
+     const text = renderText(tree);
+     const hero = heroHtml(renderHtml(tree));
+-    expect(text).toContain("Gesamtwert 0,00\u00a0€ Stand 31.01.2026 0,00\u00a0€ XIRR – Wertentwicklung Drawdown Aufschlüsselung");
++    expect(text).toContain("Gesamtwert 0,00\u00a0€ Stand 31.01.2026 0,00\u00a0€ XIRR – Wertentwicklung Performance Drawdown Aufschlüsselung");
+     const heroText = text.slice(text.indexOf("Gesamtwert"), text.indexOf("Aufschlüsselung"));
+     expect(heroText).not.toBe("");
+     expect(heroText).not.toContain("TTWROR");
+@@ -692,7 +745,7 @@ describe("Depot detail page", () => {
+       const tree = await DepotDetailPage(props(id));
+       const text = renderText(tree);
+       expect(renderHtml(tree)).toMatch(pressedPill("1J"));
+-      expect(text).toContain("Gesamtwert 1.931,10\u00a0€ +240,10\u00a0€ · TTWROR +13,79\u00a0% XIRR +17,26\u00a0% Wertentwicklung Drawdown Aufschlüsselung");
++      expect(text).toContain("Gesamtwert 1.931,10\u00a0€ +240,10\u00a0€ · TTWROR +13,79\u00a0% XIRR +17,26\u00a0% Wertentwicklung Performance Drawdown Aufschlüsselung");
+       expect(text).toMatch(/Investiertes Kapital 1\.005,00\u00a0€/);
+       expect(text).toContain("Dividenden · 1J 50,00\u00a0€");
+       expect(text).toContain("Steuern gezahlt · 1J 9,00\u00a0€");
+@@ -712,7 +765,7 @@ describe("Depot detail page", () => {
+     const html = renderHtml(tree);
+     expect(html).toMatch(pressedPill("Max"));
+     // Deposit and full Withdrawal: no gain; the breakdown is still shown read-only.
+-    expect(text).toContain("Gesamtwert 0,00\u00a0€ 0,00\u00a0€ · TTWROR 0,00\u00a0% XIRR 0,00\u00a0% Wertentwicklung Drawdown Aufschlüsselung");
++    expect(text).toContain("Gesamtwert 0,00\u00a0€ 0,00\u00a0€ · TTWROR 0,00\u00a0% XIRR 0,00\u00a0% Wertentwicklung Performance Drawdown Aufschlüsselung");
+     expect(text).toContain("Aufschlüsselung Realisiert 0,00\u00a0€ Unrealisiert 0,00\u00a0€ Dividenden 0,00\u00a0€ Gebühren 0,00\u00a0€");
+     expect(text).toContain("Investiertes Kapital 0,00\u00a0€");
+     expect(heroHtml(html)).not.toMatch(/data-testid="Arrow(Up|Down)wardIcon"/);
+diff --git a/src/app/(app)/depots/[id]/page.tsx b/src/app/(app)/depots/[id]/page.tsx
+index 58ad927..9e416a5 100644
+--- a/src/app/(app)/depots/[id]/page.tsx
++++ b/src/app/(app)/depots/[id]/page.tsx
+@@ -14,10 +14,15 @@ import { DepotActionsMenu } from "@/app/_components/depots/DepotActionsMenu";
+ import { DepotTabs } from "@/app/_components/depots/DepotTabs";
+ import { continueText, lastReconciledText } from "@/app/_components/reconciliation/labels";
+ import { brokerLabel } from "@/app/_components/depots/labels";
+-import { readValueChartTab } from "@/app/_actions/chart-preference-cookie";
++import { readBenchmarkChoice, readValueChartTab } from "@/app/_actions/chart-preference-cookie";
+ import { readPeriod } from "@/app/_actions/period-cookie";
+ import { PeriodSelector } from "@/app/_components/period/PeriodSelector";
+ import { ValueSummary } from "@/app/_components/valuation/ValueSummary";
++import {
++  comparisonChoiceKeys,
++  comparisonOptions,
++  type PerformanceComparison,
++} from "@/app/_components/valuation/comparison-options";
+ import { CashBookings } from "@/app/_components/cash/CashBookings";
+ import { CompositionCard } from "@/app/_components/composition/CompositionCard";
+ import { COMPOSITION_LABELS, compositionHoldings } from "@/app/_components/composition/labels";
+@@ -30,6 +35,8 @@ import { compositionByAssetType, compositionByPosition } from "@/core/compositio
+ import { formatMoney } from "@/core/format";
+ import { periodLabel } from "@/core/period";
+ import {
++  benchmarkLines,
++  type DepotValuation,
+   depotValuation,
+   getDepot,
+   getReconciliation,
+@@ -39,9 +46,36 @@ import {
+   listSecurities,
+   listSplits,
+   listTransactions,
++  portfolioValuation,
+ } from "@/modules/ledger";
+ import { latestStoredPrices, storedPriceHistory } from "@/modules/prices";
+ 
++/**
++ * The Performance tab's data of a Depot: its TTWROR line, the indices over the same dates, Gesamtportfolio
++ * and every other non-archived Depot evaluated over exactly the Depot's resolved Period (same AD-10
++ * valuation as their own pages). Stored Prices only; no provider call.
++ */
++async function depotComparison(depotId: string, name: string, valuation: DepotValuation, today: string): Promise<PerformanceComparison> {
++  const options = { storedPrices: storedPriceHistory };
++  const [portfolio, benchmarks] = await Promise.all([
++    portfolioValuation({ kind: "custom", from: valuation.from, to: valuation.to }, today, undefined, options),
++    benchmarkLines(valuation.start.date, valuation.to, undefined, options),
++  ]);
++  const comparisons = comparisonOptions({
++    benchmarks,
++    portfolio: portfolio.performanceLine,
++    depots: portfolio.depots
++      .filter((depot) => depot.id !== depotId)
++      .map((depot) => ({ id: depot.id, name: depot.name, line: depot.valuation.performanceLine })),
++  });
++  return {
++    scopeLabel: name,
++    line: valuation.performanceLine,
++    options: comparisons,
++    initialChoice: await readBenchmarkChoice(comparisonChoiceKeys(comparisons)),
++  };
++}
++
+ type Props = {
+   params: Promise<{ id: string }>;
+   searchParams?: Promise<{ tab?: string | string[] }>;
+@@ -105,6 +139,7 @@ export default async function DepotDetailPage({ params, searchParams }: Props) {
+         readValueChartTab(),
+       ]);
+   const end = valuation?.series.at(-1);
++  const comparison = valuation ? await depotComparison(depot.id, depot.name, valuation, today) : undefined;
+ 
+   let content: ReactNode;
+   if (emptyState) {
+@@ -201,6 +236,7 @@ export default async function DepotDetailPage({ params, searchParams }: Props) {
+           series={valuation.series}
+           drawdown={valuation.drawdown}
+           chartTab={chartTab}
++          comparison={comparison}
+         />
+       ) : null}
+       <DepotTabs depotId={depot.id} value={tab} />
+diff --git a/src/app/_actions/chart-preference-cookie.ts b/src/app/_actions/chart-preference-cookie.ts
+index eb10e41..932df19 100644
+--- a/src/app/_actions/chart-preference-cookie.ts
++++ b/src/app/_actions/chart-preference-cookie.ts
+@@ -2,8 +2,10 @@
+ // the client writes these cookies (`chart-preference.ts`), server pages read the initial state here.
+ import { cookies } from "next/headers";
+ import {
++  BENCHMARK_COOKIE,
+   MOVING_AVERAGE_COOKIE,
+   type MovingAverageChoice,
++  parseBenchmarkChoice,
+   parseMovingAverage,
+   parseSecurityChartMode,
+   parseValueChartTab,
+@@ -27,3 +29,8 @@ export async function readSecurityChartMode(): Promise<SecurityChartMode> {
+ export async function readMovingAverage(): Promise<MovingAverageChoice> {
+   return parseMovingAverage((await cookies()).get(MOVING_AVERAGE_COOKIE)?.value);
+ }
++
++/** The stored "Vergleich mit" choice when it is one of `availableKeys` on this page; otherwise `none`. */
++export async function readBenchmarkChoice(availableKeys: readonly string[]): Promise<string> {
++  return parseBenchmarkChoice((await cookies()).get(BENCHMARK_COOKIE)?.value, availableKeys);
++}
+diff --git a/src/app/_components/charts/ComparisonChart.dom.test.tsx b/src/app/_components/charts/ComparisonChart.dom.test.tsx
+new file mode 100644
+index 0000000..f23810b
+--- /dev/null
++++ b/src/app/_components/charts/ComparisonChart.dom.test.tsx
+@@ -0,0 +1,90 @@
++// @vitest-environment happy-dom
++import { ThemeProvider } from "@mui/material/styles";
++import { render, screen, waitFor } from "@testing-library/react";
++import userEvent from "@testing-library/user-event";
++import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
++import { registerDomCleanup } from "../../../../test/helpers/dom";
++import { theme } from "@/theme/theme";
++import { ComparisonChart, type ComparisonChartProps } from "./ComparisonChart";
++
++registerDomCleanup();
++
++const LINE = [
++  { date: "2026-01-31", performance: "0" },
++  { date: "2026-02-01", performance: "0.1" },
++  { date: "2026-02-02", performance: "0.134375" },
++];
++const WORLD = [
++  { date: "2026-01-31", performance: "0" },
++  { date: "2026-02-01", performance: "-0.02" },
++  { date: "2026-02-02", performance: "0.03" },
++];
++
++// happy-dom has no layout: give the chart container a size through its computed style.
++const realGetComputedStyle = window.getComputedStyle.bind(window);
++beforeEach(() => {
++  vi.spyOn(window, "getComputedStyle").mockImplementation((element: Element, pseudo?: string | null) => {
++    const style = realGetComputedStyle(element, pseudo);
++    return new Proxy(style, {
++      get(target, key) {
++        if (key === "width") return "600px";
++        if (key === "height") return "200px";
++        const value: unknown = Reflect.get(target, key);
++        return typeof value === "function" ? (value as (...args: unknown[]) => unknown).bind(target) : value;
++      },
++    });
++  });
++});
++
++afterEach(() => {
++  vi.restoreAllMocks();
++});
++
++function renderChart(props: Partial<ComparisonChartProps> = {}) {
++  return render(
++    <ThemeProvider theme={theme}>
++      <ComparisonChart line={LINE} scopeLabel="Portfolio" comparison={{ label: "MSCI World", line: WORLD }} {...props} />
++    </ThemeProvider>,
++  );
++}
++
++async function drawn(series: string) {
++  return waitFor(() => {
++    const element = document.querySelector("svg.MuiChartsSvgLayer-root");
++    if (!element?.querySelector(`.MuiLineChart-line[data-series="${series}"]`)) throw new Error("not drawn yet");
++    return element;
++  });
++}
++
++describe("ComparisonChart", () => {
++  it("draws the scope and the comparison line with a 0 % reference line", async () => {
++    renderChart();
++    const svg = await drawn("comparison");
++    expect(svg.querySelector('.MuiLineChart-line[data-series="scope"]')).not.toBeNull();
++    expect(svg.querySelectorAll(".MuiChartsReferenceLine-root").length).toBeGreaterThan(0);
++    expect(svg.textContent).toContain("%");
++  });
++
++  it("shows the date and both values in the tooltip on arrow keys", async () => {
++    const user = userEvent.setup({ delay: null });
++    renderChart();
++    await drawn("comparison");
++    await user.tab();
++    await user.keyboard("{ArrowRight}{ArrowRight}");
++    await waitFor(() =>
++      expect(document.querySelector("[role='tooltip']")?.textContent).toBe("01.02.2026Portfolio+10,00\u00a0%MSCI World-2,00\u00a0%"),
++    );
++  });
++
++  it("draws the scope line alone without a comparison", async () => {
++    renderChart({ comparison: null });
++    const svg = await drawn("scope");
++    expect(svg.querySelector('.MuiLineChart-line[data-series="comparison"]')).toBeNull();
++    expect(screen.getByRole("figure").getAttribute("aria-label")).toBe("Performance 31.01.2026 – 02.02.2026: Portfolio +13,44 %");
++  });
++
++  it("renders nothing without points", () => {
++    const { container } = renderChart({ line: [], comparison: null });
++    expect(container.textContent).toBe("");
++  });
++});
+diff --git a/src/app/_components/charts/ComparisonChart.tsx b/src/app/_components/charts/ComparisonChart.tsx
+new file mode 100644
+index 0000000..ed3b82e
+--- /dev/null
++++ b/src/app/_components/charts/ComparisonChart.tsx
+@@ -0,0 +1,203 @@
++"use client";
++
++import Box from "@mui/material/Box";
++import Paper from "@mui/material/Paper";
++import Typography from "@mui/material/Typography";
++import { type Theme, useTheme } from "@mui/material/styles";
++import { LineChart } from "@mui/x-charts/LineChart";
++import { ChartsReferenceLine } from "@mui/x-charts/ChartsReferenceLine";
++import { ChartsTooltipContainer, type ChartsTooltipProps, useAxesTooltip } from "@mui/x-charts/ChartsTooltip";
++import { createContext, useContext, useMemo } from "react";
++import { formatPercent } from "@/core/format";
++import { comparisonAriaLabel, comparisonByDate, comparisonTooltipLines, toComparisonPlotData } from "./comparison-chart";
++import { type PerformanceChartPoint, performanceFormatters, performanceYDomain } from "./performance-chart";
++import { tickDates } from "./value-chart";
++
++export type ComparisonChartProps = {
++  /** The scope's cumulative TTWROR, one point per day from the valuation start (ratio strings). */
++  line: readonly PerformanceChartPoint[];
++  /** Legend and tooltip label of the scope line, e.g. "Portfolio" or the Depot name. */
++  scopeLabel: string;
++  /** The chosen comparison line (same dates) and its label; none draws the scope line only. */
++  comparison?: { label: string; line: readonly PerformanceChartPoint[] } | null;
++};
++
++const SCOPE = "scope";
++const COMPARISON = "comparison";
++const DASH = "6 4";
++
++/** Theme colors as CSS variables (dark mode follows the color scheme), plain palette as fallback. */
++function colors(theme: Theme) {
++  const palette = (theme.vars ?? theme).palette;
++  return {
++    scope: palette.primary.main,
++    comparison: palette.chart?.series2 ?? palette.info.main,
++    baseline: palette.text.secondary,
++    grid: palette.divider,
++  };
++}
++
++type TooltipData = {
++  line: readonly PerformanceChartPoint[];
++  scopeLabel: string;
++  comparison: { label: string; byDate: Map<string, string> } | null;
++};
++const DataContext = createContext<TooltipData>({ line: [], scopeLabel: "", comparison: null });
++
++function TooltipContent() {
++  const { line, scopeLabel, comparison } = useContext(DataContext);
++  const axes = useAxesTooltip({ directions: ["x"] });
++  const point = axes?.[0] ? line[axes[0].dataIndex] : undefined;
++  if (!point) return null;
++  const lines = comparisonTooltipLines(point, scopeLabel, comparison);
++  return (
++    <Paper elevation={3} sx={{ borderRadius: 2, px: 1.5, py: 1, bgcolor: "background.paper", minWidth: 160, maxWidth: 320 }}>
++      <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
++        {lines.date}
++      </Typography>
++      <Box component="dl" sx={{ m: 0, display: "grid", gridTemplateColumns: "auto auto", columnGap: 2 }}>
++        {lines.rows.map((row) => (
++          <Box key={row.label} sx={{ display: "contents" }}>
++            <Typography component="dt" variant="body2" color="text.secondary">
++              {row.label}
++            </Typography>
++            <Typography component="dd" variant="figure" sx={{ m: 0, textAlign: "right", whiteSpace: "nowrap" }}>
++              {row.value}
++            </Typography>
++          </Box>
++        ))}
++      </Box>
++    </Paper>
++  );
++}
++
++/** Axis-triggered tooltip (mouse, touch and keyboard) in a rounded surface card. */
++function ComparisonTooltip(props: ChartsTooltipProps) {
++  return (
++    <ChartsTooltipContainer {...props} trigger="axis">
++      <TooltipContent />
++    </ChartsTooltipContainer>
++  );
++}
++
++/** A legend entry: a short solid or dashed line sample in the series color, then the label. */
++function LegendItem({ label, color, dashed }: { label: string; color: string; dashed: boolean }) {
++  return (
++    <Box component="li" sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
++      <Box component="svg" aria-hidden width={24} height={8} viewBox="0 0 24 8" sx={{ flex: "none" }}>
++        <line x1="0" y1="4" x2="24" y2="4" stroke={color} strokeWidth={2} strokeDasharray={dashed ? DASH : undefined} />
++      </Box>
++      <Typography variant="body2" component="span">
++        {label}
++      </Typography>
++    </Box>
++  );
++}
++
++/**
++ * Performance comparison chart: the scope's cumulative TTWROR as a solid primary line and the optional
++ * comparison as a dashed second line (distinguishable without colour), a 0 % reference line, a legend
++ * and an axis tooltip with both values of the day. Hidden without points. Plots exactly the given
++ * points; the only computation is `Number(...)` for coordinates.
++ */
++export function ComparisonChart({ line, scopeLabel, comparison = null }: ComparisonChartProps) {
++  const palette = colors(useTheme());
++  const comparisonLine = comparison?.line ?? null;
++  const plot = useMemo(() => toComparisonPlotData(line, comparisonLine), [line, comparisonLine]);
++  const ticks = useMemo(() => tickDates(plot.dates), [plot]);
++  const format = useMemo(() => performanceFormatters(line), [line]);
++  const comparisonLabel = comparison?.label ?? null;
++  const data = useMemo(
++    () => ({
++      line,
++      scopeLabel,
++      comparison: comparisonLabel === null ? null : { label: comparisonLabel, byDate: comparisonByDate(comparisonLine) },
++    }),
++    [line, scopeLabel, comparisonLabel, comparisonLine],
++  );
++  if (line.length === 0) return null;
++  const domain = performanceYDomain([...plot.scope, ...plot.comparison.filter((value): value is number => value !== null)]);
++  const comparisonValue = (_: number | null, { dataIndex }: { dataIndex: number }): string => {
++    const value = data.comparison?.byDate.get(line[dataIndex]?.date ?? "");
++    return value === undefined ? "" : formatPercent(value);
++  };
++  return (
++    <Box sx={{ mt: 1.5 }}>
++      <Box
++        role="figure"
++        aria-label={comparisonAriaLabel(line, scopeLabel, comparison)}
++        sx={{
++          width: "100%",
++          minWidth: 0,
++          height: { xs: 160, sm: 200 },
++          [`& .MuiLineChart-line[data-series="${SCOPE}"]`]: { stroke: palette.scope, strokeWidth: 2 },
++          [`& .MuiLineChart-line[data-series="${COMPARISON}"]`]: {
++            stroke: palette.comparison,
++            strokeWidth: 2,
++            strokeDasharray: DASH,
++          },
++          "& .MuiChartsReferenceLine-line": { stroke: palette.baseline, strokeWidth: 1 },
++          "& .MuiChartsGrid-line": { stroke: palette.grid, strokeOpacity: 0.6 },
++        }}
++      >
++        <DataContext.Provider value={data}>
++          <LineChart
++            skipAnimation
++            hideLegend
++            disableLineItemHighlight
++            grid={{ horizontal: true }}
++            axisHighlight={{ x: "line" }}
++            margin={{ top: 8, right: 8, bottom: 0, left: 0 }}
++            xAxis={[
++              {
++                data: plot.dates,
++                scaleType: "utc",
++                tickInterval: ticks,
++                tickLabelMinGap: 12,
++                disableTicks: true,
++                valueFormatter: format.x,
++              },
++            ]}
++            yAxis={[{ position: "left", ...domain, width: 64, disableTicks: true, valueFormatter: format.y }]}
++            series={[
++              {
++                id: SCOPE,
++                data: plot.scope,
++                curve: "linear",
++                showMark: false,
++                label: scopeLabel,
++                valueFormatter: format.value,
++                color: palette.scope,
++              },
++              ...(comparison
++                ? [
++                    {
++                      id: COMPARISON,
++                      data: plot.comparison,
++                      curve: "linear" as const,
++                      showMark: false,
++                      connectNulls: true,
++                      label: comparison.label,
++                      valueFormatter: comparisonValue,
++                      color: palette.comparison,
++                    },
++                  ]
++                : []),
++            ]}
++            slots={{ tooltip: ComparisonTooltip }}
++          >
++            <ChartsReferenceLine y={0} />
++          </LineChart>
++        </DataContext.Provider>
++      </Box>
++      <Box
++        component="ul"
++        aria-label="Legende"
++        sx={{ m: 0, mt: 1, p: 0, listStyle: "none", display: "flex", flexWrap: "wrap", columnGap: 2, rowGap: 0.5 }}
++      >
++        <LegendItem label={scopeLabel} color={palette.scope} dashed={false} />
++        {comparison ? <LegendItem label={comparison.label} color={palette.comparison} dashed /> : null}
++      </Box>
++    </Box>
++  );
++}
+diff --git a/src/app/_components/charts/chart-preference.test.ts b/src/app/_components/charts/chart-preference.test.ts
+index baab270..6ec2ad5 100644
+--- a/src/app/_components/charts/chart-preference.test.ts
++++ b/src/app/_components/charts/chart-preference.test.ts
+@@ -1,8 +1,10 @@
+ // @vitest-environment happy-dom
+ import { afterEach, describe, expect, it } from "vitest";
+ import {
++  BENCHMARK_COOKIE,
+   chartPreferenceCookie,
+   MOVING_AVERAGE_COOKIE,
++  parseBenchmarkChoice,
+   parseMovingAverage,
+   parseSecurityChartMode,
+   parseValueChartTab,
+@@ -15,6 +17,7 @@ describe("parseValueChartTab / parseSecurityChartMode", () => {
+   it("accepts the known values and falls back to the default otherwise", () => {
+     expect(parseValueChartTab("drawdown")).toBe("drawdown");
+     expect(parseValueChartTab("performance")).toBe("performance");
++    expect(parseValueChartTab("ttwror")).toBe("ttwror");
+     expect(parseValueChartTab("DRAWDOWN")).toBe("performance");
+     expect(parseValueChartTab(undefined)).toBe("performance");
+     expect(parseSecurityChartMode("value")).toBe("value");
+@@ -36,6 +39,17 @@ describe("parseMovingAverage", () => {
+   });
+ });
+ 
++describe("parseBenchmarkChoice", () => {
++  it("keeps an available choice; anything else is none", () => {
++    const available = ["none", "msci-world", "portfolio", "depot:a"];
++    expect(parseBenchmarkChoice("msci-world", available)).toBe("msci-world");
++    expect(parseBenchmarkChoice("depot:a", available)).toBe("depot:a");
++    expect(parseBenchmarkChoice("depot:b", available)).toBe("none");
++    expect(parseBenchmarkChoice("portfolio", ["none", "dax"])).toBe("none");
++    expect(parseBenchmarkChoice(undefined, available)).toBe("none");
++  });
++});
++
+ describe("chartPreferenceCookie", () => {
+   it("sets path, one year, SameSite=Lax and Secure only on https", () => {
+     expect(chartPreferenceCookie("dm_chart_tab", "drawdown", false)).toBe(
+@@ -52,12 +66,15 @@ describe("storeChartPreference", () => {
+     document.cookie = `${VALUE_CHART_TAB_COOKIE}=; path=/; max-age=0`;
+     document.cookie = `${SECURITY_CHART_COOKIE}=; path=/; max-age=0`;
+     document.cookie = `${MOVING_AVERAGE_COOKIE}=; path=/; max-age=0`;
++    document.cookie = `${BENCHMARK_COOKIE}=; path=/; max-age=0`;
+   });
+ 
+   it("writes the cookie in the browser", () => {
+     storeChartPreference(VALUE_CHART_TAB_COOKIE, "drawdown");
+     storeChartPreference(SECURITY_CHART_COOKIE, "value");
+     storeChartPreference(MOVING_AVERAGE_COOKIE, "38");
++    storeChartPreference(BENCHMARK_COOKIE, "depot:a");
++    expect(document.cookie).toContain("dm_benchmark=depot%3Aa");
+     expect(document.cookie).toContain("dm_moving_average=38");
+     expect(document.cookie).toContain("dm_chart_tab=drawdown");
+     expect(document.cookie).toContain("dm_security_chart=value");
+diff --git a/src/app/_components/charts/chart-preference.ts b/src/app/_components/charts/chart-preference.ts
+index 6a42567..06f72bb 100644
+--- a/src/app/_components/charts/chart-preference.ts
++++ b/src/app/_components/charts/chart-preference.ts
+@@ -1,7 +1,7 @@
+ /**
+  * Chart choices that persist per browser like the global Period (story 7-6): the value-chart tab of
+- * Overview and Depot detail (one shared cookie), the Security chart mode and (story 7-8) the "Kurs"
+- * moving-average overlay. Written client-side on
++ * Overview and Depot detail (one shared cookie), the Security chart mode, (story 7-8) the "Kurs"
++ * moving-average overlay and (story 8-2) the "Vergleich mit" choice of the Performance tab. Written client-side on
+  * change (no server action, so switching never refreshes the page) and read by the server page for the
+  * initial state. Not httpOnly: the cookies hold only a UI choice.
+  */
+@@ -9,11 +9,13 @@
+ export const VALUE_CHART_TAB_COOKIE = "dm_chart_tab";
+ export const SECURITY_CHART_COOKIE = "dm_security_chart";
+ export const MOVING_AVERAGE_COOKIE = "dm_moving_average";
++export const BENCHMARK_COOKIE = "dm_benchmark";
+ 
+ /** About one year, as the Period cookie. */
+ export const CHART_PREFERENCE_MAX_AGE = 365 * 24 * 60 * 60;
+ 
+-export const VALUE_CHART_TABS = ["performance", "drawdown"] as const;
++/** `performance` is "Wertentwicklung" (value chart), `ttwror` the "Performance" comparison tab (story 8-2). */
++export const VALUE_CHART_TABS = ["performance", "ttwror", "drawdown"] as const;
+ export type ValueChartTab = (typeof VALUE_CHART_TABS)[number];
+ export const DEFAULT_VALUE_CHART_TAB: ValueChartTab = "performance";
+ 
+@@ -41,6 +43,17 @@ export function parseMovingAverage(value: string | undefined | null): MovingAver
+   return MOVING_AVERAGE_CHOICES.find((choice) => choice === value) ?? DEFAULT_MOVING_AVERAGE;
+ }
+ 
++/** "Vergleich mit" without a comparison ("keiner"). */
++export const NO_BENCHMARK_CHOICE = "none";
++
++/**
++ * The stored "Vergleich mit" choice (a benchmark key, `portfolio` or `depot:<id>`) when it is one of
++ * `availableKeys` on this page; otherwise (missing, unknown, the Depot itself, an archived Depot) `none`.
++ */
++export function parseBenchmarkChoice(value: string | undefined | null, availableKeys: readonly string[]): string {
++  return value && availableKeys.includes(value) ? value : NO_BENCHMARK_CHOICE;
++}
++
+ /** The `document.cookie` assignment for a choice: `path=/`, `SameSite=Lax`, one year, `Secure` on https. */
+ export function chartPreferenceCookie(name: string, value: string, secure: boolean): string {
+   const parts = [`${name}=${encodeURIComponent(value)}`, "path=/", `max-age=${CHART_PREFERENCE_MAX_AGE}`, "SameSite=Lax"];
+@@ -50,7 +63,7 @@ export function chartPreferenceCookie(name: string, value: string, secure: boole
+ 
+ /** Stores a chart choice in the browser (client components only); never reloads the page. */
+ export function storeChartPreference(
+-  name: typeof VALUE_CHART_TAB_COOKIE | typeof SECURITY_CHART_COOKIE | typeof MOVING_AVERAGE_COOKIE,
++  name: typeof VALUE_CHART_TAB_COOKIE | typeof SECURITY_CHART_COOKIE | typeof MOVING_AVERAGE_COOKIE | typeof BENCHMARK_COOKIE,
+   value: string,
+ ): void {
+   if (typeof document === "undefined") return;
+diff --git a/src/app/_components/charts/comparison-chart.test.ts b/src/app/_components/charts/comparison-chart.test.ts
+new file mode 100644
+index 0000000..8c9bdb7
+--- /dev/null
++++ b/src/app/_components/charts/comparison-chart.test.ts
+@@ -0,0 +1,49 @@
++import { describe, expect, it } from "vitest";
++import { comparisonAriaLabel, comparisonByDate, comparisonTooltipLines, toComparisonPlotData } from "./comparison-chart";
++
++const NBSP = " ";
++const LINE = [
++  { date: "2026-01-31", performance: "0" },
++  { date: "2026-02-01", performance: "0.1" },
++  { date: "2026-02-02", performance: "0.134375" },
++];
++const WORLD = [
++  { date: "2026-01-31", performance: "0" },
++  { date: "2026-02-02", performance: "0.03" },
++];
++
++describe("toComparisonPlotData", () => {
++  it("aligns the comparison to the scope's days by date", () => {
++    expect(toComparisonPlotData(LINE, WORLD)).toEqual({
++      dates: [new Date("2026-01-31T00:00:00Z"), new Date("2026-02-01T00:00:00Z"), new Date("2026-02-02T00:00:00Z")],
++      scope: [0, 0.1, 0.134375],
++      comparison: [0, null, 0.03],
++    });
++    expect(toComparisonPlotData(LINE, null).comparison).toEqual([null, null, null]);
++  });
++});
++
++describe("comparisonTooltipLines", () => {
++  it("gives the date, the scope row and the comparison row (– on a missing day)", () => {
++    const comparison = { label: "MSCI World", byDate: comparisonByDate(WORLD) };
++    expect(comparisonTooltipLines(LINE[2], "Portfolio", comparison)).toEqual({
++      date: "02.02.2026",
++      rows: [
++        { label: "Portfolio", value: `+13,44${NBSP}%` },
++        { label: "MSCI World", value: `+3,00${NBSP}%` },
++      ],
++    });
++    expect(comparisonTooltipLines(LINE[1], "Portfolio", comparison).rows[1]).toEqual({ label: "MSCI World", value: "–" });
++    expect(comparisonTooltipLines(LINE[0], "Portfolio", null).rows).toEqual([{ label: "Portfolio", value: "0,00 %" }]);
++  });
++});
++
++describe("comparisonAriaLabel", () => {
++  it("names the range and each line's last performance", () => {
++    expect(comparisonAriaLabel(LINE, "Portfolio", { label: "MSCI World", line: WORLD })).toBe(
++      `Performance 31.01.2026 – 02.02.2026: Portfolio +13,44${NBSP}%, MSCI World +3,00${NBSP}%`,
++    );
++    expect(comparisonAriaLabel(LINE, "Portfolio", null)).toBe(`Performance 31.01.2026 – 02.02.2026: Portfolio +13,44${NBSP}%`);
++    expect(comparisonAriaLabel([], "Portfolio", null)).toBe("Performance: keine Daten");
++  });
++});
+diff --git a/src/app/_components/charts/comparison-chart.ts b/src/app/_components/charts/comparison-chart.ts
+new file mode 100644
+index 0000000..a3a313a
+--- /dev/null
++++ b/src/app/_components/charts/comparison-chart.ts
+@@ -0,0 +1,67 @@
++/**
++ * Presentation-edge helpers of the Performance comparison chart (story 8-2): plot coordinates
++ * (`Number(...)` only here), tooltip lines and the text alternative — every displayed text formatted
++ * from the original ratio strings via `core/format`.
++ */
++import { formatDate, formatPercent } from "@/core/format";
++import type { PerformanceChartPoint } from "./performance-chart";
++import { utcDate } from "./value-chart";
++
++/** Plot coordinates, index-aligned with the scope line; the comparison is `null` on days it lacks. */
++export type ComparisonPlotData = { dates: Date[]; scope: number[]; comparison: (number | null)[] };
++
++/** One tooltip row: series label and its signed performance (`–` without a value that day). */
++export type ComparisonTooltipRow = { label: string; value: string };
++
++/** The comparison line's points by date. */
++export function comparisonByDate(comparison: readonly PerformanceChartPoint[] | null): Map<string, string> {
++  return new Map((comparison ?? []).map((point) => [point.date, point.performance]));
++}
++
++/** Plot coordinates: the scope line and the comparison aligned by date to the scope's days. */
++export function toComparisonPlotData(
++  line: readonly PerformanceChartPoint[],
++  comparison: readonly PerformanceChartPoint[] | null,
++): ComparisonPlotData {
++  const byDate = comparisonByDate(comparison);
++  return {
++    dates: line.map((point) => utcDate(point.date)),
++    scope: line.map((point) => Number(point.performance)),
++    comparison: line.map((point) => {
++      const value = byDate.get(point.date);
++      return value === undefined ? null : Number(value);
++    }),
++  };
++}
++
++/** Tooltip texts of one day: the date, then the scope row and (with a comparison) the comparison row. */
++export function comparisonTooltipLines(
++  point: PerformanceChartPoint,
++  scopeLabel: string,
++  comparison: { label: string; byDate: Map<string, string> } | null,
++): { date: string; rows: ComparisonTooltipRow[] } {
++  const rows: ComparisonTooltipRow[] = [{ label: scopeLabel, value: formatPercent(point.performance) }];
++  if (comparison) {
++    const value = comparison.byDate.get(point.date);
++    rows.push({ label: comparison.label, value: value === undefined ? "–" : formatPercent(value) });
++  }
++  return { date: formatDate(point.date), rows };
++}
++
++/**
++ * Text alternative, e.g. `Performance 31.01.2026 – 04.02.2026: Portfolio +12,00 %, MSCI World +8,00 %`
++ * (each line's last point).
++ */
++export function comparisonAriaLabel(
++  line: readonly PerformanceChartPoint[],
++  scopeLabel: string,
++  comparison: { label: string; line: readonly PerformanceChartPoint[] } | null,
++): string {
++  const first = line.at(0);
++  const last = line.at(-1);
++  if (!first || !last) return "Performance: keine Daten";
++  const parts = [`${scopeLabel} ${formatPercent(last.performance)}`];
++  const comparisonLast = comparison?.line.at(-1);
++  if (comparison && comparisonLast) parts.push(`${comparison.label} ${formatPercent(comparisonLast.performance)}`);
++  return `Performance ${formatDate(first.date)} – ${formatDate(last.date)}: ${parts.join(", ")}`;
++}
+diff --git a/src/app/_components/valuation/PerformancePanel.dom.test.tsx b/src/app/_components/valuation/PerformancePanel.dom.test.tsx
+new file mode 100644
+index 0000000..102ee47
+--- /dev/null
++++ b/src/app/_components/valuation/PerformancePanel.dom.test.tsx
+@@ -0,0 +1,106 @@
++// @vitest-environment happy-dom
++import { ThemeProvider } from "@mui/material/styles";
++import { render, screen, within } from "@testing-library/react";
++import userEvent from "@testing-library/user-event";
++import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
++import { registerDomCleanup } from "../../../../test/helpers/dom";
++import { theme } from "@/theme/theme";
++import { PerformancePanel, type PerformancePanelProps } from "./PerformancePanel";
++
++registerDomCleanup();
++
++const NBSP = " ";
++const LINE = [
++  { date: "2026-01-31", performance: "0" },
++  { date: "2026-02-01", performance: "0.1" },
++  { date: "2026-02-02", performance: "0.134375" },
++];
++const WORLD = [
++  { date: "2026-01-31", performance: "0" },
++  { date: "2026-02-01", performance: "0" },
++  { date: "2026-02-02", performance: "0.03" },
++];
++const OPTIONS: PerformancePanelProps["options"] = [
++  { key: "msci-world", label: "MSCI World", line: WORLD },
++  { key: "dax", label: "DAX", line: null },
++  { key: "portfolio", label: "Gesamtportfolio", line: LINE },
++  { key: "depot:b", label: "Zweitdepot", line: WORLD },
++];
++
++const realGetComputedStyle = window.getComputedStyle.bind(window);
++beforeEach(() => {
++  vi.spyOn(window, "getComputedStyle").mockImplementation((element: Element, pseudo?: string | null) => {
++    const style = realGetComputedStyle(element, pseudo);
++    return new Proxy(style, {
++      get(target, key) {
++        if (key === "width") return "600px";
++        if (key === "height") return "200px";
++        const value: unknown = Reflect.get(target, key);
++        return typeof value === "function" ? (value as (...args: unknown[]) => unknown).bind(target) : value;
++      },
++    });
++  });
++});
++
++afterEach(() => {
++  vi.restoreAllMocks();
++  document.cookie = "dm_benchmark=; path=/; max-age=0";
++});
++
++function renderPanel(initialChoice = "none") {
++  return render(
++    <ThemeProvider theme={theme}>
++      <PerformancePanel scopeLabel="Hauptdepot" line={LINE} options={OPTIONS} initialChoice={initialChoice} />
++    </ThemeProvider>,
++  );
++}
++
++const figure = () => screen.getByRole("figure").getAttribute("aria-label");
++
++describe("PerformancePanel", () => {
++  it("shows the scope line and its return only without a comparison", () => {
++    renderPanel();
++    expect(screen.getByRole("combobox", { name: "Vergleich mit" }).textContent).toBe("keiner");
++    expect(figure()).toBe(`Performance 31.01.2026 – 02.02.2026: Hauptdepot +13,44${NBSP}%`);
++    expect(screen.getByText("Performance")).toBeTruthy();
++    expect(screen.getByText("+13,44 %")).toBeTruthy();
++    expect(screen.queryByText("Differenz")).toBeNull();
++    expect(within(screen.getByRole("list", { name: "Legende" })).getAllByRole("listitem")).toHaveLength(1);
++  });
++
++  it("offers keiner and every option, draws the chosen comparison with a legend, KPIs and the difference, storing the choice", async () => {
++    const user = userEvent.setup({ delay: null });
++    renderPanel();
++    await user.click(screen.getByRole("combobox", { name: "Vergleich mit" }));
++    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
++      "keiner",
++      "MSCI World",
++      "DAX",
++      "Gesamtportfolio",
++      "Zweitdepot",
++    ]);
++    await user.click(screen.getByRole("option", { name: "MSCI World" }));
++    expect(figure()).toBe(`Performance 31.01.2026 – 02.02.2026: Hauptdepot +13,44${NBSP}%, MSCI World +3,00${NBSP}%`);
++    const legend = within(screen.getByRole("list", { name: "Legende" })).getAllByRole("listitem");
++    expect(legend.map((item) => item.textContent)).toEqual(["Hauptdepot", "MSCI World"]);
++    expect(legend[1].querySelector("line")?.getAttribute("stroke-dasharray")).toBe("6 4");
++    expect(legend[0].querySelector("line")?.getAttribute("stroke-dasharray")).toBeNull();
++    expect(screen.getByText("+3,00 %")).toBeTruthy();
++    expect(screen.getByText("Differenz")).toBeTruthy();
++    expect(screen.getByText("+10,44 Pp.")).toBeTruthy();
++    expect(document.cookie).toContain("dm_benchmark=msci-world");
++  });
++
++  it("says Keine Kurse für den Vergleich for a comparison without prices, without comparison KPIs", () => {
++    renderPanel("dax");
++    expect(screen.getByText("Keine Kurse für den Vergleich")).toBeTruthy();
++    expect(figure()).toBe(`Performance 31.01.2026 – 02.02.2026: Hauptdepot +13,44${NBSP}%`);
++    expect(screen.queryByText("Differenz")).toBeNull();
++  });
++
++  it("starts with the stored choice and treats an unknown one as keiner", () => {
++    renderPanel("depot:b");
++    expect(screen.getByRole("combobox", { name: "Vergleich mit" }).textContent).toBe("Zweitdepot");
++    expect(screen.getByText("+10,44 Pp.")).toBeTruthy();
++  });
++});
+diff --git a/src/app/_components/valuation/PerformancePanel.tsx b/src/app/_components/valuation/PerformancePanel.tsx
+new file mode 100644
+index 0000000..7b3ccea
+--- /dev/null
++++ b/src/app/_components/valuation/PerformancePanel.tsx
+@@ -0,0 +1,90 @@
++"use client";
++
++import Box from "@mui/material/Box";
++import MenuItem from "@mui/material/MenuItem";
++import TextField from "@mui/material/TextField";
++import Typography from "@mui/material/Typography";
++import { useState } from "react";
++import { ComparisonChart } from "@/app/_components/charts/ComparisonChart";
++import { BENCHMARK_COOKIE, NO_BENCHMARK_CHOICE, storeChartPreference } from "@/app/_components/charts/chart-preference";
++import { returnDifference } from "@/core/benchmarks";
++import { formatPercent, formatPercentagePoints } from "@/core/format";
++import { NO_COMPARISON_LABEL, type PerformanceComparison } from "./comparison-options";
++import { Kpi } from "./Kpi";
++
++export type PerformancePanelProps = PerformanceComparison;
++
++export const NO_PRICES_TEXT = "Keine Kurse für den Vergleich";
++export const PERFORMANCE_KPI_LABEL = "Performance";
++export const DIFFERENCE_KPI_LABEL = "Differenz";
++
++/**
++ * The "Performance" tab of the hero card: a "Vergleich mit" select, the scope's cumulative TTWROR with
++ * the chosen comparison as a dashed line, and a KPI row (scope return, comparison return, difference in
++ * percentage points). A comparison without prices shows "Keine Kurse für den Vergleich" instead of its
++ * line and KPIs. The choice is stored in the `dm_benchmark` cookie; switching never reloads the page.
++ */
++export function PerformancePanel({ scopeLabel, line, options, initialChoice }: PerformancePanelProps) {
++  const [choice, setChoice] = useState(initialChoice);
++  const option = options.find((candidate) => candidate.key === choice) ?? null;
++  const comparison = option?.line ? { label: option.label, line: option.line } : null;
++  const scopeReturn = line.at(-1)?.performance ?? null;
++  const comparisonReturn = comparison?.line.at(-1)?.performance ?? null;
++  const difference = returnDifference(scopeReturn, comparisonReturn);
++  return (
++    <Box>
++      <TextField
++        select
++        label="Vergleich mit"
++        value={option ? option.key : NO_BENCHMARK_CHOICE}
++        onChange={(event) => {
++          setChoice(event.target.value);
++          storeChartPreference(BENCHMARK_COOKIE, event.target.value);
++        }}
++        slotProps={{ inputLabel: { shrink: true } }}
++        sx={{ mt: 2, width: { xs: "100%", sm: 260 } }}
++      >
++        <MenuItem value={NO_BENCHMARK_CHOICE} sx={{ minHeight: 44 }}>
++          {NO_COMPARISON_LABEL}
++        </MenuItem>
++        {options.map((candidate) => (
++          <MenuItem key={candidate.key} value={candidate.key} sx={{ minHeight: 44 }}>
++            {candidate.label}
++          </MenuItem>
++        ))}
++      </TextField>
++      <ComparisonChart line={line} scopeLabel={scopeLabel} comparison={comparison} />
++      {option && !option.line ? (
++        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
++          {NO_PRICES_TEXT}
++        </Typography>
++      ) : null}
++      <Box
++        sx={{
++          mt: 1.5,
++          display: "grid",
++          gridTemplateColumns: { xs: "repeat(2, minmax(0, 1fr))", md: "repeat(3, minmax(0, 1fr))" },
++          gap: 1.5,
++        }}
++      >
++        <Kpi
++          label={PERFORMANCE_KPI_LABEL}
++          value={scopeReturn === null ? "–" : formatPercent(scopeReturn)}
++          color="primary.main"
++          note={scopeLabel}
++        />
++        {comparison && comparisonReturn !== null ? (
++          <>
++            <Kpi label={comparison.label} value={formatPercent(comparisonReturn)} color="chart.series2" note="gestrichelt" />
++            <Kpi
++              label={DIFFERENCE_KPI_LABEL}
++              value={difference === null ? "–" : formatPercentagePoints(difference)}
++              color="text.secondary"
++              note={`gegenüber ${comparison.label}`}
++            />
++          </>
++        ) : null}
++      </Box>
++    </Box>
++  );
++}
+diff --git a/src/app/_components/valuation/ValueChartTabs.dom.test.tsx b/src/app/_components/valuation/ValueChartTabs.dom.test.tsx
+index f7d62cf..5a615c7 100644
+--- a/src/app/_components/valuation/ValueChartTabs.dom.test.tsx
++++ b/src/app/_components/valuation/ValueChartTabs.dom.test.tsx
+@@ -1,10 +1,11 @@
+ // @vitest-environment happy-dom
+ import { ThemeProvider } from "@mui/material/styles";
+-import { render, screen } from "@testing-library/react";
++import { cleanup, render, screen } from "@testing-library/react";
+ import userEvent from "@testing-library/user-event";
+ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+ import { registerDomCleanup } from "../../../../test/helpers/dom";
+ import { theme } from "@/theme/theme";
++import type { ValueChartTab } from "@/app/_components/charts/chart-preference";
+ import { ValueChartTabs } from "./ValueChartTabs";
+ 
+ registerDomCleanup();
+@@ -43,10 +44,21 @@ afterEach(() => {
+   document.cookie = "dm_chart_tab=; path=/; max-age=0";
+ });
+ 
+-function renderTabs(initialTab: "performance" | "drawdown" = "performance") {
++const COMPARISON = {
++  scopeLabel: "Portfolio",
++  line: [
++    { date: "2026-01-31", performance: "0" },
++    { date: "2026-02-01", performance: "0.1" },
++    { date: "2026-02-02", performance: "-0.01" },
++  ],
++  options: [{ key: "msci-world", label: "MSCI World", line: null }],
++  initialChoice: "none",
++};
++
++function renderTabs(initialTab: ValueChartTab = "performance", comparison: typeof COMPARISON | null = COMPARISON) {
+   return render(
+     <ThemeProvider theme={theme}>
+-      <ValueChartTabs points={POINTS} drawdown={DRAWDOWN} initialTab={initialTab} />
++      <ValueChartTabs points={POINTS} drawdown={DRAWDOWN} initialTab={initialTab} comparison={comparison ?? undefined} />
+     </ThemeProvider>,
+   );
+ }
+@@ -70,6 +82,25 @@ describe("ValueChartTabs", () => {
+     expect(document.cookie).toContain("dm_chart_tab=performance");
+   });
+ 
++  it("orders the tabs Wertentwicklung, Performance, Drawdown and shows the TTWROR comparison in place", async () => {
++    const user = userEvent.setup({ delay: null });
++    renderTabs();
++    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["Wertentwicklung", "Performance", "Drawdown"]);
++    await user.click(screen.getByRole("tab", { name: "Performance" }));
++    expect(screen.getByRole("figure").getAttribute("aria-label")).toBe("Performance 31.01.2026 – 02.02.2026: Portfolio -1,00\u00a0%");
++    expect(screen.getByRole("combobox", { name: "Vergleich mit" })).toBeTruthy();
++    expect(document.cookie).toContain("dm_chart_tab=ttwror");
++  });
++
++  it("starts in the stored Performance tab; without comparison data the tab is left out", () => {
++    renderTabs("ttwror");
++    expect(screen.getByRole("tab", { name: "Performance" }).getAttribute("aria-selected")).toBe("true");
++    cleanup();
++    renderTabs("ttwror", null);
++    expect(screen.queryByRole("tab", { name: "Performance" })).toBeNull();
++    expect(screen.getByRole("tab", { name: "Wertentwicklung" }).getAttribute("aria-selected")).toBe("true");
++  });
++
+   it("starts in the stored tab", () => {
+     renderTabs("drawdown");
+     expect(screen.getByRole("tab", { name: "Drawdown" }).getAttribute("aria-selected")).toBe("true");
+diff --git a/src/app/_components/valuation/ValueChartTabs.tsx b/src/app/_components/valuation/ValueChartTabs.tsx
+index 58971fe..86dbf2c 100644
+--- a/src/app/_components/valuation/ValueChartTabs.tsx
++++ b/src/app/_components/valuation/ValueChartTabs.tsx
+@@ -15,8 +15,14 @@ import {
+ import type { DrawdownChartPoint, DrawdownSummary } from "@/app/_components/charts/drawdown-chart";
+ import { ValueChart } from "@/app/_components/charts/ValueChart";
+ import type { ChartPoint } from "@/app/_components/charts/value-chart";
++import type { PerformanceComparison } from "./comparison-options";
++import { PerformancePanel } from "./PerformancePanel";
+ 
+-export const VALUE_CHART_TAB_LABELS: Record<ValueChartTab, string> = { performance: "Wertentwicklung", drawdown: "Drawdown" };
++export const VALUE_CHART_TAB_LABELS: Record<ValueChartTab, string> = {
++  performance: "Wertentwicklung",
++  ttwror: "Performance",
++  drawdown: "Drawdown",
++};
+ 
+ export type ValueChartTabsProps = {
+   /** The value chart's points (decimal strings). */
+@@ -25,14 +31,18 @@ export type ValueChartTabsProps = {
+   drawdown: DrawdownSummary & { points: readonly DrawdownChartPoint[] };
+   /** The stored tab (cookie) for the first render. */
+   initialTab: ValueChartTab;
++  /** The Performance tab's line and comparisons; without it the tab is left out. */
++  comparison?: PerformanceComparison;
+ };
+ 
+ /**
+- * Tabs "Wertentwicklung | Drawdown" of the hero card: the value chart or the drawdown chart with its KPI
+- * row. Switching never reloads the page; the choice is stored in the shared `dm_chart_tab` cookie.
++ * Tabs "Wertentwicklung | Performance | Drawdown" of the hero card: the value chart, the TTWROR
++ * comparison (when `comparison` is given) or the drawdown chart with its KPI row. Switching never reloads
++ * the page; the choice is stored in the shared `dm_chart_tab` cookie.
+  */
+-export function ValueChartTabs({ points, drawdown, initialTab }: ValueChartTabsProps) {
+-  const [tab, setTab] = useState<ValueChartTab>(initialTab);
++export function ValueChartTabs({ points, drawdown, initialTab, comparison }: ValueChartTabsProps) {
++  const tabs = VALUE_CHART_TABS.filter((value) => value !== "ttwror" || comparison);
++  const [tab, setTab] = useState<ValueChartTab>(tabs.includes(initialTab) ? initialTab : "performance");
+   const id = useId().replace(/[^a-zA-Z0-9_-]/g, "");
+   const tabId = (value: ValueChartTab) => `value-chart-tab-${id}-${value}`;
+   const panelId = (value: ValueChartTab) => `value-chart-panel-${id}-${value}`;
+@@ -48,7 +58,7 @@ export function ValueChartTabs({ points, drawdown, initialTab }: ValueChartTabsP
+         }}
+         sx={{ minHeight: 44 }}
+       >
+-        {VALUE_CHART_TABS.map((value) => (
++        {tabs.map((value) => (
+           <Tab
+             key={value}
+             value={value}
+@@ -62,6 +72,8 @@ export function ValueChartTabs({ points, drawdown, initialTab }: ValueChartTabsP
+       <Box role="tabpanel" id={panelId(tab)} aria-labelledby={tabId(tab)}>
+         {tab === "performance" ? (
+           <ValueChart points={points} />
++        ) : tab === "ttwror" && comparison ? (
++          <PerformancePanel {...comparison} />
+         ) : (
+           <DrawdownChart points={drawdown.points} summary={drawdown} />
+         )}
+diff --git a/src/app/_components/valuation/ValueSummary.tsx b/src/app/_components/valuation/ValueSummary.tsx
+index 0cc3e15..b9fad0a 100644
+--- a/src/app/_components/valuation/ValueSummary.tsx
++++ b/src/app/_components/valuation/ValueSummary.tsx
+@@ -11,6 +11,7 @@ import Typography from "@mui/material/Typography";
+ import { ValueChart } from "@/app/_components/charts/ValueChart";
+ import { Kpi } from "./Kpi";
+ import { ValueChartTabs } from "./ValueChartTabs";
++import type { PerformanceComparison } from "./comparison-options";
+ import type { ValueChartTab } from "@/app/_components/charts/chart-preference";
+ import type { Drawdown } from "@/core/drawdown";
+ import { toChartPoints } from "@/app/_components/charts/value-chart";
+@@ -37,12 +38,14 @@ export type ValueSummaryProps = {
+   /** The Period's daily valuation series (same call as the figures); renders the value chart when given. */
+   series?: readonly ValuationPoint[];
+   /**
+-   * The Period's drawdown (same series); with `series` it adds the tabs "Wertentwicklung | Drawdown" to
+-   * the hero card. Without it the value chart renders alone.
++   * The Period's drawdown (same series); with `series` it adds the tabs "Wertentwicklung | Drawdown" (plus
++   * "Performance" with `comparison`) to the hero card. Without it the value chart renders alone.
+    */
+   drawdown?: Drawdown;
+   /** The stored chart tab (cookie) for the first render; default "Wertentwicklung". */
+   chartTab?: ValueChartTab;
++  /** With `drawdown`: the Performance tab's TTWROR line and "Vergleich mit" options. */
++  comparison?: PerformanceComparison;
+   /** Accessible name of the section, e.g. "Portfoliowert" on the Overview; default "Depotwert". */
+   label?: string;
+ };
+@@ -134,6 +137,7 @@ export function ValueSummary({
+   series,
+   drawdown,
+   chartTab = "performance",
++  comparison,
+   label = "Depotwert",
+ }: ValueSummaryProps) {
+   return (
+@@ -159,7 +163,7 @@ export function ValueSummary({
+           </Stack>
+           {series && series.length > 0 ? (
+             drawdown ? (
+-              <ValueChartTabs points={toChartPoints(series)} drawdown={drawdown} initialTab={chartTab} />
++              <ValueChartTabs points={toChartPoints(series)} drawdown={drawdown} initialTab={chartTab} comparison={comparison} />
+             ) : (
+               <ValueChart points={toChartPoints(series)} />
+             )
+diff --git a/src/app/_components/valuation/comparison-options.ts b/src/app/_components/valuation/comparison-options.ts
+new file mode 100644
+index 0000000..371555f
+--- /dev/null
++++ b/src/app/_components/valuation/comparison-options.ts
+@@ -0,0 +1,53 @@
++/**
++ * The "Vergleich mit" options of the Performance tab (story 8-2): the benchmark indices, Gesamtportfolio
++ * (Depot detail only) and the other non-archived Depots, each with its line computed server-side for the
++ * render so switching is instant.
++ */
++import { BENCHMARKS, type BenchmarkKey, type PerformancePoint } from "@/core/benchmarks";
++import { NO_BENCHMARK_CHOICE } from "@/app/_components/charts/chart-preference";
++
++/** One comparison: its stored key, label and line (`null` = no prices, "Keine Kurse für den Vergleich"). */
++export type ComparisonOption = { key: string; label: string; line: PerformancePoint[] | null };
++
++/** The Performance tab's data: the scope line, its label, the comparison options and the initial choice. */
++export type PerformanceComparison = {
++  scopeLabel: string;
++  line: PerformancePoint[];
++  options: ComparisonOption[];
++  /** A key of `options` or `none`. */
++  initialChoice: string;
++};
++
++export const NO_COMPARISON_LABEL = "keiner";
++export const PORTFOLIO_CHOICE = "portfolio";
++export const PORTFOLIO_COMPARISON_LABEL = "Gesamtportfolio";
++
++/** The stored key of a Depot comparison. */
++export function depotChoice(depotId: string): string {
++  return `depot:${depotId}`;
++}
++
++/**
++ * The options in select order: the four indices, Gesamtportfolio when given (Depot detail), then the
++ * given Depots (the caller leaves out the Depot itself and archived ones).
++ */
++export function comparisonOptions({
++  benchmarks,
++  portfolio,
++  depots,
++}: {
++  benchmarks: Record<BenchmarkKey, PerformancePoint[] | null>;
++  portfolio?: PerformancePoint[];
++  depots: readonly { id: string; name: string; line: PerformancePoint[] }[];
++}): ComparisonOption[] {
++  return [
++    ...BENCHMARKS.map((benchmark) => ({ key: benchmark.key, label: benchmark.label, line: benchmarks[benchmark.key] })),
++    ...(portfolio ? [{ key: PORTFOLIO_CHOICE, label: PORTFOLIO_COMPARISON_LABEL, line: portfolio }] : []),
++    ...depots.map((depot) => ({ key: depotChoice(depot.id), label: depot.name, line: depot.line })),
++  ];
++}
++
++/** Every choice valid on the page: `none` and the option keys. */
++export function comparisonChoiceKeys(options: readonly ComparisonOption[]): string[] {
++  return [NO_BENCHMARK_CHOICE, ...options.map((option) => option.key)];
++}
+diff --git a/src/core/benchmarks.test.ts b/src/core/benchmarks.test.ts
+new file mode 100644
+index 0000000..4b21efd
+--- /dev/null
++++ b/src/core/benchmarks.test.ts
+@@ -0,0 +1,110 @@
++import { describe, expect, it } from "vitest";
++import {
++  BENCHMARKS,
++  benchmarkStartDate,
++  indexPerformanceLine,
++  performanceLine,
++  priceReturnLine,
++  returnDifference,
++} from "./benchmarks";
++import { NO_CORPORATE_ACTIONS } from "./corporate-actions";
++import type { PriceObservation } from "./prices";
++import { ttwror } from "./returns";
++import { securityPriceSeries } from "./security";
++import type { ValuationPoint } from "./valuation";
++
++const point = (date: string, value: string): ValuationPoint => ({
++  date,
++  value,
++  positionsValue: value,
++  cash: "0",
++  investedCapital: value,
++});
++const flow = (type: string, date: string, amount: string) => ({ type, date, amount, tax: "0" });
++
++describe("BENCHMARKS", () => {
++  it("lists the four index ETFs with their ISINs in select order", () => {
++    expect(BENCHMARKS.map(({ key, label, isin }) => [key, label, isin])).toEqual([
++      ["msci-world", "MSCI World", "IE00B4L5Y983"],
++      ["msci-acwi", "MSCI ACWI", "IE00B6R52259"],
++      ["dax", "DAX", "DE0005933931"],
++      ["sp500", "S&P 500", "IE00B5BMR087"],
++    ]);
++  });
++});
++
++describe("benchmarkStartDate", () => {
++  it("is ten days before the earliest ledger date", () => {
++    expect(benchmarkStartDate("2026-03-05")).toBe("2026-02-23");
++  });
++});
++
++describe("performanceLine", () => {
++  it("starts at 0 on start.date and treats a Deposit as a flow (1650 / 1600 on d2)", () => {
++    const start = point("2026-02-01", "1000");
++    const series = [point("2026-02-02", "1100"), point("2026-02-03", "1650")];
++    const rows = [flow("DEPOSIT", "2026-02-03", "500")];
++    const line = performanceLine(start, series, rows);
++    expect(line).toEqual([
++      { date: "2026-02-01", performance: "0" },
++      { date: "2026-02-02", performance: "0.1" },
++      { date: "2026-02-03", performance: "0.134375" },
++    ]);
++    expect(line.at(-1)?.performance).toBe(ttwror(start, series, rows));
++  });
++
++  it("is only the start point for an empty series", () => {
++    expect(performanceLine(point("2026-02-01", "0"), [], [])).toEqual([{ date: "2026-02-01", performance: "0" }]);
++  });
++});
++
++describe("indexPerformanceLine", () => {
++  it("prepends the start point and subtracts 1 from each level", () => {
++    expect(indexPerformanceLine("2026-02-01", [{ date: "2026-02-02", level: "0.95" }])).toEqual([
++      { date: "2026-02-01", performance: "0" },
++      { date: "2026-02-02", performance: "-0.05" },
++    ]);
++  });
++});
++
++describe("priceReturnLine", () => {
++  const close = (date: string, price: string): PriceObservation => ({
++    id: date,
++    securityId: "b",
++    date,
++    sequence: 0,
++    price,
++    source: "provider",
++  });
++
++  it("bases a weekend start on Friday's close, carried forward (Sat/Sun 0, Mon +3 %)", () => {
++    const prices = securityPriceSeries(
++      [close("2026-02-06", "100"), close("2026-02-09", "103")],
++      "b",
++      NO_CORPORATE_ACTIONS,
++      "2026-02-07",
++      "2026-02-09",
++    );
++    expect(priceReturnLine(prices)).toEqual([
++      { date: "2026-02-07", performance: "0" },
++      { date: "2026-02-08", performance: "0" },
++      { date: "2026-02-09", performance: "0.03" },
++    ]);
++  });
++
++  it("is null without a close on or before the start date, or for a zero base", () => {
++    const later = securityPriceSeries([close("2026-02-09", "103")], "b", NO_CORPORATE_ACTIONS, "2026-02-07", "2026-02-09");
++    expect(priceReturnLine(later)).toBeNull();
++    expect(priceReturnLine([])).toBeNull();
++    expect(priceReturnLine([{ date: "2026-02-07", price: "0" }, { date: "2026-02-08", price: "1" }])).toBeNull();
++  });
++});
++
++describe("returnDifference", () => {
++  it("is scope minus comparison, null when either is missing", () => {
++    expect(returnDifference("0.134375", "0.03")).toBe("0.104375");
++    expect(returnDifference("-0.05", "0.1")).toBe("-0.15");
++    expect(returnDifference(null, "0.1")).toBeNull();
++    expect(returnDifference("0.1", undefined)).toBeNull();
++  });
++});
+diff --git a/src/core/benchmarks.ts b/src/core/benchmarks.ts
+new file mode 100644
+index 0000000..d5c661e
+--- /dev/null
++++ b/src/core/benchmarks.ts
+@@ -0,0 +1,82 @@
++/**
++ * Benchmark comparison (story 8-2): the reference table of index ETFs and the pure line builders of the
++ * "Performance" chart tab. A scope line is the cumulative TTWROR (`ttwrorIndex` − 1, AD-10); a benchmark
++ * line is the ETF's price return against its resolver price on the line's start date. Every line starts
++ * with `"0"` on the valuation start point (`start.date`, the day before the Period's `from`). Ratios are
++ * decimal strings (`ratioString`).
++ */
++import { addDays } from "./dates";
++import { ratioString, ReturnDecimal, ttwrorIndex, type FlowRow } from "./returns";
++import type { PerformancePoint, PricePoint } from "./security";
++import type { ValuationPoint } from "./valuation";
++
++export type { PerformancePoint } from "./security";
++
++export const BENCHMARK_KEYS = ["msci-world", "msci-acwi", "dax", "sp500"] as const;
++export type BenchmarkKey = (typeof BENCHMARK_KEYS)[number];
++
++/** A benchmark: an accumulating EUR UCITS ETF tracking the index, priced like any Security but never held. */
++export type Benchmark = { key: BenchmarkKey; label: string; isin: string; name: string };
++
++/** The benchmark ETFs (asset type ETF), in the order of the "Vergleich mit" select. */
++export const BENCHMARKS: readonly Benchmark[] = [
++  { key: "msci-world", label: "MSCI World", isin: "IE00B4L5Y983", name: "iShares Core MSCI World UCITS ETF (Acc)" },
++  { key: "msci-acwi", label: "MSCI ACWI", isin: "IE00B6R52259", name: "iShares MSCI ACWI UCITS ETF (Acc)" },
++  { key: "dax", label: "DAX", isin: "DE0005933931", name: "iShares Core DAX UCITS ETF (DE)" },
++  { key: "sp500", label: "S&P 500", isin: "IE00B5BMR087", name: "iShares Core S&P 500 UCITS ETF (Acc)" },
++];
++
++/** Days of benchmark history fetched before the earliest ledger date (a base close before any Period start). */
++export const BENCHMARK_HISTORY_DAYS = 10;
++
++/** The first date of benchmark price history: `BENCHMARK_HISTORY_DAYS` before the earliest ledger date. */
++export function benchmarkStartDate(firstLedgerDate: string): string {
++  return addDays(firstLedgerDate, -BENCHMARK_HISTORY_DAYS);
++}
++
++/**
++ * A performance line from a TTWROR index (`ttwrorIndex` levels, base `1` on `startDate`): `"0"` on
++ * `startDate`, then per level `level − 1`.
++ */
++export function indexPerformanceLine(startDate: string, index: readonly { date: string; level: string }[]): PerformancePoint[] {
++  return [
++    { date: startDate, performance: "0" },
++    ...index.map(({ date, level }) => ({ date, performance: ratioString(new ReturnDecimal(level).minus(1)) })),
++  ];
++}
++
++/**
++ * The cumulative TTWROR line of a scope (Depot or Portfolio) over `series`, `start` the valuation point of
++ * the day before: `"0"` on `start.date`, then the chain after each day − 1 (same flow rules as `ttwror`).
++ * The last point equals the Period TTWROR whenever that is non-null.
++ */
++export function performanceLine(
++  start: ValuationPoint,
++  series: readonly ValuationPoint[],
++  rows: readonly FlowRow[],
++): PerformancePoint[] {
++  return indexPerformanceLine(start.date, ttwrorIndex(start, series, rows));
++}
++
++/**
++ * The price-return line of a daily price series (`securityPriceSeries`, first point = the line's start
++ * date): per day `price / base − 1` with the first point's price as base. `null` when the base is missing
++ * or zero (no close on or before the start date), so no comparison can be drawn.
++ */
++export function priceReturnLine(prices: readonly PricePoint[]): PerformancePoint[] | null {
++  const base = prices.at(0)?.price;
++  if (base === null || base === undefined || new ReturnDecimal(base).isZero()) return null;
++  const divisor = new ReturnDecimal(base);
++  let last = base;
++  return prices.map(({ date, price }) => {
++    // The series is carried forward, so a later null cannot occur; keep the last price defensively.
++    if (price !== null) last = price;
++    return { date, performance: ratioString(new ReturnDecimal(last).dividedBy(divisor).minus(1)) };
++  });
++}
++
++/** Scope return minus comparison return (a ratio, shown in percentage points); `null` when either is missing. */
++export function returnDifference(scope: string | null | undefined, comparison: string | null | undefined): string | null {
++  if (scope === null || scope === undefined || comparison === null || comparison === undefined) return null;
++  return ratioString(new ReturnDecimal(scope).minus(comparison));
++}
+diff --git a/src/core/format.test.ts b/src/core/format.test.ts
+index d8f7f97..9e863aa 100644
+--- a/src/core/format.test.ts
++++ b/src/core/format.test.ts
+@@ -1,6 +1,6 @@
+ import Decimal from "decimal.js";
+ import { describe, expect, it } from "vitest";
+-import { formatDate, formatDateTime, formatMonth, formatMoney, formatPercent, formatQuantity, formatShare } from "./format";
++import { formatDate, formatDateTime, formatMonth, formatMoney, formatPercent, formatPercentagePoints, formatQuantity, formatShare } from "./format";
+ 
+ const NBSP = " ";
+ 
+@@ -44,6 +44,14 @@ describe("formatMoney", () => {
+   });
+ });
+ 
++describe("formatPercentagePoints", () => {
++  it("renders a signed ratio difference in Pp. with two decimals", () => {
++    expect(formatPercentagePoints("0.0123")).toBe(`+1,23${NBSP}Pp.`);
++    expect(formatPercentagePoints("-0.15")).toBe(`-15,00${NBSP}Pp.`);
++    expect(formatPercentagePoints("0")).toBe(`0,00${NBSP}Pp.`);
++  });
++});
++
+ describe("formatPercent", () => {
+   it("takes a ratio and is always signed", () => {
+     expect(formatPercent("0.0321")).toBe(`+3,21${NBSP}%`);
+diff --git a/src/core/format.ts b/src/core/format.ts
+index f4a1186..55d1bc4 100644
+--- a/src/core/format.ts
++++ b/src/core/format.ts
+@@ -57,6 +57,11 @@ export function formatPercent(ratio: DecimalInput): string {
+   return `${formatDecimal(toDecimal(ratio).times(100), 2, { sign: true })}${NBSP}%`;
+ }
+ 
++/** Takes a ratio difference, signed with two decimals in percentage points: `"0.0123"` → `"+1,23 Pp."`. */
++export function formatPercentagePoints(ratio: DecimalInput): string {
++  return `${formatDecimal(toDecimal(ratio).times(100), 2, { sign: true })}${NBSP}Pp.`;
++}
++
+ /** Takes a ratio, unsigned with one decimal: `"0.618"` → `"61,8 %"` (a share of a whole). */
+ export function formatShare(ratio: DecimalInput): string {
+   return `${formatDecimal(toDecimal(ratio).times(100), 1, {})}${NBSP}%`;
+diff --git a/src/modules/ledger/index.ts b/src/modules/ledger/index.ts
+index 0064361..539db7c 100644
+--- a/src/modules/ledger/index.ts
++++ b/src/modules/ledger/index.ts
+@@ -58,8 +58,10 @@ export {
+   ASSET_TYPES,
+   changeSecurityType,
+   cryptoSymbolSchema,
++  ensureBenchmarkSecurities,
+   ensureSecurity,
+   firstActivityDates,
++  firstLedgerDate,
+   getSecurity,
+   ISIN_ASSET_TYPES,
+   isinSchema,
+@@ -77,8 +79,8 @@ export type {
+ } from "./securities";
+ export { latestTradePrices, listPositions, listRealizedSales } from "./positions";
+ export type { ListPositionsOptions, PositionRecord, RealizedSaleRecord, StoredPriceLoader } from "./positions";
+-export { depotValuation, portfolioValuation, returnSeries } from "./valuation";
+-export type { DepotValuation, DepotValuationOptions, PortfolioValuation, ReturnScope, ReturnSeries } from "./valuation";
++export { benchmarkLines, depotValuation, portfolioValuation, returnSeries } from "./valuation";
++export type { BenchmarkLines, DepotValuation, DepotValuationOptions, PortfolioValuation, ReturnScope, ReturnSeries } from "./valuation";
+ export { gainsInput } from "./gains";
+ export type { GainsInput } from "./gains";
+ export { securityDetail } from "./security-detail";
+diff --git a/src/modules/ledger/securities.ts b/src/modules/ledger/securities.ts
+index 80c0363..43806af 100644
+--- a/src/modules/ledger/securities.ts
++++ b/src/modules/ledger/securities.ts
+@@ -1,4 +1,5 @@
+ import { z } from "zod";
++import { BENCHMARKS } from "@/core/benchmarks";
+ import { prisma } from "@/db";
+ import { AssetType, Prisma } from "@/db/generated/prisma/client";
+ import type { LedgerDb } from "./depots";
+@@ -225,3 +226,24 @@ export async function firstActivityDates(securityIds: readonly string[], db: Led
+   for (const row of isinChanges) keep(row.newSecurityId, row._min.date);
+   return result;
+ }
++
++/** The earliest Transaction date of any Depot (archived ones included), or null without ledger rows. */
++export async function firstLedgerDate(db: LedgerDb = prisma): Promise<string | null> {
++  const result = await db.transaction.aggregate({ _min: { date: true } });
++  return result._min.date ?? null;
++}
++
++/**
++ * Ensures the benchmark ETFs (`core/benchmarks`) exist as Securities (asset type ETF; an existing Security
++ * with the ISIN is kept unchanged) and returns their ids in table order. They are reference Securities
++ * for pricing only, never held.
++ */
++export async function ensureBenchmarkSecurities(db: LedgerDb = prisma): Promise<string[]> {
++  const ids: string[] = [];
++  for (const benchmark of BENCHMARKS) {
++    const result = await ensureSecurity({ isin: benchmark.isin }, { name: benchmark.name, assetType: "ETF" }, db);
++    if (!result.ok) throw new Error(`benchmark ${benchmark.key} invalid: ${result.reason}`);
++    ids.push(result.security.id);
++  }
++  return ids;
++}
+diff --git a/src/modules/ledger/valuation.test.ts b/src/modules/ledger/valuation.test.ts
+index f8c3597..192c669 100644
+--- a/src/modules/ledger/valuation.test.ts
++++ b/src/modules/ledger/valuation.test.ts
+@@ -4,7 +4,7 @@ import type { PriceObservation } from "@/core/prices";
+ import { ExactDecimal } from "@/core/decimal";
+ import { returnHeatmap } from "@/core/return-heatmap";
+ import { chainReturns } from "@/core/returns";
+-import { archiveDepot, createDepot, depotValuation, ensureSecurity, portfolioValuation, recordIsinChange, returnSeries, recordTransaction, type RecordTransactionInput } from "./index";
++import { archiveDepot, benchmarkLines, createDepot, depotValuation, ensureBenchmarkSecurities, ensureSecurity, portfolioValuation, recordIsinChange, returnSeries, recordTransaction, type RecordTransactionInput } from "./index";
+ 
+ let testDb: TestDatabase;
+ let depotId: string;
+@@ -171,6 +171,10 @@ describe("depotValuation", () => {
+       },
+       // Nothing invested: the index stays at its base 1.
+       drawdown: { points: [{ date: TODAY, drawdown: "0" }], current: "0", max: "0", phase: null },
++      performanceLine: [
++        { date: "2026-10-25", performance: "0" },
++        { date: TODAY, performance: "0" },
++      ],
+     });
+   });
+ 
+@@ -257,6 +261,69 @@ describe("valuation drawdown", () => {
+   });
+ });
+ 
++describe("valuation performance line", () => {
++  const PERIOD = { kind: "custom", from: "2026-02-01", to: "2026-02-05" } as const;
++  const stored = (): PriceObservation[] => [
++    { id: "p1", securityId: appleId, date: "2026-02-02", sequence: 0, price: "110", source: "provider" },
++  ];
++
++  it("starts at 0 on start.date, has one point per day and ends on performance.ttwror (Depot and Portfolio)", async () => {
++    await book({ type: "DEPOSIT", date: "2026-01-20", amount: "1000" });
++    await book({ type: "BUY", date: "2026-01-20", quantity: "10", price: "100", security: { id: appleId } });
++    await book({ depotId: otherDepotId, type: "DEPOSIT", date: "2026-02-03", amount: "500" });
++    const options = { storedPrices: async () => stored() };
++    const depot = await depotValuation(depotId, PERIOD, TODAY, db(), options);
++    // Start 1000, then 1100 on 02-02: +10 %.
++    expect(depot.performanceLine).toEqual([
++      { date: "2026-01-31", performance: "0" },
++      { date: "2026-02-01", performance: "0" },
++      { date: "2026-02-02", performance: "0.1" },
++      { date: "2026-02-03", performance: "0.1" },
++      { date: "2026-02-04", performance: "0.1" },
++      { date: "2026-02-05", performance: "0.1" },
++    ]);
++    expect(depot.performanceLine.at(-1)?.performance).toBe(depot.performance.ttwror);
++
++    const portfolio = await portfolioValuation(PERIOD, TODAY, db(), options);
++    expect(portfolio.performanceLine.map((p) => p.date)).toEqual(depot.performanceLine.map((p) => p.date));
++    // The Deposit into Zweitdepot is a flow (1600 / 1600), not a gain.
++    expect(portfolio.performanceLine.at(-1)?.performance).toBe("0.1");
++    expect(portfolio.performanceLine.at(-1)?.performance).toBe(portfolio.performance.ttwror);
++    expect(portfolio.depots[0].valuation.performanceLine).toEqual(depot.performanceLine);
++  });
++});
++
++describe("benchmarkLines", () => {
++  it("is null for every benchmark before its Security exists", async () => {
++    expect(await benchmarkLines("2026-02-06", "2026-02-09", db())).toEqual({
++      "msci-world": null,
++      "msci-acwi": null,
++      dax: null,
++      sp500: null,
++    });
++  });
++
++  it("gives the price return from stored closes, based on the close on or before the start date", async () => {
++    const [world, acwi] = await ensureBenchmarkSecurities(db());
++    const stored: PriceObservation[] = [
++      { id: "w1", securityId: world, date: "2026-02-06", sequence: 0, price: "100", source: "provider" },
++      { id: "w2", securityId: world, date: "2026-02-09", sequence: 0, price: "103", source: "provider" },
++      // ACWI: the first close is after the start date, so there is no base.
++      { id: "a1", securityId: acwi, date: "2026-02-09", sequence: 0, price: "50", source: "provider" },
++    ];
++    const storedPrices = async (ids: string[], upTo: string) => stored.filter((p) => ids.includes(p.securityId) && p.date <= upTo);
++    const lines = await benchmarkLines("2026-02-07", "2026-02-09", db(), { storedPrices });
++    expect(lines["msci-world"]).toEqual([
++      { date: "2026-02-07", performance: "0" },
++      { date: "2026-02-08", performance: "0" },
++      { date: "2026-02-09", performance: "0.03" },
++    ]);
++    expect(lines["msci-acwi"]).toBeNull();
++    expect(lines.dax).toBeNull();
++    expect(lines.sp500).toBeNull();
++  });
++});
++
+ describe("portfolioValuation", () => {
+   const ONE_YEAR = { kind: "preset", preset: "1J" } as const;
+   const MAX = { kind: "preset", preset: "MAX" } as const;
+diff --git a/src/modules/ledger/valuation.ts b/src/modules/ledger/valuation.ts
+index 3c1f2ec..3bf822c 100644
+--- a/src/modules/ledger/valuation.ts
++++ b/src/modules/ledger/valuation.ts
+@@ -1,13 +1,16 @@
+ import { prisma } from "@/db";
+ import { type PeriodSelection, resolvePeriod } from "@/core/period";
+ import { addDays } from "@/core/dates";
++import { BENCHMARKS, type BenchmarkKey, indexPerformanceLine, type PerformancePoint, priceReturnLine } from "@/core/benchmarks";
+ import { type Drawdown, drawdown } from "@/core/drawdown";
+ import { type PeriodPerformance, periodPerformance, portfolioPerformance, ttwrorIndex } from "@/core/returns";
+ import type { CorporateActions } from "@/core/corporate-actions";
++import { securityPriceSeries } from "@/core/security";
+ import { periodFlows, sumValuationSeries, type ValuationPoint, type ValuationRow, valuationSeries } from "@/core/valuation";
+ import { loadCorporateActions } from "./corporate-actions";
+ import type { LedgerDb } from "./depots";
+ import { lineageObservations, type StoredPriceLoader } from "./positions";
++import { findSecurityByKey } from "./securities";
+ 
+ export type DepotValuationOptions = { storedPrices?: StoredPriceLoader };
+ 
+@@ -28,11 +31,27 @@ export type DepotValuation = {
+   performance: PeriodPerformance;
+   /** Drawdown of the Period's TTWROR index (base `1` on `start.date`), same series and rows. */
+   drawdown: Drawdown;
++  /**
++   * Cumulative TTWROR per day (`core/benchmarks`), `"0"` on `start.date`, then one point per series day;
++   * the last point equals `performance.ttwror` whenever that is non-null.
++   */
++  performanceLine: PerformancePoint[];
+ };
+ 
+-/** Drawdown of the TTWROR index over `series` (same flow rules as `ttwror`), based at `1` on `start.date`. */
+-function indexDrawdown(start: ValuationPoint, series: readonly ValuationPoint[], rows: readonly ValuationRow[]): Drawdown {
+-  return drawdown(ttwrorIndex(start, series, rows), { date: start.date, level: "1" });
++/**
++ * Drawdown and performance line of the TTWROR index over `series` (same flow rules as `ttwror`), based at
++ * `1` on `start.date`: one `ttwrorIndex` call for both.
++ */
++function indexFigures(
++  start: ValuationPoint,
++  series: readonly ValuationPoint[],
++  rows: readonly ValuationRow[],
++): { drawdown: Drawdown; performanceLine: PerformancePoint[] } {
++  const index = ttwrorIndex(start, series, rows);
++  return {
++    drawdown: drawdown(index, { date: start.date, level: "1" }),
++    performanceLine: indexPerformanceLine(start.date, index),
++  };
+ }
+ 
+ type DepotRow = ValuationRow & { securityId: string | null };
+@@ -86,7 +105,7 @@ async function valuationOver(
+       series,
+       ...periodFlows(rows, from, to),
+       performance: periodPerformance(rows, start, series, actions),
+-      drawdown: indexDrawdown(start, series, rows),
++      ...indexFigures(start, series, rows),
+     },
+   };
+ }
+@@ -124,6 +143,8 @@ export type PortfolioValuation = {
+   performance: PeriodPerformance;
+   /** Drawdown of the TTWROR index over the summed series and all Depots' rows (as `performance.ttwror`). */
+   drawdown: Drawdown;
++  /** Cumulative TTWROR per day of the same index, `"0"` on `start.date` (last point = `performance.ttwror`). */
++  performanceLine: PerformancePoint[];
+   /** True when any of the Depots has a ledger row. */
+   hasTransactions: boolean;
+   /** Each non-archived Depot (name order) evaluated over exactly `from..to`. */
+@@ -161,7 +182,7 @@ export async function portfolioValuation(
+     dividends: portfolio.performance.dividends,
+     taxesPaid: portfolio.performance.taxesPaid,
+     performance: portfolio.performance,
+-    drawdown: indexDrawdown(portfolio.start, portfolio.series, parts.flatMap(({ rows }) => rows)),
++    ...indexFigures(portfolio.start, portfolio.series, parts.flatMap(({ rows }) => rows)),
+     hasTransactions: firstDate !== null,
+     depots: depots.map((depot, index) => ({ id: depot.id, name: depot.name, valuation: evaluated[index].valuation })),
+   };
+@@ -207,3 +228,31 @@ export async function returnSeries(
+   const [start] = sumValuationSeries(parts.map((part) => [part.start]));
+   return { start, series: sumValuationSeries(parts.map((part) => part.series)), rows };
+ }
++
++/** Per benchmark its price-return line, or `null` without its Security or a base price. */
++export type BenchmarkLines = Record<BenchmarkKey, PerformancePoint[] | null>;
++
++/**
++ * The price-return line of every benchmark ETF (`core/benchmarks`) over `startDate..to` (inclusive; pass a
++ * valuation's `start.date` and `to`, so the lines share the scope line's dates): the daily resolver price
++ * (manual > provider > Transaction price, carried forward, split-adjusted) divided by the price on
++ * `startDate`, − 1. `null` when the benchmark Security does not exist yet or has no price on or before
++ * `startDate`. Same price inputs as `depotValuation`. Read-only; no provider call.
++ */
++export async function benchmarkLines(
++  startDate: string,
++  to: string,
++  db: LedgerDb = prisma,
++  { storedPrices }: DepotValuationOptions = {},
++): Promise<BenchmarkLines> {
++  const actions = await loadCorporateActions(db);
++  const lines = await Promise.all(
++    BENCHMARKS.map(async (benchmark) => {
++      const security = await findSecurityByKey({ isin: benchmark.isin }, db);
++      if (!security) return null;
++      const observations = await lineageObservations([security.id], actions, to, db, storedPrices);
++      return priceReturnLine(securityPriceSeries(observations, security.id, actions, startDate, to));
++    }),
++  );
++  return Object.fromEntries(BENCHMARKS.map((benchmark, index) => [benchmark.key, lines[index]])) as BenchmarkLines;
++}
+diff --git a/src/modules/prices/prices.test.ts b/src/modules/prices/prices.test.ts
+index 159162e..7e8dee9 100644
+--- a/src/modules/prices/prices.test.ts
++++ b/src/modules/prices/prices.test.ts
+@@ -1,7 +1,7 @@
+ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+ import { createTestDatabase, type TestDatabase } from "../../../test/helpers/test-db";
+ import { type FetchCall, fakeFetch, json, recorded } from "../../../test/helpers/providers";
+-import { createDepot, ensureSecurity, listPositions, recordSplit, recordTrade, updateTransaction } from "@/modules/ledger";
++import { createDepot, ensureBenchmarkSecurities, ensureSecurity, listHeldSecurities, listPositions, recordSplit, recordTrade, updateTransaction } from "@/modules/ledger";
+ import {
+   backfillHeldPrices,
+   deleteManualPrice,
+@@ -90,6 +90,14 @@ async function providerRows(securityId: string) {
+   });
+ }
+ 
++/**
++ * Creates the benchmark Securities (as the first price run with ledger rows does) mapped as markers, so
++ * a run makes no mapping lookup for them (tests counting provider calls).
++ */
++async function benchmarkMarkers() {
++  for (const securityId of await ensureBenchmarkSecurities(db())) await mapTo(securityId, null, null);
++}
++
+ const mapping = (securityId: string) => db().providerMapping.findUnique({ where: { securityId } });
+ 
+ describe("refreshPrices", () => {
+@@ -217,6 +225,7 @@ describe("refreshPrices", () => {
+     await mapTo(sap, "YAHOO", "SAP.DE");
+     await mapTo(marker, null, null);
+     await mapTo(sold, "YAHOO", "NVD.DE");
++    await benchmarkMarkers();
+     const chart = charts({ "SAP.DE": recorded("yahoo-chart-sap-de") });
+     const { fetch, calls } = fakeFetch(new Error("unexpected fetch"));
+     expect(await refreshPrices("2026-10-23", deps(chart, fetch), db())).toEqual({ updated: 1, failed: [] });
+@@ -298,6 +307,8 @@ describe("refreshPrices", () => {
+ describe("certificates and crypto", () => {
+   const GOLD = "DE000A0S9GB0";
+ 
++  beforeEach(benchmarkMarkers);
++
+   async function cryptoSecurity(symbol: string, name: string) {
+     const result = await ensureSecurity({ cryptoSymbol: symbol }, { name, assetType: "CRYPTO" }, db());
+     if (!result.ok) throw new Error(`setup failed: ${result.reason}`);
+@@ -469,6 +480,81 @@ describe("certificates and crypto", () => {
+   });
+ });
+ 
++describe("benchmark ETFs", () => {
++  const WORLD = "IE00B4L5Y983";
++  const benchmarkId = async (isin: string) => (await db().security.findUnique({ where: { isin }, select: { id: true } }))?.id;
++
++  it("creates no benchmark Security while the ledger has no row", async () => {
++    expect(await refreshPrices("2026-10-23", deps(charts({})), db())).toEqual({ updated: 0, failed: [] });
++    expect(await db().security.count()).toBe(0);
++  });
++
++  it("creates the four benchmark ETFs on a run with a ledger row and tries to map them", async () => {
++    const sap = await security(SAP, "SAP SE");
++    await buy(sap, "2026-10-13");
++    const search = vi.fn(async () => {
++      throw new Error("no network in tests");
++    });
++    await refreshPrices("2026-10-23", { ...deps(charts({})), search }, db());
++    const benchmarks = await db().security.findMany({
++      where: { isin: { in: [WORLD, "IE00B6R52259", "DE0005933931", "IE00B5BMR087"] } },
++      select: { assetType: true },
++    });
++    expect(benchmarks).toHaveLength(4);
++    expect(benchmarks.every((row) => row.assetType === "ETF")).toBe(true);
++    expect(search).toHaveBeenCalled();
++    expect(await listHeldSecurities("2026-10-23", db())).toEqual([sap]);
++  });
++
++  it("backfills a mapped benchmark from 10 days before the earliest ledger date, yet never holds it", async () => {
++    const sap = await security(SAP, "SAP SE");
++    await buy(sap, "2026-10-23");
++    await mapTo(sap, "YAHOO", "SAP.DE");
++    await benchmarkMarkers();
++    const world = (await benchmarkId(WORLD))!;
++    await db().providerMapping.update({ where: { securityId: world }, data: { provider: "YAHOO", symbol: "EUNL.DE" } });
++    const chart = charts({ "SAP.DE": recorded("yahoo-chart-sap-de"), "EUNL.DE": recorded("yahoo-chart-sap-de") });
++
++    expect(await refreshPrices("2026-10-23", deps(chart), db())).toEqual({ updated: 2, failed: [] });
++    const worldCall = chart.mock.calls.find(([symbol]) => symbol === "EUNL.DE")!;
++    expect(worldCall[1]).toMatchObject({ period1: "2026-10-13", period2: "2026-10-24" });
++    expect((await providerRows(world)).map((row) => row.date)[0]).toBe("2026-10-13");
++    expect(await providerRows(world)).toHaveLength(9);
++    expect(await mapping(world)).toMatchObject({ historyFrom: "2026-10-13", fetchError: null });
++
++    // Not held: no Position, no stale flag; the held Security keeps its own.
++    expect(await listHeldSecurities("2026-10-23", db())).toEqual([sap]);
++    expect((await listPositions(depotId, "2026-10-23", db())).map((position) => position.security.id)).toEqual([sap]);
++    const info = await securityPriceInfo("2026-10-30", db());
++    expect(info[world]).toMatchObject({ date: "2026-10-23", stale: false });
++    expect(info[sap]).toMatchObject({ stale: true });
++
++    // A backfill-only run has nothing left to do; an earlier first ledger date moves the benchmark start.
++    expect(await backfillHeldPrices("2026-10-23", deps(chart), db())).toEqual({ updated: 0, failed: [] });
++    await buy(sap, "2026-10-20");
++    await backfillHeldPrices("2026-10-23", deps(chart), db());
++    expect(chart.mock.calls.filter(([symbol]) => symbol === "EUNL.DE").at(-1)?.[1]).toMatchObject({ period1: "2026-10-10" });
++  });
++
++  it("uses the same Security for a held benchmark ISIN, backfilled from the earlier of both dates", async () => {
++    const sap = await security(SAP, "SAP SE");
++    await buy(sap, "2026-10-17");
++    await benchmarkMarkers();
++    const world = (await benchmarkId(WORLD))!;
++    await buy(world, "2026-10-20", "2", "100");
++    await db().providerMapping.update({ where: { securityId: world }, data: { provider: "YAHOO", symbol: "EUNL.DE" } });
++    const chart = charts({ "EUNL.DE": recorded("yahoo-chart-sap-de") });
++
++    expect(await refreshPrices("2026-10-23", deps(chart), db())).toEqual({ updated: 1, failed: [] });
++    expect(chart.mock.calls[0][1]).toMatchObject({ period1: "2026-10-07" });
++    expect(await db().security.count({ where: { isin: WORLD } })).toBe(1);
++    expect((await listHeldSecurities("2026-10-23", db())).sort()).toEqual([sap, world].sort());
++    expect((await listPositions(depotId, "2026-10-23", db())).map((position) => position.security.id).sort()).toEqual(
++      [sap, world].sort(),
++    );
++  });
++});
++
+ describe("backfillHeldPrices", () => {
+   it("fetches only Securities needing a full backfill, and again when the first activity moves earlier", async () => {
+     const sap = await security(SAP, "SAP SE");
+diff --git a/src/modules/prices/prices.ts b/src/modules/prices/prices.ts
+index 91ce9c0..8d0f6dd 100644
+--- a/src/modules/prices/prices.ts
++++ b/src/modules/prices/prices.ts
+@@ -3,6 +3,7 @@
+ // Fetch failures are typed per Security, recorded on its mapping row and returned; they never throw,
+ // never stop other Securities and never touch existing Price rows.
+ import { prisma } from "@/db";
++import { benchmarkStartDate } from "@/core/benchmarks";
+ import type { Split } from "@/core/corporate-actions";
+ import { addDays, isBusinessDate } from "@/core/dates";
+ import { ExactDecimal } from "@/core/decimal";
+@@ -10,7 +11,9 @@ import { parseDecimalInput } from "@/core/decimal-input";
+ import { isStale, type PriceObservation, type PriceSource, resolvePrice } from "@/core/prices";
+ import type { PriceProvider } from "@/db/generated/prisma/client";
+ import {
++  ensureBenchmarkSecurities,
+   firstActivityDates,
++  firstLedgerDate,
+   getSecurity,
+   latestTradePrices,
+   listHeldSecurities,
+@@ -88,22 +91,35 @@ async function loadSplits(db: PricesDb): Promise<Split[]> {
+ }
+ 
+ /**
+- * Plans for the held Securities mapped to Yahoo, onvista or CoinGecko: a full backfill from the first activity date when
+- * `historyFrom` is unset or later than it; otherwise (unless `backfillOnly`) an incremental refresh from
+- * `REFRESH_OVERLAP_DAYS` before the latest stored provider Price.
++ * Plans for the held Securities and the benchmark ETFs (`core/benchmarks`, created once the ledger has a
++ * row) mapped to Yahoo, onvista or CoinGecko: a full backfill from the target's first date — a held
++ * Security's first activity date, a benchmark's `benchmarkStartDate` (the earlier one when a benchmark is
++ * also held) — when `historyFrom` is unset or later than it; otherwise (unless `backfillOnly`) an
++ * incremental refresh from `REFRESH_OVERLAP_DAYS` before the latest stored provider Price. Benchmarks are
++ * priced only: `listHeldSecurities` stays the definition of held.
+  */
+ async function heldPlans(today: string, backfillOnly: boolean, deps: PriceDeps, db: PricesDb): Promise<Plan[]> {
++  const firstLedger = await firstLedgerDate(db);
++  const benchmarkIds = firstLedger === null ? [] : await ensureBenchmarkSecurities(db);
+   try {
+     await resolveMissingMappings(deps, db);
+   } catch (error) {
+     console.warn(`Prices: mapping resolution failed (${error instanceof Error ? error.name : "unknown"})`);
+   }
+-  const mappings = await mappingsOf(await listHeldSecurities(today, db), FETCHED_PROVIDERS, db);
++  const targets = [...new Set([...(await listHeldSecurities(today, db)), ...benchmarkIds])];
++  const mappings = await mappingsOf(targets, FETCHED_PROVIDERS, db);
+   if (mappings.length === 0) return [];
+   const firstDates = await firstActivityDates(
+     mappings.map((mapping) => mapping.securityId),
+     db,
+   );
++  if (firstLedger !== null) {
++    const benchmarkFrom = benchmarkStartDate(firstLedger);
++    for (const securityId of benchmarkIds) {
++      const own = firstDates.get(securityId);
++      if (own === undefined || benchmarkFrom < own) firstDates.set(securityId, benchmarkFrom);
++    }
++  }
+   const plans: Plan[] = [];
+   for (const { securityId, provider, symbol, historyFrom } of mappings) {
+     const first = firstDates.get(securityId);
+diff --git a/test/architecture/chart-imports.test.ts b/test/architecture/chart-imports.test.ts
+index 96232a3..d6c15a8 100644
+--- a/test/architecture/chart-imports.test.ts
++++ b/test/architecture/chart-imports.test.ts
+@@ -1,8 +1,9 @@
+ /**
+  * Architecture guard: the chart library is wrapped in the chart components (story 4.3; story 4.7 adds the
+  * price chart, story 7.4 the bar chart, story 7.6 the drawdown chart, story 7.7 the dividend year-lines
+- * chart, story 7.8 the performance chart). Only `src/app/_components/charts/ValueChart.tsx`,
+- * `PriceChart.tsx`, `BarsChart.tsx`, `DrawdownChart.tsx`, `PerformanceChart.tsx` and
++ * chart, story 7.8 the performance chart, story 8.2 the comparison chart). Only
++ * `src/app/_components/charts/ValueChart.tsx`, `PriceChart.tsx`, `BarsChart.tsx`, `DrawdownChart.tsx`,
++ * `PerformanceChart.tsx`, `ComparisonChart.tsx` and
+  * `src/app/_components/analyses/DividendYearLinesChart.tsx` may import
+  * `@mui/x-charts` (or any of its subpaths).
+  */
+@@ -19,6 +20,7 @@ const WRAPPERS = new Set([
+   join(SRC_DIR, "app/_components/charts/BarsChart.tsx"),
+   join(SRC_DIR, "app/_components/charts/DrawdownChart.tsx"),
+   join(SRC_DIR, "app/_components/charts/PerformanceChart.tsx"),
++  join(SRC_DIR, "app/_components/charts/ComparisonChart.tsx"),
+   join(SRC_DIR, "app/_components/analyses/DividendYearLinesChart.tsx"),
+ ]);
+ const CHART_PACKAGE = /^@mui\/x-charts(\/|$)/;
+@@ -47,7 +49,7 @@ function findViolations(files: { path: string; source: string }[]): string[] {
+ }
+ 
+ describe("chart library import guard", () => {
+-  it("only ValueChart.tsx, PriceChart.tsx, BarsChart.tsx, DrawdownChart.tsx, PerformanceChart.tsx and DividendYearLinesChart.tsx import @mui/x-charts", () => {
++  it("only ValueChart.tsx, PriceChart.tsx, BarsChart.tsx, DrawdownChart.tsx, PerformanceChart.tsx, ComparisonChart.tsx and DividendYearLinesChart.tsx import @mui/x-charts", () => {
+     const files = listSourceFiles(SRC_DIR).map((path) => ({ path, source: readFileSync(path, "utf8") }));
+     expect(files.some((file) => file.path === WRAPPER)).toBe(true);
+     const violations = findViolations(files);

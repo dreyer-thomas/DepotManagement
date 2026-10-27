@@ -14,10 +14,15 @@ import { DepotActionsMenu } from "@/app/_components/depots/DepotActionsMenu";
 import { DepotTabs } from "@/app/_components/depots/DepotTabs";
 import { continueText, lastReconciledText } from "@/app/_components/reconciliation/labels";
 import { brokerLabel } from "@/app/_components/depots/labels";
-import { readValueChartTab } from "@/app/_actions/chart-preference-cookie";
+import { readBenchmarkChoice, readValueChartTab } from "@/app/_actions/chart-preference-cookie";
 import { readPeriod } from "@/app/_actions/period-cookie";
 import { PeriodSelector } from "@/app/_components/period/PeriodSelector";
 import { ValueSummary } from "@/app/_components/valuation/ValueSummary";
+import {
+  comparisonChoiceKeys,
+  comparisonOptions,
+  type PerformanceComparison,
+} from "@/app/_components/valuation/comparison-options";
 import { CashBookings } from "@/app/_components/cash/CashBookings";
 import { CompositionCard } from "@/app/_components/composition/CompositionCard";
 import { COMPOSITION_LABELS, compositionHoldings } from "@/app/_components/composition/labels";
@@ -30,6 +35,8 @@ import { compositionByAssetType, compositionByPosition } from "@/core/compositio
 import { formatMoney } from "@/core/format";
 import { periodLabel } from "@/core/period";
 import {
+  benchmarkLines,
+  type DepotValuation,
   depotValuation,
   getDepot,
   getReconciliation,
@@ -39,8 +46,41 @@ import {
   listSecurities,
   listSplits,
   listTransactions,
+  portfolioValuation,
 } from "@/modules/ledger";
 import { latestStoredPrices, storedPriceHistory } from "@/modules/prices";
+
+/**
+ * The Performance tab's data of a Depot: its TTWROR line, the indices over the same dates, Gesamtportfolio
+ * and every other non-archived Depot evaluated over exactly the Depot's resolved Period (same AD-10
+ * valuation as their own pages). Stored Prices only; no provider call.
+ */
+async function depotComparison(depotId: string, name: string, valuation: DepotValuation, today: string): Promise<PerformanceComparison> {
+  const options = { storedPrices: storedPriceHistory };
+  const [portfolio, benchmarks] = await Promise.all([
+    portfolioValuation({ kind: "custom", from: valuation.from, to: valuation.to }, today, undefined, options),
+    benchmarkLines(valuation.start.date, valuation.to, undefined, options),
+  ]);
+  const comparisons = comparisonOptions({
+    benchmarks,
+    portfolio: { line: portfolio.performanceLine, ttwror: portfolio.performance.ttwror },
+    depots: portfolio.depots
+      .filter((depot) => depot.id !== depotId)
+      .map((depot) => ({
+        id: depot.id,
+        name: depot.name,
+        line: depot.valuation.performanceLine,
+        ttwror: depot.valuation.performance.ttwror,
+      })),
+  });
+  return {
+    scopeLabel: name,
+    line: valuation.performanceLine,
+    ttwror: valuation.performance.ttwror,
+    options: comparisons,
+    initialChoice: await readBenchmarkChoice(comparisonChoiceKeys(comparisons)),
+  };
+}
 
 type Props = {
   params: Promise<{ id: string }>;
@@ -105,6 +145,7 @@ export default async function DepotDetailPage({ params, searchParams }: Props) {
         readValueChartTab(),
       ]);
   const end = valuation?.series.at(-1);
+  const comparison = valuation ? await depotComparison(depot.id, depot.name, valuation, today) : undefined;
 
   let content: ReactNode;
   if (emptyState) {
@@ -201,6 +242,7 @@ export default async function DepotDetailPage({ params, searchParams }: Props) {
           series={valuation.series}
           drawdown={valuation.drawdown}
           chartTab={chartTab}
+          comparison={comparison}
         />
       ) : null}
       <DepotTabs depotId={depot.id} value={tab} />

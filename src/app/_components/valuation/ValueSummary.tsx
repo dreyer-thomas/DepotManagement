@@ -11,6 +11,7 @@ import Typography from "@mui/material/Typography";
 import { ValueChart } from "@/app/_components/charts/ValueChart";
 import { Kpi } from "./Kpi";
 import { ValueChartTabs } from "./ValueChartTabs";
+import type { PerformanceComparison } from "./comparison-options";
 import type { ValueChartTab } from "@/app/_components/charts/chart-preference";
 import type { Drawdown } from "@/core/drawdown";
 import { toChartPoints } from "@/app/_components/charts/value-chart";
@@ -37,12 +38,14 @@ export type ValueSummaryProps = {
   /** The Period's daily valuation series (same call as the figures); renders the value chart when given. */
   series?: readonly ValuationPoint[];
   /**
-   * The Period's drawdown (same series); with `series` it adds the tabs "Wertentwicklung | Drawdown" to
-   * the hero card. Without it the value chart renders alone.
+   * The Period's drawdown (same series); with `series` it adds the tabs "Wertentwicklung | Drawdown" (plus
+   * "Performance" with `comparison`) to the hero card. Without it the value chart renders alone.
    */
   drawdown?: Drawdown;
   /** The stored chart tab (cookie) for the first render; default "Wertentwicklung". */
   chartTab?: ValueChartTab;
+  /** With `drawdown`: the Performance tab's TTWROR line and "Vergleich mit" options. */
+  comparison?: PerformanceComparison;
   /** Accessible name of the section, e.g. "Portfoliowert" on the Overview; default "Depotwert". */
   label?: string;
 };
@@ -134,6 +137,7 @@ export function ValueSummary({
   series,
   drawdown,
   chartTab = "performance",
+  comparison,
   label = "Depotwert",
 }: ValueSummaryProps) {
   return (
@@ -159,7 +163,7 @@ export function ValueSummary({
           </Stack>
           {series && series.length > 0 ? (
             drawdown ? (
-              <ValueChartTabs points={toChartPoints(series)} drawdown={drawdown} initialTab={chartTab} />
+              <ValueChartTabs points={toChartPoints(series)} drawdown={drawdown} initialTab={chartTab} comparison={comparison} />
             ) : (
               <ValueChart points={toChartPoints(series)} />
             )

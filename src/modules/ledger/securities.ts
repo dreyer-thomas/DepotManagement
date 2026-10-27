@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { BENCHMARKS } from "@/core/benchmarks";
 import { prisma } from "@/db";
 import { AssetType, Prisma } from "@/db/generated/prisma/client";
 import type { LedgerDb } from "./depots";
@@ -224,4 +225,25 @@ export async function firstActivityDates(securityIds: readonly string[], db: Led
   for (const row of transactions) keep(row.securityId, row._min.date);
   for (const row of isinChanges) keep(row.newSecurityId, row._min.date);
   return result;
+}
+
+/** The earliest Transaction date of any Depot (archived ones included), or null without ledger rows. */
+export async function firstLedgerDate(db: LedgerDb = prisma): Promise<string | null> {
+  const result = await db.transaction.aggregate({ _min: { date: true } });
+  return result._min.date ?? null;
+}
+
+/**
+ * Ensures the benchmark ETFs (`core/benchmarks`) exist as Securities (asset type ETF; an existing Security
+ * with the ISIN is kept unchanged) and returns their ids in table order. They are reference Securities
+ * for pricing only, never held.
+ */
+export async function ensureBenchmarkSecurities(db: LedgerDb = prisma): Promise<string[]> {
+  const ids: string[] = [];
+  for (const benchmark of BENCHMARKS) {
+    const result = await ensureSecurity({ isin: benchmark.isin }, { name: benchmark.name, assetType: "ETF" }, db);
+    if (!result.ok) throw new Error(`benchmark ${benchmark.key} invalid: ${result.reason}`);
+    ids.push(result.security.id);
+  }
+  return ids;
 }

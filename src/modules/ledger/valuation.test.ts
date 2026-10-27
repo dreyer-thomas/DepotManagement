@@ -4,7 +4,7 @@ import type { PriceObservation } from "@/core/prices";
 import { ExactDecimal } from "@/core/decimal";
 import { returnHeatmap } from "@/core/return-heatmap";
 import { chainReturns } from "@/core/returns";
-import { archiveDepot, createDepot, depotValuation, ensureSecurity, portfolioValuation, recordIsinChange, returnSeries, recordTransaction, type RecordTransactionInput } from "./index";
+import { archiveDepot, benchmarkLines, createDepot, depotValuation, ensureBenchmarkSecurities, ensureSecurity, portfolioValuation, recordIsinChange, returnSeries, recordTransaction, type RecordTransactionInput } from "./index";
 
 let testDb: TestDatabase;
 let depotId: string;
@@ -171,6 +171,10 @@ describe("depotValuation", () => {
       },
       // Nothing invested: the index stays at its base 1.
       drawdown: { points: [{ date: TODAY, drawdown: "0" }], current: "0", max: "0", phase: null },
+      performanceLine: [
+        { date: "2026-10-25", performance: "0" },
+        { date: TODAY, performance: "0" },
+      ],
     });
   });
 
@@ -254,6 +258,69 @@ describe("valuation drawdown", () => {
     // The running peak is the index on 02-01 (= base 1), so the current drawdown is the last level − 1.
     expect(portfolio.performance.ttwror).toBe("-0.03571428571428571429");
     expect(portfolio.drawdown.current).toBe(portfolio.performance.ttwror);
+  });
+});
+
+describe("valuation performance line", () => {
+  const PERIOD = { kind: "custom", from: "2026-02-01", to: "2026-02-05" } as const;
+  const stored = (): PriceObservation[] => [
+    { id: "p1", securityId: appleId, date: "2026-02-02", sequence: 0, price: "110", source: "provider" },
+  ];
+
+  it("starts at 0 on start.date, has one point per day and ends on performance.ttwror (Depot and Portfolio)", async () => {
+    await book({ type: "DEPOSIT", date: "2026-01-20", amount: "1000" });
+    await book({ type: "BUY", date: "2026-01-20", quantity: "10", price: "100", security: { id: appleId } });
+    await book({ depotId: otherDepotId, type: "DEPOSIT", date: "2026-02-03", amount: "500" });
+    const options = { storedPrices: async () => stored() };
+    const depot = await depotValuation(depotId, PERIOD, TODAY, db(), options);
+    // Start 1000, then 1100 on 02-02: +10 %.
+    expect(depot.performanceLine).toEqual([
+      { date: "2026-01-31", performance: "0" },
+      { date: "2026-02-01", performance: "0" },
+      { date: "2026-02-02", performance: "0.1" },
+      { date: "2026-02-03", performance: "0.1" },
+      { date: "2026-02-04", performance: "0.1" },
+      { date: "2026-02-05", performance: "0.1" },
+    ]);
+    expect(depot.performanceLine.at(-1)?.performance).toBe(depot.performance.ttwror);
+
+    const portfolio = await portfolioValuation(PERIOD, TODAY, db(), options);
+    expect(portfolio.performanceLine.map((p) => p.date)).toEqual(depot.performanceLine.map((p) => p.date));
+    // The Deposit into Zweitdepot is a flow (1600 / 1600), not a gain.
+    expect(portfolio.performanceLine.at(-1)?.performance).toBe("0.1");
+    expect(portfolio.performanceLine.at(-1)?.performance).toBe(portfolio.performance.ttwror);
+    expect(portfolio.depots[0].valuation.performanceLine).toEqual(depot.performanceLine);
+  });
+});
+
+describe("benchmarkLines", () => {
+  it("is null for every benchmark before its Security exists", async () => {
+    expect(await benchmarkLines("2026-02-06", "2026-02-09", db())).toEqual({
+      "msci-world": null,
+      "msci-acwi": null,
+      dax: null,
+      sp500: null,
+    });
+  });
+
+  it("gives the price return from stored closes, based on the close on or before the start date", async () => {
+    const [world, acwi] = await ensureBenchmarkSecurities(db());
+    const stored: PriceObservation[] = [
+      { id: "w1", securityId: world, date: "2026-02-06", sequence: 0, price: "100", source: "provider" },
+      { id: "w2", securityId: world, date: "2026-02-09", sequence: 0, price: "103", source: "provider" },
+      // ACWI: the first close is after the start date, so there is no base.
+      { id: "a1", securityId: acwi, date: "2026-02-09", sequence: 0, price: "50", source: "provider" },
+    ];
+    const storedPrices = async (ids: string[], upTo: string) => stored.filter((p) => ids.includes(p.securityId) && p.date <= upTo);
+    const lines = await benchmarkLines("2026-02-07", "2026-02-09", db(), { storedPrices });
+    expect(lines["msci-world"]).toEqual([
+      { date: "2026-02-07", performance: "0" },
+      { date: "2026-02-08", performance: "0" },
+      { date: "2026-02-09", performance: "0.03" },
+    ]);
+    expect(lines["msci-acwi"]).toBeNull();
+    expect(lines.dax).toBeNull();
+    expect(lines.sp500).toBeNull();
   });
 });
 

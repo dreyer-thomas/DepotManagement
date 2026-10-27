@@ -57,6 +57,11 @@ export function formatPercent(ratio: DecimalInput): string {
   return `${formatDecimal(toDecimal(ratio).times(100), 2, { sign: true })}${NBSP}%`;
 }
 
+/** Takes a ratio difference, signed with two decimals in percentage points: `"0.0123"` → `"+1,23 Pp."`. */
+export function formatPercentagePoints(ratio: DecimalInput): string {
+  return `${formatDecimal(toDecimal(ratio).times(100), 2, { sign: true })}${NBSP}Pp.`;
+}
+
 /** Takes a ratio, unsigned with one decimal: `"0.618"` → `"61,8 %"` (a share of a whole). */
 export function formatShare(ratio: DecimalInput): string {
   return `${formatDecimal(toDecimal(ratio).times(100), 1, {})}${NBSP}%`;

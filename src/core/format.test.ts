@@ -1,6 +1,6 @@
 import Decimal from "decimal.js";
 import { describe, expect, it } from "vitest";
-import { formatDate, formatDateTime, formatMonth, formatMoney, formatPercent, formatQuantity, formatShare } from "./format";
+import { formatDate, formatDateTime, formatMonth, formatMoney, formatPercent, formatPercentagePoints, formatQuantity, formatShare } from "./format";
 
 const NBSP = " ";
 
@@ -41,6 +41,14 @@ describe("formatMoney", () => {
     expect(() => formatMoney("abc")).toThrow();
     expect(() => formatMoney("Infinity")).toThrow(TypeError);
     expect(() => formatMoney("NaN")).toThrow(TypeError);
+  });
+});
+
+describe("formatPercentagePoints", () => {
+  it("renders a signed ratio difference in Pp. with two decimals", () => {
+    expect(formatPercentagePoints("0.0123")).toBe(`+1,23${NBSP}Pp.`);
+    expect(formatPercentagePoints("-0.15")).toBe(`-15,00${NBSP}Pp.`);
+    expect(formatPercentagePoints("0")).toBe(`0,00${NBSP}Pp.`);
   });
 });
 

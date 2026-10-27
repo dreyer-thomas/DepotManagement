@@ -1,8 +1,10 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  BENCHMARK_COOKIE,
   chartPreferenceCookie,
   MOVING_AVERAGE_COOKIE,
+  parseBenchmarkChoice,
   parseMovingAverage,
   parseSecurityChartMode,
   parseValueChartTab,
@@ -15,6 +17,7 @@ describe("parseValueChartTab / parseSecurityChartMode", () => {
   it("accepts the known values and falls back to the default otherwise", () => {
     expect(parseValueChartTab("drawdown")).toBe("drawdown");
     expect(parseValueChartTab("performance")).toBe("performance");
+    expect(parseValueChartTab("ttwror")).toBe("ttwror");
     expect(parseValueChartTab("DRAWDOWN")).toBe("performance");
     expect(parseValueChartTab(undefined)).toBe("performance");
     expect(parseSecurityChartMode("value")).toBe("value");
@@ -36,6 +39,17 @@ describe("parseMovingAverage", () => {
   });
 });
 
+describe("parseBenchmarkChoice", () => {
+  it("keeps an available choice; anything else is none", () => {
+    const available = ["none", "msci-world", "portfolio", "depot:a"];
+    expect(parseBenchmarkChoice("msci-world", available)).toBe("msci-world");
+    expect(parseBenchmarkChoice("depot:a", available)).toBe("depot:a");
+    expect(parseBenchmarkChoice("depot:b", available)).toBe("none");
+    expect(parseBenchmarkChoice("portfolio", ["none", "dax"])).toBe("none");
+    expect(parseBenchmarkChoice(undefined, available)).toBe("none");
+  });
+});
+
 describe("chartPreferenceCookie", () => {
   it("sets path, one year, SameSite=Lax and Secure only on https", () => {
     expect(chartPreferenceCookie("dm_chart_tab", "drawdown", false)).toBe(
@@ -52,12 +66,15 @@ describe("storeChartPreference", () => {
     document.cookie = `${VALUE_CHART_TAB_COOKIE}=; path=/; max-age=0`;
     document.cookie = `${SECURITY_CHART_COOKIE}=; path=/; max-age=0`;
     document.cookie = `${MOVING_AVERAGE_COOKIE}=; path=/; max-age=0`;
+    document.cookie = `${BENCHMARK_COOKIE}=; path=/; max-age=0`;
   });
 
   it("writes the cookie in the browser", () => {
     storeChartPreference(VALUE_CHART_TAB_COOKIE, "drawdown");
     storeChartPreference(SECURITY_CHART_COOKIE, "value");
     storeChartPreference(MOVING_AVERAGE_COOKIE, "38");
+    storeChartPreference(BENCHMARK_COOKIE, "depot:a");
+    expect(document.cookie).toContain("dm_benchmark=depot%3Aa");
     expect(document.cookie).toContain("dm_moving_average=38");
     expect(document.cookie).toContain("dm_chart_tab=drawdown");
     expect(document.cookie).toContain("dm_security_chart=value");
