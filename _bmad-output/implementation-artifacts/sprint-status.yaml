@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 10-25-2026 14:10
-last_updated: 10-26-2026 20:58
+last_updated: 2026-10-27
 project: DepotManagement
 project_key: NOKEY
 tracking_system: file-system
@@ -82,7 +82,7 @@ development_status:
   5-1-upload-documents-into-a-review-batch: done
   5-2-deutsche-bank-robin-parser: done
   5-3-review-and-book-imported-transactions: done
-  5-4-comdirect-cominvest-parser: awaiting-operator
+  5-4-comdirect-cominvest-parser: done
   5-5-finanzen-net-zero-baader-bank-parser: done
   5-6-isin-changes-from-broker-documents: done
   epic-5-retrospective: optional

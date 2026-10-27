@@ -2,7 +2,7 @@
 title: 'comdirect / cominvest Parser'
 type: 'feature'
 created: '2026-10-26'
-status: 'awaiting-operator'
+status: done
 baseline_revision: 'f6832510d1a44510eaa0f32e49206bf8898a603e'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -177,3 +177,14 @@ Status: awaiting-operator
 **Operator actions owed:** see `operator_actions` in the frontmatter (real cominvest / comdirect fee, savings-plan and dividend-pair uploads; anonymised fixtures if a layout differs).
 
 **Residual risks:** cominvest and real fee/savings-plan layouts are unverified and fail safely with a specific reason if they differ; Storno detection rejects any document mentioning "Storno"; a credit and its notice uploaded in different batches are not merged (credit booked with its note, notice fails); foreign-currency settlements need manual entry.
+
+## Operator Confirmation
+
+Confirmed 2026-10-27: the external actions this story owed were carried out.
+
+- Upload one real cominvest settlement PDF (buy or sell, ideally a multi-execution rebalancing document) to a comdirect Depot in `npm run dev` and confirm the review shows status erkannt with correct date, ISIN, quantity, price, amount, fee and tax.
+- Upload one real comdirect settlement PDF with Provision/Börsenplatzgebühr and one real savings-plan execution PDF and confirm the fee and fractional quantity in the review.
+- Upload a real comdirect Ertragsgutschrift together with its Steuermitteilung in one batch and confirm one DIVIDEND with the correct tax and the Steuermitteilung shown as keine Buchung.
+- If any real layout fails, extract and anonymise its text as described in test/fixtures/import/comdirect/README.md, save it under test/fixtures/import/comdirect/ as *.txt and add a test in src/modules/import/parsers/comdirect/.
+
+_Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._
