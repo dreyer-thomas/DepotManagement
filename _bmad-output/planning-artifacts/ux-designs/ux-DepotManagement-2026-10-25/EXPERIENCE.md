@@ -20,7 +20,7 @@ Single-surface responsive web app, MUI 9 on Next.js (App Router), one user (Tomm
 | --- | --- | --- | --- |
 | Login | Any URL without session | Single-user sign-in | NFR auth |
 | Overview | App open, nav | Portfolio KPIs, value chart, per-Depot list, composition, top news | CAP-10..13, 18, 14 |
-| Depot detail | Overview Depot row, nav "Depots" | Depot KPIs and chart; tabs: Positions · Cash Account · Transactions · Composition | CAP-1, 10..13, 17, 18 |
+| Depot detail | Overview Depot row, nav "Depots" | Depot KPIs and chart (chart tabs Wertentwicklung · Drawdown); tabs: Positions · Cash Account · Transactions · Composition | CAP-1, 10..13, 17, 18 |
 | Security detail | Positions row, top Positions, Securities row, Transaction row | One page per Security across Depots (switcher "Alle Depots" / single Depot), also for Securities no longer held: header, hero with chart toggle "Kurs" (buy/sell markers) / "Wert", KPIs, card "Gesamt seit Erstkauf", FIFO lots per Depot, Transactions with Depot, news | CAP-7, 8, 12, 14, 19 |
 | Transaction form | FAB / "Neue Buchung" on any Depot surface; row click to edit | Add, edit, delete a Transaction of any type | CAP-2, 17 |
 | Corporate action form | Security detail menu | Record split or ISIN change | CAP-3 |
@@ -32,7 +32,7 @@ Single-surface responsive web app, MUI 9 on Next.js (App Router), one user (Tomm
 | Settings | Nav "Mehr" | Depots (create, rename, archive, delete with typed name confirmation), Parqet migration, export/restore, appearance | CAP-1, 15, 16 |
 | Parqet migration | Settings | One-time wizard per Depot: file → target Depot → preview/review → confirm | CAP-15 |
 
-One global **Period selector** (1M · YTD · 1J · 3J · Max · Benutzerdefiniert) lives in the page header of Overview, Depot detail and Security detail; the choice persists across those surfaces and sessions. `[ASSUMPTION: 3J added between 1J and Max]` Archived Depots appear only in a collapsed "Archiviert" group on the Depots list and are read-only.
+One global **Period selector** (1M · YTD · 1J · 3J · Max · Benutzerdefiniert) lives in the page header of Overview, Depot detail and Security detail; the choice persists across those surfaces and sessions. On Overview and Depot detail the value chart has tabs **Wertentwicklung · Drawdown**: Drawdown is a red area below 0 % (decline of the time-weighted index from its running peak in the Period) with KPIs Aktueller Drawdown, Maximaler Drawdown, Dauer (days) and Periode (dates of the maximum phase). `[ASSUMPTION: 3J added between 1J and Max]` Archived Depots appear only in a collapsed "Archiviert" group on the Depots list and are read-only.
 
 Dialogs stack one level deep at most.
 

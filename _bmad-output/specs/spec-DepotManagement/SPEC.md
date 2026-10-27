@@ -91,8 +91,8 @@ CAP-N corresponds to PRD FR-N (CAP-19 added 2026-10-26).
   - **intent:** Tommy can see the Portfolio or a Depot split by asset class, type, sector, industry, region, country, company size and currency.
   - **success:** Shares sum to 100 % of value; ETFs/funds are classified as a whole; manual overrides win; tapping a segment lists its Positions.
 - **CAP-22** — Performance and income analysis
-  - **intent:** Tommy can analyse monthly/yearly returns, realized gains, cash flow and dividends.
-  - **success:** The heatmap shows time-weighted monthly returns consistent with the Depot figures; realized gains, cash flow and dividends per month/year reconcile with the ledger; the dividend estimate is marked as such.
+  - **intent:** Tommy can analyse monthly/yearly returns, drawdown, realized gains, cash flow and dividends.
+  - **success:** The heatmap shows time-weighted monthly returns consistent with the Depot figures; realized gains, cash flow and dividends per month/year reconcile with the ledger; the dividend estimate is marked as such; the drawdown is flow-neutral (time-weighted index) and its maximum, duration and dates match a hand-calculated reference.
 
 ## Constraints
 

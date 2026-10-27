@@ -194,3 +194,9 @@ NEW: ... by asset type (ETF, Fonds, Aktie, Zertifikat, Krypto, Guthaben, Unklass
 **Trigger.** Tommy wants Parqet-style analyses: allocation by region, sector and more, and gains/losses per month and year. Research (Parqet blog, reviews) listed Parqet's views: eight allocation dimensions as donuts, a return heatmap years × months, realized gains per month, dividend views and calendar, X-Ray. Tommy uses all of them occasionally; ETFs and funds classified as a whole are enough for now, X-Ray later.
 
 **Change.** New Epic 7 "Analyses" with Stories 7.1 (Security classification: Yahoo for stocks, rules table for ETFs/funds, certificates via underlying, manual override), 7.2 (allocation donuts with drill-down), 7.3 (return heatmap), 7.4 (realized gains, best/worst sales, cash flow), 7.5 (dividend analysis with 12-month income and estimate). New FR-21/FR-22, CAP-21/CAP-22, AD-20 (classification module, manual precedence), navigation entry "Analysen". PRD out-of-scope narrowed to X-Ray only. Sprint status gains epic-7 and its stories.
+
+## Addendum I — Drawdown (approved 2026-10-27)
+
+**Trigger.** Tommy likes Parqet's drawdown view next to the value chart: it shows losses over time and gives a sense of risk.
+
+**Change.** New Story 7.6 "Drawdown": chart tabs "Wertentwicklung | Drawdown" on Overview and Depot detail, global Period; drawdown of the time-weighted performance index from its running peak (flow-neutral); KPIs current and maximum drawdown, duration and dates of the maximum phase; one pure core function with a hand-calculated reference test. FR-22/CAP-22 extended, EXPERIENCE.md chart tabs added. Parqet's "Dividenden" chart tab is covered by Story 7.5. Sprint status gains 7-6-drawdown; epic-7 back to in-progress.

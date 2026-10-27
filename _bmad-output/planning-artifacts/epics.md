@@ -42,7 +42,7 @@ FR16: Tommy can export all Depots and Transactions to an open file format and re
 FR17: Tommy can see balance and booking history of each Depot's Cash Account; buy, sell, dividend, fee and tax book their cash side automatically; Deposits and Withdrawals are entered manually and change only the Cash Account.
 FR18: Portfolio and Depot overviews and charts include Cash Account balances in total value, shown separately from Positions; Deposits and Withdrawals are external cash flows in both return metrics.
 FR21: Tommy can see his Portfolio or a Depot split by asset class, type, sector, industry, region, country, company size and currency (ETFs and funds classified as a whole, manual override), with the Positions behind each segment.
-FR22: Tommy can analyse returns per month and year (heatmap), realized gains and cash flow per month and year, and dividends per month, year and Security with trailing-12-month income and an estimate of the next 12 months.
+FR22: Tommy can analyse returns per month and year (heatmap), the drawdown of his Portfolio or a Depot over the chosen Period, realized gains and cash flow per month and year, and dividends per month, year and Security with trailing-12-month income and an estimate of the next 12 months.
 FR20: Tommy can reconcile a Depot against a broker statement position by position (persisted run with checks, finished explicitly) and book holding corrections (ADJUSTMENT: no cash, no realized gain, external flow in returns) or cash corrections.
 FR19: Tommy can open a detail page per Security across all Depots (also when no longer held) showing news, price history with his buys and sells marked, the Transaction history with Depot, and the all-time result since the first buy (realized, unrealized, dividends, fees, taxes, total, return in % and XIRR).
 
@@ -133,7 +133,7 @@ FR17: Epic 1 - Cash Account balance and history
 FR18: Epic 4 - Cash in overviews and return metrics
 FR19: Epic 4 - Security detail page and all-time performance (Stories 4.6, 4.7)
 FR21: Epic 7 - Security classification and allocation analysis (Stories 7.1, 7.2)
-FR22: Epic 7 - Return heatmap, realized gains, cash flow, dividends (Stories 7.3–7.5)
+FR22: Epic 7 - Return heatmap, realized gains, cash flow, dividends, drawdown (Stories 7.3–7.6)
 FR20: Epic 2 - Depot reconciliation and holding corrections (Story 2.9)
 
 ## Epic List
@@ -187,7 +187,7 @@ Tommy can export and restore all data, gets a daily database backup, and runs De
 **FRs covered:** FR16 · **Also:** NFR1, NFR2, AR12, AR13, AR18, UX-DR16 (export/restore part)
 
 ### Epic 7: Analyses
-Tommy analyses his holdings like in Parqet: allocation by asset class, type, sector, industry, region, country, company size and currency (ETFs and funds as a whole), a monthly/yearly return heatmap, realized gains and cash flow per month and year, and dividend history with trailing-12-month income.
+Tommy analyses his holdings like in Parqet: allocation by asset class, type, sector, industry, region, country, company size and currency (ETFs and funds as a whole), a monthly/yearly return heatmap, realized gains and cash flow per month and year, dividend history with trailing-12-month income, and the drawdown over the chosen Period.
 **FRs covered:** FR21, FR22 · **Also:** AR9, AR13, UX-DR8 (donut pattern)
 
 **Action outside the epics:** take the Parqet CSV export of every portfolio before cancelling the Parqet subscription.
@@ -994,3 +994,20 @@ So that I can follow my passive income.
 **And** a KPI row shows the income of the last 12 months and the trailing yield (income ÷ current value of the paying Positions)
 **And** an "Erwartet" view lists the expected payments of the next 12 months, estimated from each held Security's payments of the last 12 months (same months, current quantity), clearly marked as an estimate
 **And** all figures come from core over the ledger for the chosen scope, with unit tests
+
+### Story 7.6: Drawdown
+
+As Tommy,
+I want to see how far my Portfolio or a Depot fell below its previous peak over time,
+So that I can judge the risk I carry.
+
+**Acceptance Criteria:**
+
+**Given** the value chart on Overview and Depot detail
+**When** I switch its new tabs "Wertentwicklung | Drawdown" to "Drawdown"
+**Then** a red area below a 0 % line shows the drawdown per day over the global Period (1M, YTD, 1J, 3J, Max, custom): the decline of the time-weighted performance index (TTWROR, AD-10) from its running peak within the Period, so Deposits, Withdrawals and transfers never count as losses
+**And** hover (tap on phones) shows date and drawdown in %
+**And** a KPI row shows "Aktueller Drawdown" (today vs. peak), "Maximaler Drawdown" (deepest point in the Period), "Dauer" (days from the peak before the maximum drawdown until recovery to that peak, or until the Period end if not recovered) and "Periode" (start – end of that phase, de-DE dates)
+**And** at a new peak the current drawdown is 0 %; without any decline all figures show 0 % and "–"
+**And** the tab choice persists like the Period; changing the Period recomputes
+**And** the drawdown series and figures come from one pure core function over the daily valuation series used by the value chart and heatmap (AD-1, AD-10), unit-tested against a hand-calculated reference including a flow inside a decline and an unrecovered drawdown
