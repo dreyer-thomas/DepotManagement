@@ -6,7 +6,9 @@ import type { Metadata } from "next";
 import { AllocationView } from "@/app/_components/analyses/AllocationView";
 import { AnalysisFilters } from "@/app/_components/analyses/AnalysisFilters";
 import { AnalysisTabs } from "@/app/_components/analyses/AnalysisTabs";
+import { ReturnHeatmap } from "@/app/_components/analyses/ReturnHeatmap";
 import {
+  type AllocationDimension,
   ALLOCATION_DIMENSIONS,
   ALLOCATION_LABELS,
   PORTFOLIO_SCOPE,
@@ -22,9 +24,10 @@ import { AppLink } from "@/app/_components/depots/DepotLink";
 import { PageTitle } from "@/app/_components/Placeholder";
 import { allocation } from "@/core/allocation";
 import { businessDate } from "@/core/dates";
+import { returnHeatmap } from "@/core/return-heatmap";
 import { listClassifications } from "@/modules/classification";
-import { listDepots, listPositions } from "@/modules/ledger";
-import { latestStoredPrices } from "@/modules/prices";
+import { listDepots, listPositions, returnSeries } from "@/modules/ledger";
+import { latestStoredPrices, storedPriceHistory } from "@/modules/prices";
 
 export const metadata: Metadata = { title: "Analysen" };
 
@@ -32,10 +35,51 @@ type Props = {
   searchParams?: Promise<{ tab?: string | string[]; scope?: string | string[]; dimension?: string | string[] }>;
 };
 
+type Depot = Awaited<ReturnType<typeof listDepots>>[number];
+
 /**
- * Analysen (FR-21). Aufteilung: a today snapshot of the Portfolio (non-archived Depots, AD-17) or one
- * Depot, grouped by a classification dimension read through the classification module (AD-20); the
- * same Position values and cash as the composition card. Nothing is stored; no provider call.
+ * Aufteilung: a today snapshot of the Portfolio (non-archived Depots, AD-17) or one Depot, grouped by
+ * a classification dimension read through the classification module (AD-20); the same Position values
+ * and cash as the composition card.
+ */
+async function allocationPanel({ depots, scope, dimension, today }: { depots: Depot[]; scope: string; dimension: AllocationDimension; today: string }) {
+  const inScope = scope === PORTFOLIO_SCOPE ? depots : depots.filter((depot) => depot.id === scope);
+  const [positionsByDepot, classifications] = await Promise.all([
+    // Stored manual / provider Prices win over Transaction prices (resolver), as on the Positions tab.
+    Promise.all(inScope.map((depot) => listPositions(depot.id, today, undefined, { storedPrices: latestStoredPrices }))),
+    listClassifications(),
+  ]);
+  const holdings = inScope.flatMap((depot, index) => compositionHoldings(depot, positionsByDepot[index]));
+  const result = allocation(
+    allocationHoldings(holdings, classifications, dimension),
+    inScope.map((depot) => depot.cashBalance),
+    ALLOCATION_LABELS,
+  );
+  return (
+    <AllocationView
+      scope={scope}
+      dimensionLabel={ALLOCATION_DIMENSIONS[dimension]}
+      segments={result.segments}
+      positions={result.positions}
+      showDepot={scope === PORTFOLIO_SCOPE}
+    />
+  );
+}
+
+/**
+ * Rendite: monthly TTWRORs over the scope's MAX daily series (the same series and flows as the Depot /
+ * Portfolio return figures), chained into quarters and years (FR-22).
+ */
+async function returnsPanel({ scope, today }: { scope: string; today: string }) {
+  const { start, series, rows } = await returnSeries(scope === PORTFOLIO_SCOPE ? "portfolio" : { depotId: scope }, today, undefined, {
+    storedPrices: storedPriceHistory,
+  });
+  return <ReturnHeatmap scope={scope} years={returnHeatmap(start, series, rows, today)} />;
+}
+
+/**
+ * Analysen (FR-21, FR-22): tabs Aufteilung and Rendite over the Portfolio or one non-archived Depot,
+ * scope (and dimension) in the URL. Everything is computed on read; nothing is stored; no provider call.
  */
 export default async function AnalysesPage({ searchParams }: Props) {
   const params = (await searchParams) ?? {};
@@ -59,33 +103,19 @@ export default async function AnalysesPage({ searchParams }: Props) {
   const tab = analysisTab(params.tab);
   const scope = analysisScope(params.scope, depots.map((depot) => depot.id));
   const dimension = allocationDimension(params.dimension);
-  const inScope = scope === PORTFOLIO_SCOPE ? depots : depots.filter((depot) => depot.id === scope);
   const today = businessDate(new Date());
-  const [positionsByDepot, classifications] = await Promise.all([
-    // Stored manual / provider Prices win over Transaction prices (resolver), as on the Positions tab.
-    Promise.all(inScope.map((depot) => listPositions(depot.id, today, undefined, { storedPrices: latestStoredPrices }))),
-    listClassifications(),
-  ]);
-  const holdings = inScope.flatMap((depot, index) => compositionHoldings(depot, positionsByDepot[index]));
-  const result = allocation(
-    allocationHoldings(holdings, classifications, dimension),
-    inScope.map((depot) => depot.cashBalance),
-    ALLOCATION_LABELS,
-  );
 
   return (
     <>
       <PageTitle>Analysen</PageTitle>
       <AnalysisTabs value={tab} scope={scope} dimension={dimension} />
       <Box role="tabpanel" id={analysisTabPanelId(tab)} aria-labelledby={analysisTabId(tab)}>
-        <AnalysisFilters depots={depots.map(({ id, name }) => ({ id, name }))} scope={scope} dimension={dimension} />
-        <AllocationView
-          scope={scope}
-          dimensionLabel={ALLOCATION_DIMENSIONS[dimension]}
-          segments={result.segments}
-          positions={result.positions}
-          showDepot={scope === PORTFOLIO_SCOPE}
-        />
+        <AnalysisFilters tab={tab} depots={depots.map(({ id, name }) => ({ id, name }))} scope={scope} dimension={dimension} />
+        {tab === "returns" ? (
+          await returnsPanel({ scope, today })
+        ) : (
+          await allocationPanel({ depots, scope, dimension, today })
+        )}
       </Box>
     </>
   );

@@ -1,12 +1,17 @@
 import type { AllocationHolding, AllocationLabels } from "@/core/allocation";
 import type { CompositionHolding, CompositionSegment } from "@/core/composition";
+import Decimal from "decimal.js";
 import { formatMoney, formatShare } from "@/core/format";
 import type { AssetType } from "@/modules/ledger";
 import type { Classification } from "@/modules/classification";
+import { ratioTone } from "../security-detail/labels";
 import { ASSET_TYPE_LABELS } from "../transactions/labels";
 
-/** Analysen tabs, driven by `?tab=`; later stories add Rendite, Gewinne and Dividenden. */
-export const ANALYSIS_TABS = [{ value: "allocation", label: "Aufteilung" }] as const;
+/** Analysen tabs, driven by `?tab=`; later stories add Gewinne and Dividenden. */
+export const ANALYSIS_TABS = [
+  { value: "allocation", label: "Aufteilung" },
+  { value: "returns", label: "Rendite" },
+] as const;
 
 export type AnalysisTab = (typeof ANALYSIS_TABS)[number]["value"];
 
@@ -64,10 +69,15 @@ export function allocationDimension(value: string | string[] | undefined): Alloc
   return raw !== undefined && Object.hasOwn(ALLOCATION_DIMENSIONS, raw) ? (raw as AllocationDimension) : DEFAULT_ALLOCATION_DIMENSION;
 }
 
+/** URL of an Analysen tab; scope and dimension stay in the URL on every tab, so switching keeps them. */
+export function analysisHref(tab: AnalysisTab, scope: string, dimension: AllocationDimension): string {
+  const params = new URLSearchParams({ tab, scope, dimension });
+  return `/analyses?${params.toString()}`;
+}
+
 /** URL of the allocation tab with the given scope and dimension. */
 export function allocationHref(scope: string, dimension: AllocationDimension): string {
-  const params = new URLSearchParams({ tab: "allocation", scope, dimension });
-  return `/analyses?${params.toString()}`;
+  return analysisHref("allocation", scope, dimension);
 }
 
 /**
@@ -98,4 +108,36 @@ export function allocationHoldings(
 export function allocationAriaLabel(dimensionLabel: string, segments: readonly CompositionSegment[]): string {
   const parts = segments.map((s) => `${s.label} ${formatShare(s.displayShare)} (${formatMoney(s.amount)})`);
   return `Aufteilung nach ${dimensionLabel}: ${parts.join(", ")}`;
+}
+
+/** Column labels of the return heatmap. */
+export const HEATMAP_MONTH_LABELS = ["Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"] as const;
+export const HEATMAP_QUARTER_LABELS = ["Q1", "Q2", "Q3", "Q4"] as const;
+export const HEATMAP_YEAR_LABEL = "Jahr";
+export const HEATMAP_RUNNING_LABEL = "laufend";
+export const HEATMAP_EMPTY_TEXT = "Noch keine Transaktionen.";
+
+/** |r| at which a heatmap cell reaches full intensity. */
+export const HEATMAP_INTENSITY_CAP = "0.1";
+
+export type HeatmapTone = { tone: "gain" | "loss" | "neutral"; intensity: number };
+
+/**
+ * Tint of a heatmap cell by its value as displayed (`ratioTone`): gain above, loss below 0,00 %, neutral
+ * when it shows as 0,00 % or `null`; intensity = |r| / 10 %,
+ * capped at 1. The cell always shows the signed value too, so colour is never the only cue.
+ */
+export function heatmapCellTone(ratio: string | null): HeatmapTone {
+  const tone = ratioTone(ratio);
+  if (ratio === null || tone === null) return { tone: "neutral", intensity: 0 };
+  const intensity = Decimal.min(new Decimal(ratio).abs().dividedBy(HEATMAP_INTENSITY_CAP), 1).toNumber();
+  return { tone, intensity };
+}
+
+/**
+ * Opacity of the gain/loss tint over the card surface for an intensity: 0.12 + 0.48·i in light mode;
+ * dark mode tops out lower (0.12 + 0.28·i) so the light text keeps WCAG AA contrast on the brighter tints.
+ */
+export function heatmapTintAlpha(intensity: number, mode: "light" | "dark"): number {
+  return 0.12 + (mode === "light" ? 0.48 : 0.28) * intensity;
 }

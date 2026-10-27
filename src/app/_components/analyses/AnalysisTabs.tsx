@@ -3,7 +3,7 @@
 import Tab from "@mui/material/Tab";
 import Tabs from "@mui/material/Tabs";
 import NextLink from "next/link";
-import { ANALYSIS_TABS, type AllocationDimension, type AnalysisTab, analysisTabId, analysisTabPanelId } from "./labels";
+import { ANALYSIS_TABS, type AllocationDimension, type AnalysisTab, analysisHref, analysisTabId, analysisTabPanelId } from "./labels";
 
 /** Tab bar of the Analysen page; each tab is a link to `?tab=<value>&scope=<scope>&dimension=<dimension>` so the URL holds the state. */
 export function AnalysisTabs({ value, scope, dimension }: { value: AnalysisTab; scope: string; dimension: AllocationDimension }) {
@@ -17,7 +17,7 @@ export function AnalysisTabs({ value, scope, dimension }: { value: AnalysisTab; 
           id={analysisTabId(tab.value)}
           aria-controls={tab.value === value ? analysisTabPanelId(tab.value) : undefined}
           component={NextLink}
-          href={`/analyses?${new URLSearchParams({ tab: tab.value, scope, dimension }).toString()}`}
+          href={analysisHref(tab.value, scope, dimension)}
           scroll={false}
           sx={{ minHeight: 48 }}
         />

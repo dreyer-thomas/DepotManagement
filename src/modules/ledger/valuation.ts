@@ -2,7 +2,8 @@ import { prisma } from "@/db";
 import { type PeriodSelection, resolvePeriod } from "@/core/period";
 import { addDays } from "@/core/dates";
 import { type PeriodPerformance, periodPerformance, portfolioPerformance } from "@/core/returns";
-import { periodFlows, type ValuationPoint, type ValuationRow, valuationSeries } from "@/core/valuation";
+import type { CorporateActions } from "@/core/corporate-actions";
+import { periodFlows, sumValuationSeries, type ValuationPoint, type ValuationRow, valuationSeries } from "@/core/valuation";
 import { loadCorporateActions } from "./corporate-actions";
 import type { LedgerDb } from "./depots";
 import { lineageObservations, type StoredPriceLoader } from "./positions";
@@ -40,6 +41,25 @@ function firstDateOf(rows: readonly { date: string }[]): string | null {
   return rows.reduce<string | null>((first, row) => (first === null || row.date < first ? row.date : first), null);
 }
 
+/**
+ * The Depot's daily series over `from..to` (inclusive) from its `rows`: one series from the day before
+ * `from`, its first point the start, the rest the Period; plus the corporate actions it used.
+ */
+async function seriesOver(
+  rows: DepotRow[],
+  from: string,
+  to: string,
+  db: LedgerDb,
+  storedPrices: StoredPriceLoader | undefined,
+): Promise<{ start: ValuationPoint; series: ValuationPoint[]; actions: CorporateActions }> {
+  const own = new Set(rows.flatMap((row) => (row.securityId ? [row.securityId] : [])));
+  const actions = await loadCorporateActions(db);
+  const observations = own.size === 0 ? [] : await lineageObservations(own, actions, to, db, storedPrices);
+  const startDate = addDays(from, -1);
+  const points = valuationSeries(rows, observations, actions, startDate, from > to ? startDate : to);
+  return { start: points[0], series: points.slice(1), actions };
+}
+
 /** The Depot's valuation over `from..to` (inclusive) from its `rows`, plus those rows. */
 async function valuationOver(
   rows: DepotRow[],
@@ -48,14 +68,7 @@ async function valuationOver(
   db: LedgerDb,
   storedPrices: StoredPriceLoader | undefined,
 ): Promise<{ valuation: DepotValuation; rows: DepotRow[] }> {
-  const own = new Set(rows.flatMap((row) => (row.securityId ? [row.securityId] : [])));
-  const actions = await loadCorporateActions(db);
-  const observations = own.size === 0 ? [] : await lineageObservations(own, actions, to, db, storedPrices);
-  // One series from the day before `from`: its first point is the start, the rest the Period.
-  const startDate = addDays(from, -1);
-  const points = valuationSeries(rows, observations, actions, startDate, from > to ? startDate : to);
-  const start = points[0];
-  const series = points.slice(1);
+  const { start, series, actions } = await seriesOver(rows, from, to, db, storedPrices);
   return {
     rows,
     valuation: {
@@ -140,4 +153,45 @@ export async function portfolioValuation(
     hasTransactions: firstDate !== null,
     depots: depots.map((depot, index) => ({ id: depot.id, name: depot.name, valuation: evaluated[index].valuation })),
   };
+}
+
+/** The scope of a return series: one Depot or the Portfolio (non-archived Depots, AD-17). */
+export type ReturnScope = { depotId: string } | "portfolio";
+
+/** The MAX daily series of a scope and its ledger rows, as the return heatmap reads them. */
+export type ReturnSeries = {
+  /** Valuation at the end of the day before the first ledger date. */
+  start: ValuationPoint;
+  /** One point per day from the scope's first ledger date to `today`. */
+  series: ValuationPoint[];
+  /** All ledger rows of the scope (every Depot for the Portfolio). */
+  rows: ValuationRow[];
+};
+
+/**
+ * The daily series of `scope` over `MAX` as of `today` (first ledger date..today), built exactly as
+ * `depotValuation` / `portfolioValuation` build it for `MAX` (same price inputs; the Portfolio sums its
+ * non-archived Depots pointwise over the earliest first date of all of them). Read-only.
+ */
+export async function returnSeries(
+  scope: ReturnScope,
+  today: string,
+  db: LedgerDb = prisma,
+  { storedPrices }: DepotValuationOptions = {},
+): Promise<ReturnSeries> {
+  const max: PeriodSelection = { kind: "preset", preset: "MAX" };
+  if (scope !== "portfolio") {
+    const rows = await loadRows(scope.depotId, db);
+    const { from, to } = resolvePeriod(max, today, firstDateOf(rows));
+    const { start, series } = await seriesOver(rows, from, to, db, storedPrices);
+    return { start, series, rows };
+  }
+  const depots = await db.depot.findMany({ where: { archived: false }, select: { id: true } });
+  const rowsByDepot = await Promise.all(depots.map((depot) => loadRows(depot.id, db)));
+  const rows = rowsByDepot.flat();
+  const { from, to } = resolvePeriod(max, today, firstDateOf(rows));
+  // Without any Depot the Portfolio is one empty (zero) part.
+  const parts = await Promise.all((rowsByDepot.length > 0 ? rowsByDepot : [[]]).map((own) => seriesOver(own, from, to, db, storedPrices)));
+  const [start] = sumValuationSeries(parts.map((part) => [part.start]));
+  return { start, series: sumValuationSeries(parts.map((part) => part.series)), rows };
 }

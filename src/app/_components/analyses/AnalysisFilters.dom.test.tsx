@@ -20,7 +20,7 @@ beforeEach(() => replace.mockReset());
 describe("AnalysisFilters", () => {
   it("offers the Portfolio and the Depots and keeps the dimension when the scope changes", async () => {
     const user = userEvent.setup({ delay: null });
-    render(<AnalysisFilters depots={depots} scope="portfolio" dimension="sector" />);
+    render(<AnalysisFilters tab="allocation" depots={depots} scope="portfolio" dimension="sector" />);
     const scope = screen.getByRole("combobox", { name: "Bereich" });
     expect(scope.textContent).toBe("Portfolio");
     await user.click(scope);
@@ -32,7 +32,7 @@ describe("AnalysisFilters", () => {
 
   it("offers every dimension and keeps the scope when the dimension changes", async () => {
     const user = userEvent.setup({ delay: null });
-    render(<AnalysisFilters depots={depots} scope="d1" dimension="assetClass" />);
+    render(<AnalysisFilters tab="allocation" depots={depots} scope="d1" dimension="assetClass" />);
     const dimension = screen.getByRole("combobox", { name: "Dimension" });
     expect(dimension.textContent).toBe("Anlageklasse");
     await user.click(dimension);
@@ -51,9 +51,19 @@ describe("AnalysisFilters", () => {
     expect(replace).toHaveBeenCalledWith("/analyses?tab=allocation&scope=d1&dimension=region", { scroll: false });
   });
 
+  it("hides the dimension on the Rendite tab and keeps the tab when the scope changes", async () => {
+    const user = userEvent.setup({ delay: null });
+    render(<AnalysisFilters tab="returns" depots={depots} scope="portfolio" dimension="sector" />);
+    expect(screen.queryByRole("combobox", { name: "Dimension" })).toBeNull();
+    await user.click(screen.getByRole("combobox", { name: "Bereich" }));
+    const options = await screen.findAllByRole("option");
+    await user.click(options[1]);
+    expect(replace).toHaveBeenCalledWith("/analyses?tab=returns&scope=d1&dimension=sector", { scroll: false });
+  });
+
   it("is keyboard-operable", async () => {
     const user = userEvent.setup({ delay: null });
-    render(<AnalysisFilters depots={depots} scope="portfolio" dimension="assetClass" />);
+    render(<AnalysisFilters tab="allocation" depots={depots} scope="portfolio" dimension="assetClass" />);
     screen.getByRole("combobox", { name: "Dimension" }).focus();
     await user.keyboard("{Enter}");
     await screen.findAllByRole("option");

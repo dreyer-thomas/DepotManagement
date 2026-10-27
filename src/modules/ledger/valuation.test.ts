@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestDatabase, type TestDatabase } from "../../../test/helpers/test-db";
 import type { PriceObservation } from "@/core/prices";
 import { ExactDecimal } from "@/core/decimal";
-import { archiveDepot, createDepot, depotValuation, ensureSecurity, portfolioValuation, recordIsinChange, recordTransaction, type RecordTransactionInput } from "./index";
+import { returnHeatmap } from "@/core/return-heatmap";
+import { chainReturns } from "@/core/returns";
+import { archiveDepot, createDepot, depotValuation, ensureSecurity, portfolioValuation, recordIsinChange, returnSeries, recordTransaction, type RecordTransactionInput } from "./index";
 
 let testDb: TestDatabase;
 let depotId: string;
@@ -284,6 +286,67 @@ describe("portfolioValuation", () => {
     expect(portfolio.series).toEqual([{ date: TODAY, value: "0", positionsValue: "0", cash: "0", investedCapital: "0" }]);
     expect(portfolio.depots).toHaveLength(2);
     expect(portfolio.performance).toMatchObject({ gain: "0", ttwror: null, xirr: null });
+  });
+});
+
+describe("returnSeries", () => {
+  const MAX = { kind: "preset", preset: "MAX" } as const;
+  const storedPrices = async () => [
+    { id: "p1", securityId: appleId, date: "2026-02-15", sequence: 0, price: "120", source: "provider" as const },
+    { id: "p2", securityId: appleId, date: "2026-09-30", sequence: 0, price: "141.25", source: "provider" as const },
+  ];
+
+  async function setup() {
+    await book({ type: "DEPOSIT", date: "2025-11-01", amount: "3000" });
+    await book({ type: "BUY", date: "2025-11-02", quantity: "10", price: "100", fee: "5", security: { id: appleId } });
+    await book({ type: "SELL", date: "2026-06-01", quantity: "4", price: "130", fee: "2", security: { id: appleId } });
+    await book({ depotId: otherDepotId, type: "DEPOSIT", date: "2026-01-02", amount: "1000" });
+    await book({ depotId: otherDepotId, type: "BUY", date: "2026-01-03", quantity: "5", price: "110", security: { id: appleId } });
+    const archived = await createDepot({ name: "Altdepot", broker: "COMDIRECT" }, db());
+    if (!archived.ok) throw new Error("setup failed");
+    await book({ depotId: archived.depot.id, type: "DEPOSIT", date: "2024-01-01", amount: "5000" });
+    await book({ depotId: archived.depot.id, type: "WITHDRAWAL", date: "2024-01-02", amount: "5000" });
+    expect((await archiveDepot(archived.depot.id, db())).ok).toBe(true);
+  }
+
+  it("gives a Depot the MAX series of depotValuation and its rows", async () => {
+    await setup();
+    const result = await returnSeries({ depotId: otherDepotId }, TODAY, db(), { storedPrices });
+    const valuation = await depotValuation(otherDepotId, MAX, TODAY, db(), { storedPrices });
+    expect(result.start).toEqual(valuation.start);
+    expect(result.series).toEqual(valuation.series);
+    expect(result.rows.map((row) => row.date).sort()).toEqual(["2026-01-02", "2026-01-03"]);
+  });
+
+  it("gives the Portfolio the MAX series of portfolioValuation and the rows of every non-archived Depot", async () => {
+    await setup();
+    const result = await returnSeries("portfolio", TODAY, db(), { storedPrices });
+    const valuation = await portfolioValuation(MAX, TODAY, db(), { storedPrices });
+    expect(result.start).toEqual(valuation.start);
+    expect(result.series).toEqual(valuation.series);
+    expect(result.series[0].date).toBe("2025-11-01");
+    expect(result.rows).toHaveLength(5);
+  });
+
+  it("feeds a heatmap whose current year equals the YTD TTWROR and whose months chain to the MAX TTWROR", async () => {
+    await setup();
+    const close = (a: string | null, b: string | null) => expect(new ExactDecimal(a!).minus(b!).abs().lessThan("1e-15")).toBe(true);
+    for (const scope of [{ depotId }, "portfolio"] as const) {
+      const { start, series, rows } = await returnSeries(scope, TODAY, db(), { storedPrices });
+      const years = returnHeatmap(start, series, rows, TODAY);
+      const evaluate = (preset: "YTD" | "MAX") =>
+        scope === "portfolio"
+          ? portfolioValuation({ kind: "preset", preset }, TODAY, db(), { storedPrices })
+          : depotValuation(depotId, { kind: "preset", preset }, TODAY, db(), { storedPrices });
+      close(years[0].total, (await evaluate("YTD")).performance.ttwror);
+      close(chainReturns(years.flatMap((year) => year.months.map((month) => month?.return ?? null))), (await evaluate("MAX")).performance.ttwror);
+    }
+  });
+
+  it("is a single zero day without rows", async () => {
+    const result = await returnSeries("portfolio", TODAY, db());
+    expect(result.rows).toEqual([]);
+    expect(result.series).toEqual([{ date: TODAY, value: "0", positionsValue: "0", cash: "0", investedCapital: "0" }]);
   });
 });
 

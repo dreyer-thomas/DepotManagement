@@ -133,6 +133,22 @@ export function ttwror(start: ValuationPoint, series: readonly ValuationPoint[],
   return multiplied ? ratioString(chain.minus(1)) : null;
 }
 
+/**
+ * Chains period returns: Π(1 + r) − 1 over the non-null ratios (e.g. monthly TTWRORs into a quarter or
+ * year); `null` when none is given. Chaining the TTWRORs of consecutive slices of one series equals the
+ * TTWROR over the whole series, since `ttwror` is itself a product of daily factors.
+ */
+export function chainReturns(ratios: readonly (string | null)[]): string | null {
+  let chain = new ReturnDecimal(1);
+  let any = false;
+  for (const ratio of ratios) {
+    if (ratio === null) continue;
+    chain = chain.times(new ReturnDecimal(ratio).plus(1));
+    any = true;
+  }
+  return any ? ratioString(chain.minus(1)) : null;
+}
+
 /** A dated cash flow from the investor's view: negative = paid in, positive = received. */
 export type CashFlow = { date: string; amount: string };
 

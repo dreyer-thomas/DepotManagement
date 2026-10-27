@@ -6,16 +6,20 @@ const listDepots = vi.hoisted(() => vi.fn());
 const listPositions = vi.hoisted(() => vi.fn());
 const listClassifications = vi.hoisted(() => vi.fn());
 const latestStoredPrices = vi.hoisted(() => vi.fn());
+const storedPriceHistory = vi.hoisted(() => vi.fn());
+const returnSeries = vi.hoisted(() => vi.fn());
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn(), push: vi.fn(), refresh: vi.fn() }) }));
-vi.mock("@/modules/ledger", () => ({ listDepots, listPositions }));
+vi.mock("@/modules/ledger", () => ({ listDepots, listPositions, returnSeries }));
 vi.mock("@/modules/classification", () => ({ listClassifications }));
-vi.mock("@/modules/prices", () => ({ latestStoredPrices }));
+vi.mock("@/modules/prices", () => ({ latestStoredPrices, storedPriceHistory }));
 
 import { DIMENSIONS } from "@/core/classification";
 import { AllocationView, type AllocationViewProps } from "@/app/_components/analyses/AllocationView";
 import { AnalysisFilters } from "@/app/_components/analyses/AnalysisFilters";
 import { AnalysisTabs } from "@/app/_components/analyses/AnalysisTabs";
+import { ReturnHeatmap, type ReturnHeatmapProps } from "@/app/_components/analyses/ReturnHeatmap";
+import { returnHeatmap } from "@/core/return-heatmap";
 import { renderHtml } from "../../../../test/helpers/render-text";
 import AnalysesPage, { metadata } from "./page";
 
@@ -59,6 +63,7 @@ beforeEach(() => {
   listDepots.mockReset();
   listPositions.mockReset();
   listClassifications.mockReset();
+  returnSeries.mockReset();
   listDepots.mockResolvedValue([depot("a", "Hauptdepot", "100"), depot("b", "Zweitdepot", "0"), depot("z", "Altdepot", "0", true)]);
   listPositions.mockImplementation(async (depotId: string) =>
     depotId === "a"
@@ -93,7 +98,8 @@ describe("Analyses page", () => {
       ["Guthaben", "100", "0.077"],
     ]);
     const filters = findElement(tree, AnalysisFilters);
-    expect(filters?.props).toMatchObject({ scope: "portfolio", dimension: "assetClass" });
+    expect(filters?.props).toMatchObject({ tab: "allocation", scope: "portfolio", dimension: "assetClass" });
+    expect(returnSeries).not.toHaveBeenCalled();
     expect((filters?.props.depots as { id: string }[]).map((d) => d.id)).toEqual(["a", "b"]);
     expect(renderText(tree)).toContain("Analysen");
   });
@@ -171,5 +177,45 @@ describe("Analyses page", () => {
     text = renderText(await page());
     expect(text).toContain("Alle Depots sind archiviert.");
     expect(listPositions).not.toHaveBeenCalled();
+  });
+  describe("Rendite tab", () => {
+    const point = (date: string, value: string) => ({ date, value, positionsValue: "0", cash: value, investedCapital: "0" });
+    const row = (type: string, date: string, amount: string) => ({ securityId: null, type, date, sequence: 1, quantity: null, price: null, amount, fee: "0", tax: "0" });
+    const SERIES = {
+      start: point("2026-09-30", "0"),
+      // 01.–26.10. (today), a gain on the last day.
+      series: Array.from({ length: 26 }, (_, i) => point(`2026-10-${String(i + 1).padStart(2, "0")}`, i === 25 ? "1050" : "1000")),
+      rows: [row("DEPOSIT", "2026-10-01", "1000")],
+    };
+
+    it("loads the scope's MAX series with the stored price history and renders the heatmap without allocation data", async () => {
+      returnSeries.mockResolvedValue(SERIES);
+      const tree = await page({ tab: "returns", scope: "b", dimension: "sector" });
+      expect(returnSeries).toHaveBeenCalledWith({ depotId: "b" }, TODAY, undefined, { storedPrices: storedPriceHistory });
+      expect(listPositions).not.toHaveBeenCalled();
+      expect(listClassifications).not.toHaveBeenCalled();
+      const props = findElement(tree, ReturnHeatmap)?.props as unknown as ReturnHeatmapProps;
+      expect(props.scope).toBe("b");
+      expect(props.years).toEqual(returnHeatmap(SERIES.start, SERIES.series, SERIES.rows, TODAY));
+      expect(props.years[0].months[9]).toMatchObject({ month: "2026-10", running: true });
+      expect(findElement(tree, AnalysisFilters)?.props).toMatchObject({ tab: "returns", scope: "b", dimension: "sector" });
+      expect(findElement(tree, AnalysisTabs)?.props).toMatchObject({ value: "returns", scope: "b", dimension: "sector" });
+      expect(findElement(tree, AllocationView)).toBeFalsy();
+      const html = renderHtml(tree);
+      expect(html).toContain('role="tabpanel" id="analysis-tabpanel-returns"');
+      expect(html).toContain('href="/analyses?tab=allocation&amp;scope=b&amp;dimension=sector"');
+      expect(html).not.toContain(">Dimension<");
+    });
+
+    it("uses the Portfolio scope by default", async () => {
+      returnSeries.mockResolvedValue(SERIES);
+      await page({ tab: "returns" });
+      expect(returnSeries).toHaveBeenCalledWith("portfolio", TODAY, undefined, { storedPrices: storedPriceHistory });
+    });
+
+    it("shows the empty text without Transactions", async () => {
+      returnSeries.mockResolvedValue({ start: point("2026-10-25", "0"), series: [point(TODAY, "0")], rows: [] });
+      expect(renderText(await page({ tab: "returns" }))).toContain("Noch keine Transaktionen.");
+    });
   });
 });
