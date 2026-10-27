@@ -39,6 +39,8 @@ import { CompositionCard, type CompositionCardProps } from "../../_components/co
 import { CreateDepotButton } from "../../_components/depots/DepotDialogs";
 import { NewTransactionFab } from "../../_components/overview/NewTransactionFab";
 import { PeriodSelector } from "../../_components/period/PeriodSelector";
+import { ValueSummary } from "../../_components/valuation/ValueSummary";
+import { VALUE_CHART_TAB_COOKIE } from "../../_components/charts/chart-preference";
 import OverviewLoading from "./loading";
 import OverviewPage from "./page";
 
@@ -241,6 +243,28 @@ describe("Overview page", () => {
     expect(renderText(tree)).not.toContain("Altdepot");
     expect(findElement(tree, PeriodSelector)).toBeDefined();
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("passes the Portfolio drawdown and the stored chart tab to the hero; Wertentwicklung by default", async () => {
+    await twoDepots();
+    const options = { storedPrices: storedPriceHistory };
+    const portfolio = await portfolioValuation(DEFAULT_PERIOD, TODAY, undefined, options);
+    const tree = await OverviewPage();
+    const summary = findElement(tree, ValueSummary)!;
+    expect(summary.props.drawdown).toEqual(portfolio.drawdown);
+    expect(summary.props.chartTab).toBe("performance");
+    const hero = heroHtml(renderHtml(tree));
+    expect(hero).toMatch(/role="tab"/);
+    expect(hero).toContain("Wertentwicklung");
+    expect(hero).not.toContain("Maximaler Drawdown");
+
+    cookieJar.set(VALUE_CHART_TAB_COOKIE, "drawdown");
+    const html = renderHtml(await OverviewPage());
+    expect(heroHtml(html)).toContain("Maximaler Drawdown");
+    expect(heroHtml(html)).toMatch(/aria-label="Drawdown \d{2}\.\d{2}\.\d{4} – /);
+
+    cookieJar.set(VALUE_CHART_TAB_COOKIE, "bogus");
+    expect(findElement(await OverviewPage(), ValueSummary)!.props.chartTab).toBe("performance");
   });
 
   it("shows Zusammensetzung beside Top-Positionen: Typ by default, three views, Positions-tab values plus cash", async () => {

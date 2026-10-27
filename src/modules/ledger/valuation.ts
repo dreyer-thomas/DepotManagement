@@ -1,7 +1,8 @@
 import { prisma } from "@/db";
 import { type PeriodSelection, resolvePeriod } from "@/core/period";
 import { addDays } from "@/core/dates";
-import { type PeriodPerformance, periodPerformance, portfolioPerformance } from "@/core/returns";
+import { type Drawdown, drawdown } from "@/core/drawdown";
+import { type PeriodPerformance, periodPerformance, portfolioPerformance, ttwrorIndex } from "@/core/returns";
 import type { CorporateActions } from "@/core/corporate-actions";
 import { periodFlows, sumValuationSeries, type ValuationPoint, type ValuationRow, valuationSeries } from "@/core/valuation";
 import { loadCorporateActions } from "./corporate-actions";
@@ -25,7 +26,14 @@ export type DepotValuation = {
   taxesPaid: string;
   /** Period Gain/Loss, its split, TTWROR and XIRR (`core/returns`), from the same series. */
   performance: PeriodPerformance;
+  /** Drawdown of the Period's TTWROR index (base `1` on `start.date`), same series and rows. */
+  drawdown: Drawdown;
 };
+
+/** Drawdown of the TTWROR index over `series` (same flow rules as `ttwror`), based at `1` on `start.date`. */
+function indexDrawdown(start: ValuationPoint, series: readonly ValuationPoint[], rows: readonly ValuationRow[]): Drawdown {
+  return drawdown(ttwrorIndex(start, series, rows), { date: start.date, level: "1" });
+}
 
 type DepotRow = ValuationRow & { securityId: string | null };
 
@@ -78,6 +86,7 @@ async function valuationOver(
       series,
       ...periodFlows(rows, from, to),
       performance: periodPerformance(rows, start, series, actions),
+      drawdown: indexDrawdown(start, series, rows),
     },
   };
 }
@@ -113,6 +122,8 @@ export type PortfolioValuation = {
   taxesPaid: string;
   /** Summed Gain/Loss and split; TTWROR and XIRR over the summed series and all external flows. */
   performance: PeriodPerformance;
+  /** Drawdown of the TTWROR index over the summed series and all Depots' rows (as `performance.ttwror`). */
+  drawdown: Drawdown;
   /** True when any of the Depots has a ledger row. */
   hasTransactions: boolean;
   /** Each non-archived Depot (name order) evaluated over exactly `from..to`. */
@@ -150,6 +161,7 @@ export async function portfolioValuation(
     dividends: portfolio.performance.dividends,
     taxesPaid: portfolio.performance.taxesPaid,
     performance: portfolio.performance,
+    drawdown: indexDrawdown(portfolio.start, portfolio.series, parts.flatMap(({ rows }) => rows)),
     hasTransactions: firstDate !== null,
     depots: depots.map((depot, index) => ({ id: depot.id, name: depot.name, valuation: evaluated[index].valuation })),
   };

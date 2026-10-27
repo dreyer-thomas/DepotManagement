@@ -169,6 +169,8 @@ describe("depotValuation", () => {
         ttwror: null,
         xirr: null,
       },
+      // Nothing invested: the index stays at its base 1.
+      drawdown: { points: [{ date: TODAY, drawdown: "0" }], current: "0", max: "0", phase: null },
     });
   });
 
@@ -189,6 +191,69 @@ describe("depotValuation", () => {
     expect(valuation.series.at(-1)).toMatchObject({ date: "2023-01-01", value: "2420" });
     expect(valuation.performance).toMatchObject({ gain: "320", unrealized: "320", netExternalFlows: "1100", ttwror: "0.21" });
     expect(Math.abs(Number(valuation.performance.xirr) - 0.1)).toBeLessThan(1e-9);
+  });
+});
+
+describe("valuation drawdown", () => {
+  const PERIOD = { kind: "custom", from: "2026-02-01", to: "2026-02-05" } as const;
+  async function decline() {
+    await book({ type: "DEPOSIT", date: "2026-02-01", amount: "1000" });
+    await book({ type: "BUY", date: "2026-02-01", quantity: "10", price: "100", security: { id: appleId } });
+    await book({ type: "DEPOSIT", date: "2026-02-03", amount: "500" });
+  }
+  const stored = (): PriceObservation[] => [
+    { id: "p1", securityId: appleId, date: "2026-02-02", sequence: 0, price: "90", source: "provider" },
+    { id: "p2", securityId: appleId, date: "2026-02-04", sequence: 0, price: "100", source: "provider" },
+  ];
+
+  it("depotValuation: drawdown of the TTWROR index, the Deposit inside the decline is no gain", async () => {
+    await decline();
+    const valuation = await depotValuation(depotId, PERIOD, TODAY, db(), { storedPrices: async () => stored() });
+    // Index 1, 0.9, 0.9, 0.9 · 1500 / 1400, carried: the raw value rises to 1500 but the peak (1) is not regained.
+    expect(valuation.drawdown.points.map((p) => p.date)).toEqual(valuation.series.map((p) => p.date));
+    expect(valuation.drawdown.points.map((p) => p.drawdown)).toEqual([
+      "0",
+      "-0.1",
+      "-0.1",
+      "-0.03571428571428571429",
+      "-0.03571428571428571429",
+    ]);
+    expect(valuation.drawdown).toMatchObject({
+      current: "-0.03571428571428571429",
+      max: "-0.1",
+      phase: { peak: "2026-02-01", end: "2026-02-05", recovered: false, days: 4 },
+    });
+    expect(valuation.performance.ttwror).toBe("-0.03571428571428571429");
+  });
+
+  it("portfolioValuation: the same drawdown when the other Depot is empty", async () => {
+    await decline();
+    const options = { storedPrices: async () => stored() };
+    const depot = await depotValuation(depotId, PERIOD, TODAY, db(), options);
+    const portfolio = await portfolioValuation(PERIOD, TODAY, db(), options);
+    expect(portfolio.drawdown).toEqual(depot.drawdown);
+    expect(portfolio.depots[0].valuation.drawdown).toEqual(depot.drawdown);
+  });
+
+  it("portfolioValuation: a Deposit into the second Depot during the decline is no gain (all Depots' flows count)", async () => {
+    await book({ type: "DEPOSIT", date: "2026-02-01", amount: "1000" });
+    await book({ type: "BUY", date: "2026-02-01", quantity: "10", price: "100", security: { id: appleId } });
+    await book({ depotId: otherDepotId, type: "DEPOSIT", date: "2026-02-03", amount: "500" });
+    const portfolio = await portfolioValuation(PERIOD, TODAY, db(), { storedPrices: async () => stored() });
+    // Summed values 1000, 900, 1400 (500 deposited into Zweitdepot), 1500, 1500: index 1, 0.9, 0.9,
+    // 0.9 · 1500 / 1400, carried. With Hauptdepot's rows only, 02-03 would count as a gain of 500 / 900.
+    expect(portfolio.drawdown.points).toEqual([
+      { date: "2026-02-01", drawdown: "0" },
+      { date: "2026-02-02", drawdown: "-0.1" },
+      { date: "2026-02-03", drawdown: "-0.1" },
+      { date: "2026-02-04", drawdown: "-0.03571428571428571429" },
+      { date: "2026-02-05", drawdown: "-0.03571428571428571429" },
+    ]);
+    expect(portfolio.drawdown.max).toBe("-0.1");
+    expect(portfolio.drawdown.phase).toEqual({ peak: "2026-02-01", end: "2026-02-05", recovered: false, days: 4 });
+    // The running peak is the index on 02-01 (= base 1), so the current drawdown is the last level − 1.
+    expect(portfolio.performance.ttwror).toBe("-0.03571428571428571429");
+    expect(portfolio.drawdown.current).toBe(portfolio.performance.ttwror);
   });
 });
 

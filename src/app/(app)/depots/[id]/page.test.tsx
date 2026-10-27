@@ -21,7 +21,13 @@ vi.mock("next/headers", () => ({
 }));
 
 import { prisma } from "@/db";
-import { archiveDepot, createDepot, finishReconciliation, openReconciliation, recordIsinChange, recordSplit, recordTrade, recordTransaction, type RecordTransactionInput, updateTransaction } from "@/modules/ledger";
+import { findElement } from "../../../../../test/helpers/next-mocks";
+import { ValueSummary } from "../../../_components/valuation/ValueSummary";
+import { VALUE_CHART_TAB_COOKIE } from "../../../_components/charts/chart-preference";
+import { businessDate } from "@/core/dates";
+import { DEFAULT_PERIOD } from "@/core/period";
+import { storedPriceHistory } from "@/modules/prices";
+import { archiveDepot, createDepot, depotValuation, finishReconciliation, openReconciliation, recordIsinChange, recordSplit, recordTrade, recordTransaction, type RecordTransactionInput, updateTransaction } from "@/modules/ledger";
 import DepotDetailPage, { generateMetadata } from "./page";
 
 beforeEach(async () => {
@@ -566,6 +572,8 @@ describe("Depot detail page", () => {
         "Gesamtwert 1.731,10\u00a0€ Stand 30.06.2026",
         // Period Gain/Loss: 1.731,10 − 0 − (2000 − 300 + 3,50 refund − 12,50 dividend tax) = 40,10.
         "+40,10\u00a0€ · TTWROR +2,00\u00a0% XIRR +4,69\u00a0%",
+        // The chart tabs of the hero card.
+        "Wertentwicklung Drawdown",
         "Aufschlüsselung",
         "Realisiert 0,00\u00a0€ Unrealisiert -5,00\u00a0€ Dividenden +50,00\u00a0€ Gebühren -4,90\u00a0€",
         "Steuern gezahlt nicht in Gewinn/Verlust enthalten +9,00\u00a0€",
@@ -607,6 +615,21 @@ describe("Depot detail page", () => {
     expect(label).toContain(`auf ${gesamtwert!}, investiertes Kapital`);
   });
 
+  it("passes the Depot drawdown and the stored chart tab to the hero", async () => {
+    const { id } = await depot();
+    await recordTransaction({ depotId: id, type: "DEPOSIT", date: "2026-02-01", amount: "1000" });
+    const tree = await DepotDetailPage(props(id));
+    const valuation = await depotValuation(id, DEFAULT_PERIOD, businessDate(new Date()), undefined, { storedPrices: storedPriceHistory });
+    const summary = findElement(tree, ValueSummary)!;
+    expect(summary.props.drawdown).toEqual(valuation.drawdown);
+    expect(summary.props.chartTab).toBe("performance");
+
+    cookieJar.set(VALUE_CHART_TAB_COOKIE, "drawdown");
+    const html = renderHtml(await DepotDetailPage(props(id)));
+    expect(heroHtml(html)).toContain("Maximaler Drawdown");
+    expect(chartLabel(html)).toMatch(/^Drawdown .*: maximaler Drawdown 0,00\u00a0%$/);
+  });
+
   it("shows a Period loss with the loss tone, a downward arrow and a minus sign", async () => {
     const { id } = await depot();
     const book = async (input: Omit<RecordTransactionInput, "depotId">) => {
@@ -629,7 +652,7 @@ describe("Depot detail page", () => {
     const tree = await DepotDetailPage(props(id));
     const text = renderText(tree);
     const html = renderHtml(tree);
-    expect(text).toContain("Gesamtwert 800,00\u00a0€ Stand 28.02.2026 -200,00\u00a0€ · TTWROR -20,00\u00a0% XIRR -77,87\u00a0% Aufschlüsselung");
+    expect(text).toContain("Gesamtwert 800,00\u00a0€ Stand 28.02.2026 -200,00\u00a0€ · TTWROR -20,00\u00a0% XIRR -77,87\u00a0% Wertentwicklung Drawdown Aufschlüsselung");
     expect(text).toContain("Unrealisiert -200,00\u00a0€");
     expect(heroHtml(html)).toMatch(/<svg[^>]*data-testid="ArrowDownwardIcon"/);
     expect(heroHtml(html)).not.toContain('data-testid="ArrowUpwardIcon"');
@@ -644,7 +667,7 @@ describe("Depot detail page", () => {
     const tree = await DepotDetailPage(props(id));
     const text = renderText(tree);
     const hero = heroHtml(renderHtml(tree));
-    expect(text).toContain("Gesamtwert 0,00\u00a0€ Stand 31.01.2026 0,00\u00a0€ XIRR – Aufschlüsselung");
+    expect(text).toContain("Gesamtwert 0,00\u00a0€ Stand 31.01.2026 0,00\u00a0€ XIRR – Wertentwicklung Drawdown Aufschlüsselung");
     const heroText = text.slice(text.indexOf("Gesamtwert"), text.indexOf("Aufschlüsselung"));
     expect(heroText).not.toBe("");
     expect(heroText).not.toContain("TTWROR");
@@ -669,7 +692,7 @@ describe("Depot detail page", () => {
       const tree = await DepotDetailPage(props(id));
       const text = renderText(tree);
       expect(renderHtml(tree)).toMatch(pressedPill("1J"));
-      expect(text).toContain("Gesamtwert 1.931,10\u00a0€ +240,10\u00a0€ · TTWROR +13,79\u00a0% XIRR +17,26\u00a0% Aufschlüsselung");
+      expect(text).toContain("Gesamtwert 1.931,10\u00a0€ +240,10\u00a0€ · TTWROR +13,79\u00a0% XIRR +17,26\u00a0% Wertentwicklung Drawdown Aufschlüsselung");
       expect(text).toMatch(/Investiertes Kapital 1\.005,00\u00a0€/);
       expect(text).toContain("Dividenden · 1J 50,00\u00a0€");
       expect(text).toContain("Steuern gezahlt · 1J 9,00\u00a0€");
@@ -689,7 +712,7 @@ describe("Depot detail page", () => {
     const html = renderHtml(tree);
     expect(html).toMatch(pressedPill("Max"));
     // Deposit and full Withdrawal: no gain; the breakdown is still shown read-only.
-    expect(text).toContain("Gesamtwert 0,00\u00a0€ 0,00\u00a0€ · TTWROR 0,00\u00a0% XIRR 0,00\u00a0% Aufschlüsselung");
+    expect(text).toContain("Gesamtwert 0,00\u00a0€ 0,00\u00a0€ · TTWROR 0,00\u00a0% XIRR 0,00\u00a0% Wertentwicklung Drawdown Aufschlüsselung");
     expect(text).toContain("Aufschlüsselung Realisiert 0,00\u00a0€ Unrealisiert 0,00\u00a0€ Dividenden 0,00\u00a0€ Gebühren 0,00\u00a0€");
     expect(text).toContain("Investiertes Kapital 0,00\u00a0€");
     expect(heroHtml(html)).not.toMatch(/data-testid="Arrow(Up|Down)wardIcon"/);

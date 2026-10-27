@@ -1,6 +1,7 @@
 import { ExactDecimal } from "@/core/decimal";
 import { formatMoney, formatPercent, formatQuantity } from "@/core/format";
 import type { SecuritySummary } from "@/modules/ledger";
+import type { SecurityChartMode } from "../charts/chart-preference";
 import { ASSET_TYPE_LABELS } from "../transactions/labels";
 
 export const NO_TRANSACTIONS_TEXT = "Noch keine Buchungen.";
@@ -32,9 +33,9 @@ export function depotLabel(depot: { name: string; archived: boolean }): string {
   return depot.archived ? `${depot.name} (archiviert)` : depot.name;
 }
 
-/** Hero chart modes: "Kurs" (price with trades) and "Wert" (value development). */
-export type ChartMode = "price" | "value";
-export const CHART_MODE_LABELS: Record<ChartMode, string> = { price: "Kurs", value: "Wert" };
+/** Hero chart modes: "Kurs" (price with trades), "Wert" (value development) and "Drawdown" (price drawdown). */
+export type ChartMode = SecurityChartMode;
+export const CHART_MODE_LABELS: Record<ChartMode, string> = { price: "Kurs", value: "Wert", drawdown: "Drawdown" };
 
 export const TOTAL_HEADING = "Gesamt seit Erstkauf";
 

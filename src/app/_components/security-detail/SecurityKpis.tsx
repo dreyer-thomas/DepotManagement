@@ -1,5 +1,5 @@
 import Box from "@mui/material/Box";
-import { Kpi } from "@/app/_components/valuation/ValueSummary";
+import { Kpi } from "@/app/_components/valuation/Kpi";
 import { gainLossTone } from "@/app/_components/positions/GainLossPill";
 import { formatMoney, formatQuantity } from "@/core/format";
 import type { SecuritySnapshot } from "@/core/security";

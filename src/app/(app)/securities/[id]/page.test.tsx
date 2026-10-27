@@ -26,6 +26,10 @@ import { addDays } from "@/core/dates";
 import { PERIOD_COOKIE } from "@/app/_actions/period-cookie";
 import { archiveDepot, createDepot, ensureSecurity, recordIsinChange, recordSplit, recordTransaction, type RecordTransactionInput } from "@/modules/ledger";
 import { SecurityActions } from "../../../_components/security-detail/SecurityActions";
+import { SecurityHero } from "../../../_components/security-detail/SecurityHero";
+import { SECURITY_CHART_COOKIE } from "../../../_components/charts/chart-preference";
+import { securityDetail } from "@/modules/ledger";
+import { storedPriceHistory } from "@/modules/prices";
 import SecurityDetailPage, { generateMetadata } from "./page";
 
 const TODAY = "2026-10-26";
@@ -331,6 +335,37 @@ describe("Security detail page", () => {
     expect(pressed).toEqual(["Kurs"]);
     const label = hero.match(/role="figure"[^>]*aria-label="([^"]*)"|aria-label="([^"]*)"[^>]*role="figure"/);
     expect((label?.[1] ?? label?.[2])?.replace(/\u00a0/g, " ")).toMatch(/^Kursverlauf 02\.02\.2026 – 26\.10\.2026: Kurs von 100,00 € auf 110,00 €, 2 Käufe, 0 Verkäufe$/);
+  });
+
+  it("offers Drawdown with trade and dividend markers for a sold Security and opens the stored mode", async () => {
+    const a = await depot("Alpha");
+    const id = await security();
+    await book({ depotId: a, type: "BUY", date: "2026-02-02", quantity: "10", price: "100", security: { id } });
+    await book({ depotId: a, type: "DIVIDEND", date: "2026-03-02", amount: "8", tax: "2", security: { id } });
+    await providerPrice(id, "2026-03-10", "80");
+    await book({ depotId: a, type: "SELL", date: "2026-05-04", quantity: "10", price: "90", security: { id } });
+    const detail = (await securityDetail(id, undefined, { kind: "preset", preset: "MAX" }, TODAY, undefined, { storedPrices: storedPriceHistory }))!;
+    expect(detail.drawdown.max).toBe("-0.2");
+
+    const tree = await SecurityDetailPage(props(id));
+    // The chart is the hero's `chart` element.
+    const chartOf = (node: unknown) => findElement(node, SecurityHero)!.props.chart as { props: Record<string, unknown> };
+    const chart = chartOf(tree);
+    expect(chart.props.initialMode).toBe("price");
+    expect(chart.props.drawdown).toEqual(detail.drawdown);
+    expect(chart.props.dividends).toEqual([{ depotName: "Alpha", date: "2026-03-02", amount: "8" }]);
+    expect(text(section(renderHtml(tree), 'aria-label="Wert"', "Aufschlüsselung"))).toMatch(/Kurs Wert Drawdown/);
+
+    cookieJar.set(SECURITY_CHART_COOKIE, "drawdown");
+    const hero = section(renderHtml(await SecurityDetailPage(props(id))), 'aria-label="Wert"', "Aufschlüsselung");
+    const pressed = [...hero.matchAll(/<button[^>]*aria-pressed="true"[^>]*>([^<]*)</g)].map((match) => match[1]);
+    expect(pressed).toEqual(["Drawdown"]);
+    expect(text(hero)).toContain("Maximaler Drawdown -20,00 %");
+    // The peak is the latest day at 100 (09.03.), unrecovered until today.
+    expect(text(hero)).toContain("Dauer 231 Tage nicht erholt Periode 09.03.2026 – 26.10.2026");
+
+    cookieJar.set(SECURITY_CHART_COOKIE, "nope");
+    expect(chartOf(await SecurityDetailPage(props(id))).props.initialMode).toBe("price");
   });
 
   it("shows the all-time card of a fully sold Security", async () => {

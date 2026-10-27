@@ -9,6 +9,10 @@ import Divider from "@mui/material/Divider";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import { ValueChart } from "@/app/_components/charts/ValueChart";
+import { Kpi } from "./Kpi";
+import { ValueChartTabs } from "./ValueChartTabs";
+import type { ValueChartTab } from "@/app/_components/charts/chart-preference";
+import type { Drawdown } from "@/core/drawdown";
 import { toChartPoints } from "@/app/_components/charts/value-chart";
 import { GainLossPill } from "@/app/_components/positions/GainLossPill";
 import { formatDate, formatMoney, formatPercent } from "@/core/format";
@@ -32,6 +36,13 @@ export type ValueSummaryProps = {
   performance: PeriodPerformance;
   /** The Period's daily valuation series (same call as the figures); renders the value chart when given. */
   series?: readonly ValuationPoint[];
+  /**
+   * The Period's drawdown (same series); with `series` it adds the tabs "Wertentwicklung | Drawdown" to
+   * the hero card. Without it the value chart renders alone.
+   */
+  drawdown?: Drawdown;
+  /** The stored chart tab (cookie) for the first render; default "Wertentwicklung". */
+  chartTab?: ValueChartTab;
   /** Accessible name of the section, e.g. "Portfoliowert" on the Overview; default "Depotwert". */
   label?: string;
 };
@@ -105,26 +116,6 @@ export function Breakdown({ performance }: { performance: PeriodPerformance }) {
   );
 }
 
-export function Kpi({ label, value, color, note }: { label: string; value: string; color: string; note?: string }) {
-  return (
-    <Card sx={{ borderTop: 4, borderTopColor: color, minWidth: 0 }}>
-      <CardContent>
-        <Typography variant="body2" color="text.secondary">
-          {label}
-        </Typography>
-        <Typography variant="figureKpi" component="p" sx={{ mt: 0.5, overflowWrap: "anywhere" }}>
-          {value}
-        </Typography>
-        {note ? (
-          <Typography variant="caption" color="text.secondary">
-            {note}
-          </Typography>
-        ) : null}
-      </CardContent>
-    </Card>
-  );
-}
-
 /**
  * Hero card ("Gesamtwert" at the Period end, gain/loss pill with TTWROR, XIRR, value chart, "Aufschlüsselung") and
  * KPI row: invested capital, dividends in the Period, cash, taxes paid in the Period. Renders the
@@ -141,6 +132,8 @@ export function ValueSummary({
   today,
   performance,
   series,
+  drawdown,
+  chartTab = "performance",
   label = "Depotwert",
 }: ValueSummaryProps) {
   return (
@@ -164,7 +157,13 @@ export function ValueSummary({
               {xirrText(performance.xirr)}
             </Typography>
           </Stack>
-          {series && series.length > 0 ? <ValueChart points={toChartPoints(series)} /> : null}
+          {series && series.length > 0 ? (
+            drawdown ? (
+              <ValueChartTabs points={toChartPoints(series)} drawdown={drawdown} initialTab={chartTab} />
+            ) : (
+              <ValueChart points={toChartPoints(series)} />
+            )
+          ) : null}
           <Breakdown performance={performance} />
         </CardContent>
       </Card>

@@ -14,14 +14,15 @@ import { fifo } from "./fifo";
 import { periodFlows, sumValuationSeries, type ValuationPoint, type ValuationRow } from "./valuation";
 
 /** Decimal constructor for return ratios: ≈ 40 significant digits, enough for chained ratios and `ln`/`exp`. */
-const ReturnDecimal = Decimal.clone({ precision: 40, rounding: Decimal.ROUND_HALF_UP });
-type ReturnValue = InstanceType<typeof ReturnDecimal>;
+export const ReturnDecimal = Decimal.clone({ precision: 40, rounding: Decimal.ROUND_HALF_UP });
+export type ReturnValue = InstanceType<typeof ReturnDecimal>;
 type Exact = InstanceType<typeof ExactDecimal>;
 
 /** Decimal places kept in a returned ratio; far below any displayed precision, above solver noise. */
 const RATIO_DECIMALS = 20;
 
-function ratioString(value: ReturnValue): string {
+/** A return ratio as a decimal string: rounded half-up to 20 decimal places, `"0"` for zero. */
+export function ratioString(value: ReturnValue): string {
   const rounded = value.toDecimalPlaces(RATIO_DECIMALS, ReturnDecimal.ROUND_HALF_UP);
   return rounded.isZero() ? "0" : rounded.toFixed();
 }
@@ -105,18 +106,25 @@ export function adjustmentTotals(series: readonly ValuationPoint[]): { flows: Ex
 }
 
 /**
- * True time-weighted rate of return over `series` (not annualised). Inflows count at the start of their
- * day, outflows at its end (a point's positive `adjustmentValue` is an inflow, a negative one an outflow): for each day `d` with previous point `p` (`start` first) `numerator = V(d) +
- * out(d)`, `denominator = V(p) + in(d)`; when `denominator > 0` and `numerator ≥ 0` the chain is
- * multiplied by `numerator / denominator`, otherwise the day is skipped (nothing invested, e.g. after a
- * full Withdrawal, or an overdrawn Depot) — the chain is never reset. `null` when no day was multiplied.
+ * The TTWROR chain after each point of `series` (one per point, `start` = 1). Inflows count at the start
+ * of their day, outflows at its end (a point's positive `adjustmentValue` is an inflow, a negative one an
+ * outflow): for each day `d` with previous point `p` (`start` first) `numerator = V(d) + out(d)`,
+ * `denominator = V(p) + in(d)`; when `denominator > 0` and `numerator ≥ 0` the chain is multiplied by
+ * `numerator / denominator`, otherwise the day is skipped and the chain carried (nothing invested, e.g.
+ * after a full Withdrawal, or an overdrawn Depot) — the chain is never reset. The one daily-factor
+ * definition behind `ttwror` and `ttwrorIndex`.
  */
-export function ttwror(start: ValuationPoint, series: readonly ValuationPoint[], rows: readonly FlowRow[]): string | null {
-  if (series.length === 0) return null;
+function chainOver(
+  start: ValuationPoint,
+  series: readonly ValuationPoint[],
+  rows: readonly FlowRow[],
+): { levels: { date: string; chain: ReturnValue }[]; multiplied: boolean } {
+  if (series.length === 0) return { levels: [], multiplied: false };
   const flows = inOutByDate(rows, series[0].date, series[series.length - 1].date);
   let chain = new ReturnDecimal(1);
   let multiplied = false;
   let previous = start;
+  const levels: { date: string; chain: ReturnValue }[] = [];
   for (const point of series) {
     const flow = flows.get(point.date);
     const adjustment = adjustmentValueOf(point);
@@ -128,9 +136,32 @@ export function ttwror(start: ValuationPoint, series: readonly ValuationPoint[],
       chain = chain.times(new ReturnDecimal(numerator.toFixed()).dividedBy(new ReturnDecimal(denominator.toFixed())));
       multiplied = true;
     }
+    levels.push({ date: point.date, chain });
     previous = point;
   }
-  return multiplied ? ratioString(chain.minus(1)) : null;
+  return { levels, multiplied };
+}
+
+/**
+ * The time-weighted performance index over `series`: one level per point, the TTWROR chain after that
+ * day (base `1` on `start.date`; skipped days carry the level). The last level − 1 is `ttwror` whenever
+ * that is non-null. Levels are ratio strings (`ratioString`).
+ */
+export function ttwrorIndex(
+  start: ValuationPoint,
+  series: readonly ValuationPoint[],
+  rows: readonly FlowRow[],
+): { date: string; level: string }[] {
+  return chainOver(start, series, rows).levels.map(({ date, chain }) => ({ date, level: ratioString(chain) }));
+}
+
+/**
+ * True time-weighted rate of return over `series` (not annualised): the last level of the daily chain
+ * (`ttwrorIndex`) − 1. `null` when no day was multiplied.
+ */
+export function ttwror(start: ValuationPoint, series: readonly ValuationPoint[], rows: readonly FlowRow[]): string | null {
+  const { levels, multiplied } = chainOver(start, series, rows);
+  return multiplied ? ratioString(levels[levels.length - 1].chain.minus(1)) : null;
 }
 
 /**

@@ -5,6 +5,7 @@ import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import { readValueChartTab } from "@/app/_actions/chart-preference-cookie";
 import { readPeriod } from "@/app/_actions/period-cookie";
 import { CompositionCard } from "@/app/_components/composition/CompositionCard";
 import { COMPOSITION_LABELS, compositionHoldings } from "@/app/_components/composition/labels";
@@ -124,11 +125,12 @@ export default async function OverviewPage() {
     );
   }
 
-  const [priceInfo, positionsByDepot, news] = await Promise.all([
+  const [priceInfo, positionsByDepot, news, chartTab] = await Promise.all([
     securityPriceInfo(today),
     // Stored manual / provider Prices win over Transaction prices (resolver), as on the Positions tab.
     Promise.all(portfolio.depots.map((depot) => listPositions(depot.id, today, undefined, { storedPrices: latestStoredPrices }))),
     listNews(today),
+    readValueChartTab(),
   ]);
   const staleCount = Object.values(priceInfo).filter((info) => info.stale).length;
   const held: DepotPosition[] = portfolio.depots.flatMap((depot, index) =>
@@ -164,6 +166,8 @@ export default async function OverviewPage() {
         today={today}
         performance={portfolio.performance}
         series={portfolio.series}
+        drawdown={portfolio.drawdown}
+        chartTab={chartTab}
       />
       <Box sx={row}>
         <TopPositions entries={topPositions(held)} today={today} />

@@ -6,6 +6,7 @@ import {
   createDepot,
   ensureSecurity,
   recordIsinChange,
+  recordSplit,
   recordTransaction,
   type RecordTransactionInput,
   securityDetail,
@@ -223,5 +224,40 @@ describe("securityDetail", () => {
     expect(custom?.priceSeries.find((point) => point.date === "2026-05-04")?.price).toBe("105");
     expect(custom?.priceSeries.at(-1)).toEqual({ date: "2026-06-30", price: "105" });
     expect(custom?.priceSeries).toHaveLength(91);
+  });
+
+  it("Drawdown and dividends: split-adjusted price drawdown, dividend markers of the Period, also when sold out", async () => {
+    await book(depotA, { type: "BUY", date: "2026-03-02", quantity: "10", price: "100", security: { id: securityId } });
+    await book(depotA, { type: "DIVIDEND", date: "2026-03-05", amount: "12", tax: "3", security: { id: securityId } });
+    await book(depotA, { type: "DIVIDEND", date: "2026-02-20", amount: "1", security: { id: securityId } });
+    const split = await recordSplit({ securityId, date: "2026-03-04", ratio: "1:2" }, db());
+    if (!split.ok) throw new Error(`setup failed: ${split.reason}`);
+    await book(depotA, { type: "SELL", date: "2026-03-09", quantity: "20", price: "45", security: { id: securityId } });
+    const storedPrices = async (_ids: string[], asOf: string) =>
+      [provider("2026-03-03", "90"), provider("2026-03-04", "51"), provider("2026-03-06", "40")].filter((p) => p.date <= asOf);
+
+    const detail = await securityDetail(securityId, undefined, { kind: "custom", from: "2026-03-01", to: "2026-03-09" }, TODAY, db(), {
+      storedPrices,
+    });
+    expect(detail?.snapshot.quantity).toBe("0");
+    // Split-adjusted levels: 50, 45, 51, 51, 40, 40, 40, 45 — the split on 04.03. is no drop.
+    expect(detail?.priceSeries.map((p) => p.price)).toEqual([null, "50", "45", "51", "51", "40", "40", "40", "45"]);
+    expect(detail?.drawdown.points.map((p) => p.drawdown)).toEqual([
+      null,
+      "0",
+      "-0.1",
+      "0",
+      "0",
+      "-0.21568627450980392157",
+      "-0.21568627450980392157",
+      "-0.21568627450980392157",
+      "-0.11764705882352941176",
+    ]);
+    expect(detail?.drawdown).toMatchObject({
+      max: "-0.21568627450980392157",
+      current: "-0.11764705882352941176",
+      phase: { peak: "2026-03-05", end: "2026-03-09", recovered: false, days: 4 },
+    });
+    expect(detail?.dividends).toEqual([{ depotName: "Alpha", date: "2026-03-05", sequence: expect.any(Number), amount: "12" }]);
   });
 });

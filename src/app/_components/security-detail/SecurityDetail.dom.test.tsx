@@ -187,6 +187,50 @@ describe("SecurityChart", () => {
     expect(screen.getByRole("figure").getAttribute("aria-label")).toMatch(/^Kursverlauf/);
   });
 
+  const drawdown = {
+    points: [
+      { date: "2026-10-21", drawdown: "0" },
+      { date: "2026-10-22", drawdown: "-0.05" },
+    ],
+    current: "-0.05",
+    max: "-0.05",
+    phase: { peak: "2026-10-21", end: "2026-10-22", recovered: false, days: 1 },
+  };
+  const dividends = [{ depotName: "Alpha", date: "2026-10-22", amount: "3" }];
+
+  it("switches to Drawdown without reload, stores the mode in a cookie and starts in the stored mode", async () => {
+    const user = userEvent.setup({ delay: null });
+    const { unmount } = render(
+      <ThemeProvider theme={theme}>
+        <SecurityChart valuePoints={valuePoints} pricePoints={pricePoints} trades={trades} drawdown={drawdown} dividends={dividends} />
+      </ThemeProvider>,
+    );
+    const group = screen.getByRole("group", { name: "Diagramm" });
+    expect(within(group).getAllByRole("button").map((button) => button.textContent)).toEqual(["Kurs", "Wert", "Drawdown"]);
+    await user.click(within(group).getByRole("button", { name: "Drawdown" }));
+    expect(within(group).getByRole("button", { name: "Drawdown" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("figure").getAttribute("aria-label")).toBe("Drawdown 21.10.2026 – 22.10.2026: maximaler Drawdown -5,00\u00a0%");
+    expect(screen.getByText("1 Tag")).toBeTruthy();
+    expect(document.cookie).toContain("dm_security_chart=drawdown");
+    unmount();
+    document.cookie = "dm_security_chart=; path=/; max-age=0";
+
+    render(
+      <ThemeProvider theme={theme}>
+        <SecurityChart
+          valuePoints={valuePoints}
+          pricePoints={pricePoints}
+          trades={trades}
+          drawdown={drawdown}
+          dividends={dividends}
+          initialMode="drawdown"
+        />
+      </ThemeProvider>,
+    );
+    expect(screen.getByRole("button", { name: "Drawdown" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("figure").getAttribute("aria-label")).toMatch(/^Drawdown /);
+  });
+
   it("shows the no-price text in Kurs mode without any price", () => {
     render(
       <ThemeProvider theme={theme}>

@@ -1,5 +1,6 @@
 import { prisma } from "@/db";
 import { addDays } from "@/core/dates";
+import { type Drawdown, drawdown } from "@/core/drawdown";
 import { type PeriodSelection, resolvePeriod } from "@/core/period";
 import { computePositions } from "@/core/positions";
 import type { ResolvedPrice } from "@/core/prices";
@@ -8,6 +9,8 @@ import {
   currentSecurityId,
   type PricePoint,
   securityChain,
+  type SecurityDividend,
+  securityDividends,
   type SecurityLot,
   securityLots,
   securityPerformance,
@@ -67,6 +70,10 @@ export type SecurityDetail = {
   priceSeries: PricePoint[];
   /** BUY/SELL scope rows dated `from..to` as chart markers, in `priceSecurity`'s units as of `to`. */
   trades: SecurityTrade[];
+  /** DIVIDEND scope rows dated `from..to` as chart markers (gross amount). */
+  dividends: SecurityDividend[];
+  /** Drawdown of `priceSeries` (split-adjusted, so a split is never a drop; no price = `null`). */
+  drawdown: Drawdown;
 };
 
 type ChainRow = ValuationRow & { depotId: string; price: string | null };
@@ -163,13 +170,11 @@ export async function securityDetail(
   const priceSecurityId = currentSecurityId(securityId, actions, to);
   const priceSecurity = priceSecurityId === securityId ? security : ((await getSecurity(priceSecurityId, db)) ?? security);
   const names = new Map(depots.map((depot) => [depot.id, depot.name]));
-  const trades = securityTrades(
-    scopeRows
-      .filter((row) => row.date >= from && row.date <= to)
-      .map((row) => ({ ...row, depotName: names.get(row.depotId) ?? "" })),
-    actions,
-    to,
-  );
+  const periodRows = scopeRows
+    .filter((row) => row.date >= from && row.date <= to)
+    .map((row) => ({ ...row, depotName: names.get(row.depotId) ?? "" }));
+  const trades = securityTrades(periodRows, actions, to);
+  const priceSeries = securityPriceSeries(observations, priceSecurity.id, actions, from, to);
 
   return {
     security,
@@ -193,7 +198,9 @@ export async function securityDetail(
       actions,
       today,
     ),
-    priceSeries: securityPriceSeries(observations, priceSecurity.id, actions, from, to),
+    priceSeries,
     trades,
+    dividends: securityDividends(periodRows),
+    drawdown: drawdown(priceSeries.map((point) => ({ date: point.date, level: point.price }))),
   };
 }

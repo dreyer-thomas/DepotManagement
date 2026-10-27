@@ -17,7 +17,7 @@ import { BarsChart, type BarsSeries } from "../charts/BarsChart";
 import { CardHeading } from "../overview/CardHeading";
 import { SecurityLink } from "../security-detail/SecurityLink";
 import { SecurityLogo } from "../securities/SecurityLogo";
-import { Kpi } from "../valuation/ValueSummary";
+import { Kpi } from "@/app/_components/valuation/Kpi";
 import { Summary, ValueTable } from "./GainsView";
 import {
   DIVIDEND_BUCKET_HEADINGS,

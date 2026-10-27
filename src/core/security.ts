@@ -432,3 +432,14 @@ export function securityTrades(rows: readonly SecurityTradeRow[], actions: Corpo
   }
   return trades.sort((a, b) => (a.date !== b.date ? (a.date < b.date ? -1 : 1) : a.sequence - b.sequence));
 }
+
+/** A dividend marker of the Security chain: gross amount (decimal string) and the booking Depot. */
+export type SecurityDividend = { depotName: string; date: string; sequence: number; amount: string };
+
+/** The DIVIDEND rows among `rows` as chart markers (gross `amount`), ordered `(date, sequence)`. */
+export function securityDividends(rows: readonly SecurityTradeRow[]): SecurityDividend[] {
+  return rows
+    .filter((row) => row.type === "DIVIDEND")
+    .map((row) => ({ depotName: row.depotName, date: row.date, sequence: row.sequence, amount: row.amount }))
+    .sort((a, b) => (a.date !== b.date ? (a.date < b.date ? -1 : 1) : a.sequence - b.sequence));
+}

@@ -15,6 +15,7 @@ import {
   securitySeries,
   securitySnapshot,
   securityTotal,
+  securityDividends,
   securityTrades,
   sumSecurityPerformance,
 } from "./security";
@@ -419,3 +420,20 @@ describe("securityTrades", () => {
 function canonical(value: InstanceType<typeof ExactDecimal>): string {
   return value.toFixed();
 }
+
+describe("securityDividends", () => {
+  it("lists the DIVIDEND rows with gross amount and Depot, ordered by date and sequence", () => {
+    const rows = [
+      row("DIVIDEND", "2026-05-02", { amount: "12.5", tax: "3", sequence: 7 }),
+      buy("2026-01-02", "10", "100"),
+      row("DIVIDEND", "2026-03-02", { amount: "4", sequence: 9 }),
+      row("DIVIDEND", "2026-03-02", { amount: "6", sequence: 2 }),
+    ];
+    expect(securityDividends(rows.map((r, i) => ({ ...r, depotName: i === 0 ? "B" : "A" })))).toEqual([
+      { depotName: "A", date: "2026-03-02", sequence: 2, amount: "6" },
+      { depotName: "A", date: "2026-03-02", sequence: 9, amount: "4" },
+      { depotName: "B", date: "2026-05-02", sequence: 7, amount: "12.5" },
+    ]);
+    expect(securityDividends([])).toEqual([]);
+  });
+});

@@ -14,6 +14,7 @@ import { DepotActionsMenu } from "@/app/_components/depots/DepotActionsMenu";
 import { DepotTabs } from "@/app/_components/depots/DepotTabs";
 import { continueText, lastReconciledText } from "@/app/_components/reconciliation/labels";
 import { brokerLabel } from "@/app/_components/depots/labels";
+import { readValueChartTab } from "@/app/_actions/chart-preference-cookie";
 import { readPeriod } from "@/app/_actions/period-cookie";
 import { PeriodSelector } from "@/app/_components/period/PeriodSelector";
 import { ValueSummary } from "@/app/_components/valuation/ValueSummary";
@@ -97,9 +98,12 @@ export default async function DepotDetailPage({ params, searchParams }: Props) {
   // An empty Depot shows its only "Neue Buchung" / "Dokumente importieren" buttons inside the empty state of every tab.
   const emptyState = transactions.length === 0;
   // Every summary figure comes from the core valuation series (AD-10); also for archived Depots.
-  const valuation = emptyState
-    ? null
-    : await depotValuation(depot.id, period, today, undefined, { storedPrices: storedPriceHistory });
+  const [valuation, chartTab] = emptyState
+    ? [null, undefined]
+    : await Promise.all([
+        depotValuation(depot.id, period, today, undefined, { storedPrices: storedPriceHistory }),
+        readValueChartTab(),
+      ]);
   const end = valuation?.series.at(-1);
 
   let content: ReactNode;
@@ -195,6 +199,8 @@ export default async function DepotDetailPage({ params, searchParams }: Props) {
           today={today}
           performance={valuation.performance}
           series={valuation.series}
+          drawdown={valuation.drawdown}
+          chartTab={chartTab}
         />
       ) : null}
       <DepotTabs depotId={depot.id} value={tab} />

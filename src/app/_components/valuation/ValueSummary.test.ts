@@ -62,4 +62,29 @@ describe("ValueSummary", () => {
       "Wertentwicklung 25.10.2026 – 26.10.2026: Wert von 1.000,00\u00a0€ auf 1.100,00\u00a0€, investiertes Kapital von 1.000,00\u00a0€ auf 1.000,00\u00a0€",
     );
   });
+
+  it("adds the tabs Wertentwicklung | Drawdown with a drawdown, opening the given tab; none without", () => {
+    const series = [
+      { date: "2026-10-25", value: "1000", positionsValue: "1000", cash: "0", investedCapital: "1000" },
+      { date: "2026-10-26", value: "900", positionsValue: "900", cash: "0", investedCapital: "1000" },
+    ];
+    const drawdown = {
+      points: [
+        { date: "2026-10-25", drawdown: "0" },
+        { date: "2026-10-26", drawdown: "-0.1" },
+      ],
+      current: "-0.1",
+      max: "-0.1",
+      phase: { peak: "2026-10-25", end: "2026-10-26", recovered: false, days: 1 },
+    };
+    expect(renderHtml(createElement(ValueSummary, { ...PROPS, series }))).not.toContain('role="tab"');
+    const performance = renderHtml(createElement(ValueSummary, { ...PROPS, series, drawdown }));
+    expect(performance).toContain('role="tab"');
+    expect(performance).toContain("Wertentwicklung 25.10.2026");
+    expect(performance).not.toContain("Maximaler Drawdown");
+    const html = renderHtml(createElement(ValueSummary, { ...PROPS, series, drawdown, chartTab: "drawdown" }));
+    expect(html).toContain("Drawdown 25.10.2026 – 26.10.2026: maximaler Drawdown -10,00\u00a0%");
+    expect(html).toContain("Maximaler Drawdown");
+    expect(html.indexOf("Maximaler Drawdown")).toBeLessThan(html.indexOf("Aufschlüsselung"));
+  });
 });
