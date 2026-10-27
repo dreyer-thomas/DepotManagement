@@ -46,3 +46,22 @@ describe("MoreLinks open-import count", () => {
     expect(screen.queryByLabelText(/offene[r]? Import/)).toBeNull();
   });
 });
+
+describe("Analysen navigation", () => {
+  it("lists Analysen between Depots and Import in the drawer and under Mehr", () => {
+    render(<AppShell openImports={0}>page</AppShell>);
+    const { drawer } = navs();
+    const labels = within(drawer)
+      .getAllByRole("link", { hidden: true })
+      .map((link) => link.textContent);
+    expect(labels.slice(1, 4)).toEqual(["Depots", "Analysen", "Import"]);
+    expect(within(drawer).getByRole("link", { name: "Analysen", hidden: true }).getAttribute("href")).toBe("/analyses");
+  });
+
+  it("offers Analysen first in the Mehr list", () => {
+    render(<MoreLinks />);
+    const links = screen.getAllByRole("link");
+    expect(links[0].textContent).toBe("Analysen");
+    expect(links[0].getAttribute("href")).toBe("/analyses");
+  });
+});

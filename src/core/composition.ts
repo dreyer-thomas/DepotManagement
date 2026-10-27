@@ -47,7 +47,8 @@ const SHARE_DECIMALS = 30;
 /** Display units per whole: 0,1 %-steps. */
 const UNITS = 1000;
 
-type Draft = { key: string; kind: CompositionSegment["kind"]; label: string; amount: Decimal };
+/** A segment before its shares are computed (shared with `core/allocation`). */
+export type Draft = { key: string; kind: CompositionSegment["kind"]; label: string; amount: Decimal };
 
 function sumCash(cash: CompositionCash): Decimal {
   const values = typeof cash === "string" ? [cash] : cash;
@@ -55,7 +56,7 @@ function sumCash(cash: CompositionCash): Decimal {
 }
 
 /** Sums the holdings per group key, keeping the first label seen. */
-function group(holdings: readonly CompositionHolding[], keyOf: (h: CompositionHolding) => string, labelOf: (h: CompositionHolding) => string): Draft[] {
+export function group<H extends CompositionHolding>(holdings: readonly H[], keyOf: (h: H) => string, labelOf: (h: H) => string): Draft[] {
   const groups = new Map<string, Draft>();
   for (const holding of holdings) {
     const key = keyOf(holding);
@@ -67,7 +68,7 @@ function group(holdings: readonly CompositionHolding[], keyOf: (h: CompositionHo
 }
 
 /** Non-zero items by amount descending, ties by label (de-DE). */
-function ordered(items: Draft[]): Draft[] {
+export function ordered(items: Draft[]): Draft[] {
   return items
     .filter((item) => !item.amount.isZero())
     .sort((a, b) => b.amount.comparedTo(a.amount) || a.label.localeCompare(b.label, "de-DE"));
@@ -95,7 +96,8 @@ function displayUnits(drafts: readonly Draft[], total: Decimal): Decimal[] {
   return floors;
 }
 
-function finalize(drafts: Draft[]): CompositionSegment[] {
+/** Exact shares (sum 1) and display shares (sum 1.000) for the non-zero drafts; empty when the total is not positive. */
+export function finalize(drafts: Draft[]): CompositionSegment[] {
   const segments = drafts.filter((draft) => !draft.amount.isZero());
   const total = segments.reduce((sum, draft) => sum.plus(draft.amount), new ExactDecimal(0));
   if (total.lte(0)) return [];
@@ -118,7 +120,7 @@ function finalize(drafts: Draft[]): CompositionSegment[] {
   }));
 }
 
-function cashDraft(cash: CompositionCash, labels: CompositionLabels): Draft {
+export function cashDraft(cash: CompositionCash, labels: Pick<CompositionLabels, "cash">): Draft {
   return { key: "cash", kind: "cash", label: labels.cash, amount: sumCash(cash) };
 }
 

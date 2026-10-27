@@ -41,13 +41,14 @@ const STROKE_HIGHLIGHTED = 8;
 const geometry = (value: number) => Number(value.toFixed(4));
 
 /** Segment colors as theme CSS variables (dark mode follows); plain palette fallbacks for a bare render. */
-function segmentColor(theme: Theme, key: SegmentColorKey): string {
+export function segmentColor(theme: Theme, key: SegmentColorKey): string {
   const palette = (theme.vars ?? theme).palette;
   if (key === "cash") return palette.cash?.main ?? palette.grey[400];
   return palette.chart?.[key] ?? palette.primary.main;
 }
 
-function Donut({
+/** Donut ring of the positive segments; negative ones (negative cash) are listed but not drawn. */
+export function Donut({
   segments,
   colors,
   highlighted,
@@ -96,7 +97,8 @@ function Donut({
   );
 }
 
-function Legend({
+/** Legend rows (label, display share, amount); tapping a row toggles its segment. */
+export function Legend({
   segments,
   colors,
   highlighted,
