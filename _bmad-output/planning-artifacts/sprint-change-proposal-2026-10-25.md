@@ -206,3 +206,5 @@ NEW: ... by asset type (ETF, Fonds, Aktie, Zertifikat, Krypto, Guthaben, Unklass
 **Trigger.** Tommy likes Parqet's dividend charts: monthly bars broken down by Security with hover, a year-over-year cumulative comparison with forecast, and a per-Security breakdown.
 
 **Change.** New Story 7.7 "Dividend Charts": monthly bars stacked by Security ("Monatlich (pro Jahr)", "Monatlich (fortl.)") with segment hover, "Akkumuliert (pro Jahr)" lines with a "Prognose" switch, "Breakdown" with Security selector and KPIs (month, since January, personal dividend yield on Cost Basis). Story 7.5 views stay. FR-22/CAP-22 wording extended, EXPERIENCE.md Analysen row updated. Sprint status gains 7-7-dividend-charts.
+
+**Amendment to Addendum I (2026-10-27).** Story 7.6 also covers Security detail: a "Drawdown" option in the chart toggle, measured on split-adjusted prices so splits are not drops, with the same KPIs and markers.

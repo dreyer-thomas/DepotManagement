@@ -998,7 +998,7 @@ So that I can follow my passive income.
 ### Story 7.6: Drawdown
 
 As Tommy,
-I want to see how far my Portfolio or a Depot fell below its previous peak over time,
+I want to see how far my Portfolio, a Depot or a single Security fell below its previous peak over time,
 So that I can judge the risk I carry.
 
 **Acceptance Criteria:**
@@ -1009,8 +1009,9 @@ So that I can judge the risk I carry.
 **And** hover (tap on phones) shows date and drawdown in %
 **And** a KPI row shows "Aktueller Drawdown" (today vs. peak), "Maximaler Drawdown" (deepest point in the Period), "Dauer" (days from the peak before the maximum drawdown until recovery to that peak, or until the Period end if not recovered) and "Periode" (start – end of that phase, de-DE dates)
 **And** at a new peak the current drawdown is 0 %; without any decline all figures show 0 % and "–"
+**And** on Security detail the chart toggle "Kurs / Wert" gains "Drawdown": the decline of the Security's price from its running peak within the Period, on prices restored to split-adjusted values with its recorded splits (so a split is never a drop), with the same KPIs, hover and buy/sell/dividend markers as "Kurs"; it works for Securities no longer held
 **And** the tab choice persists like the Period; changing the Period recomputes
-**And** the drawdown series and figures come from one pure core function over the daily valuation series used by the value chart and heatmap (AD-1, AD-10), unit-tested against a hand-calculated reference including a flow inside a decline and an unrecovered drawdown
+**And** the drawdown series and figures come from one pure core function over the daily valuation series used by the value chart and heatmap (AD-1, AD-10), unit-tested against a hand-calculated reference including a flow inside a decline, a split inside the Period and an unrecovered drawdown
 
 ### Story 7.7: Dividend Charts
 
