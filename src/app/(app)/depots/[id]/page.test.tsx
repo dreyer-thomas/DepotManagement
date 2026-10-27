@@ -578,7 +578,7 @@ describe("Depot detail page", () => {
         "Realisiert 0,00\u00a0€ Unrealisiert -5,00\u00a0€ Dividenden +50,00\u00a0€ Gebühren -4,90\u00a0€",
         "Steuern gezahlt nicht in Gewinn/Verlust enthalten +9,00\u00a0€",
         "Ordergebühren stecken in realisiert/unrealisiert.",
-        "Investiertes Kapital 1.005,00\u00a0€ Cost Basis offener Positionen",
+        "Investiertes Kapital 1.005,00\u00a0€",
         "Dividenden · 01.01.2026 – 30.06.2026 50,00\u00a0€",
         "Guthaben 731,10\u00a0€",
         "Steuern gezahlt · 01.01.2026 – 30.06.2026 9,00\u00a0€ separat ausgewiesen",
