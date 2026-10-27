@@ -5,36 +5,52 @@ import bcrypt from "bcrypt";
 
 const COST = 12;
 
-function readHidden(prompt) {
+/**
+ * Reads one hidden line per prompt from the TTY in raw mode, echoing `*` per character. Input that
+ * arrives in one chunk across several lines (fast typing, paste) carries over to the next prompt.
+ */
+function readHiddenLines(prompts) {
   return new Promise((resolve, reject) => {
     const { stdin, stderr } = process;
-    stderr.write(prompt);
+    const lines = [];
+    let value = "";
+    stderr.write(prompts[0]);
     stdin.setRawMode(true);
     stdin.resume();
     stdin.setEncoding("utf8");
-    let value = "";
-    const done = (result, error) => {
+    const finish = (error) => {
       stdin.setRawMode(false);
       stdin.pause();
       stdin.removeListener("data", onData);
-      stderr.write("\n");
-      if (error) reject(error);
-      else resolve(result);
+      if (error) {
+        stderr.write("\n");
+        reject(error);
+      } else {
+        resolve(lines);
+      }
     };
     const onData = (chunk) => {
       for (const char of chunk) {
         if (char === "\r" || char === "\n" || char === "\u0004") {
-          done(value);
+          stderr.write("\n");
+          lines.push(value);
+          value = "";
+          if (lines.length === prompts.length) {
+            finish();
+            return;
+          }
+          stderr.write(prompts[lines.length]);
+        } else if (char === "\u0003") {
+          finish(new Error("Aborted."));
           return;
-        }
-        if (char === "\u0003") {
-          done(null, new Error("Aborted."));
-          return;
-        }
-        if (char === "\u007f" || char === "\b") {
-          value = value.slice(0, -1);
+        } else if (char === "\u007f" || char === "\b") {
+          if (value) {
+            value = value.slice(0, -1);
+            stderr.write("\b \b");
+          }
         } else {
           value += char;
+          stderr.write("*");
         }
       }
     };
@@ -54,8 +70,8 @@ async function readStdin() {
 async function main() {
   let password;
   if (process.stdin.isTTY) {
-    password = await readHidden("Password: ");
-    const repeat = await readHidden("Repeat password: ");
+    const [first, repeat] = await readHiddenLines(["Password: ", "Repeat password: "]);
+    password = first;
     if (password !== repeat) {
       console.error("The passwords do not match.");
       process.exit(1);
@@ -71,7 +87,8 @@ async function main() {
   const hash = await bcrypt.hash(password, COST);
   // @next/env expands `$name` in .env values, so every `$` must be written as `\$`.
   process.stdout.write(`AUTH_PASSWORD_HASH=${hash.replaceAll("$", "\\$")}\n`);
-  console.error("Paste this line into .env. Generate SESSION_SECRET with: openssl rand -base64 48");
+  console.error("Paste this line into .env. For a systemd EnvironmentFile (production), remove the backslashes.");
+  console.error("Generate SESSION_SECRET with: openssl rand -base64 48");
 }
 
 main().catch((error) => {

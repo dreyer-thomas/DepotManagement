@@ -162,35 +162,35 @@ Everything written after that backup is lost.
 
 ## Production deployment
 
-DepotManagement runs on a Linux server as one systemd service: a single Node process (`next start`) bound to `127.0.0.1`, behind Nginx, which terminates TLS. Example files: [deploy/systemd/depotmanagement.service](deploy/systemd/depotmanagement.service) and [deploy/nginx/depotmanagement.conf](deploy/nginx/depotmanagement.conf). The names below are placeholders: host `depot.example.com`, service user `depot`, checkout `/opt/depotmanagement`.
+DepotManagement runs on a Linux server as one systemd service: a single Node process (`next start`) bound to `127.0.0.1`, behind Nginx, which terminates TLS. Example files: [deploy/systemd/depotmanagement.service](deploy/systemd/depotmanagement.service) and [deploy/nginx/depotmanagement.conf](deploy/nginx/depotmanagement.conf). The names below are placeholders: host `depot.example.com`, service user `depot`, checkout `/home/depot/apps/DepotManagement`, port `3000`.
 
 ### Prerequisites
 
 - Linux with systemd
-- Node.js 24 LTS and npm 11 installed system-wide (e.g. `/usr/bin/node`), so the service finds `node` on systemd's default `PATH`; a per-user version manager such as nvm is not on that path
-- Git, Nginx and certbot
+- Node.js 24 LTS and npm 11. If Node is not on systemd's default `PATH` (e.g. installed under `/opt/node-24`), set `Environment=PATH=` in the unit and use the same Node when deploying; a per-user version manager such as nvm is not on that path
+- Git, curl, Nginx and certbot
 - A domain name whose DNS A/AAAA record points to the server, with ports 80 and 443 reachable
 - Network access during the build: `next build` downloads the Roboto font
 
 ### Service user and data directories
 
-The database, backups and data files live outside the checkout, owned by the service user:
+Use a user of its own, so other apps on the server cannot read the financial data. The database, backups and data files live outside the checkout, owned by that user:
 
 ```sh
 sudo useradd --system --create-home --shell /usr/sbin/nologin depot
 sudo install -d -o depot -g depot -m 0700 /var/lib/depotmanagement \
   /var/lib/depotmanagement/backups /var/lib/depotmanagement/data
-sudo install -d -o depot -g depot -m 0755 /opt/depotmanagement
-sudo -u depot -H git clone <repository-url> /opt/depotmanagement
+sudo -u depot -H mkdir -p /home/depot/apps
+sudo -u depot -H git clone <repository-url> /home/depot/apps/DepotManagement
 ```
 
 ### Configuration
 
-Create the env file outside the repository, readable by root only (systemd reads it before switching to the service user):
+Create the env file outside the repository, readable by root only. systemd reads it as root before it starts the app as the service user, so the app gets every value without being able to read the file:
 
 ```sh
 sudo install -d -m 0755 /etc/depotmanagement
-sudo install -m 0600 /opt/depotmanagement/.env.example /etc/depotmanagement/depotmanagement.env
+sudo install -m 0600 /home/depot/apps/DepotManagement/.env.example /etc/depotmanagement/depotmanagement.env
 sudoedit /etc/depotmanagement/depotmanagement.env
 ```
 
@@ -206,15 +206,16 @@ SESSION_SECRET=...
 ```
 
 - Paths must be absolute: relative paths resolve against the checkout, and `~` is not expanded.
-- `AUTH_PASSWORD_HASH` holds the **plain** hash: `npm run -s hash-password` prints it with every `$` written as `\$` for `.env`; remove those backslashes here. systemd reads the file without shell expansion. Never `source` the file in a shell, because the hash contains `$`.
-- `PORT` (default 3000) changes the port; the Nginx `proxy_pass` must match.
+- `AUTH_PASSWORD_HASH` holds the **plain** hash. Create it on a machine with a full install (`npm run -s hash-password`); it prints every `$` written as `\$` for `.env`, so remove those backslashes here. systemd reads the file without shell expansion. Never `source` the file in a shell, because the hash contains `$`.
+- `SESSION_SECRET`: a new value for production, `openssl rand -base64 48`.
+- `PORT` (default 3000) changes the port, e.g. when other apps on the server use 3000; the Nginx `proxy_pass` and `DEPOT_URL` for the deploy script must match.
 - Do not create a `.env` in the checkout; the service gets its whole configuration from this file.
 
 ### systemd service
 
 ```sh
-sudo cp /opt/depotmanagement/deploy/systemd/depotmanagement.service /etc/systemd/system/
-sudoedit /etc/systemd/system/depotmanagement.service   # adapt user, paths
+sudo cp /home/depot/apps/DepotManagement/deploy/systemd/depotmanagement.service /etc/systemd/system/
+sudoedit /etc/systemd/system/depotmanagement.service   # adapt user, paths, PATH
 sudo systemctl daemon-reload
 sudo systemctl enable depotmanagement
 ```
@@ -223,35 +224,50 @@ The unit runs [scripts/start.sh](scripts/start.sh) as `depot` with `NODE_ENV=pro
 
 ### Deploying
 
-[scripts/deploy.sh](scripts/deploy.sh) stops the service, runs `npm ci` and `npm run build`, and starts the service again; the migrations run when the service starts. Each step prints one line. If a step fails, the script exits with an error and the service stays stopped. A successful run only means the service was started: the migrations run afterwards in `scripts/start.sh`, so check `systemctl status depotmanagement` and `journalctl -u depotmanagement`. `DEPOT_SERVICE` sets the service name (default `depotmanagement`).
+[scripts/deploy.sh](scripts/deploy.sh) runs as the service user, from the checkout:
 
-Run it as the user that owns the checkout. That user needs sudo rights to stop and start the service without a password prompt, and nothing else; the script calls `sudo -n`, so a missing rule fails at once instead of prompting. Check the path with `command -v systemctl`, then add a sudoers rule with `sudo visudo -f /etc/sudoers.d/depotmanagement`:
+1. While the service still runs: refuses a checkout with local changes (someone edited on the server) and a missing or empty database, then fast-forwards to `origin/main`.
+2. Stops the service, copies the database to `BACKUP_DIR` as `predeploy-<timestamp>.sqlite` (the newest 5 are kept; the daily backups are not touched), runs `npm ci`, removes `.next` and builds.
+3. Starts the service (the migrations run on start), waits until it answers and checks that an anonymous request is redirected to `/login`. If the login gate is not live, it stops the service again.
 
-```text
-depot ALL=(root) NOPASSWD: /usr/bin/systemctl stop depotmanagement, /usr/bin/systemctl start depotmanagement
-```
+Any failure exits with an error and leaves the service **stopped**; a half-finished build is never restarted, because it could serve pages without the login gate. The message names the previous commit and the database copy for a rollback: `git -C <checkout> reset --hard <commit>`, then rerun with `DEPOT_NO_PULL=1`.
 
-The rule must name the same service as `DEPOT_SERVICE` (default `depotmanagement`).
-
-First deploy:
+Settings (environment): `DEPOT_URL` (default `http://127.0.0.1:3000`, must match `PORT`), `DEPOT_DATABASE` and `DEPOT_BACKUP_DIR` (default the paths above, must match the env file), `DEPOT_SERVICE` (default `depotmanagement`), `DEPOT_BRANCH` (default `main`), `DEPOT_PREDEPLOY_KEEP` (default 5), `DEPOT_START_TIMEOUT` (seconds, default 60), `DEPOT_NO_PULL=1`, and `DEPOT_FIRST_DEPLOY=1` for the very first deploy, when no database exists yet. The script cannot read the root-only env file, so a small wrapper keeps the server's values in one place, e.g. `/usr/local/bin/deploy-depotmanagement`:
 
 ```sh
-sudo -u depot -H /opt/depotmanagement/scripts/deploy.sh
+#!/bin/sh
+exec sudo -u depot -H env PATH=/opt/node-24/bin:/usr/local/bin:/usr/bin:/bin \
+  DEPOT_URL=http://127.0.0.1:3000 "$@" /home/depot/apps/DepotManagement/scripts/deploy.sh
+```
+
+Arguments are passed to `env` before the script, so `deploy-depotmanagement DEPOT_FIRST_DEPLOY=1` sets a variable for one run. Drop the `PATH=` part if Node is on the default `PATH`.
+
+The service user needs sudo rights to stop and start the service and read its log without a password prompt, and nothing else; the script calls `sudo -n`, so a missing rule fails at once instead of prompting. Check the paths with `command -v systemctl journalctl`, then add a rule with `sudo visudo -f /etc/sudoers.d/depotmanagement`:
+
+```text
+depot ALL=(root) NOPASSWD: /usr/bin/systemctl stop depotmanagement, /usr/bin/systemctl start depotmanagement, /usr/bin/journalctl -u depotmanagement -n 40 --no-pager
+```
+
+The rule must name the same service as `DEPOT_SERVICE`. First deploy:
+
+```sh
+sudo chmod 755 /usr/local/bin/deploy-depotmanagement
+deploy-depotmanagement DEPOT_FIRST_DEPLOY=1
 ```
 
 ### Nginx and TLS
 
 ```sh
-sudo cp /opt/depotmanagement/deploy/nginx/depotmanagement.conf /etc/nginx/sites-available/
-sudoedit /etc/nginx/sites-available/depotmanagement.conf   # replace depot.example.com
+sudo cp /home/depot/apps/DepotManagement/deploy/nginx/depotmanagement.conf /etc/nginx/sites-available/
+sudoedit /etc/nginx/sites-available/depotmanagement.conf   # replace depot.example.com, port
 sudo ln -s /etc/nginx/sites-available/depotmanagement.conf /etc/nginx/sites-enabled/
-sudo certbot certonly --nginx -d depot.example.com --deploy-hook "systemctl reload nginx"
+sudo certbot certonly --webroot -w /var/www/html -d depot.example.com --deploy-hook "systemctl reload nginx"
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
-On distributions without `sites-available`, copy the file to `/etc/nginx/conf.d/`. Until the certificate exists, `nginx -t` fails on the `ssl_certificate` paths: comment out the `443` server block, get the certificate, then enable it again. The example block:
+On distributions without `sites-available`, copy the file to `/etc/nginx/conf.d/`. Until the certificate exists, `nginx -t` fails on the `ssl_certificate` paths: comment out the `443` server block, get the certificate, then enable it again. The certificate is requested with certbot's webroot method, which needs no certbot Nginx plugin; port 80 keeps serving `/.well-known/acme-challenge/` from `/var/www/html` so renewals work. With the plugin installed (`python3-certbot-nginx`), `certbot certonly --nginx` works as well. Nginx older than 1.25.1 rejects `http2 on;`: write `listen 443 ssl http2;` instead (see the comment in the example). The example block:
 
-- redirects port 80 to HTTPS and sends an HSTS header;
+- redirects port 80 to HTTPS (except the certbot challenge) and sends an HSTS header;
 - forwards `Host`, `X-Forwarded-Host`, `X-Forwarded-For` and `X-Forwarded-Proto`. The session cookie is `Secure` only when `X-Forwarded-Proto` is `https`, and server actions check the browser's origin against the forwarded host;
 - allows uploads of 64 MB (`client_max_body_size`), at least the 60 MB limit of Next.js server actions in [next.config.ts](next.config.ts);
 - waits up to 300 s for the app, enough for large imports and restores.
@@ -261,8 +277,7 @@ Open `https://depot.example.com` and log in.
 ### Updating
 
 ```sh
-sudo -u depot -H git -C /opt/depotmanagement pull --ff-only
-sudo -u depot -H /opt/depotmanagement/scripts/deploy.sh
+deploy-depotmanagement
 ```
 
 The app is down while it installs and builds, usually a minute or two.
@@ -270,7 +285,7 @@ The app is down while it installs and builds, usually a minute or two.
 ### Logs
 
 ```sh
-journalctl -u depotmanagement -f
+sudo journalctl -u depotmanagement -f
 ```
 
 ### Moving local data to production
@@ -283,7 +298,7 @@ Restore replaces all data. If the production instance already held data, it is k
 
 ### Backups
 
-The daily database backup (see [Daily database backup](#daily-database-backup)) goes to `BACKUP_DIR`. `/var/lib/depotmanagement/backups` is on the same disk as the database, so copy it to another disk or off-site regularly, or point `BACKUP_DIR` at such a location (writable by the service user).
+The daily database backup (see [Daily database backup](#daily-database-backup)) and the pre-deploy copies go to `BACKUP_DIR`. `/var/lib/depotmanagement/backups` is on the same disk as the database, so keep a copy elsewhere: download an export regularly (Settings → "Datensicherung" → "Exportieren"), or copy `BACKUP_DIR` to another machine.
 
 ## Definition of Done (UI stories)
 

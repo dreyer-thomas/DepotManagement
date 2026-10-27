@@ -12,11 +12,12 @@ StartLimitBurst=5
 
 [Service]
 Type=simple
-# Dedicated service user without login; it owns the checkout and /var/lib/depotmanagement.
+# Dedicated service user without login (not shared with other apps on the server); it owns the
+# checkout and /var/lib/depotmanagement.
 User=depot
 Group=depot
 # The git checkout (the directory that contains package.json).
-WorkingDirectory=/opt/depotmanagement
+WorkingDirectory=/home/depot/apps/DepotManagement
 # Configuration outside the repository, mode 0600, owned by root. systemd reads it without shell
 # expansion, so AUTH_PASSWORD_HASH holds the plain bcrypt hash (no `\$`). Never source it in a shell.
 # It sets absolute paths: DATABASE_URL=file:/var/lib/depotmanagement/depot.db,
@@ -26,9 +27,11 @@ Environment=NODE_ENV=production
 Environment=NEXT_TELEMETRY_DISABLED=1
 # Files the app creates (database and its -wal/-shm, backups, logos, uploaded PDFs) are owner-only.
 UMask=0077
+# Node 24 for start.sh, prisma and next. Keep the default PATH if Node is installed system-wide
+# (/usr/bin/node); otherwise put its bin directory first, e.g. /opt/node-24/bin.
+Environment=PATH=/opt/node-24/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 # Applies pending migrations, then execs a single `next start` on 127.0.0.1:${PORT:-3000}.
-# Node 24 must be installed system-wide (e.g. /usr/bin/node) so it is on systemd's default PATH.
-ExecStart=/opt/depotmanagement/scripts/start.sh
+ExecStart=/home/depot/apps/DepotManagement/scripts/start.sh
 Restart=on-failure
 RestartSec=5
 # stdout/stderr go to journald: journalctl -u depotmanagement
