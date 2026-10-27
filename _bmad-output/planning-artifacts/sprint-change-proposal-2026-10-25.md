@@ -200,3 +200,9 @@ NEW: ... by asset type (ETF, Fonds, Aktie, Zertifikat, Krypto, Guthaben, Unklass
 **Trigger.** Tommy likes Parqet's drawdown view next to the value chart: it shows losses over time and gives a sense of risk.
 
 **Change.** New Story 7.6 "Drawdown": chart tabs "Wertentwicklung | Drawdown" on Overview and Depot detail, global Period; drawdown of the time-weighted performance index from its running peak (flow-neutral); KPIs current and maximum drawdown, duration and dates of the maximum phase; one pure core function with a hand-calculated reference test. FR-22/CAP-22 extended, EXPERIENCE.md chart tabs added. Parqet's "Dividenden" chart tab is covered by Story 7.5. Sprint status gains 7-6-drawdown; epic-7 back to in-progress.
+
+## Addendum J — Dividend Charts (approved 2026-10-27)
+
+**Trigger.** Tommy likes Parqet's dividend charts: monthly bars broken down by Security with hover, a year-over-year cumulative comparison with forecast, and a per-Security breakdown.
+
+**Change.** New Story 7.7 "Dividend Charts": monthly bars stacked by Security ("Monatlich (pro Jahr)", "Monatlich (fortl.)") with segment hover, "Akkumuliert (pro Jahr)" lines with a "Prognose" switch, "Breakdown" with Security selector and KPIs (month, since January, personal dividend yield on Cost Basis). Story 7.5 views stay. FR-22/CAP-22 wording extended, EXPERIENCE.md Analysen row updated. Sprint status gains 7-7-dividend-charts.

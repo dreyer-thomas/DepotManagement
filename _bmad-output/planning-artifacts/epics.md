@@ -133,7 +133,7 @@ FR17: Epic 1 - Cash Account balance and history
 FR18: Epic 4 - Cash in overviews and return metrics
 FR19: Epic 4 - Security detail page and all-time performance (Stories 4.6, 4.7)
 FR21: Epic 7 - Security classification and allocation analysis (Stories 7.1, 7.2)
-FR22: Epic 7 - Return heatmap, realized gains, cash flow, dividends, drawdown (Stories 7.3–7.6)
+FR22: Epic 7 - Return heatmap, realized gains, cash flow, dividends, drawdown, dividend charts (Stories 7.3–7.7)
 FR20: Epic 2 - Depot reconciliation and holding corrections (Story 2.9)
 
 ## Epic List
@@ -1011,3 +1011,21 @@ So that I can judge the risk I carry.
 **And** at a new peak the current drawdown is 0 %; without any decline all figures show 0 % and "–"
 **And** the tab choice persists like the Period; changing the Period recomputes
 **And** the drawdown series and figures come from one pure core function over the daily valuation series used by the value chart and heatmap (AD-1, AD-10), unit-tested against a hand-calculated reference including a flow inside a decline and an unrecovered drawdown
+
+### Story 7.7: Dividend Charts
+
+As Tommy,
+I want my dividends broken down by Security per month and compared year by year,
+So that I see which holdings pay when and whether my income grows.
+
+**Acceptance Criteria:**
+
+**Given** the "Analysen" tab "Dividenden" (Story 7.5)
+**When** I open the views "Monatlich (pro Jahr)" (the former "Monate", January–December of the chosen year) or the new "Monatlich (fortl.)" (every month since the first dividend on one time axis)
+**Then** each month's bar is stacked by Security, one stable colour per Security, with the month total above the bar
+**And** hover (tap on phones) on a segment shows logo, name, amount of that Security and the month total
+**And** a new view "Akkumuliert (pro Jahr)" draws one line per year, cumulative from January to December, all years overlaid with a legend; a "Prognose" switch extends the current year's line, dashed, with the expected payments of Story 7.5 (marked as an estimate)
+**And** the former "Kumuliert" view stays as "Akkumuliert" (all-time cumulative)
+**And** a new view "Breakdown" shows the stacked monthly bars with a Security selector (logo, name, type, ISIN, WKN; up/down arrows step through the paying Securities); the chosen Security's segments are highlighted, the others dimmed; KPIs "Im <Monat>" (amount in the clicked month, default the latest month with a payment), "Seit Jan. <Jahr>" (sum since January of that year) and "Pers. Div-Rendite" (its dividends of the last 12 months ÷ its current Cost Basis; "–" when not held)
+**And** the Brutto/Netto toggle and the scope (Portfolio or one Depot) apply to every view; "Wertpapiere" and "Erwartet" stay unchanged
+**And** the per-Security monthly split, the yearly cumulative lines and the yield on cost come from `core/dividend-analysis` over the ledger, with unit tests

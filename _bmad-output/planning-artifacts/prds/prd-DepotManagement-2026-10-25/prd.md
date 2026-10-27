@@ -210,7 +210,7 @@ Tommy can see the Portfolio or a Depot split by asset class, type, sector, indus
 - Tapping a segment lists the Positions behind it.
 
 #### FR-22: Performance and income analysis
-Tommy can analyse returns per month and year as a heatmap, the drawdown of his Portfolio or a Depot over the chosen Period, realized gains and net cash flow per month and year, and dividends per month, year and Security.
+Tommy can analyse returns per month and year as a heatmap, the drawdown of his Portfolio or a Depot over the chosen Period, realized gains and net cash flow per month and year, and dividends per month, year and Security, stacked by Security and compared year over year.
 **Consequences (testable):**
 - Drawdown is measured on the time-weighted performance index, so external flows never count as losses; it shows current and maximum drawdown with the duration and dates of the maximum phase.
 - Monthly returns are time-weighted; dividends can be shown gross or net, with trailing-12-month income and an estimate of the next 12 months based on the last 12.
