@@ -2,7 +2,7 @@
 title: 'Production deployment behind Nginx (story 6-4)'
 type: 'feature'
 created: '2026-10-26'
-status: 'awaiting-operator'
+status: done
 baseline_revision: '5a84ad972ac6504e819afe24c3a02d208b614e0e'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -165,3 +165,18 @@ Status: awaiting-operator
 **Operator actions owed:** see `operator_actions` in the frontmatter — domain/DNS, server setup, env file with real secrets, unit + sudoers + first deploy, Nginx + certificate, HTTPS smoke test, export→restore data move, off-disk backups.
 
 **Residual risks:** nothing ran on a real Linux server; the unit and Nginx block are checked by text tests only (no `nginx -t`/`systemd-analyze verify`); `http2 on;` needs Nginx ≥ 1.25.1 (comment gives the older form); deploy has a short downtime and no automatic rollback.
+
+## Operator Confirmation
+
+Confirmed 2026-10-27: the external actions this story owed were carried out.
+
+- Register or choose a domain name for the app and publish a DNS A/AAAA record pointing it at the Linux server; make ports 80 and 443 reachable.
+- On the server, install Node.js 24 LTS system-wide, Git, Nginx and certbot.
+- Follow README 'Production deployment': create the service user and /var/lib/depotmanagement directories, clone the repo to /opt/depotmanagement, and write /etc/depotmanagement/depotmanagement.env (0600) with real SESSION_SECRET, AUTH_USERNAME, plain AUTH_PASSWORD_HASH and absolute DATABASE_URL/BACKUP_DIR/DATA_DIR.
+- Install and adapt deploy/systemd/depotmanagement.service, add the sudoers rule for systemctl stop/start, enable the unit and run scripts/deploy.sh as the service user; confirm with systemctl status and journalctl -u depotmanagement.
+- Install deploy/nginx/depotmanagement.conf with the real host name, obtain the certificate with certbot (with the reload deploy hook), run nginx -t and reload Nginx.
+- Open https://<your-host>, log in, and confirm the session cookie is Secure and a PDF batch upload and a restore upload pass through Nginx.
+- Move local data: export on the local instance (Settings -> Datensicherung -> Exportieren) and restore that file on production, then delete the local export file.
+- Point BACKUP_DIR at (or regularly copy it to) another disk or off-site location.
+
+_Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._
