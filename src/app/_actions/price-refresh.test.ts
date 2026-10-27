@@ -3,10 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const after = vi.hoisted(() => vi.fn());
 const prices = vi.hoisted(() => ({ backfillHeldPrices: vi.fn(), refetchPriceHistory: vi.fn() }));
 const logos = vi.hoisted(() => ({ fetchMissingLogos: vi.fn() }));
+const classification = vi.hoisted(() => ({ refreshClassifications: vi.fn() }));
 
 vi.mock("next/server", () => ({ after }));
 vi.mock("@/modules/prices", () => prices);
 vi.mock("@/modules/logos", () => logos);
+vi.mock("@/modules/classification", () => classification);
 
 import { schedulePriceBackfill, schedulePriceRefetch } from "./price-refresh";
 
@@ -23,6 +25,8 @@ beforeEach(() => {
   prices.refetchPriceHistory.mockReset();
   logos.fetchMissingLogos.mockReset();
   logos.fetchMissingLogos.mockResolvedValue({ stored: 0, notFound: 0, failed: 0 });
+  classification.refreshClassifications.mockReset();
+  classification.refreshClassifications.mockResolvedValue({ updated: 0, unchanged: 0, failed: 0 });
   vi.useFakeTimers({ now: new Date("2026-10-25T23:30:00.000Z"), toFake: ["Date"] });
 });
 
@@ -92,6 +96,27 @@ describe("schedulePriceBackfill", () => {
     expect(error).toHaveBeenCalledWith("Logos: fetch failed (TypeError)");
   });
 
+  it("refreshes classifications after the logo fetch, also when backfill and logo fetch fail", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const order: string[] = [];
+    prices.backfillHeldPrices.mockImplementation(async () => {
+      order.push("backfill");
+      throw new Error("database locked");
+    });
+    logos.fetchMissingLogos.mockImplementation(async () => {
+      order.push("logos");
+      throw new TypeError("fetch failed");
+    });
+    classification.refreshClassifications.mockImplementation(async () => {
+      order.push("classification");
+      throw new RangeError("boom");
+    });
+    schedulePriceBackfill();
+    await expect(runScheduled()).resolves.toBeUndefined();
+    expect(order).toEqual(["backfill", "logos", "classification"]);
+    expect(error).toHaveBeenCalledWith("Classification: refresh failed (RangeError)");
+  });
+
   it("never throws when after() is unavailable", () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     after.mockImplementation(() => {
@@ -111,5 +136,6 @@ describe("schedulePriceRefetch", () => {
     expect(prices.refetchPriceHistory).toHaveBeenCalledExactlyOnceWith("sec-1", "2026-10-26");
     expect(error).toHaveBeenCalledWith("Prices: refetch failed (Error)");
     expect(logos.fetchMissingLogos).not.toHaveBeenCalled();
+    expect(classification.refreshClassifications).not.toHaveBeenCalled();
   });
 });

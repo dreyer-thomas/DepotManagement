@@ -3,6 +3,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { registerDomCleanup } from "../../../../test/helpers/dom";
+import { effective, emptyLayer, emptyManual } from "@/core/classification";
 import type { SecurityWithMapping } from "@/modules/prices";
 import { LogoProvider } from "./LogoContext";
 import { SecurityList } from "./SecurityList";
@@ -21,6 +22,7 @@ vi.mock("@/app/_actions/prices", () => ({
 }));
 
 vi.mock("@/app/_actions/logos", () => ({ uploadLogoAction: vi.fn() }));
+vi.mock("@/app/_actions/classification", () => ({ setClassificationAction: vi.fn() }));
 
 registerDomCleanup();
 
@@ -120,5 +122,21 @@ describe("SecurityList", () => {
     expect([...container.querySelectorAll("img")].map((img) => img.getAttribute("src"))).toEqual(["/api/logos/s2?v=1761472800000"]);
     expect(screen.getByRole("button", { name: "Logo hochladen – Bitcoin" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Logo ersetzen – SAP" })).toBeTruthy();
+  });
+
+  it("shows the classification summary per card ('Unbekannt' for unknown values) and opens its dialog", async () => {
+    const automatic = emptyLayer();
+    automatic.assetClass = { value: "Aktien", source: "RULE" };
+    automatic.region = { value: "Europa", source: "PROVIDER" };
+    automatic.currency = { value: "EUR", source: "PROVIDER" };
+    const classification = effective({ automatic, manual: { ...emptyManual(), sector: "Halbleiter" } }, "STOCK");
+    render(<SecurityList securities={securities} today="2026-10-26" classifications={{ s2: classification }} />);
+    expect(screen.getByText("Aktien · Halbleiter · Europa · Unbekannt · Unbekannt · EUR")).toBeTruthy();
+    // Bitcoin has no classification yet.
+    expect(screen.getByText("Unbekannt · Unbekannt · Unbekannt · Unbekannt · Unbekannt · Unbekannt")).toBeTruthy();
+    const user = userEvent.setup({ delay: null });
+    await user.click(screen.getByRole("button", { name: "Klassifizierung bearbeiten – SAP" }));
+    const dialog = await screen.findByRole("dialog", { name: "Klassifizierung bearbeiten" });
+    expect(within(dialog).getByRole("combobox", { name: "Sektor" }).textContent).toBe("Halbleiter");
   });
 });

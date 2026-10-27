@@ -40,8 +40,23 @@ describe("createExport", () => {
       "reconciliationRuns",
       "prices",
       "logos",
+      "classifications",
     ]);
-    expect(file.schemaVersion).toBe(1);
+    expect(file.schemaVersion).toBe(2);
+    // Manual overrides only; a row with automatic values alone is a cache.
+    expect(file.classifications).toEqual([
+      {
+        id: "cls-b",
+        securityId: "sec-b",
+        assetClass: null,
+        sector: "Halbleiter",
+        industry: null,
+        region: "Europa",
+        country: null,
+        companySize: null,
+        currency: "EUR",
+      },
+    ]);
     expect(file.depots).toEqual([
       { id: "depot-a", name: "Hauptdepot", broker: "COMDIRECT", archived: false },
       { id: "depot-b", name: "Zweitdepot", broker: "FINANZEN_ZERO", archived: true },
@@ -144,7 +159,7 @@ describe("createExport", () => {
     }
   });
 
-  it("exports an empty instance as schemaVersion 1 with empty arrays", async () => {
+  it("exports an empty instance as the current schemaVersion with empty arrays", async () => {
     expect(await createExport(deps(), db())).toEqual({
       schemaVersion: EXPORT_SCHEMA_VERSION,
       depots: [],
@@ -155,6 +170,7 @@ describe("createExport", () => {
       reconciliationRuns: [],
       prices: [],
       logos: [],
+      classifications: [],
     });
   });
 
@@ -254,7 +270,10 @@ describe("exportFileSchema", () => {
   it("rejects unknown keys, a wrong version and number decimals", async () => {
     await seedFullLedger();
     const file = await createExport(deps(), db());
-    expect(exportFileSchema.safeParse({ ...file, schemaVersion: 2 }).success).toBe(false);
+    expect(exportFileSchema.safeParse({ ...file, schemaVersion: 1 }).success).toBe(false);
+    expect(exportFileSchema.safeParse({ ...file, schemaVersion: 3 }).success).toBe(false);
+    const classifications = [{ ...file.classifications[0], region: "Mars" }];
+    expect(exportFileSchema.safeParse({ ...file, classifications }).success).toBe(false);
     expect(exportFileSchema.safeParse({ ...file, exportedAt: TS }).success).toBe(false);
     const transactions = [{ ...file.transactions[0], amount: 1000 }];
     expect(exportFileSchema.safeParse({ ...file, transactions }).success).toBe(false);

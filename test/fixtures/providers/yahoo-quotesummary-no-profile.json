@@ -1,0 +1,13 @@
+{
+  "price": {
+    "maxAge": 1,
+    "regularMarketPrice": 50,
+    "exchange": "GER",
+    "exchangeName": "XETRA",
+    "quoteType": "ETF",
+    "symbol": "EUNL.DE",
+    "shortName": "ISHSIII-CORE MSCI WORLD U.ETF",
+    "currency": "EUR",
+    "currencySymbol": "€"
+  }
+}

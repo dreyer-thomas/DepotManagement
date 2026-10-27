@@ -5,8 +5,11 @@ import { EXPORT_SCHEMA_VERSION } from "./schema";
 /** One upgrade step: maps a version-`n` document to version `n + 1`. */
 export type ExportUpgrade = (document: Record<string, unknown>) => Record<string, unknown>;
 
-/** `UPGRADES[n]` upgrades version `n` to `n + 1`. Empty while only version 1 exists. */
-export const UPGRADES: Readonly<Record<number, ExportUpgrade>> = {};
+/** `UPGRADES[n]` upgrades version `n` to `n + 1`. */
+export const UPGRADES: Readonly<Record<number, ExportUpgrade>> = {
+  // Version 2 (story 7.1) adds manual classification overrides; a version-1 export has none.
+  1: (document) => ({ ...document, schemaVersion: 2, classifications: [] }),
+};
 
 export type UpgradeResult =
   | { ok: true; document: unknown }

@@ -25,9 +25,19 @@ async function refreshNewsAfterPrices(): Promise<void> {
   }
 }
 
+/** A classification refresh after the scheduled news refresh (AD-20); a failure is only logged. */
+async function refreshClassificationsAfterNews(): Promise<void> {
+  try {
+    const { refreshClassifications } = await import("@/modules/classification");
+    await refreshClassifications();
+  } catch (error) {
+    console.error(`Classification: scheduled refresh failed (${error instanceof Error ? error.name : "unknown"})`);
+  }
+}
+
 /**
  * Starts the in-process background jobs (AD-13: the price scheduler, whose daily run also refreshes the
- * news afterwards, even when the price run failed, and the daily DB backup scheduler; AD-19: one logo
+ * news and then the classifications afterwards, even when the price run failed, and the daily DB backup scheduler; AD-19: one logo
  * fetch run) unless this is `next build`. Both schedulers guard against a second start in the same
  * process; the logo run has its own globalThis guard and runs fire-and-forget (a failure is logged, never
  * thrown).
@@ -41,6 +51,7 @@ export async function startBackgroundJobs(): Promise<void> {
         return await refreshPrices(today);
       } finally {
         await refreshNewsAfterPrices();
+        await refreshClassificationsAfterNews();
       }
     },
   });

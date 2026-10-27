@@ -1,3 +1,5 @@
+import type { Classification, Dimension, DimensionValue, EffectiveSource } from "@/core/classification";
+import type { ClassificationFailureReason } from "@/modules/classification";
 import type { AssetType } from "@/modules/ledger";
 import type { PriceProvider, ProviderMappingSummary, SetMappingFailureReason } from "@/modules/prices";
 import { securityTypeLabel } from "@/app/_components/migration/labels";
@@ -75,4 +77,67 @@ const LOGO_ERROR_MESSAGES: Record<LogoErrorReason, string> = {
 /** German message for a failed logo upload. */
 export function logoErrorMessage(reason: LogoErrorReason): string {
   return LOGO_ERROR_MESSAGES[reason];
+}
+
+/** Shown for a classification dimension without a value. */
+export const CLASSIFICATION_UNKNOWN = "Unbekannt";
+
+/** German labels of the classification dimensions (dialog fields). */
+export const CLASSIFICATION_FIELD_LABELS: Record<Dimension, string> = {
+  assetClass: "Anlageklasse",
+  sector: "Sektor",
+  industry: "Branche",
+  region: "Region",
+  country: "Land",
+  companySize: "Unternehmensgröße",
+  currency: "Währung",
+};
+
+const CLASSIFICATION_SOURCE_LABELS: Record<Exclude<EffectiveSource, "manual">, string> = { provider: "Yahoo", rule: "Regel" };
+
+/** "Automatisch: Technologie (Yahoo)" / "Automatisch: Unbekannt". */
+export function automaticLabel(value: DimensionValue): string {
+  const { value: automatic, source } = value.automatic;
+  if (automatic === null || source === null) return `Automatisch: ${CLASSIFICATION_UNKNOWN}`;
+  return `Automatisch: ${automatic} (${CLASSIFICATION_SOURCE_LABELS[source]})`;
+}
+
+const SUMMARY_DIMENSIONS: readonly Dimension[] = ["assetClass", "sector", "region", "country", "companySize", "currency"];
+
+/** "Aktien · Technologie · Europa · Deutschland · Large Cap · EUR"; unknown values as "Unbekannt". */
+export function classificationSummary(classification: Classification | undefined): string {
+  return SUMMARY_DIMENSIONS.map((dimension) => classification?.[dimension].value ?? CLASSIFICATION_UNKNOWN).join(" · ");
+}
+
+export type ClassificationErrorReason = ClassificationFailureReason | "unauthorized";
+
+const CLASSIFICATION_ERROR_MESSAGES: Record<ClassificationErrorReason, string> = {
+  "not-found": "Wertpapier nicht gefunden.",
+  "asset-class-invalid": "Bitte eine Anlageklasse aus der Liste wählen.",
+  "sector-invalid": "Bitte einen Sektor mit höchstens 80 Zeichen angeben.",
+  "industry-invalid": "Bitte eine Branche mit höchstens 80 Zeichen angeben.",
+  "region-invalid": "Bitte eine Region aus der Liste wählen.",
+  "country-invalid": "Bitte ein Land mit höchstens 80 Zeichen angeben.",
+  "company-size-invalid": "Bitte eine Unternehmensgröße aus der Liste wählen.",
+  "currency-invalid": "Bitte einen Währungscode aus drei Buchstaben eingeben (z. B. EUR).",
+  unauthorized: "Sitzung abgelaufen. Bitte erneut anmelden.",
+};
+
+/** German message for a failed classification save. */
+export function classificationErrorMessage(reason: ClassificationErrorReason): string {
+  return CLASSIFICATION_ERROR_MESSAGES[reason];
+}
+
+/** The dimension a failure reason belongs to (field error), or null (Alert). */
+export function classificationErrorField(reason: ClassificationErrorReason): Dimension | null {
+  const fields: Partial<Record<ClassificationErrorReason, Dimension>> = {
+    "asset-class-invalid": "assetClass",
+    "sector-invalid": "sector",
+    "industry-invalid": "industry",
+    "region-invalid": "region",
+    "country-invalid": "country",
+    "company-size-invalid": "companySize",
+    "currency-invalid": "currency",
+  };
+  return fields[reason] ?? null;
 }

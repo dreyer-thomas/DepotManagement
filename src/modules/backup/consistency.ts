@@ -45,6 +45,7 @@ export function checkConsistency(file: ExportFile): ConsistencyResult {
     );
     idsOf(file.prices, "prices");
     idsOf(file.logos, "logos");
+    idsOf(file.classifications, "classifications");
 
     const names = new Set<string>();
     file.depots.forEach((depot, i) => unique(names, depot.name, `depots.${i}.name`));
@@ -97,6 +98,12 @@ export function checkConsistency(file: ExportFile): ConsistencyResult {
     file.logos.forEach((logo, i) => {
       resolves(securityIds, logo.securityId, `logos.${i}.securityId`);
       unique(logos, logo.securityId, `logos.${i}.securityId`);
+    });
+
+    const classified = new Set<string>();
+    file.classifications.forEach((classification, i) => {
+      resolves(securityIds, classification.securityId, `classifications.${i}.securityId`);
+      unique(classified, classification.securityId, `classifications.${i}.securityId`);
     });
   } catch (error) {
     if (error instanceof Inconsistent) return { ok: false, path: error.path };

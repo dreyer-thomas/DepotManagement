@@ -156,9 +156,13 @@ describe("restoreExport", () => {
     const logo = await target.testDb.client.securityLogo.findUniqueOrThrow({ where: { securityId: "sec-b" } });
     expect(logo).toMatchObject({ id: "logo-b", source: "MANUAL", provider: null, contentType: "image/png", fetchedAt: TS });
     expect(readFileSync(join(target.dataDir, "logos", logo.fileName as string))).toEqual(PNG);
+    // Manual classification overrides are back; their automatic layer waits for the next refresh.
+    expect(await target.testDb.client.securityClassification.findMany()).toEqual([
+      expect.objectContaining({ id: "cls-b", securityId: "sec-b", sectorManual: "Halbleiter", sector: null, providerSymbol: null }),
+    ]);
     // The automatic export of the (empty) target was written first.
     expect(readdirSync(target.backupDir)).toEqual([BACKUP_NAME]);
-    expect(JSON.parse(readFileSync(join(target.backupDir, BACKUP_NAME), "utf8"))).toMatchObject({ schemaVersion: 1, depots: [] });
+    expect(JSON.parse(readFileSync(join(target.backupDir, BACKUP_NAME), "utf8"))).toMatchObject({ schemaVersion: 2, depots: [], classifications: [] });
   });
 
   it("replaces everything instead of merging and clears staging, news and fetched logos", async () => {
@@ -242,7 +246,7 @@ describe("restoreExport", () => {
     });
 
     it("a newer schema version", async () => {
-      await expectRejected(JSON.stringify({ ...file, schemaVersion: 2 }), { ok: false, reason: "version-unsupported" });
+      await expectRejected(JSON.stringify({ ...file, schemaVersion: 3 }), { ok: false, reason: "version-unsupported" });
     });
 
     it("a dangling reference", async () => {
@@ -269,7 +273,7 @@ describe("restoreExport", () => {
         securityId: rename(a.securityId),
         newSecurityId: rename(a.newSecurityId),
       }));
-      for (const key of ["transactions", "providerMappings", "prices", "logos"]) {
+      for (const key of ["transactions", "providerMappings", "prices", "logos", "classifications"]) {
         file[key] = file[key].map((r: { securityId: string | null }) => ({ ...r, securityId: rename(r.securityId) }));
       }
       for (const run of file.reconciliationRuns) {

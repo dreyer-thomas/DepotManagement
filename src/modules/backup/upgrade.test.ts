@@ -3,13 +3,17 @@ import { EXPORT_SCHEMA_VERSION } from "./schema";
 import { UPGRADES, upgradeExport } from "./upgrade";
 
 describe("upgradeExport", () => {
-  it("has no upgrade steps while only version 1 exists", () => {
-    expect(EXPORT_SCHEMA_VERSION).toBe(1);
-    expect(UPGRADES).toEqual({});
+  it("upgrades a version-1 document to version 2 with no classifications", () => {
+    expect(EXPORT_SCHEMA_VERSION).toBe(2);
+    expect(Object.keys(UPGRADES)).toEqual(["1"]);
+    expect(upgradeExport({ schemaVersion: 1, depots: [] })).toEqual({
+      ok: true,
+      document: { schemaVersion: 2, depots: [], classifications: [] },
+    });
   });
 
   it("returns a current-version document unchanged", () => {
-    const raw = { schemaVersion: 1, depots: [] };
+    const raw = { schemaVersion: 2, depots: [], classifications: [] };
     expect(upgradeExport(raw)).toEqual({ ok: true, document: raw });
   });
 
@@ -31,7 +35,7 @@ describe("upgradeExport", () => {
   });
 
   it("rejects a newer version as unsupported", () => {
-    expect(upgradeExport({ schemaVersion: 2 })).toEqual({ ok: false, reason: "version-unsupported" });
+    expect(upgradeExport({ schemaVersion: 3 })).toEqual({ ok: false, reason: "version-unsupported" });
   });
 
   it.each([

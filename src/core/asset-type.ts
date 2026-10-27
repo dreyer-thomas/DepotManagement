@@ -12,7 +12,7 @@
 export type EstimatedAssetType = "STOCK" | "ETF" | "FUND" | "CERTIFICATE";
 
 /** Words of a term are separated by whitespace or a hyphen in the name. */
-function termPattern(terms: readonly string[]): RegExp {
+export function termPattern(terms: readonly string[]): RegExp {
   const alternatives = terms.map((term) =>
     term
       .split(/[\s-]+/)

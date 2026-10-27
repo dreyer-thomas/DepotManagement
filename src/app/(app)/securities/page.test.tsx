@@ -24,6 +24,7 @@ vi.mock("@/app/_actions/prices", () => ({
 
 import { prisma } from "@/db";
 import { createDepot, ensureSecurity, recordTrade } from "@/modules/ledger";
+import { setManualClassification } from "@/modules/classification";
 import { setMapping } from "@/modules/prices";
 import { MappingAutoResolver } from "../../_components/securities/MappingAutoResolver";
 import { PriceRefreshButton } from "../../_components/securities/PriceRefreshButton";
@@ -33,6 +34,7 @@ import SecuritiesPage from "./page";
 beforeEach(async () => {
   vi.stubGlobal("fetch", fetchSpy);
   fetchSpy.mockReset();
+  await prisma.securityClassification.deleteMany();
   await prisma.price.deleteMany();
   await prisma.providerMapping.deleteMany();
   await prisma.transaction.deleteMany();
@@ -85,16 +87,52 @@ describe("Securities page", () => {
       "Unbekannt AG",
     ]);
     const text = renderText(tree);
-    expect(text).toContain("Bitcoin BTC Krypto Kursquelle noch nicht ermittelt");
-    expect(text).toContain("iShares Core MSCI World IE00B4L5Y983 ETF Keine Kursquelle gefunden");
-    expect(text).toContain("SAP DE0007164600 Aktie Yahoo Finance · SAP.DE");
-    expect(text).toContain("Unbekannt AG LU0274208692 Typ unbekannt");
+    expect(text).toContain("Bitcoin BTC Krypto Unbekannt · Unbekannt · Unbekannt · Unbekannt · Unbekannt · Unbekannt Kursquelle noch nicht ermittelt");
+    expect(text).toContain("iShares Core MSCI World IE00B4L5Y983 ETF Unbekannt · Unbekannt · Unbekannt · Unbekannt · Unbekannt · Unbekannt Keine Kursquelle gefunden");
+    expect(text).toContain("SAP DE0007164600 Aktie Unbekannt · Unbekannt · Unbekannt · Unbekannt · Unbekannt · Unbekannt Yahoo Finance · SAP.DE");
+    expect(text).toContain("Unbekannt AG LU0274208692 Typ unbekannt Unbekannt · Unbekannt · Unbekannt · Unbekannt · Unbekannt · Unbekannt");
     expect(text).toContain("Kursquellen werden ermittelt …");
     // "Automatisch suchen" only for the not-found marker.
     expect(text.match(/Automatisch suchen/g)).toHaveLength(1);
     expect(text.match(/Kursquelle bearbeiten/g)).toHaveLength(4);
     expect(text.match(/Typ ändern/g)).toHaveLength(4);
+    expect(text.match(/Klassifizierung/g)).toHaveLength(4);
     expect(renderHtml(tree)).toMatch(/MuiChip-colorWarning[^>]*>(?:(?!<\/div>).)*Typ unbekannt/);
+  });
+
+  it("shows each Security's classification summary, manual values winning, and passes the classifications on", async () => {
+    const sap = await security({ isin: "DE0007164600" }, "SAP", "STOCK");
+    await prisma.securityClassification.create({
+      data: {
+        securityId: sap.id,
+        assetClass: "Aktien",
+        assetClassSource: "RULE",
+        sector: "Technologie",
+        sectorSource: "PROVIDER",
+        region: "Europa",
+        regionSource: "PROVIDER",
+        country: "Deutschland",
+        countrySource: "PROVIDER",
+        companySize: "Large Cap",
+        companySizeSource: "PROVIDER",
+        currency: "EUR",
+        currencySource: "PROVIDER",
+        updatedAt: "2026-10-27T08:00:00.000Z",
+      },
+    });
+    expect(await setManualClassification(sap.id, { sector: "Halbleiter" })).toMatchObject({ ok: true });
+
+    const tree = await SecuritiesPage();
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(renderText(tree)).toContain("SAP DE0007164600 Aktie Aktien · Halbleiter · Europa · Deutschland · Large Cap · EUR Kursquelle");
+    const classifications = findElement(tree, SecurityList)?.props.classifications as Record<string, { sector: unknown }>;
+    expect(classifications[sap.id].sector).toEqual({
+      value: "Halbleiter",
+      source: "manual",
+      manual: "Halbleiter",
+      automatic: { value: "Technologie", source: "provider" },
+    });
   });
 
   it("shows the refresh button, latest price dates, the stale badge for held Securities and fetch errors", async () => {
@@ -131,7 +169,7 @@ describe("Securities page", () => {
       expect(findElement(tree, PriceRefreshButton)).toBeDefined();
       const text = renderText(tree);
       expect(text).toContain("Kurse aktualisieren");
-      expect(text).toContain("Apple US0378331005 Aktie Kursquelle noch nicht ermittelt Kurs vom 01.10.2026 Manuelle Kurse 01.10.2026 150\u00a0€ Bearbeiten Löschen");
+      expect(text).toContain("Apple US0378331005 Aktie Unbekannt · Unbekannt · Unbekannt · Unbekannt · Unbekannt · Unbekannt Kursquelle noch nicht ermittelt Kurs vom 01.10.2026 Manuelle Kurse 01.10.2026 150\u00a0€ Bearbeiten Löschen");
       expect(text).toContain("Yahoo Finance · EUNL.DE Kurs vom 22.10.2026 – veraltet Kurs konnte nicht von Yahoo Finance geladen werden. Kurs manuell eintragen");
       expect(text).toContain("Yahoo Finance · SAP.DE Kurs vom 24.10.2026 Kursquelle bearbeiten");
       expect(text.match(/veraltet/g)).toHaveLength(1);

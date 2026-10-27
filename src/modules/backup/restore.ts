@@ -7,6 +7,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { prisma } from "@/db";
+import { replaceAllClassifications } from "@/modules/classification";
 import { clearImportStaging } from "@/modules/import";
 import { replaceAllLedger } from "@/modules/ledger";
 import { checkManualLogos, type LogoRestoreFiles, replaceAllLogos } from "@/modules/logos";
@@ -123,6 +124,7 @@ export async function restoreExport(input: string, deps: RestoreDeps = {}, db: B
       await replaceAllLedger(file, tx);
       await replaceAllPrices(file, tx);
       logoFiles = await replaceAllLogos(file.logos, { env: deps.env, now: () => now }, tx);
+      await replaceAllClassifications(file.classifications, tx, () => now);
       return staging;
     });
   } catch (error) {
@@ -139,7 +141,7 @@ export async function restoreExport(input: string, deps: RestoreDeps = {}, db: B
     console.warn(`Restore: removing old files failed (${errorName(error)})`);
   }
   console.info(
-    `Restore: replaced all data (${file.depots.length} depots, ${file.transactions.length} transactions, ${file.prices.length} prices, ${file.logos.length} logos)`,
+    `Restore: replaced all data (${file.depots.length} depots, ${file.transactions.length} transactions, ${file.prices.length} prices, ${file.logos.length} logos, ${file.classifications.length} classifications)`,
   );
   return { ok: true, backupFileName };
 }

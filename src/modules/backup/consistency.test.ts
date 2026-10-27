@@ -7,7 +7,7 @@ const TS = "2026-10-26T10:00:00.000Z";
 /** A small, consistent synthetic export file. */
 function base(): ExportFile {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     depots: [
       { id: "d1", name: "Hauptdepot", broker: "COMDIRECT", archived: false },
       { id: "d2", name: "Zweitdepot", broker: "FINANZEN_ZERO", archived: false },
@@ -58,6 +58,9 @@ function base(): ExportFile {
       { id: "p2", securityId: "s1", date: "2026-01-02", source: "PROVIDER", price: "11", fetchedAt: TS },
     ],
     logos: [{ id: "l1", securityId: "s2", contentType: "image/png", fetchedAt: TS, data: "iVBORw0KGgo=" }],
+    classifications: [
+      { id: "k1", securityId: "s2", assetClass: null, sector: "Halbleiter", industry: null, region: "Europa", country: null, companySize: null, currency: null },
+    ],
   };
 }
 
@@ -67,7 +70,7 @@ describe("checkConsistency", () => {
   it("accepts a consistent file and an empty one", () => {
     expect(checkConsistency(base())).toEqual({ ok: true });
     const empty = base();
-    for (const key of ["depots", "securities", "providerMappings", "transactions", "corporateActions", "reconciliationRuns", "prices", "logos"] as const) {
+    for (const key of ["depots", "securities", "providerMappings", "transactions", "corporateActions", "reconciliationRuns", "prices", "logos", "classifications"] as const) {
       empty[key] = [];
     }
     expect(checkConsistency(empty)).toEqual({ ok: true });
@@ -83,6 +86,7 @@ describe("checkConsistency", () => {
     ["duplicate row id across runs", (f) => (f.reconciliationRuns[1].rows[0].id = "rw1"), "reconciliationRuns.1.rows.0.id"],
     ["duplicate price id", (f) => (f.prices[1].id = "p1"), "prices.1.id"],
     ["duplicate logo id", (f) => f.logos.push({ ...f.logos[0], securityId: "s1" }), "logos.1.id"],
+    ["duplicate classification id", (f) => f.classifications.push({ ...f.classifications[0], securityId: "s1" }), "classifications.1.id"],
     ["duplicate depot name", (f) => (f.depots[1].name = "Hauptdepot"), "depots.1.name"],
     ["duplicate ISIN", (f) => (f.securities[1].isin = "DE000SYNCA09"), "securities.1.isin"],
     ["duplicate crypto symbol", (f) => (f.securities[3].cryptoSymbol = "BTC"), "securities.3.cryptoSymbol"],
@@ -111,6 +115,8 @@ describe("checkConsistency", () => {
     ["duplicate (security, date, source)", (f) => (f.prices[1].source = "MANUAL"), "prices.1.source"],
     ["unknown logo security", (f) => (f.logos[0].securityId = "nope"), "logos.0.securityId"],
     ["two logos of one Security", (f) => f.logos.push({ ...f.logos[0], id: "l2" }), "logos.1.securityId"],
+    ["unknown classification security", (f) => (f.classifications[0].securityId = "nope"), "classifications.0.securityId"],
+    ["two classifications of one Security", (f) => f.classifications.push({ ...f.classifications[0], id: "k2" }), "classifications.1.securityId"],
   ])("rejects a %s with its path", (_label, mutate, path) => {
     const file = base();
     mutate(file);

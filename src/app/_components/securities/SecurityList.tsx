@@ -5,11 +5,13 @@ import Chip from "@mui/material/Chip";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import { securityTypeLabel } from "@/app/_components/migration/labels";
+import { type Classification, type ClassifiedAssetType, effective } from "@/core/classification";
 import { allowedAssetTypes } from "@/modules/ledger";
 import type { ManualPriceRow, SecurityPriceInfo, SecurityWithMapping } from "@/modules/prices";
 import { fetchErrorText } from "../prices/price-labels";
 import { PriceDate } from "../prices/StaleBadge";
-import { mappingLabel } from "./labels";
+import { ClassificationButton } from "./ClassificationDialog";
+import { classificationSummary, mappingLabel } from "./labels";
 import { LogoUploadButton } from "./LogoUploadDialog";
 import { ManualPriceButton } from "./ManualPriceDialog";
 import { ManualPriceList } from "./ManualPriceList";
@@ -19,9 +21,9 @@ import { SecurityLogo } from "./SecurityLogo";
 import { TypeDialogButton } from "./TypeDialog";
 
 /**
- * Securities with logo, name, ISIN or crypto symbol, type chip, price source and latest
- * price date (stale badge for held Securities), its manual Prices ("Manuelle Kurse" with edit/delete),
- * plus "Kursquelle bearbeiten", "Typ ändern", "Kurs manuell eintragen", (after a miss) "Automatisch
+ * Securities with logo, name, ISIN or crypto symbol, type chip, classification summary
+ * ("Aktien · Technologie · Europa · …", unknown values "Unbekannt"), price source and latest price date (stale badge for held Securities), its manual Prices ("Manuelle Kurse" with edit/delete),
+ * plus "Kursquelle bearbeiten", "Typ ändern", "Klassifizierung", "Kurs manuell eintragen", (after a miss) "Automatisch
  * suchen" and "Logo hochladen" / "Logo ersetzen". A failed last fetch shows an error naming the provider; there "Kurs manuell eintragen" is
  * the Alert's action instead (one per card).
  */
@@ -29,6 +31,7 @@ export function SecurityList({
   securities,
   prices = {},
   manualPrices = {},
+  classifications = {},
   today,
 }: {
   securities: SecurityWithMapping[];
@@ -36,6 +39,8 @@ export function SecurityList({
   prices?: Record<string, SecurityPriceInfo>;
   /** Manual Prices per Security id, newest first (`listManualPrices`). */
   manualPrices?: Record<string, ManualPriceRow[]>;
+  /** Effective classification per Security id (`listClassifications`); absent ids are all unknown. */
+  classifications?: Record<string, Classification>;
   /** Today's business date (default date of a manual Price). */
   today: string;
 }) {
@@ -46,6 +51,7 @@ export function SecurityList({
         const notFound = security.mapping !== null && security.mapping.provider === null;
         const price = prices[security.id];
         const fetchFailed = Boolean(security.mapping?.provider && security.mapping.fetchError);
+        const classification = classifications[security.id] ?? effective(null, security.assetType as ClassifiedAssetType);
         return (
           <li key={security.id}>
             <Card>
@@ -67,6 +73,7 @@ export function SecurityList({
                         color={unclassified ? "warning" : "default"}
                       />
                     </Stack>
+                    <Typography variant="body2">{classificationSummary(classification)}</Typography>
                     <Typography variant="body2" color={security.mapping?.provider ? "text.primary" : "text.secondary"}>
                       {mappingLabel(security.mapping)}
                     </Typography>
@@ -88,6 +95,7 @@ export function SecurityList({
                     <Stack direction="row" sx={{ gap: 1, flexWrap: "wrap", mt: 1, alignItems: "flex-start" }}>
                       <MappingDialogButton security={security} />
                       <TypeDialogButton security={security} allowedTypes={allowedAssetTypes(security)} />
+                      <ClassificationButton security={security} classification={classification} />
                       {fetchFailed ? null : <ManualPriceButton security={security} today={today} />}
                       {notFound ? <ResolveMappingButton security={security} /> : null}
                       <LogoUploadButton security={security} />

@@ -11,6 +11,10 @@ vi.mock("@/modules/logos", () => ({ fetchMissingLogos }));
 const refreshNews = vi.hoisted(() => vi.fn(async () => ({ updated: 0, failed: [] })));
 vi.mock("@/modules/news", () => ({ refreshNews }));
 
+// The classification refresh after the news refresh is a fake too.
+const refreshClassifications = vi.hoisted(() => vi.fn(async () => ({ updated: 0, unchanged: 0, failed: 0 })));
+vi.mock("@/modules/classification", () => ({ refreshClassifications }));
+
 // The backup scheduler is a fake: no test writes a backup into the real home directory.
 const startBackupScheduler = vi.hoisted(() => vi.fn(() => true));
 vi.mock("@/modules/backup", () => ({ startBackupScheduler }));
@@ -73,6 +77,7 @@ describe("startBackgroundJobs", () => {
     refreshPrices.mockClear();
     fetchMissingLogos.mockClear();
     refreshNews.mockClear();
+    refreshClassifications.mockClear();
     startBackupScheduler.mockClear();
     delete (globalThis as Record<symbol, unknown>)[LOGO_START];
   });
@@ -112,6 +117,27 @@ describe("startBackgroundJobs", () => {
     expect(error).toHaveBeenCalledWith("News: scheduled refresh failed (RangeError)");
   });
 
+  it("refreshes the classifications after the news; a failure (also of the price run) is only logged", async () => {
+    delete process.env.NEXT_PHASE;
+    const order: string[] = [];
+    refreshPrices.mockImplementationOnce(async () => {
+      order.push("prices");
+      throw new TypeError("fetch failed");
+    });
+    refreshNews.mockImplementationOnce(async () => {
+      order.push("news");
+      return { updated: 0, failed: [] };
+    });
+    refreshClassifications.mockImplementationOnce(async () => {
+      order.push("classification");
+      throw new RangeError("db");
+    });
+    await startBackgroundJobs();
+    await vi.waitFor(() => expect(error).toHaveBeenCalledWith("Classification: scheduled refresh failed (RangeError)"));
+    expect(order).toEqual(["prices", "news", "classification"]);
+    expect(refreshClassifications).toHaveBeenCalledWith();
+  });
+
   it("starts the backup scheduler on every call (it guards against a second start itself)", async () => {
     delete process.env.NEXT_PHASE;
     await startBackgroundJobs();
@@ -140,6 +166,7 @@ describe("startBackgroundJobs", () => {
     expect(refreshPrices).not.toHaveBeenCalled();
     expect(fetchMissingLogos).not.toHaveBeenCalled();
     expect(refreshNews).not.toHaveBeenCalled();
+    expect(refreshClassifications).not.toHaveBeenCalled();
     expect(startBackupScheduler).not.toHaveBeenCalled();
   });
 });

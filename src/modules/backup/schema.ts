@@ -1,11 +1,12 @@
 // The export file contract (story 6.1, AD-12): one versioned JSON document with every stored ledger,
-// price and manual-logo row. Decimals and dates are the stored strings; nothing derived is included.
+// price and manual-logo row and the manual classification overrides (version 2, story 7.1). Decimals and dates are the stored strings; nothing derived is included.
 // Restore (story 6.2) parses files with this schema; older versions are upgraded before parsing.
 import { z } from "zod";
+import { ASSET_CLASSES, COMPANY_SIZES, CURRENCY_PATTERN, REGIONS } from "@/core/classification";
 import { isBusinessDate } from "@/core/dates";
 import { isDecimalString } from "@/core/decimal";
 
-export const EXPORT_SCHEMA_VERSION = 1;
+export const EXPORT_SCHEMA_VERSION = 2;
 
 const id = z.string().min(1);
 const decimal = z.string().refine(isDecimalString, "decimal string expected");
@@ -101,6 +102,20 @@ export const logoRecordSchema = z.strictObject({
   data: z.base64().min(1),
 });
 
+/** Manual classification overrides of one Security (`null` = automatic); the automatic layer is not exported. */
+const classificationText = z.string().min(1).max(80).nullable();
+export const classificationRecordSchema = z.strictObject({
+  id,
+  securityId: id,
+  assetClass: z.enum(ASSET_CLASSES).nullable(),
+  sector: classificationText,
+  industry: classificationText,
+  region: z.enum(REGIONS).nullable(),
+  country: classificationText,
+  companySize: z.enum(COMPANY_SIZES).nullable(),
+  currency: z.string().regex(CURRENCY_PATTERN).nullable(),
+});
+
 /** The whole export file; keys appear in this order in the serialized JSON. */
 export const exportFileSchema = z.strictObject({
   schemaVersion: z.literal(EXPORT_SCHEMA_VERSION),
@@ -112,6 +127,7 @@ export const exportFileSchema = z.strictObject({
   reconciliationRuns: z.array(reconciliationRunRecordSchema),
   prices: z.array(priceRecordSchema),
   logos: z.array(logoRecordSchema),
+  classifications: z.array(classificationRecordSchema),
 });
 
 export type ExportFile = z.infer<typeof exportFileSchema>;

@@ -17,6 +17,8 @@ vi.mock("next/headers", () => ({
   headers: async () => fakes.current.state.headers,
 }));
 vi.mock("next/cache", () => ({ revalidatePath }));
+const scheduleClassificationRefresh = vi.hoisted(() => vi.fn());
+vi.mock("./classification-refresh", () => ({ scheduleClassificationRefresh }));
 
 import { prisma } from "@/db";
 import { createExport, RESTORE_MAX_FILE_BYTES, serializeExport } from "@/modules/backup";
@@ -49,6 +51,7 @@ beforeEach(async () => {
   process.env.BACKUP_DIR = join(scratch, "backups");
   fakes.current.state.incoming.set(SESSION_COOKIE, await createSessionToken("tester", SECRET));
   revalidatePath.mockClear();
+  scheduleClassificationRefresh.mockClear();
   vi.spyOn(console, "info").mockImplementation(() => undefined);
   vi.spyOn(console, "warn").mockImplementation(() => undefined);
   await prisma.transaction.deleteMany();
@@ -89,8 +92,10 @@ describe("restoreAction", () => {
     expect(result).toEqual({ ok: true, backupFileName: expect.stringMatching(/^depotmanagement-export-\d{8}-\d{6}\.json$/) });
     expect(await depots()).toEqual(["d1"]);
     expect(backups()).toEqual([(result as { backupFileName: string }).backupFileName]);
-    expect(serializeExport(await createExport())).toBe(JSON.stringify(JSON.parse(EXPORT), null, 2));
+    // A version-1 export restores; the next export is version 2 without classifications.
+    expect(serializeExport(await createExport())).toBe(JSON.stringify({ ...JSON.parse(EXPORT), schemaVersion: 2, classifications: [] }, null, 2));
     expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
+    expect(scheduleClassificationRefresh).toHaveBeenCalledTimes(1);
   });
 
   it.each([
@@ -106,6 +111,7 @@ describe("restoreAction", () => {
 
   it("passes a validation failure through without revalidating", async () => {
     expect(await restoreAction(null, form(json("abc")))).toEqual({ ok: false, reason: "not-json" });
+    expect(scheduleClassificationRefresh).not.toHaveBeenCalled();
     expect(await depots()).toEqual(["old"]);
     expect(revalidatePath).not.toHaveBeenCalled();
   });

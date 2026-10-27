@@ -5,6 +5,7 @@
 // always yields the same document (export → restore → export round-trip, story 6.2).
 import { prisma } from "@/db";
 import type { Prisma } from "@/db/generated/prisma/client";
+import { exportClassifications } from "@/modules/classification";
 import { exportLedgerData } from "@/modules/ledger";
 import { exportManualLogos, type LogoDeps } from "@/modules/logos";
 import { exportPriceData } from "@/modules/prices";
@@ -31,6 +32,7 @@ export async function createExport(deps: ExportDeps = {}, db: BackupDb = prisma)
     const ledger = await exportLedgerData(tx);
     const prices = await exportPriceData(tx);
     const logos = await exportManualLogos(deps, tx);
+    const classifications = await exportClassifications(tx);
     return {
       schemaVersion: EXPORT_SCHEMA_VERSION,
       depots: ledger.depots,
@@ -41,6 +43,7 @@ export async function createExport(deps: ExportDeps = {}, db: BackupDb = prisma)
       reconciliationRuns: ledger.reconciliationRuns,
       prices: prices.prices,
       logos,
+      classifications,
     };
   });
   const parsed = exportFileSchema.safeParse(file);

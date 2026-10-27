@@ -12,6 +12,7 @@ import {
   setMapping,
   type SetMappingResult,
 } from "@/modules/prices";
+import { scheduleClassificationRefresh } from "./classification-refresh";
 import { schedulePriceBackfill } from "./price-refresh";
 
 const UNAUTHORIZED = { ok: false, reason: "unauthorized" } as const;
@@ -87,6 +88,10 @@ export async function changeSecurityTypeAction(
   });
   const result = await changeSecurityType(securityId, assetType);
   // The type is a ledger fact shown on other pages too (e.g. transaction dialogs), like other ledger writes.
-  if (result.ok) revalidatePath("/", "layout");
+  // The classification rules depend on it, so they are refreshed after the response.
+  if (result.ok) {
+    revalidatePath("/", "layout");
+    scheduleClassificationRefresh();
+  }
   return result;
 }

@@ -53,4 +53,24 @@ export async function seedFullLedger(c: PrismaClient, dataDir: string): Promise<
   await c.price.create({ data: { id: "p-1", securityId: "sec-a", date: "2026-02-01", source: "MANUAL", price: "10.50", fetchedAt: TS } });
   writeLogo(dataDir, "sec-b-1.png");
   await c.securityLogo.create({ data: { id: "logo-b", securityId: "sec-b", source: "MANUAL", fileName: "sec-b-1.png", contentType: "image/png", fetchedAt: TS } });
+  // Classification: manual overrides of sec-b (exported); sec-a has only automatic values (a cache, not exported).
+  await c.securityClassification.create({
+    data: {
+      id: "cls-b",
+      securityId: "sec-b",
+      assetClass: "Aktien",
+      assetClassSource: "RULE",
+      sector: "Technologie",
+      sectorSource: "PROVIDER",
+      sectorManual: "Halbleiter",
+      regionManual: "Europa",
+      currencyManual: "EUR",
+      providerSymbol: "SYB.DE",
+      providerFetchedAt: TS,
+      updatedAt: TS,
+    },
+  });
+  await c.securityClassification.create({
+    data: { id: "cls-a", securityId: "sec-a", assetClass: "Aktien", assetClassSource: "RULE", region: "Welt", regionSource: "RULE", updatedAt: TS },
+  });
 }

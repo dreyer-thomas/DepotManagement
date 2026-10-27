@@ -1,0 +1,32 @@
+{
+  "assetProfile": {
+    "address1": "Musterstrasse 1",
+    "city": "Musterstadt",
+    "zip": "00000",
+    "country": "Germany",
+    "website": "https://www.example.com",
+    "industry": "Software—Application",
+    "industryKey": "software-application",
+    "industryDisp": "Software—Application",
+    "sector": "Technology",
+    "sectorKey": "technology",
+    "sectorDisp": "Technology",
+    "longBusinessSummary": "Synthetic profile for tests.",
+    "fullTimeEmployees": 1000,
+    "companyOfficers": [],
+    "maxAge": 86400
+  },
+  "price": {
+    "maxAge": 1,
+    "regularMarketPrice": 100,
+    "exchange": "GER",
+    "exchangeName": "XETRA",
+    "quoteType": "EQUITY",
+    "symbol": "SAP.DE",
+    "shortName": "SAP  SE O.N.",
+    "longName": "SAP SE",
+    "currency": "EUR",
+    "currencySymbol": "€",
+    "marketCap": 200000000000
+  }
+}

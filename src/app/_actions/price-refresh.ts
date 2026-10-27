@@ -1,9 +1,10 @@
-// Background price fetches (and the logo fetch after a backfill) triggered by ledger writes (AD-9, AD-19). Not a server action module: these helpers
+// Background price fetches (and the logo fetch and classification refresh after a backfill) triggered by ledger writes (AD-9, AD-19). Not a server action module: these helpers
 // are called by server actions after a successful write and run after the response via `after()`.
 // A failure is logged and never changes the action's result.
 import { after } from "next/server";
 import { businessDate } from "@/core/dates";
 import { backfillHeldPrices, type PriceRunResult, refetchPriceHistory } from "@/modules/prices";
+import { runClassificationRefresh } from "./classification-refresh";
 import { runLogoFetch } from "./logo-fetch";
 
 function logResult(job: string, result: PriceRunResult): void {
@@ -28,12 +29,19 @@ function schedule(job: string, run: (today: string) => Promise<PriceRunResult>, 
 
 /**
  * Schedules a backfill of held Securities that need one (e.g. a new held Security) after the response,
- * followed by a logo fetch for Securities without a logo. The logo fetch runs in the same callback after
- * the backfill (which resolves missing mappings) so it sees the new ticker / coin id; it also runs when
- * the backfill failed.
+ * followed by a logo fetch for Securities without a logo and then a classification refresh (AD-20). Both
+ * run in the same callback after the backfill (which resolves missing mappings) so they see the new
+ * ticker / coin id; they also run when the backfill (or the logo fetch) failed.
  */
 export function schedulePriceBackfill(): void {
-  schedule("backfill", (today) => backfillHeldPrices(today), runLogoFetch);
+  schedule(
+    "backfill",
+    (today) => backfillHeldPrices(today),
+    async () => {
+      await runLogoFetch();
+      await runClassificationRefresh();
+    },
+  );
 }
 
 /** Schedules a full history refetch of `securityId` (its splits changed) after the response. */

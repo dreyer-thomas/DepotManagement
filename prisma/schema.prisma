@@ -67,6 +67,7 @@ model Security {
   providerMapping    ProviderMapping?
   prices             Price[]
   logo               SecurityLogo?
+  classification     SecurityClassification?
   newsArticles       NewsArticle[]
   newsFetch          NewsFetch?
   reconciliationRows ReconciliationRow[]
@@ -329,4 +330,47 @@ model ImportItem {
 
   @@unique([batchId, position])
   @@index([fileHash])
+}
+
+enum ClassificationSource {
+  PROVIDER
+  RULE
+}
+
+// Owned by the classification module (AD-20, story 7.1). At most one row per Security. Per dimension an
+// automatic value (`x` + `xSource`, written only by the refresh) and a manual override (`xManual`, written
+// only by the user; always wins, never touched by the refresh). Values are German labels; null = unknown.
+// The type dimension is the ledger's `assetType` and is not stored here.
+model SecurityClassification {
+  id                String                @id @default(cuid())
+  securityId        String                @unique
+  security          Security              @relation(fields: [securityId], references: [id], onDelete: Cascade)
+  assetClass        String?
+  assetClassSource  ClassificationSource?
+  assetClassManual  String?
+  sector            String?
+  sectorSource      ClassificationSource?
+  sectorManual      String?
+  industry          String?
+  industrySource    ClassificationSource?
+  industryManual    String?
+  region            String?
+  regionSource      ClassificationSource?
+  regionManual      String?
+  country           String?
+  countrySource     ClassificationSource?
+  countryManual     String?
+  companySize       String?
+  companySizeSource ClassificationSource?
+  companySizeManual String?
+  currency          String?
+  currencySource    ClassificationSource?
+  currencyManual    String?
+  /// Yahoo symbol of the last provider answer (data or "no data"); null while provider data is pending.
+  /// A mapping symbol different from this one triggers a new fetch.
+  providerSymbol    String?
+  /// UTC ISO timestamp of the last provider answer.
+  providerFetchedAt String?
+  /// UTC ISO timestamp of the last write.
+  updatedAt         String
 }

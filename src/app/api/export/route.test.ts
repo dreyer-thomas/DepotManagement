@@ -17,7 +17,7 @@ vi.mock("next/headers", () => ({
 }));
 
 import { prisma } from "@/db";
-import { createExport, exportFileSchema, serializeExport } from "@/modules/backup";
+import { createExport, EXPORT_SCHEMA_VERSION, exportFileSchema, serializeExport } from "@/modules/backup";
 import { createDepot, ensureSecurity } from "@/modules/ledger";
 import { saveManualLogo } from "@/modules/logos";
 import { GET } from "./route";
@@ -77,7 +77,7 @@ describe("GET /api/export", () => {
       /^attachment; filename="depotmanagement-export-\d{8}-\d{6}\.json"$/,
     );
     const text = await response.text();
-    expect(text.startsWith('{\n  "schemaVersion": 1,')).toBe(true);
+    expect(text.startsWith(`{\n  "schemaVersion": ${EXPORT_SCHEMA_VERSION},`)).toBe(true);
     const file = exportFileSchema.parse(JSON.parse(text));
     expect(file.depots.map((depot) => depot.name)).toEqual(["Hauptdepot"]);
     expect(file.logos).toHaveLength(1);

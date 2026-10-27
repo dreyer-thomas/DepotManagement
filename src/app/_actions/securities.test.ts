@@ -19,6 +19,8 @@ vi.mock("next/headers", () => ({
 }));
 vi.mock("next/cache", () => ({ revalidatePath }));
 vi.mock("next/server", () => ({ after }));
+const scheduleClassificationRefresh = vi.hoisted(() => vi.fn());
+vi.mock("./classification-refresh", () => ({ scheduleClassificationRefresh, runClassificationRefresh: vi.fn() }));
 // The real Yahoo client never runs in tests; its search answers with recorded responses.
 vi.mock("yahoo-finance2", () => ({
   default: class {
@@ -225,11 +227,16 @@ describe("setMappingAction", () => {
 });
 
 describe("changeSecurityTypeAction", () => {
-  it("stores the new type via the ledger and revalidates", async () => {
+  beforeEach(() => {
+    scheduleClassificationRefresh.mockClear();
+  });
+
+  it("stores the new type via the ledger, revalidates and schedules a classification refresh", async () => {
     const msci = await security({ isin: MSCI_WORLD }, "iShares Core MSCI World", "STOCK");
     const result = await changeSecurityTypeAction(null, form({ securityId: msci.id, assetType: "ETF" }));
     expect(result).toEqual({ ok: true, security: { ...msci, assetType: "ETF" } });
     expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
+    expect(scheduleClassificationRefresh).toHaveBeenCalledTimes(1);
   });
 
   it.each(["CRYPTO", "UNCLASSIFIED", ""])("rejects %j for an ISIN Security", async (assetType) => {
@@ -239,6 +246,7 @@ describe("changeSecurityTypeAction", () => {
       reason: "asset-type-invalid",
     });
     expect(revalidatePath).not.toHaveBeenCalled();
+    expect(scheduleClassificationRefresh).not.toHaveBeenCalled();
   });
 
   it("returns unauthorized without a session and writes nothing", async () => {
