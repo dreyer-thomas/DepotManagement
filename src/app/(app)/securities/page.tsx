@@ -11,20 +11,22 @@ import { SecurityList } from "@/app/_components/securities/SecurityList";
 import { businessDate } from "@/core/dates";
 import { listClassifications } from "@/modules/classification";
 import { listManualPrices, listSecuritiesWithMappings, securityPriceInfo } from "@/modules/prices";
+import { listTeilfreistellungOverrides } from "@/modules/tax";
 
 export const metadata: Metadata = { title: "Wertpapiere" };
 
 /**
- * All Securities with their classification, price source, latest price date and manual Prices. Missing mappings are resolved and
+ * All Securities with their classification, Teilfreistellung (funds), price source, latest price date and manual Prices. Missing mappings are resolved and
  * Prices refreshed by the client after render (never during render or `next build`).
  */
 export default async function SecuritiesPage() {
   const today = businessDate(new Date());
-  const [securities, prices, manualPrices, classifications] = await Promise.all([
+  const [securities, prices, manualPrices, classifications, teilfreistellungOverrides] = await Promise.all([
     listSecuritiesWithMappings(),
     securityPriceInfo(today),
     listManualPrices(),
     listClassifications(),
+    listTeilfreistellungOverrides(),
   ]);
   const pending = securities.filter((security) => security.mapping === null).length;
   return (
@@ -47,6 +49,7 @@ export default async function SecuritiesPage() {
             prices={prices}
             manualPrices={manualPrices}
             classifications={classifications}
+            teilfreistellungOverrides={teilfreistellungOverrides}
             today={today}
           />
         </>

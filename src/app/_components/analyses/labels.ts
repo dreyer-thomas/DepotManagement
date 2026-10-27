@@ -16,6 +16,7 @@ export const ANALYSIS_TABS = [
   { value: "returns", label: "Rendite" },
   { value: "gains", label: "Gewinne" },
   { value: "dividends", label: "Dividenden" },
+  { value: "taxes", label: "Steuern" },
 ] as const;
 
 export type AnalysisTab = (typeof ANALYSIS_TABS)[number]["value"];

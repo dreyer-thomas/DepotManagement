@@ -13,6 +13,7 @@ import { replaceAllLedger } from "@/modules/ledger";
 import { checkManualLogos, type LogoRestoreFiles, replaceAllLogos } from "@/modules/logos";
 import { clearNews } from "@/modules/news";
 import { replaceAllPrices } from "@/modules/prices";
+import { replaceAllTaxSettings } from "@/modules/tax";
 import { checkConsistency } from "./consistency";
 import { type BackupDb, createExport, EXPORT_TIMEOUT_MS, exportFileName, serializeExport } from "./export";
 import { RESTORE_MAX_FILE_BYTES } from "./limits";
@@ -125,6 +126,7 @@ export async function restoreExport(input: string, deps: RestoreDeps = {}, db: B
       await replaceAllPrices(file, tx);
       logoFiles = await replaceAllLogos(file.logos, { env: deps.env, now: () => now }, tx);
       await replaceAllClassifications(file.classifications, tx, () => now);
+      await replaceAllTaxSettings({ taxAllowances: file.taxAllowances, teilfreistellungOverrides: file.teilfreistellungOverrides }, tx, () => now);
       return staging;
     });
   } catch (error) {
@@ -141,7 +143,7 @@ export async function restoreExport(input: string, deps: RestoreDeps = {}, db: B
     console.warn(`Restore: removing old files failed (${errorName(error)})`);
   }
   console.info(
-    `Restore: replaced all data (${file.depots.length} depots, ${file.transactions.length} transactions, ${file.prices.length} prices, ${file.logos.length} logos, ${file.classifications.length} classifications)`,
+    `Restore: replaced all data (${file.depots.length} depots, ${file.transactions.length} transactions, ${file.prices.length} prices, ${file.logos.length} logos, ${file.classifications.length} classifications, ${file.taxAllowances.length} tax allowances, ${file.teilfreistellungOverrides.length} Teilfreistellung overrides)`,
   );
   return { ok: true, backupFileName };
 }

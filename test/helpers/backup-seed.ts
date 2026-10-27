@@ -73,4 +73,8 @@ export async function seedFullLedger(c: PrismaClient, dataDir: string): Promise<
   await c.securityClassification.create({
     data: { id: "cls-a", securityId: "sec-a", assetClass: "Aktien", assetClassSource: "RULE", region: "Welt", regionSource: "RULE", updatedAt: TS },
   });
+  // Tax settings (story 8.3): Freistellungsaufträge and a Teilfreistellung override.
+  await c.taxAllowance.create({ data: { id: "fsa-2", broker: "FINANZEN_ZERO", year: 2026, amount: "199", updatedAt: TS } });
+  await c.taxAllowance.create({ data: { id: "fsa-1", broker: "COMDIRECT", year: 2026, amount: "801", updatedAt: TS } });
+  await c.teilfreistellungOverride.create({ data: { id: "tfs-a", securityId: "sec-a", rate: "0.15", updatedAt: TS } });
 }

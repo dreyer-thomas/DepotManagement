@@ -92,8 +92,10 @@ describe("restoreAction", () => {
     expect(result).toEqual({ ok: true, backupFileName: expect.stringMatching(/^depotmanagement-export-\d{8}-\d{6}\.json$/) });
     expect(await depots()).toEqual(["d1"]);
     expect(backups()).toEqual([(result as { backupFileName: string }).backupFileName]);
-    // A version-1 export restores; the next export is version 2 without classifications.
-    expect(serializeExport(await createExport())).toBe(JSON.stringify({ ...JSON.parse(EXPORT), schemaVersion: 2, classifications: [] }, null, 2));
+    // A version-1 export restores; the next export is version 3 without classifications or tax settings.
+    expect(serializeExport(await createExport())).toBe(
+      JSON.stringify({ ...JSON.parse(EXPORT), schemaVersion: 3, classifications: [], taxAllowances: [], teilfreistellungOverrides: [] }, null, 2),
+    );
     expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
     expect(scheduleClassificationRefresh).toHaveBeenCalledTimes(1);
   });

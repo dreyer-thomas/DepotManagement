@@ -12,14 +12,18 @@ import { CreateDepotButton } from "@/app/_components/depots/DepotDialogs";
 import { DepotGroups } from "@/app/_components/depots/DepotList";
 import { ParqetMigrationLink } from "@/app/_components/migration/ParqetMigrationLink";
 import { PageTitle } from "@/app/_components/Placeholder";
+import { AllowanceForm } from "@/app/_components/tax/AllowanceForm";
 import { formatDateTime } from "@/core/format";
+import { businessDate } from "@/core/dates";
 import { backupStatus } from "@/modules/backup";
-import { listDepots } from "@/modules/ledger";
+import { firstLedgerDate, listDepots } from "@/modules/ledger";
+import { listTaxAllowances } from "@/modules/tax";
 
 export const metadata: Metadata = { title: "Einstellungen" };
 
 export default async function SettingsPage() {
-  const depots = await listDepots();
+  const [depots, allowances, firstDate] = await Promise.all([listDepots(), listTaxAllowances(), firstLedgerDate()]);
+  const todayYear = Number(businessDate(new Date()).slice(0, 4));
   const backup = backupStatus();
   const lastBackup = backup.lastSuccessAt ? formatDateTime(backup.lastSuccessAt) : null;
   return (
@@ -51,12 +55,34 @@ export default async function SettingsPage() {
         </Typography>
         <ParqetMigrationLink />
       </Box>
+      <Box component="section" aria-labelledby="settings-tax" sx={{ mt: 4 }}>
+        <Typography id="settings-tax" component="h2" variant="h6" sx={{ fontWeight: 600, mb: 1 }}>
+          Steuern
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Trage je Broker und Jahr deinen Freistellungsauftrag ein. Analysen › Steuern nutzt ihn für die
+          Steuerschätzung; ein leeres Feld zählt als 0 €.
+        </Typography>
+        {depots.length === 0 ? (
+          <Card>
+            <CardContent>
+              <Typography>Noch kein Depot.</Typography>
+            </CardContent>
+          </Card>
+        ) : (
+          <AllowanceForm
+            allowances={allowances}
+            firstYear={firstDate ? Number(firstDate.slice(0, 4)) : todayYear}
+            todayYear={todayYear}
+          />
+        )}
+      </Box>
       <Box component="section" aria-labelledby="settings-backup" sx={{ mt: 4 }}>
         <Typography id="settings-backup" component="h2" variant="h6" sx={{ fontWeight: 600, mb: 1 }}>
           Datensicherung
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Lade alle Daten als JSON-Datei herunter: Depots, Buchungen, Kurse und hochgeladene Logos. Aus einer
+          Lade alle Daten als JSON-Datei herunter: Depots, Buchungen, Kurse, hochgeladene Logos, Freistellungsaufträge und Teilfreistellungen. Aus einer
           solchen Datei kannst du alle Daten wiederherstellen; dabei werden die vorhandenen Daten ersetzt.
         </Typography>
         <Stack direction={{ xs: "column", sm: "row" }} spacing={2} sx={{ alignItems: "flex-start" }}>

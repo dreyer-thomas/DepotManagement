@@ -18,6 +18,7 @@ vi.mock("next/headers", () => ({
 
 import { prisma } from "@/db";
 import { createExport, EXPORT_SCHEMA_VERSION, exportFileSchema, serializeExport } from "@/modules/backup";
+import { setTaxAllowances } from "@/modules/tax";
 import { createDepot, ensureSecurity } from "@/modules/ledger";
 import { saveManualLogo } from "@/modules/logos";
 import { GET } from "./route";
@@ -67,6 +68,7 @@ describe("GET /api/export", () => {
     const security = await ensureSecurity({ isin: "DE0007164600" }, { name: "SAP SE", assetType: "STOCK" });
     if (!security.ok) throw new Error("setup failed");
     expect(await saveManualLogo(security.security.id, PNG)).toEqual({ ok: true });
+    expect(await setTaxAllowances("2026", { COMDIRECT: "801" })).toEqual({ ok: true });
 
     const response = await GET();
     expect(response.status).toBe(200);
@@ -81,6 +83,7 @@ describe("GET /api/export", () => {
     const file = exportFileSchema.parse(JSON.parse(text));
     expect(file.depots.map((depot) => depot.name)).toEqual(["Hauptdepot"]);
     expect(file.logos).toHaveLength(1);
+    expect(file.taxAllowances).toMatchObject([{ broker: "COMDIRECT", year: 2026, amount: "801" }]);
     expect(Buffer.from(file.logos[0]!.data, "base64")).toEqual(Buffer.from(PNG));
     expect(text).toBe(serializeExport(await createExport()));
   });

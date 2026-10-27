@@ -18,6 +18,12 @@ const depots = [
 beforeEach(() => replace.mockReset());
 
 describe("AnalysisFilters", () => {
+  it("hides 'Bereich' on the Steuern tab (the broker is the tax unit)", () => {
+    const { container } = render(<AnalysisFilters tab="taxes" depots={depots} scope="portfolio" dimension="sector" />);
+    expect(screen.queryByRole("combobox", { name: "Bereich" })).toBeNull();
+    expect(container.textContent).toBe("");
+  });
+
   it("offers the Portfolio and the Depots and keeps the dimension when the scope changes", async () => {
     const user = userEvent.setup({ delay: null });
     render(<AnalysisFilters tab="allocation" depots={depots} scope="portfolio" dimension="sector" />);

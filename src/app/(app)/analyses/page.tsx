@@ -9,6 +9,7 @@ import { AnalysisTabs } from "@/app/_components/analyses/AnalysisTabs";
 import { DividendsView } from "@/app/_components/analyses/DividendsView";
 import { GainsView } from "@/app/_components/analyses/GainsView";
 import { ReturnHeatmap } from "@/app/_components/analyses/ReturnHeatmap";
+import { TaxView } from "@/app/_components/tax/TaxView";
 import {
   type AllocationDimension,
   ALLOCATION_DIMENSIONS,
@@ -29,9 +30,11 @@ import { businessDate } from "@/core/dates";
 import { dividendAnalysis } from "@/core/dividend-analysis";
 import { gainsAnalysis } from "@/core/gains-analysis";
 import { returnHeatmap } from "@/core/return-heatmap";
+import { taxPreview } from "@/core/tax";
 import { listClassifications } from "@/modules/classification";
 import { gainsInput, listDepots, listPositions, returnSeries } from "@/modules/ledger";
 import { latestStoredPrices, storedPriceHistory } from "@/modules/prices";
+import { taxPreviewInput } from "@/modules/tax";
 
 export const metadata: Metadata = { title: "Analysen" };
 
@@ -120,7 +123,17 @@ async function dividendsPanel({ scope, today }: { scope: string; today: string }
 }
 
 /**
- * Analysen (FR-21, FR-22): tabs Aufteilung, Rendite, Gewinne and Dividenden over the Portfolio or one non-archived Depot,
+ * Steuern (story 8.3): the capital-gains tax estimate per broker and year over every Depot (archived
+ * included: taxes follow the sale date), from one core function; the tax category of each Security comes
+ * from its classification and Teilfreistellung override (`taxPreviewInput`). Independent of the scope.
+ */
+async function taxesPanel({ today }: { today: string }) {
+  const input = await taxPreviewInput();
+  return <TaxView years={taxPreview({ ...input, today })} today={today} />;
+}
+
+/**
+ * Analysen (FR-21, FR-22): tabs Aufteilung, Rendite, Gewinne, Dividenden and Steuern over the Portfolio or one non-archived Depot,
  * scope (and dimension) in the URL. Everything is computed on read; nothing is stored; no provider call.
  */
 export default async function AnalysesPage({ searchParams }: Props) {
@@ -159,6 +172,8 @@ export default async function AnalysesPage({ searchParams }: Props) {
           await gainsPanel({ scope, today })
         ) : tab === "dividends" ? (
           await dividendsPanel({ scope, today })
+        ) : tab === "taxes" ? (
+          await taxesPanel({ today })
         ) : (
           await allocationPanel({ depots, scope, dimension, today })
         )}

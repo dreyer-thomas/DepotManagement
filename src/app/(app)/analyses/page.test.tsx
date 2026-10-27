@@ -9,11 +9,13 @@ const latestStoredPrices = vi.hoisted(() => vi.fn());
 const storedPriceHistory = vi.hoisted(() => vi.fn());
 const returnSeries = vi.hoisted(() => vi.fn());
 const gainsInput = vi.hoisted(() => vi.fn());
+const taxPreviewInput = vi.hoisted(() => vi.fn());
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn(), push: vi.fn(), refresh: vi.fn() }) }));
 vi.mock("@/modules/ledger", () => ({ gainsInput, listDepots, listPositions, returnSeries }));
 vi.mock("@/modules/classification", () => ({ listClassifications }));
 vi.mock("@/modules/prices", () => ({ latestStoredPrices, storedPriceHistory }));
+vi.mock("@/modules/tax", () => ({ taxPreviewInput }));
 
 import { DIMENSIONS } from "@/core/classification";
 import { AllocationView, type AllocationViewProps } from "@/app/_components/analyses/AllocationView";
@@ -26,6 +28,8 @@ import { dividendAnalysis } from "@/core/dividend-analysis";
 import { NO_CORPORATE_ACTIONS } from "@/core/corporate-actions";
 import { gainsAnalysis } from "@/core/gains-analysis";
 import { returnHeatmap } from "@/core/return-heatmap";
+import { taxPreview } from "@/core/tax";
+import { TaxView } from "@/app/_components/tax/TaxView";
 import { renderHtml } from "../../../../test/helpers/render-text";
 import AnalysesPage, { metadata } from "./page";
 
@@ -349,6 +353,55 @@ describe("Analyses page", () => {
       expect(listPositions.mock.calls.map((call) => call[0])).toEqual(["b"]);
       expect((findElement(tree, DividendsView)?.props as unknown as DividendsViewProps).depotId).toBe("b");
       expect(renderText(tree)).toContain("Noch keine Transaktionen.");
+    });
+  });
+
+  describe("Steuern tab", () => {
+    const row = (type: string, date: string, sequence: number, input: Record<string, string | null> = {}) => ({
+      securityId: null,
+      type,
+      date,
+      sequence,
+      quantity: null,
+      price: null,
+      amount: "0",
+      fee: "0",
+      tax: "0",
+      ...input,
+    });
+    const INPUT = {
+      depots: [
+        {
+          broker: "COMDIRECT",
+          rows: [
+            row("BUY", "2025-01-02", 1, { securityId: "etf", quantity: "1", amount: "1000" }),
+            row("SELL", "2026-03-01", 1, { securityId: "etf", quantity: "1", amount: "2000", tax: "190" }),
+          ],
+        },
+      ],
+      actions: NO_CORPORATE_ACTIONS,
+      securities: { etf: { category: "fund", teilfreistellung: "0.3" } },
+      allowances: [{ broker: "COMDIRECT", year: 2026, amount: "1001" }],
+      brokers: ["COMDIRECT"],
+    };
+
+    it("renders the tax view from the tax module's input without the scope filter", async () => {
+      taxPreviewInput.mockResolvedValue(INPUT);
+      const tree = await page({ tab: "taxes", scope: "b" });
+      expect(taxPreviewInput).toHaveBeenCalledTimes(1);
+      expect(gainsInput).not.toHaveBeenCalled();
+      const props = findElement(tree, TaxView)?.props as unknown as { years: ReturnType<typeof taxPreview>; today: string };
+      expect(props.today).toBe(TODAY);
+      expect(props.years).toEqual(taxPreview({ ...(INPUT as Omit<Parameters<typeof taxPreview>[0], "today">), today: TODAY }));
+      expect(props.years[0].brokers[0]).toMatchObject({ fund: "700", taxable: "700", allowanceUsed: "700", estimated: "0", withheld: "190" });
+      expect(findElement(tree, AnalysisFilters)?.props).toMatchObject({ tab: "taxes" });
+      const html = renderHtml(tree);
+      expect(html).toContain('role="tabpanel" id="analysis-tabpanel-taxes"');
+      expect(html).not.toContain(">Bereich<");
+      const text = renderText(tree);
+      expect(text).toContain("Steuern");
+      expect(text).toContain("Nicht berücksichtigt: Kirchensteuer");
+      expect(text).toContain("übersteigt 1.000");
     });
   });
 });

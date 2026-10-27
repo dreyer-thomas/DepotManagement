@@ -9,6 +9,7 @@ import { exportClassifications } from "@/modules/classification";
 import { exportLedgerData } from "@/modules/ledger";
 import { exportManualLogos, type LogoDeps } from "@/modules/logos";
 import { exportPriceData } from "@/modules/prices";
+import { exportTaxSettings } from "@/modules/tax";
 import { EXPORT_SCHEMA_VERSION, exportFileSchema, type ExportFile } from "./schema";
 
 export type BackupDb = Prisma.TransactionClient;
@@ -33,6 +34,7 @@ export async function createExport(deps: ExportDeps = {}, db: BackupDb = prisma)
     const prices = await exportPriceData(tx);
     const logos = await exportManualLogos(deps, tx);
     const classifications = await exportClassifications(tx);
+    const tax = await exportTaxSettings(tx);
     return {
       schemaVersion: EXPORT_SCHEMA_VERSION,
       depots: ledger.depots,
@@ -44,6 +46,8 @@ export async function createExport(deps: ExportDeps = {}, db: BackupDb = prisma)
       prices: prices.prices,
       logos,
       classifications,
+      taxAllowances: tax.taxAllowances,
+      teilfreistellungOverrides: tax.teilfreistellungOverrides,
     };
   });
   const parsed = exportFileSchema.safeParse(file);

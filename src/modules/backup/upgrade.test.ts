@@ -3,17 +3,24 @@ import { EXPORT_SCHEMA_VERSION } from "./schema";
 import { UPGRADES, upgradeExport } from "./upgrade";
 
 describe("upgradeExport", () => {
-  it("upgrades a version-1 document to version 2 with no classifications", () => {
-    expect(EXPORT_SCHEMA_VERSION).toBe(2);
-    expect(Object.keys(UPGRADES)).toEqual(["1"]);
+  it("upgrades a version-1 document to version 3 with no classifications and no tax settings", () => {
+    expect(EXPORT_SCHEMA_VERSION).toBe(3);
+    expect(Object.keys(UPGRADES)).toEqual(["1", "2"]);
     expect(upgradeExport({ schemaVersion: 1, depots: [] })).toEqual({
       ok: true,
-      document: { schemaVersion: 2, depots: [], classifications: [] },
+      document: { schemaVersion: 3, depots: [], classifications: [], taxAllowances: [], teilfreistellungOverrides: [] },
+    });
+  });
+
+  it("upgrades a version-2 document to version 3 with no tax settings", () => {
+    expect(upgradeExport({ schemaVersion: 2, depots: [], classifications: [] })).toEqual({
+      ok: true,
+      document: { schemaVersion: 3, depots: [], classifications: [], taxAllowances: [], teilfreistellungOverrides: [] },
     });
   });
 
   it("returns a current-version document unchanged", () => {
-    const raw = { schemaVersion: 2, depots: [], classifications: [] };
+    const raw = { schemaVersion: 3, depots: [], classifications: [], taxAllowances: [], teilfreistellungOverrides: [] };
     expect(upgradeExport(raw)).toEqual({ ok: true, document: raw });
   });
 
@@ -35,7 +42,7 @@ describe("upgradeExport", () => {
   });
 
   it("rejects a newer version as unsupported", () => {
-    expect(upgradeExport({ schemaVersion: 3 })).toEqual({ ok: false, reason: "version-unsupported" });
+    expect(upgradeExport({ schemaVersion: 4 })).toEqual({ ok: false, reason: "version-unsupported" });
   });
 
   it.each([

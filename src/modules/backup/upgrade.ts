@@ -9,6 +9,8 @@ export type ExportUpgrade = (document: Record<string, unknown>) => Record<string
 export const UPGRADES: Readonly<Record<number, ExportUpgrade>> = {
   // Version 2 (story 7.1) adds manual classification overrides; a version-1 export has none.
   1: (document) => ({ ...document, schemaVersion: 2, classifications: [] }),
+  // Version 3 (story 8.3) adds the tax settings; a version-2 export has none.
+  2: (document) => ({ ...document, schemaVersion: 3, taxAllowances: [], teilfreistellungOverrides: [] }),
 };
 
 export type UpgradeResult =

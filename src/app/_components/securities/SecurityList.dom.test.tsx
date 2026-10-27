@@ -23,6 +23,7 @@ vi.mock("@/app/_actions/prices", () => ({
 
 vi.mock("@/app/_actions/logos", () => ({ uploadLogoAction: vi.fn() }));
 vi.mock("@/app/_actions/classification", () => ({ setClassificationAction: vi.fn() }));
+vi.mock("@/app/_actions/tax", () => ({ setTeilfreistellungAction: vi.fn() }));
 
 registerDomCleanup();
 
@@ -138,5 +139,29 @@ describe("SecurityList", () => {
     await user.click(screen.getByRole("button", { name: "Klassifizierung bearbeiten – SAP" }));
     const dialog = await screen.findByRole("dialog", { name: "Klassifizierung bearbeiten" });
     expect(within(dialog).getByRole("combobox", { name: "Sektor" }).textContent).toBe("Halbleiter");
+  });
+
+  it("shows the Teilfreistellung line and button for funds only", () => {
+    const automatic = emptyLayer();
+    automatic.assetClass = { value: "Aktien", source: "RULE" };
+    const funds: SecurityWithMapping[] = [
+      { id: "f1", name: "MSCI World", isin: "IE00B4L5Y983", cryptoSymbol: null, assetType: "ETF", mapping: null },
+      { id: "f2", name: "Rentenfonds", isin: "DE0008474008", cryptoSymbol: null, assetType: "FUND", mapping: null },
+      ...securities,
+    ];
+    render(
+      <SecurityList
+        securities={funds}
+        today="2026-10-26"
+        classifications={{ f1: effective({ automatic, manual: emptyManual() }, "ETF") }}
+        teilfreistellungOverrides={{ f2: "0.15" }}
+      />,
+    );
+    expect(screen.getByText("Teilfreistellung 30 % (automatisch)")).toBeTruthy();
+    expect(screen.getByText("Teilfreistellung 15 % (manuell)")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: /^Teilfreistellung bearbeiten/ }).map((button) => button.getAttribute("aria-label"))).toEqual([
+      "Teilfreistellung bearbeiten – MSCI World",
+      "Teilfreistellung bearbeiten – Rentenfonds",
+    ]);
   });
 });

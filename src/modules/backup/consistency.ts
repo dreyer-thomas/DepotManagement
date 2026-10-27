@@ -1,6 +1,7 @@
 // Pure consistency check of a schema-valid export file (story 6.2): ids are unique per record kind, every
 // reference resolves and the database's unique keys hold, so a restore fails before writing instead of
 // on a constraint. The returned path names the offending field, never its value.
+import { TEILFREISTELLUNG_RATES } from "@/core/tax";
 import type { ExportFile } from "./schema";
 
 export type ConsistencyResult = { ok: true } | { ok: false; path: string };
@@ -46,6 +47,8 @@ export function checkConsistency(file: ExportFile): ConsistencyResult {
     idsOf(file.prices, "prices");
     idsOf(file.logos, "logos");
     idsOf(file.classifications, "classifications");
+    idsOf(file.taxAllowances, "taxAllowances");
+    idsOf(file.teilfreistellungOverrides, "teilfreistellungOverrides");
 
     const names = new Set<string>();
     file.depots.forEach((depot, i) => unique(names, depot.name, `depots.${i}.name`));
@@ -104,6 +107,16 @@ export function checkConsistency(file: ExportFile): ConsistencyResult {
     file.classifications.forEach((classification, i) => {
       resolves(securityIds, classification.securityId, `classifications.${i}.securityId`);
       unique(classified, classification.securityId, `classifications.${i}.securityId`);
+    });
+
+    const allowances = new Set<string>();
+    file.taxAllowances.forEach((allowance, i) => unique(allowances, key(allowance.broker, allowance.year), `taxAllowances.${i}.year`));
+
+    const overridden = new Set<string>();
+    file.teilfreistellungOverrides.forEach((override, i) => {
+      resolves(securityIds, override.securityId, `teilfreistellungOverrides.${i}.securityId`);
+      unique(overridden, override.securityId, `teilfreistellungOverrides.${i}.securityId`);
+      if (!(TEILFREISTELLUNG_RATES as readonly string[]).includes(override.rate)) throw new Inconsistent(`teilfreistellungOverrides.${i}.rate`);
     });
   } catch (error) {
     if (error instanceof Inconsistent) return { ok: false, path: error.path };

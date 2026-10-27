@@ -13,30 +13,36 @@ const dbFile = await vi.hoisted(async () => {
 import { prisma } from "@/db";
 import { runDatabaseBackup, stopBackupScheduler } from "@/modules/backup";
 import { archiveDepot, createDepot, recordTrade } from "@/modules/ledger";
+import { setTaxAllowances } from "@/modules/tax";
+import { businessDate } from "@/core/dates";
 import { ExportButton } from "../../_components/backup/ExportButton";
 import { RestoreButton } from "../../_components/backup/RestoreButton";
 import { CreateDepotButton } from "../../_components/depots/DepotDialogs";
 import { DepotGroups } from "../../_components/depots/DepotList";
+import { AllowanceForm } from "../../_components/tax/AllowanceForm";
 import SettingsPage from "./page";
 
 type Node = { props: { children?: unknown; "aria-labelledby"?: string } };
 
-/** The element labelled by the "Datensicherung" heading (`aria-labelledby="settings-backup"`). */
-function findBackupSection(node: unknown): Node | undefined {
+/** The element labelled by the heading with id `labelledBy`. */
+function findSection(node: unknown, labelledBy: string): Node | undefined {
   if (Array.isArray(node)) {
     for (const child of node) {
-      const found = findBackupSection(child);
+      const found = findSection(child, labelledBy);
       if (found) return found;
     }
     return undefined;
   }
   if (node && typeof node === "object" && "props" in node) {
     const element = node as Node;
-    if (element.props["aria-labelledby"] === "settings-backup") return element;
-    return findBackupSection(element.props.children);
+    if (element.props["aria-labelledby"] === labelledBy) return element;
+    return findSection(element.props.children, labelledBy);
   }
   return undefined;
 }
+
+/** The element labelled by the "Datensicherung" heading (`aria-labelledby="settings-backup"`). */
+const findBackupSection = (node: unknown) => findSection(node, "settings-backup");
 
 let backupDir: string;
 
@@ -46,6 +52,7 @@ beforeEach(async () => {
   await prisma.transaction.deleteMany();
   await prisma.security.deleteMany();
   await prisma.depot.deleteMany();
+  await prisma.taxAllowance.deleteMany();
 });
 
 afterEach(() => {
@@ -96,11 +103,50 @@ describe("Settings page", () => {
     expect(html).not.toMatch(/disabled[^>]*>Aus Parqet übernehmen/);
   });
 
+  it("shows the Steuern section with 'Noch kein Depot.' when there are no Depots", async () => {
+    const tree = await SettingsPage();
+    const section = findSection(tree, "settings-tax");
+    expect(renderText(section as never)).toContain("Steuern");
+    expect(renderText(section as never)).toContain("Noch kein Depot.");
+    expect(findElement(tree, AllowanceForm)).toBeUndefined();
+  });
+
+  it("renders the allowance form between Parqet and Datensicherung with the stored amounts", async () => {
+    await createDepot({ name: "Hauptdepot", broker: "COMDIRECT" });
+    expect(await setTaxAllowances("2026", { COMDIRECT: "801", DEUTSCHE_BANK: "300" })).toEqual({ ok: true });
+    const tree = await SettingsPage();
+    const form = findElement(tree, AllowanceForm);
+    expect(form?.props.allowances).toEqual([
+      { broker: "COMDIRECT", year: 2026, amount: "801" },
+      { broker: "DEUTSCHE_BANK", year: 2026, amount: "300" },
+    ]);
+    const text = renderText(tree);
+    expect(text.indexOf("Parqet-Migration")).toBeLessThan(text.indexOf("Steuern"));
+    expect(text.indexOf("Steuern")).toBeLessThan(text.indexOf("Datensicherung"));
+  });
+
+  it("passes the first ledger year and today's year to the allowance form", async () => {
+    const created = await createDepot({ name: "Hauptdepot", broker: "COMDIRECT" });
+    if (!created.ok) throw new Error("setup failed");
+    const buy = await recordTrade({
+      depotId: created.depot.id,
+      type: "BUY",
+      date: "2024-03-01",
+      quantity: "1",
+      price: "0",
+      security: { new: { isin: "US0378331005", name: "Apple Inc.", assetType: "STOCK" } },
+    });
+    expect(buy.ok).toBe(true);
+    const form = findElement(await SettingsPage(), AllowanceForm);
+    expect(form?.props).toMatchObject({ firstYear: 2024, todayYear: Number(businessDate(new Date()).slice(0, 4)) });
+  });
+
   it("offers the JSON export button in the Datensicherung section", async () => {
     const tree = await SettingsPage();
     const section = findBackupSection(tree);
     expect(section).toBeDefined();
     expect(renderText(section as never)).toContain("Datensicherung");
+    expect(renderText(section as never)).toContain("Freistellungsaufträge und Teilfreistellungen");
     expect(findElement(section, ExportButton)).toBeDefined();
   });
 

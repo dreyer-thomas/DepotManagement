@@ -1,12 +1,13 @@
 // The export file contract (story 6.1, AD-12): one versioned JSON document with every stored ledger,
-// price and manual-logo row and the manual classification overrides (version 2, story 7.1). Decimals and dates are the stored strings; nothing derived is included.
+// price and manual-logo row, the manual classification overrides (version 2, story 7.1) and the tax settings
+// (version 3, story 8.3). Decimals and dates are the stored strings; nothing derived is included.
 // Restore (story 6.2) parses files with this schema; older versions are upgraded before parsing.
 import { z } from "zod";
 import { ASSET_CLASSES, COMPANY_SIZES, CURRENCY_PATTERN, REGIONS } from "@/core/classification";
 import { isBusinessDate } from "@/core/dates";
 import { isDecimalString } from "@/core/decimal";
 
-export const EXPORT_SCHEMA_VERSION = 2;
+export const EXPORT_SCHEMA_VERSION = 3;
 
 const id = z.string().min(1);
 const decimal = z.string().refine(isDecimalString, "decimal string expected");
@@ -116,6 +117,21 @@ export const classificationRecordSchema = z.strictObject({
   currency: z.string().regex(CURRENCY_PATTERN).nullable(),
 });
 
+/** One Freistellungsauftrag (tax module): EUR amount > 0 per broker and year. */
+export const taxAllowanceRecordSchema = z.strictObject({
+  id,
+  broker: z.enum(["COMDIRECT", "DEUTSCHE_BANK", "FINANZEN_ZERO"]),
+  year: z.number().int().min(2000).max(2100),
+  amount: decimal.refine((value) => !value.startsWith("-"), "non-negative amount expected"),
+});
+
+/** One manual Teilfreistellung of a Security (tax module); the consistency check enforces the rate list. */
+export const teilfreistellungOverrideRecordSchema = z.strictObject({
+  id,
+  securityId: id,
+  rate: decimal,
+});
+
 /** The whole export file; keys appear in this order in the serialized JSON. */
 export const exportFileSchema = z.strictObject({
   schemaVersion: z.literal(EXPORT_SCHEMA_VERSION),
@@ -128,6 +144,8 @@ export const exportFileSchema = z.strictObject({
   prices: z.array(priceRecordSchema),
   logos: z.array(logoRecordSchema),
   classifications: z.array(classificationRecordSchema),
+  taxAllowances: z.array(taxAllowanceRecordSchema),
+  teilfreistellungOverrides: z.array(teilfreistellungOverrideRecordSchema),
 });
 
 export type ExportFile = z.infer<typeof exportFileSchema>;

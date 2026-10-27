@@ -68,6 +68,8 @@ model Security {
   prices             Price[]
   logo               SecurityLogo?
   classification     SecurityClassification?
+  /// Teilfreistellung override (owned by the tax module; cascades with the Security).
+  teilfreistellung   TeilfreistellungOverride?
   newsArticles       NewsArticle[]
   newsFetch          NewsFetch?
   reconciliationRows ReconciliationRow[]
@@ -377,4 +379,28 @@ model SecurityClassification {
   providerFetchedAt String?
   /// UTC ISO timestamp of the last write.
   updatedAt         String
+}
+
+// Owned by the tax module (story 8.3). Freistellungsauftrag per broker and year; `amount` is a canonical
+// decimal string (EUR, > 0; a missing row counts as 0). User data, part of the AD-12 export/restore.
+model TaxAllowance {
+  id        String @id @default(cuid())
+  broker    Broker
+  year      Int
+  amount    String
+  /// UTC ISO timestamp of the last write.
+  updatedAt String
+
+  @@unique([broker, year])
+}
+
+// Owned by the tax module (story 8.3). Manual Teilfreistellung of a fund (`rate` one of
+// core/tax TEILFREISTELLUNG_RATES as a decimal string); no row = automatic. Part of the AD-12 export/restore.
+model TeilfreistellungOverride {
+  id         String   @id @default(cuid())
+  securityId String   @unique
+  security   Security @relation(fields: [securityId], references: [id], onDelete: Cascade)
+  rate       String
+  /// UTC ISO timestamp of the last write.
+  updatedAt  String
 }

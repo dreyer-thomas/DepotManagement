@@ -41,8 +41,15 @@ describe("createExport", () => {
       "prices",
       "logos",
       "classifications",
+      "taxAllowances",
+      "teilfreistellungOverrides",
     ]);
-    expect(file.schemaVersion).toBe(2);
+    expect(file.schemaVersion).toBe(3);
+    expect(file.taxAllowances).toEqual([
+      { id: "fsa-1", broker: "COMDIRECT", year: 2026, amount: "801" },
+      { id: "fsa-2", broker: "FINANZEN_ZERO", year: 2026, amount: "199" },
+    ]);
+    expect(file.teilfreistellungOverrides).toEqual([{ id: "tfs-a", securityId: "sec-a", rate: "0.15" }]);
     // Manual overrides only; a row with automatic values alone is a cache.
     expect(file.classifications).toEqual([
       {
@@ -171,6 +178,8 @@ describe("createExport", () => {
       prices: [],
       logos: [],
       classifications: [],
+      taxAllowances: [],
+      teilfreistellungOverrides: [],
     });
   });
 
@@ -271,7 +280,9 @@ describe("exportFileSchema", () => {
     await seedFullLedger();
     const file = await createExport(deps(), db());
     expect(exportFileSchema.safeParse({ ...file, schemaVersion: 1 }).success).toBe(false);
-    expect(exportFileSchema.safeParse({ ...file, schemaVersion: 3 }).success).toBe(false);
+    expect(exportFileSchema.safeParse({ ...file, schemaVersion: 2 }).success).toBe(false);
+    expect(exportFileSchema.safeParse({ ...file, schemaVersion: 4 }).success).toBe(false);
+    expect(exportFileSchema.safeParse({ ...file, taxAllowances: [{ ...file.taxAllowances[0], amount: "-1" }] }).success).toBe(false);
     const classifications = [{ ...file.classifications[0], region: "Mars" }];
     expect(exportFileSchema.safeParse({ ...file, classifications }).success).toBe(false);
     expect(exportFileSchema.safeParse({ ...file, exportedAt: TS }).success).toBe(false);

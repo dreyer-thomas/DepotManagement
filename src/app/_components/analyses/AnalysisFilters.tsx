@@ -7,8 +7,8 @@ import { useRouter } from "next/navigation";
 import { ALLOCATION_DIMENSIONS, type AllocationDimension, type AnalysisTab, PORTFOLIO_LABEL, PORTFOLIO_SCOPE, analysisHref } from "./labels";
 
 /**
- * "Bereich" (Portfolio or one non-archived Depot) and, on the Aufteilung tab, "Dimension"; each change
- * replaces the URL, keeping the tab and the other value.
+ * "Bereich" (Portfolio or one non-archived Depot; hidden on the Steuern tab, whose unit is the broker)
+ * and, on the Aufteilung tab, "Dimension"; each change replaces the URL, keeping the tab and the other value.
  */
 export function AnalysisFilters({
   tab,
@@ -25,6 +25,7 @@ export function AnalysisFilters({
   const navigate = (nextScope: string, nextDimension: AllocationDimension) =>
     router.replace(analysisHref(tab, nextScope, nextDimension), { scroll: false });
   const field = { width: { xs: "100%", sm: 260 } } as const;
+  if (tab === "taxes") return null;
   return (
     <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} sx={{ mb: 2 }}>
       <TextField

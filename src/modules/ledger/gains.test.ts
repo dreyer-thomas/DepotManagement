@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createTestDatabase, type TestDatabase } from "../../../test/helpers/test-db";
 import { gainsAnalysis } from "@/core/gains-analysis";
-import { archiveDepot, createDepot, depotValuation, ensureSecurity, gainsInput, recordSplit, recordTransaction, type RecordTransactionInput } from "./index";
+import { archiveDepot, createDepot, depotValuation, ensureSecurity, gainsInput, recordSplit, recordTransaction, type RecordTransactionInput, taxLedgerInput } from "./index";
 
 let testDb: TestDatabase;
 let depotId: string;
@@ -72,5 +72,28 @@ describe("gainsInput", () => {
     expect(years).toEqual([
       { period: "2026", realized: "0", dividends: "0", fees: "0", taxes: "0", deposits: "1050", withdrawals: "0", netCashFlow: "1050" },
     ]);
+  });
+});
+
+describe("taxLedgerInput", () => {
+  it("reads every Depot with its broker, archived ones included", async () => {
+    await book({ type: "DEPOSIT", date: "2026-01-05", amount: "1000" });
+    const archived = await createDepot({ name: "Altdepot", broker: "DEUTSCHE_BANK" }, db());
+    if (!archived.ok) throw new Error("setup failed");
+    await book({ depotId: archived.depot.id, type: "DEPOSIT", date: "2025-01-01", amount: "5000" });
+    await book({ depotId: archived.depot.id, type: "WITHDRAWAL", date: "2025-01-02", amount: "5000" });
+    expect((await archiveDepot(archived.depot.id, db())).ok).toBe(true);
+
+    const input = await taxLedgerInput(db());
+    const summary = input.depots.map((depot) => [depot.depotId, depot.broker, depot.rows.length]);
+    expect(summary).toHaveLength(3);
+    expect(summary).toEqual(
+      expect.arrayContaining([
+        [depotId, "COMDIRECT", 1],
+        [otherDepotId, "FINANZEN_ZERO", 0],
+        [archived.depot.id, "DEUTSCHE_BANK", 2],
+      ]),
+    );
+    expect(input.actions).toEqual({ splits: [], isinChanges: [] });
   });
 });

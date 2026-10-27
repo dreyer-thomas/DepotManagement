@@ -86,6 +86,8 @@ async function seedOtherData(i: Instance): Promise<void> {
     data: { securityId: "other-sec", url: "https://example.test/n", title: "Titel", source: "Quelle", publishedAt: TS, provider: "YAHOO", fetchedAt: TS },
   });
   await c.newsFetch.create({ data: { securityId: "other-sec", fetchedAt: TS } });
+  await c.taxAllowance.create({ data: { id: "other-fsa", broker: "DEUTSCHE_BANK", year: 2025, amount: "500", updatedAt: TS } });
+  await c.teilfreistellungOverride.create({ data: { id: "other-tfs", securityId: "other-sec", rate: "0.6", updatedAt: TS } });
   const batch = await c.importBatch.create({
     data: {
       id: "batch1",
@@ -160,9 +162,23 @@ describe("restoreExport", () => {
     expect(await target.testDb.client.securityClassification.findMany()).toEqual([
       expect.objectContaining({ id: "cls-b", securityId: "sec-b", sectorManual: "Halbleiter", sector: null, providerSymbol: null }),
     ]);
+    // Tax settings are back.
+    expect(await target.testDb.client.taxAllowance.findMany({ orderBy: { id: "asc" } })).toEqual([
+      expect.objectContaining({ id: "fsa-1", broker: "COMDIRECT", year: 2026, amount: "801" }),
+      expect.objectContaining({ id: "fsa-2", broker: "FINANZEN_ZERO", year: 2026, amount: "199" }),
+    ]);
+    expect(await target.testDb.client.teilfreistellungOverride.findMany()).toEqual([
+      expect.objectContaining({ id: "tfs-a", securityId: "sec-a", rate: "0.15" }),
+    ]);
     // The automatic export of the (empty) target was written first.
     expect(readdirSync(target.backupDir)).toEqual([BACKUP_NAME]);
-    expect(JSON.parse(readFileSync(join(target.backupDir, BACKUP_NAME), "utf8"))).toMatchObject({ schemaVersion: 2, depots: [], classifications: [] });
+    expect(JSON.parse(readFileSync(join(target.backupDir, BACKUP_NAME), "utf8"))).toMatchObject({
+      schemaVersion: 3,
+      depots: [],
+      classifications: [],
+      taxAllowances: [],
+      teilfreistellungOverrides: [],
+    });
   });
 
   it("replaces everything instead of merging and clears staging, news and fetched logos", async () => {
@@ -187,10 +203,26 @@ describe("restoreExport", () => {
     expect(await c.newsFetch.count()).toBe(0);
     expect(await c.securityLogo.findMany({ where: { source: "FETCHED" } })).toEqual([]);
     expect(await c.depot.findUnique({ where: { id: "other-depot" } })).toBeNull();
+    expect(await c.taxAllowance.findUnique({ where: { id: "other-fsa" } })).toBeNull();
+    expect(await c.teilfreistellungOverride.count()).toBe(1);
     const logo = await c.securityLogo.findUniqueOrThrow({ where: { securityId: "sec-b" } });
     expect(readdirSync(join(target.dataDir, "logos"))).toEqual([logo.fileName]);
     expect(readdirSync(join(target.dataDir, "imports"))).toEqual([]);
     expect(readFileSync(join(target.backupDir, BACKUP_NAME), "utf8")).toBe(previousExport);
+  });
+
+  it("restores a version-2 file with no tax settings, replacing the previous ones", async () => {
+    await seedFullLedger(source.testDb.client, source.dataDir);
+    const current = JSON.parse(await exportOf(source));
+    const version2 = { ...current, schemaVersion: 2 };
+    delete version2.taxAllowances;
+    delete version2.teilfreistellungOverrides;
+    await target.testDb.client.taxAllowance.create({ data: { broker: "COMDIRECT", year: 2024, amount: "100", updatedAt: TS } });
+
+    expect(await restoreInto(target, JSON.stringify(version2))).toEqual({ ok: true, backupFileName: BACKUP_NAME });
+    expect(await target.testDb.client.taxAllowance.count()).toBe(0);
+    expect(await target.testDb.client.teilfreistellungOverride.count()).toBe(0);
+    expect(JSON.parse(await exportOf(target))).toEqual({ ...current, taxAllowances: [], teilfreistellungOverrides: [] });
   });
 
   it("accepts a file with a UTF-8 byte order mark", async () => {
@@ -246,7 +278,7 @@ describe("restoreExport", () => {
     });
 
     it("a newer schema version", async () => {
-      await expectRejected(JSON.stringify({ ...file, schemaVersion: 3 }), { ok: false, reason: "version-unsupported" });
+      await expectRejected(JSON.stringify({ ...file, schemaVersion: 4 }), { ok: false, reason: "version-unsupported" });
     });
 
     it("a dangling reference", async () => {
@@ -273,7 +305,7 @@ describe("restoreExport", () => {
         securityId: rename(a.securityId),
         newSecurityId: rename(a.newSecurityId),
       }));
-      for (const key of ["transactions", "providerMappings", "prices", "logos", "classifications"]) {
+      for (const key of ["transactions", "providerMappings", "prices", "logos", "classifications", "teilfreistellungOverrides"]) {
         file[key] = file[key].map((r: { securityId: string | null }) => ({ ...r, securityId: rename(r.securityId) }));
       }
       for (const run of file.reconciliationRuns) {

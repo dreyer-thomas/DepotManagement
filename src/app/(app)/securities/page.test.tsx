@@ -26,6 +26,7 @@ import { prisma } from "@/db";
 import { createDepot, ensureSecurity, recordTrade } from "@/modules/ledger";
 import { setManualClassification } from "@/modules/classification";
 import { setMapping } from "@/modules/prices";
+import { setTeilfreistellungOverride } from "@/modules/tax";
 import { MappingAutoResolver } from "../../_components/securities/MappingAutoResolver";
 import { PriceRefreshButton } from "../../_components/securities/PriceRefreshButton";
 import { SecurityList } from "../../_components/securities/SecurityList";
@@ -35,6 +36,7 @@ beforeEach(async () => {
   vi.stubGlobal("fetch", fetchSpy);
   fetchSpy.mockReset();
   await prisma.securityClassification.deleteMany();
+  await prisma.teilfreistellungOverride.deleteMany();
   await prisma.price.deleteMany();
   await prisma.providerMapping.deleteMany();
   await prisma.transaction.deleteMany();
@@ -88,7 +90,7 @@ describe("Securities page", () => {
     ]);
     const text = renderText(tree);
     expect(text).toContain("Bitcoin BTC Krypto Unbekannt · Unbekannt · Unbekannt · Unbekannt · Unbekannt · Unbekannt Kursquelle noch nicht ermittelt");
-    expect(text).toContain("iShares Core MSCI World IE00B4L5Y983 ETF Unbekannt · Unbekannt · Unbekannt · Unbekannt · Unbekannt · Unbekannt Keine Kursquelle gefunden");
+    expect(text).toContain("iShares Core MSCI World IE00B4L5Y983 ETF Unbekannt · Unbekannt · Unbekannt · Unbekannt · Unbekannt · Unbekannt Teilfreistellung 0\u00a0% (automatisch) Keine Kursquelle gefunden");
     expect(text).toContain("SAP DE0007164600 Aktie Unbekannt · Unbekannt · Unbekannt · Unbekannt · Unbekannt · Unbekannt Yahoo Finance · SAP.DE");
     expect(text).toContain("Unbekannt AG LU0274208692 Typ unbekannt Unbekannt · Unbekannt · Unbekannt · Unbekannt · Unbekannt · Unbekannt");
     expect(text).toContain("Kursquellen werden ermittelt …");
@@ -98,6 +100,24 @@ describe("Securities page", () => {
     expect(text.match(/Typ ändern/g)).toHaveLength(4);
     expect(text.match(/Klassifizierung/g)).toHaveLength(4);
     expect(renderHtml(tree)).toMatch(/MuiChip-colorWarning[^>]*>(?:(?!<\/div>).)*Typ unbekannt/);
+  });
+
+  it("passes the Teilfreistellung overrides on and shows the fund summary line and button", async () => {
+    const world = await security({ isin: "IE00B4L5Y983" }, "MSCI World", "ETF");
+    const bonds = await security({ isin: "IE00B3F81R35" }, "Euro Bonds", "ETF");
+    await security({ isin: "DE0007164600" }, "SAP", "STOCK");
+    expect(await setManualClassification(world.id, { assetClass: "Aktien" })).toMatchObject({ ok: true });
+    expect(await setTeilfreistellungOverride(world.id, "0")).toEqual({ ok: true });
+
+    const tree = await SecuritiesPage();
+    expect(findElement(tree, SecurityList)?.props.teilfreistellungOverrides).toEqual({ [world.id]: "0" });
+    const text = renderText(tree);
+    expect(text).toContain("Teilfreistellung 0\u00a0% (manuell)");
+    expect(text).toContain("Teilfreistellung 0\u00a0% (automatisch)");
+    const html = renderHtml(tree);
+    expect(html).toContain('aria-label="Teilfreistellung bearbeiten – MSCI World"');
+    expect(html).toContain(`aria-label="Teilfreistellung bearbeiten – ${bonds.name}"`);
+    expect(html).not.toContain('aria-label="Teilfreistellung bearbeiten – SAP"');
   });
 
   it("shows each Security's classification summary, manual values winning, and passes the classifications on", async () => {

@@ -7,7 +7,7 @@ const TS = "2026-10-26T10:00:00.000Z";
 /** A small, consistent synthetic export file. */
 function base(): ExportFile {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     depots: [
       { id: "d1", name: "Hauptdepot", broker: "COMDIRECT", archived: false },
       { id: "d2", name: "Zweitdepot", broker: "FINANZEN_ZERO", archived: false },
@@ -61,6 +61,11 @@ function base(): ExportFile {
     classifications: [
       { id: "k1", securityId: "s2", assetClass: null, sector: "Halbleiter", industry: null, region: "Europa", country: null, companySize: null, currency: null },
     ],
+    taxAllowances: [
+      { id: "a1", broker: "COMDIRECT", year: 2026, amount: "801" },
+      { id: "a2", broker: "COMDIRECT", year: 2025, amount: "1000" },
+    ],
+    teilfreistellungOverrides: [{ id: "o1", securityId: "s1", rate: "0.15" }],
   };
 }
 
@@ -70,7 +75,7 @@ describe("checkConsistency", () => {
   it("accepts a consistent file and an empty one", () => {
     expect(checkConsistency(base())).toEqual({ ok: true });
     const empty = base();
-    for (const key of ["depots", "securities", "providerMappings", "transactions", "corporateActions", "reconciliationRuns", "prices", "logos", "classifications"] as const) {
+    for (const key of ["depots", "securities", "providerMappings", "transactions", "corporateActions", "reconciliationRuns", "prices", "logos", "classifications", "taxAllowances", "teilfreistellungOverrides"] as const) {
       empty[key] = [];
     }
     expect(checkConsistency(empty)).toEqual({ ok: true });
@@ -117,6 +122,12 @@ describe("checkConsistency", () => {
     ["two logos of one Security", (f) => f.logos.push({ ...f.logos[0], id: "l2" }), "logos.1.securityId"],
     ["unknown classification security", (f) => (f.classifications[0].securityId = "nope"), "classifications.0.securityId"],
     ["two classifications of one Security", (f) => f.classifications.push({ ...f.classifications[0], id: "k2" }), "classifications.1.securityId"],
+    ["duplicate tax allowance id", (f) => (f.taxAllowances[1].id = "a1"), "taxAllowances.1.id"],
+    ["duplicate (broker, year) allowance", (f) => (f.taxAllowances[1].year = 2026), "taxAllowances.1.year"],
+    ["duplicate override id", (f) => f.teilfreistellungOverrides.push({ ...f.teilfreistellungOverrides[0], securityId: "s2" }), "teilfreistellungOverrides.1.id"],
+    ["unknown override security", (f) => (f.teilfreistellungOverrides[0].securityId = "nope"), "teilfreistellungOverrides.0.securityId"],
+    ["two overrides of one Security", (f) => f.teilfreistellungOverrides.push({ ...f.teilfreistellungOverrides[0], id: "o2" }), "teilfreistellungOverrides.1.securityId"],
+    ["rate outside the list", (f) => (f.teilfreistellungOverrides[0].rate = "0.2"), "teilfreistellungOverrides.0.rate"],
   ])("rejects a %s with its path", (_label, mutate, path) => {
     const file = base();
     mutate(file);
