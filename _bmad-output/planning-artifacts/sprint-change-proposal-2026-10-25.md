@@ -188,3 +188,9 @@ NEW: ... by asset type (ETF, Fonds, Aktie, Zertifikat, Krypto, Guthaben, Unklass
 **Trigger.** Importing the real finanzen.net zero documents, only the "Obligatorischer Umtausch" (Fresenius DE0005785604 → DE000FRE5EN2, 13.08.2026, already recorded by the Parqet migration) ended as "fehlgeschlagen" with a "Manuell erfassen" button that opens the trade form — a path to a wrong booking.
 
 **Change.** New Story 5.6: ISIN-change notices are parsed into ISIN-change proposals; review status "Kapitalmaßnahme"; already recorded changes show "Bereits erfasst"; otherwise "Als ISIN-Wechsel buchen" records them via the ledger ISIN-change service; no trade form for corporate-action notices. Amended: PRD FR-4 consequence, SPEC CAP-4, epics FR4 coverage. Sprint status gains `5-6-...: backlog`.
+
+## Addendum H — Analyses (approved 2026-10-26)
+
+**Trigger.** Tommy wants Parqet-style analyses: allocation by region, sector and more, and gains/losses per month and year. Research (Parqet blog, reviews) listed Parqet's views: eight allocation dimensions as donuts, a return heatmap years × months, realized gains per month, dividend views and calendar, X-Ray. Tommy uses all of them occasionally; ETFs and funds classified as a whole are enough for now, X-Ray later.
+
+**Change.** New Epic 7 "Analyses" with Stories 7.1 (Security classification: Yahoo for stocks, rules table for ETFs/funds, certificates via underlying, manual override), 7.2 (allocation donuts with drill-down), 7.3 (return heatmap), 7.4 (realized gains, best/worst sales, cash flow), 7.5 (dividend analysis with 12-month income and estimate). New FR-21/FR-22, CAP-21/CAP-22, AD-20 (classification module, manual precedence), navigation entry "Analysen". PRD out-of-scope narrowed to X-Ray only. Sprint status gains epic-7 and its stories.

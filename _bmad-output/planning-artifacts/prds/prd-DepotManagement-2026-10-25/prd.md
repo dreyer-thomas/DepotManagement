@@ -140,7 +140,7 @@ Tommy can see Gain/Loss for a selectable Period, split into realized and unreali
 
 #### FR-13: Composition
 Tommy can see the Portfolio or a Depot broken down by Position, by asset type (stock, ETF, fund, certificate, crypto, cash), and by Depot.
-**Out of Scope:** ETF look-through to underlying holdings, sectors, or countries.
+**Out of Scope:** ETF look-through to underlying holdings (X-Ray); sector, country and region breakdowns are covered by FR-21 with ETFs classified as a whole.
 
 ### 4.5 News
 **Description:** Current news about held Securities, so Tommy doesn't need a second app. Realizes UJ-1.
@@ -200,6 +200,20 @@ Tommy can reconcile a Depot against his broker statement position by position an
 - A reconciliation run lists every Position and the Cash Account on the statement date; matching rows are checked off; checks persist until Tommy finishes the run; the next run starts empty.
 - A holding correction is booked as its own Transaction type (no cash effect, no realized Gain/Loss) and counts as external flow in return metrics; a cash correction is booked as Deposit or Withdrawal.
 
+### 4.8 Analyses
+**Description:** Parqet-style analyses of the holdings, added 2026-10-26 on Tommy's request.
+
+#### FR-21: Allocation analysis
+Tommy can see the Portfolio or a Depot split by asset class, type, sector, industry, region, country, company size and currency.
+**Consequences (testable):**
+- Stocks are classified from a free data source; ETFs and funds are classified as a whole by name/index; every classification can be overridden manually.
+- Tapping a segment lists the Positions behind it.
+
+#### FR-22: Performance and income analysis
+Tommy can analyse returns per month and year as a heatmap, realized gains and net cash flow per month and year, and dividends per month, year and Security.
+**Consequences (testable):**
+- Monthly returns are time-weighted; dividends can be shown gross or net, with trailing-12-month income and an estimate of the next 12 months based on the last 12.
+
 ## 5. Cross-Cutting NFRs and Constraints
 - **Deployment:** Runs locally first; later as a web app on Tommy's Linux production server behind Nginx with TLS. Must be installable from the repository with a documented, simple setup.
 - **Privacy & security:** Financial data stays on Tommy's own machine/server; no third-party analytics. Once reachable over the network, access requires authentication (single user).
@@ -224,7 +238,7 @@ Tommy can reconcile a Depot against his broker statement position by position an
 ### 6.2 Out of Scope for MVP
 - Automatic broker sync (error-prone today; manual entry and Document Import suffice)
 - Tax view (Vorabpauschale, Freistellungsauftrag, Verlusttöpfe) — never used in Parqet
-- ETF look-through / X-Ray — not needed
+- ETF look-through / X-Ray — later candidate (ETFs are classified as a whole in FR-21)
 - Benchmarks, dividend forecasts, rebalancing — candidates for later wish-list features
 - Multi-user, sharing, mobile native apps
 

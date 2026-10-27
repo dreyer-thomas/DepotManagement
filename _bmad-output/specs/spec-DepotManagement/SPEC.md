@@ -87,6 +87,13 @@ CAP-N corresponds to PRD FR-N (CAP-19 added 2026-10-26).
   - **intent:** Tommy can reconcile a Depot against his broker statement and correct real holding or cash errors.
   - **success:** A persisted reconciliation run checks off matching rows until finished; corrections are an ADJUSTMENT Transaction (no cash, no realized gain, external flow in returns) or a Deposit/Withdrawal for cash.
 
+- **CAP-21** — Allocation analysis
+  - **intent:** Tommy can see the Portfolio or a Depot split by asset class, type, sector, industry, region, country, company size and currency.
+  - **success:** Shares sum to 100 % of value; ETFs/funds are classified as a whole; manual overrides win; tapping a segment lists its Positions.
+- **CAP-22** — Performance and income analysis
+  - **intent:** Tommy can analyse monthly/yearly returns, realized gains, cash flow and dividends.
+  - **success:** The heatmap shows time-weighted monthly returns consistent with the Depot figures; realized gains, cash flow and dividends per month/year reconcile with the ledger; the dividend estimate is marked as such.
+
 ## Constraints
 
 - EUR only; all Depots are EUR Depots.
@@ -105,7 +112,7 @@ CAP-N corresponds to PRD FR-N (CAP-19 added 2026-10-26).
 
 - Automatic broker sync.
 - Tax view (Vorabpauschale, Freistellungsauftrag, Verlusttöpfe); tax reporting.
-- ETF look-through / X-Ray, sectors, countries.
+- ETF look-through / X-Ray (ETFs are classified as a whole; X-Ray is a later candidate).
 - Benchmarks, dividend forecasts, rebalancing (later wish-list candidates).
 - Multi-user, sharing, onboarding, billing, support for others; native mobile apps.
 - Placing orders or any trading function.

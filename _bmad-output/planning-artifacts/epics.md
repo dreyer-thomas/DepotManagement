@@ -41,6 +41,8 @@ FR15: Tommy can import his full Transaction history once from Parqet CSV exports
 FR16: Tommy can export all Depots and Transactions to an open file format and restore from it; export → restore into an empty instance reproduces identical Depots, Cash Accounts, Transactions, manual Prices and evaluations; restore replaces, never merges.
 FR17: Tommy can see balance and booking history of each Depot's Cash Account; buy, sell, dividend, fee and tax book their cash side automatically; Deposits and Withdrawals are entered manually and change only the Cash Account.
 FR18: Portfolio and Depot overviews and charts include Cash Account balances in total value, shown separately from Positions; Deposits and Withdrawals are external cash flows in both return metrics.
+FR21: Tommy can see his Portfolio or a Depot split by asset class, type, sector, industry, region, country, company size and currency (ETFs and funds classified as a whole, manual override), with the Positions behind each segment.
+FR22: Tommy can analyse returns per month and year (heatmap), realized gains and cash flow per month and year, and dividends per month, year and Security with trailing-12-month income and an estimate of the next 12 months.
 FR20: Tommy can reconcile a Depot against a broker statement position by position (persisted run with checks, finished explicitly) and book holding corrections (ADJUSTMENT: no cash, no realized gain, external flow in returns) or cash corrections.
 FR19: Tommy can open a detail page per Security across all Depots (also when no longer held) showing news, price history with his buys and sells marked, the Transaction history with Depot, and the all-time result since the first buy (realized, unrealized, dividends, fees, taxes, total, return in % and XIRR).
 
@@ -130,6 +132,8 @@ FR16: Epic 6 - Export and restore
 FR17: Epic 1 - Cash Account balance and history
 FR18: Epic 4 - Cash in overviews and return metrics
 FR19: Epic 4 - Security detail page and all-time performance (Stories 4.6, 4.7)
+FR21: Epic 7 - Security classification and allocation analysis (Stories 7.1, 7.2)
+FR22: Epic 7 - Return heatmap, realized gains, cash flow, dividends (Stories 7.3–7.5)
 FR20: Epic 2 - Depot reconciliation and holding corrections (Story 2.9)
 
 ## Epic List
@@ -181,6 +185,10 @@ Tommy uploads ROBIN, comdirect/cominvest and finanzen.net zero PDF documents, re
 ### Epic 6: Data Safety & Operations
 Tommy can export and restore all data, gets a daily database backup, and runs DepotManagement on his Linux server behind Nginx with TLS using a documented setup.
 **FRs covered:** FR16 · **Also:** NFR1, NFR2, AR12, AR13, AR18, UX-DR16 (export/restore part)
+
+### Epic 7: Analyses
+Tommy analyses his holdings like in Parqet: allocation by asset class, type, sector, industry, region, country, company size and currency (ETFs and funds as a whole), a monthly/yearly return heatmap, realized gains and cash flow per month and year, and dividend history with trailing-12-month income.
+**FRs covered:** FR21, FR22 · **Also:** AR9, AR13, UX-DR8 (donut pattern)
 
 **Action outside the epics:** take the Parqet CSV export of every portfolio before cancelling the Parqet subscription.
 
@@ -908,3 +916,81 @@ So that I can use DepotManagement from anywhere over HTTPS.
 **And** the database file, `BACKUP_DIR` and `DATA_DIR` live outside the source tree
 **And** moving local data to production is documented as export (Story 6.1) → restore (Story 6.2)
 **And** the README contains no personal data, credentials or keys, and a check (script or CI step) fails if `.env`, SQLite files or Parqet CSVs are tracked by git (NFR4).
+
+## Epic 7: Analyses
+
+Tommy analyses his holdings like in Parqet: allocation views, return heatmap, realized gains, cash flow and dividends. ETFs and funds are classified as a whole; ETF look-through (X-Ray) comes later.
+
+### Story 7.1: Security Classification
+
+As Tommy,
+I want every Security classified by asset class, type, sector, industry, region, country, company size and currency,
+So that my holdings can be analysed by these dimensions.
+
+**Acceptance Criteria:**
+
+**Given** a Security
+**When** it is created or first held, and on the daily scheduler run for Securities without classification
+**Then** the new `classification` module stores one classification per Security with: asset class (Aktien, Anleihen, Rohstoffe, Immobilien, Geldmarkt, Krypto, Derivate, Gemischt), type (from `assetType`), sector, industry, region, country, company size (Large/Mid/Small Cap or "–") and currency, each with its source (`provider`, `rule`, `manual`) (AD-20)
+**And** stocks are classified from Yahoo `quoteSummary` `assetProfile`/`price` (sector, industry, country, market cap, currency) through the provider pattern; Yahoo sector names are mapped to German labels by one table; outbound requests carry only ticker or ISIN (AD-13)
+**And** ETFs and funds are classified as a whole by a rules table on name and index (e.g. "MSCI World" → Welt, "Emerging Markets"/"EM" → Schwellenländer, "S&P 500" → USA, "STOXX 600"/"Europe" → Europa, "Gov Bond"/"Anleihen" → asset class Anleihen, "Gold"/"ETC" → Rohstoffe, "REIT"/"Property" → Immobilien); unmatched ones get region "Unbekannt"
+**And** certificates take the underlying's classification when it is a held or known Security, else asset class Derivate; crypto gets asset class Krypto
+**And** on the Securities page each dimension can be overridden manually; a manual value always wins and is never overwritten by a refresh
+**And** classification failures never block ledger writes; the rules table and mapping are pure core functions with unit tests (fixtures with recorded Yahoo responses, no live network)
+
+### Story 7.2: Allocation Analysis
+
+As Tommy,
+I want to see my Portfolio or a Depot broken down by each classification dimension,
+So that I can judge diversification at a glance.
+
+**Acceptance Criteria:**
+
+**Given** the new navigation entry "Analysen" (drawer on ≥ md, under "Mehr" on phones) and its tab "Aufteilung"
+**When** I choose a scope (Portfolio or one Depot) and a dimension (Anlageklasse, Wertpapiertyp, Sektor, Branche, Region, Land, Unternehmensgröße, Währung)
+**Then** a donut with legend (label, % and amount) shows the current value split by that dimension, cash as its own segment where meaningful, unclassified values as "Unbekannt" (UX-DR8)
+**And** tapping a segment lists the Positions in it with logo, name, value and share, each linking to the Security detail
+**And** shares sum to 100 % of the scope's value; figures come from core over the ledger and current prices (AD-1, AD-9)
+
+### Story 7.3: Return Heatmap
+
+As Tommy,
+I want a heatmap of my returns per month and year,
+So that I see good and bad periods at a glance.
+
+**Acceptance Criteria:**
+
+**Given** the "Analysen" tab "Rendite"
+**When** I choose a scope (Portfolio or one Depot)
+**Then** a grid of years × months shows the time-weighted return (TTWROR, AD-10) of each month in %, plus quarter and year totals; positive cells green, negative red, intensity by magnitude, with sign so meaning does not rely on colour (UX-DR21)
+**And** tapping a cell shows start value, end value, return %, net external flows and the number of Transactions in that month
+**And** months before the first Transaction or after today stay empty; the current month is marked as running
+**And** monthly and chained yearly returns come from one core function over the daily valuation series, unit-tested against a hand-calculated reference
+
+### Story 7.4: Realized Gains and Cash Flow
+
+As Tommy,
+I want my realized gains and my net cash flow per month and year,
+So that I see what my sales earned and how much money I put in.
+
+**Acceptance Criteria:**
+
+**Given** the "Analysen" tab "Gewinne"
+**Then** a bar chart shows realized Gain/Loss (FIFO, AD-10) per month for a chosen year and per year over all years, with dividends and fees as switchable layers and taxes paid shown separately
+**And** lists show the five best and five worst sales (Security, date, quantity, realized Gain/Loss abs and %)
+**And** a "Kapitalfluss" chart shows net external flows (Deposits − Withdrawals, including migration funding and corrections) per month and year
+**And** all figures come from core over the ledger for the chosen scope (Portfolio or one Depot), with unit tests
+
+### Story 7.5: Dividend Analysis
+
+As Tommy,
+I want my dividend history and income at a glance,
+So that I can follow my passive income.
+
+**Acceptance Criteria:**
+
+**Given** the "Analysen" tab "Dividenden"
+**Then** views show dividends per month (selected year), per year, cumulative, and per Security, with a gross/net toggle (net = gross − tax − fee)
+**And** a KPI row shows the income of the last 12 months and the trailing yield (income ÷ current value of the paying Positions)
+**And** an "Erwartet" view lists the expected payments of the next 12 months, estimated from each held Security's payments of the last 12 months (same months, current quantity), clearly marked as an estimate
+**And** all figures come from core over the ledger for the chosen scope, with unit tests

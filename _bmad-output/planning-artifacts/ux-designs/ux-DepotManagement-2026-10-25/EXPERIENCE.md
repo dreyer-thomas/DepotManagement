@@ -27,6 +27,7 @@ Single-surface responsive web app, MUI 9 on Next.js (App Router), one user (Tomm
 | Depot reconciliation | Depot detail ⋮ "Depot abgleichen" | Statement date; rows per Position + Cash Account with app value, statement input, "stimmt" check, ✅ when matched; differing rows: difference, "Buchungen ansehen", "Korrektur buchen" (Bestandskorrektur); progress "x von y abgeglichen"; open run persists until "Abgleich abschließen"; Depot detail shows "Zuletzt abgeglichen am …" | CAP-20 |
 | Import | Depot detail action "Dokumente importieren", nav | Upload PDFs → review batch → confirm | CAP-4..6 |
 | News | Nav | Headlines last 14 days, filter by Security | CAP-14 |
+| Analysen | Nav (drawer; "Mehr" on phones) | Tabs Aufteilung (donut per dimension, tap segment → Positions), Rendite (heatmap years × months, tap cell → details), Gewinne (realized gains bars, best/worst sales, Kapitalfluss), Dividenden (month/year/cumulative/per Security, gross/net, 12-month income, estimate); scope Portfolio or Depot | CAP-21, CAP-22 |
 | Securities | Nav "Mehr" | All Securities: classify `UNCLASSIFIED`, edit provider mapping, enter manual Prices, trigger price refresh, replace or upload a logo | CAP-7, 9 |
 | Settings | Nav "Mehr" | Depots (create, rename, archive, delete with typed name confirmation), Parqet migration, export/restore, appearance | CAP-1, 15, 16 |
 | Parqet migration | Settings | One-time wizard per Depot: file → target Depot → preview/review → confirm | CAP-15 |
@@ -104,8 +105,8 @@ Behavioral; visual specs in `DESIGN.md.Components`.
 
 | Breakpoint | Behavior |
 | --- | --- |
-| `≥ md` (900px+, MUI) | Permanent left drawer: Übersicht, Depots, Import, Nachrichten, Wertpapiere, Einstellungen. KPI row in one line; chart and composition side by side on `lg`. Transaction form as dialog. |
-| `< md` | Bottom navigation: Übersicht · Depots · Nachrichten · Mehr (Import, Wertpapiere, Einstellungen). FAB "+" for a new Transaction on Overview and Depot detail. KPI cards in a 2×2 grid; tables become stacked rows; forms full-screen. Import and migration work but are optimized for desktop. |
+| `≥ md` (900px+, MUI) | Permanent left drawer: Übersicht, Depots, Analysen, Import, Nachrichten, Wertpapiere, Einstellungen. KPI row in one line; chart and composition side by side on `lg`. Transaction form as dialog. |
+| `< md` | Bottom navigation: Übersicht · Depots · Nachrichten · Mehr (Analysen, Import, Wertpapiere, Einstellungen). FAB "+" for a new Transaction on Overview and Depot detail. KPI cards in a 2×2 grid; tables become stacked rows; forms full-screen. Import and migration work but are optimized for desktop. |
 
 ## Inspiration & Anti-patterns
 

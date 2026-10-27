@@ -8,8 +8,8 @@ scope: 'DepotManagement v1 — the whole product as defined by the PRD (FR-1..FR
 status: final
 created: '2026-10-25'
 updated: '2026-10-25'
-change_log: ['2026-10-25 sprint change: AD-7, AD-16 amended (hands-off Parqet migration, FUND type)', '2026-10-25 sprint change: AD-6 amended (funding for cash-less exports)', '2026-10-25 sprint change: AD-6 amended (group cash pairing, TAX differences, rounding clamp)', '2026-10-25 sprint change: AD-6 amended (inflow differences as DEPOSIT, funding for every export)', '2026-10-26 sprint change: AD-10 amended (Security-level figures, FR-19)', '2026-10-26 sprint change: AD-14 amended (ADJUSTMENT type, FR-20)']
-binds: [FR-20, FR-19, FR-1, FR-2, FR-3, FR-4, FR-5, FR-6, FR-7, FR-8, FR-9, FR-10, FR-11, FR-12, FR-13, FR-14, FR-15, FR-16, FR-17, FR-18]
+change_log: ['2026-10-25 sprint change: AD-7, AD-16 amended (hands-off Parqet migration, FUND type)', '2026-10-25 sprint change: AD-6 amended (funding for cash-less exports)', '2026-10-25 sprint change: AD-6 amended (group cash pairing, TAX differences, rounding clamp)', '2026-10-25 sprint change: AD-6 amended (inflow differences as DEPOSIT, funding for every export)', '2026-10-26 sprint change: AD-10 amended (Security-level figures, FR-19)', '2026-10-26 sprint change: AD-14 amended (ADJUSTMENT type, FR-20)', '2026-10-27 sprint change: AD-20 added (classification, FR-21/22)']
+binds: [FR-22, FR-21, FR-20, FR-19, FR-1, FR-2, FR-3, FR-4, FR-5, FR-6, FR-7, FR-8, FR-9, FR-10, FR-11, FR-12, FR-13, FR-14, FR-15, FR-16, FR-17, FR-18]
 sources:
   - _bmad-output/planning-artifacts/prds/prd-DepotManagement-2026-10-25/prd.md
   - _bmad-output/planning-artifacts/prds/prd-DepotManagement-2026-10-25/addendum.md
@@ -39,6 +39,7 @@ graph TD
     prices["prices — providers, mappings, Prices, scheduler"]
     news["news — providers, cache"]
     logos["logos — providers, logo cache, manual logos"]
+    classification["classification — providers, rules, manual overrides"]
     backup["backup — export / restore / DB backup"]
     auth["auth — single-user session"]
   end
@@ -49,6 +50,7 @@ graph TD
   prices --> ledger
   news --> ledger
   logos --> ledger
+  classification --> ledger
   modules --> core["src/core — pure functions"]
   modules --> db[("src/db — Prisma client / SQLite")]
 ```
@@ -169,6 +171,12 @@ graph TD
 - **Prevents:** the browser hotlinking third-party logo services (privacy, AD-13); each screen fetching or falling back differently; fetched logos overwriting a manual one.
 - **Rule:** The `logos` module owns logo resolution and storage. Logo providers follow the AD-9 provider pattern, queried by ISIN, ticker or crypto symbol only: logo.dev (secret-key API) primary, Elbstream fallback; certificates resolve to the issuer or underlying logo, else none; crypto falls back to the CoinGecko image. A logo is fetched once in the background when a Security is created or first held, stored as a file under `DATA_DIR` with source and `fetchedAt`, and served by the app from its own route — the browser never calls a logo provider. A manually uploaded logo (`source = manual`) always wins and is never overwritten. Missing logo → the UI renders initials; a logo fetch never blocks a ledger write.
 
+### AD-20 — Security classification is reference data with manual precedence
+
+- **Binds:** FR-21, FR-13
+- **Prevents:** each analysis view guessing sectors or regions differently; provider refreshes overwriting the user's corrections; ETF classification diverging between screens.
+- **Rule:** The `classification` module owns one classification per Security (asset class, type, sector, industry, region, country, company size, currency), each value with its source `provider | rule | manual`. Providers follow the AD-9 pattern (outbound only ticker/ISIN, AD-13; results cached, refreshed by the scheduler); ETFs and funds are classified as a whole by one pure rules function on name/index; a `manual` value always wins and is never overwritten. Every analysis reads classifications only through this module; unclassified values show as "Unbekannt". Classification never blocks a ledger write. ETF look-through (X-Ray) is out of scope until a later decision.
+
 ## Consistency Conventions
 
 | Concern | Convention |
@@ -214,6 +222,7 @@ src/
     prices/       # providers/<name>.ts, mappings, manual prices, scheduler jobs
     news/         # providers/<name>.ts, cache
     logos/        # providers/<name>.ts, logo files under DATA_DIR, manual upload
+    classification/ # providers/<name>.ts, rules, manual overrides
     backup/       # JSON export/restore, schema upgrades, DB file backup
     auth/         # login, session
   db/             # Prisma client singleton (WAL, busy timeout)
@@ -264,6 +273,8 @@ graph LR
 | FR-10..FR-13 Overview, chart, Gain/Loss, composition | `core/valuation`, `core/returns`, `core/composition`, `app` | AD-1, AD-5, AD-9, AD-10, AD-17 |
 | FR-14 News | `modules/news` | AD-11, AD-17 |
 | UX Security logos | `modules/logos` | AD-13, AD-19 |
+| FR-21 Allocation analysis | `modules/classification`, `core/composition`, `app` | AD-1, AD-13, AD-20 |
+| FR-22 Returns, gains, cash flow, dividends analysis | `core/returns`, `core/valuation`, `app` | AD-1, AD-10 |
 | FR-15 Parqet migration | `modules/migration` | AD-3, AD-6, AD-7, AD-8, AD-14, AD-15, AD-16 |
 | FR-16 Export / restore | `modules/backup` | AD-3, AD-12 |
 | FR-17, FR-18 Cash Account | `core/cash`, `modules/ledger` | AD-6, AD-10, AD-14 |
