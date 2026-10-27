@@ -70,7 +70,9 @@ test/
 
 ## Configuration
 
-All configuration comes from environment variables or an untracked `.env`. [.env.example](.env.example) lists every name without values: `DATABASE_URL`, `SESSION_SECRET`, `AUTH_USERNAME`, `AUTH_PASSWORD_HASH`, `BACKUP_DIR`, `BACKUP_KEEP`, `COINGECKO_API_KEY`, `OPENFIGI_API_KEY`, `LOGO_DEV_API_KEY`, `DATA_DIR`.
+All configuration comes from environment variables or an untracked `.env`. [.env.example](.env.example) lists every name without values: `DATABASE_URL`, `SESSION_SECRET`, `AUTH_USERNAME`, `AUTH_PASSWORD_HASH`, `BACKUP_DIR`, `BACKUP_KEEP`, `COINGECKO_API_KEY`, `OPENFIGI_API_KEY`, `LOGO_DEV_API_KEY`, `DATA_DIR`, `DEV_ALLOWED_ORIGINS`.
+
+To open `npm run dev` from a phone or tablet in your network, set `DEV_ALLOWED_ORIGINS` to the host names or a wildcard such as `192.168.178.*` and restart the dev server; otherwise Next.js blocks its scripts for other devices and pages load without charts or working controls. `npm start` does not need it.
 
 ## Login
 

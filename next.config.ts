@@ -1,8 +1,16 @@
 import type { NextConfig } from "next";
 
+// `next dev` only serves its client bundles to other hosts listed here (e.g. a phone in the LAN):
+// comma-separated host names or wildcards from DEV_ALLOWED_ORIGINS, e.g. "192.168.178.*". Unused by `next start`.
+const devAllowedOrigins = (process.env.DEV_ALLOWED_ORIGINS ?? "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter((origin) => origin !== "");
+
 const nextConfig: NextConfig = {
   // Keep the curated AGENTS.md free of the block `next dev` would otherwise add.
   agentRules: false,
+  ...(devAllowedOrigins.length > 0 ? { allowedDevOrigins: devAllowedOrigins } : {}),
   // Native modules (SQLite driver, bcrypt), Prisma and pdf.js (unpdf) stay external to the server bundle.
   serverExternalPackages: ["better-sqlite3", "@prisma/adapter-better-sqlite3", "bcrypt", "unpdf"],
   experimental: {
