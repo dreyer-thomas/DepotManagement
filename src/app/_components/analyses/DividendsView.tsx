@@ -1,7 +1,7 @@
 "use client";
 
-import ArrowBack from "@mui/icons-material/ArrowBack";
-import ArrowForward from "@mui/icons-material/ArrowForward";
+import ChevronLeft from "@mui/icons-material/ChevronLeft";
+import ChevronRight from "@mui/icons-material/ChevronRight";
 import Box from "@mui/material/Box";
 import Card from "@mui/material/Card";
 import CardContent from "@mui/material/CardContent";
@@ -29,19 +29,12 @@ import { Summary, ValueTable } from "./GainsView";
 import {
   DIVIDEND_BUCKET_HEADINGS,
   DIVIDEND_FORECAST_NOTE,
-  type DividendSecurityMeta,
-  breakdownDefaultMonth,
-  breakdownKpis,
-  breakdownMonthLabel,
-  breakdownSecurityFacts,
-  breakdownSinceLabel,
   dividendColor,
   dividendForecastLabel,
   dividendPayingSecurities,
   dividendSplits,
   dividendStackedAriaLabel,
   dividendYearLinesAriaLabel,
-  gainsBucketLabel,
   lastYearPoint,
   DIVIDEND_EMPTY_TEXT,
   DIVIDEND_ESTIMATE_NOTE,
@@ -76,11 +69,7 @@ export type DividendsViewProps = {
   today: string;
   /** The Depot of a single-Depot scope (Security links open it); `null` for the Portfolio. */
   depotId?: string | null;
-  /** Security id → name, ISIN / crypto symbol and type (Breakdown selector). */
-  securities?: Readonly<Record<string, DividendSecurityMeta>>;
 };
-
-const NO_SECURITIES: Readonly<Record<string, DividendSecurityMeta>> = {};
 
 /** Chart coordinate of a decimal string (presentation edge only). */
 const plot = (value: string) => Number(value);
@@ -111,17 +100,13 @@ function ListRow({ securityId, depotId, name, caption, amount }: { securityId: s
   );
 }
 
-/** Short month label with a two-digit year (`Mai 26`), for ranges spanning several years. */
-const monthYearLabel = (period: string) => `${gainsBucketShortLabel(period)} ${period.slice(2, 4)}`;
-
 /**
  * Dividenden (FR-22): KPI row (12-month income, yield, estimate), a Brutto/Netto toggle for every figure
- * and the views Monatlich (pro Jahr) and Monatlich (fortl.) stacked by Security, Jahre, Akkumuliert,
- * Akkumuliert (pro Jahr) with an optional forecast, Breakdown of one Security, Wertpapiere and Erwartet
- * (labelled as an estimate). View, year, mode and selections are client state; every figure comes from
- * `core/dividend-analysis`.
+ * and the views Monatlich (pro Jahr, stacked by Security, with a year switcher), Jahre, Akkumuliert,
+ * Akkumuliert (pro Jahr) with an optional forecast, Wertpapiere and Erwartet (labelled as an estimate).
+ * View, year, mode and forecast are client state; every figure comes from `core/dividend-analysis`.
  */
-export function DividendsView({ analysis, securityNames, today, depotId = null, securities: securityMeta = NO_SECURITIES }: DividendsViewProps) {
+export function DividendsView({ analysis, securityNames, today, depotId = null }: DividendsViewProps) {
   const theme = useTheme();
   const palette = (theme.vars ?? theme).palette;
   const accent = palette.accent?.main ?? theme.palette.info.main;
@@ -133,8 +118,6 @@ export function DividendsView({ analysis, securityNames, today, depotId = null, 
   const [chosenYear, setChosenYear] = useState(today.slice(0, 4));
   const [mode, setMode] = useState<DividendMode>("gross");
   const [forecastOn, setForecastOn] = useState(false);
-  const [breakdownSecurity, setBreakdownSecurity] = useState<string | null>(null);
-  const [breakdownMonth, setBreakdownMonth] = useState<string | null>(null);
 
   if (analysis.months.length === 0) {
     return (
@@ -167,18 +150,56 @@ export function DividendsView({ analysis, securityNames, today, depotId = null, 
     );
   }
 
-  function stackedCard(stackedView: "months" | "running") {
-    const heading = DIVIDEND_BUCKET_HEADINGS[stackedView];
+  /** Year switcher of the monthly view: older ‹ year select › newer (`years` is newest first). */
+  function yearSwitcher() {
+    const index = years.indexOf(year);
+    return (
+      <Stack direction="row" spacing={0.5} sx={{ alignItems: "center" }}>
+        <IconButton
+          aria-label={DIVIDEND_LABELS.previousYear}
+          disabled={index >= years.length - 1}
+          onClick={() => setChosenYear(years[index + 1])}
+          sx={{ width: 44, height: 44 }}
+        >
+          <ChevronLeft />
+        </IconButton>
+        <TextField
+          select
+          size="small"
+          label={DIVIDEND_LABELS.year}
+          value={year}
+          onChange={(event) => setChosenYear(event.target.value)}
+          slotProps={{ inputLabel: { shrink: true } }}
+          sx={{ width: 120, "& .MuiInputBase-root": control }}
+        >
+          {years.map((option) => (
+            <MenuItem key={option} value={option} sx={control}>
+              {option}
+            </MenuItem>
+          ))}
+        </TextField>
+        <IconButton aria-label={DIVIDEND_LABELS.nextYear} disabled={index <= 0} onClick={() => setChosenYear(years[index - 1])} sx={{ width: 44, height: 44 }}>
+          <ChevronRight />
+        </IconButton>
+      </Stack>
+    );
+  }
+
+  function monthsCard() {
+    const heading = DIVIDEND_BUCKET_HEADINGS.months;
     if (analysis.bySecurity.length === 0) return noneCard(heading);
-    const splits = dividendSplits(analysis, stackedView, year);
-    const buckets = dividendBuckets(analysis, stackedView, year);
+    const splits = dividendSplits(analysis, year);
+    const buckets = dividendBuckets(analysis, "months", year);
     return (
       <Card component="section" aria-labelledby={`${ids}-chart`} sx={{ minWidth: 0 }}>
         <CardContent>
-          <CardHeading id={`${ids}-chart`}>{heading}</CardHeading>
+          <Stack direction="row" spacing={1} sx={{ alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", rowGap: 1 }}>
+            <CardHeading id={`${ids}-chart`}>{heading}</CardHeading>
+            {yearSwitcher()}
+          </Stack>
           <DividendStackedChart
             ariaLabel={dividendStackedAriaLabel(heading, buckets, splits, securityNames, mode)}
-            categories={buckets.map((bucket) => (stackedView === "running" ? monthYearLabel(bucket.period) : gainsBucketShortLabel(bucket.period)))}
+            categories={buckets.map((bucket) => gainsBucketShortLabel(bucket.period))}
             buckets={buckets}
             splits={splits}
             securityIds={dividendPayingSecurities(analysis.bySecurity, splits)}
@@ -186,7 +207,7 @@ export function DividendsView({ analysis, securityNames, today, depotId = null, 
             name={name}
             mode={mode}
           />
-          <Summary entries={[[`${DIVIDEND_LABELS.total} (${modeLabel})`, formatMoney(dividendRangeTotal(buckets, stackedView, mode))]]} />
+          <Summary entries={[[`${DIVIDEND_LABELS.total} (${modeLabel})`, formatMoney(dividendRangeTotal(buckets, "months", mode))]]} />
           <ValueTable<DividendBucket> caption={heading} buckets={buckets} columns={[[modeLabel, amount]]} />
         </CardContent>
       </Card>
@@ -226,133 +247,6 @@ export function DividendsView({ analysis, securityNames, today, depotId = null, 
             buckets={rows}
             columns={[[modeLabel, (row) => (row.value === null ? formatMoney("0") : amount(row.value))]]}
           />
-        </CardContent>
-      </Card>
-    );
-  }
-
-  function breakdownCard() {
-    const heading = DIVIDEND_LABELS.breakdownHeading;
-    const splits = dividendSplits(analysis, "running", year);
-    const buckets = dividendBuckets(analysis, "running", year);
-    const paying = dividendPayingSecurities(analysis.bySecurity, splits);
-    if (paying.length === 0) return noneCard(heading);
-    const chosenIndex = Math.max(0, breakdownSecurity === null ? 0 : paying.indexOf(breakdownSecurity));
-    const chosen = paying[chosenIndex];
-    const month =
-      breakdownMonth !== null && splits.some((split) => split.period === breakdownMonth) ? breakdownMonth : (breakdownDefaultMonth(splits, chosen) as string);
-    const choose = (securityId: string) => {
-      setBreakdownSecurity(securityId);
-      setBreakdownMonth(null);
-    };
-    const kpis = breakdownKpis(splits, chosen, month, mode);
-    const security = analysis.bySecurity[securityIndex.get(chosen) ?? 0];
-    const facts = breakdownSecurityFacts(securityMeta[chosen]);
-    return (
-      <Card component="section" aria-labelledby={`${ids}-chart`} sx={{ minWidth: 0 }}>
-        <CardContent>
-          <CardHeading id={`${ids}-chart`}>{heading}</CardHeading>
-          <Stack direction="row" spacing={1} sx={{ alignItems: "center", mt: 1 }}>
-            <IconButton aria-label={DIVIDEND_LABELS.previous} disabled={chosenIndex === 0} onClick={() => choose(paying[chosenIndex - 1])} sx={{ width: 44, height: 44 }}>
-              <ArrowBack />
-            </IconButton>
-            <TextField
-              select
-              size="small"
-              label={DIVIDEND_LABELS.security}
-              value={chosen}
-              onChange={(event) => choose(event.target.value)}
-              slotProps={{ inputLabel: { shrink: true } }}
-              sx={{ flex: 1, minWidth: 0, maxWidth: 420, "& .MuiInputBase-root": control }}
-            >
-              {paying.map((securityId) => (
-                <MenuItem key={securityId} value={securityId} sx={{ ...control, gap: 1.5 }}>
-                  <SecurityLogo securityId={securityId} name={name(securityId)} />
-                  <Box component="span" sx={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
-                    <Box component="span" sx={{ overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {name(securityId)}
-                    </Box>
-                    {securityMeta[securityId] ? (
-                      <Typography component="span" variant="caption" color="text.secondary" sx={{ overflow: "hidden", textOverflow: "ellipsis" }}>
-                        {breakdownSecurityFacts(securityMeta[securityId])
-                          .map(([term, value]) => (term === DIVIDEND_LABELS.wkn ? `${term} ${value}` : value))
-                          .join(" · ")}
-                      </Typography>
-                    ) : null}
-                  </Box>
-                </MenuItem>
-              ))}
-            </TextField>
-            <IconButton
-              aria-label={DIVIDEND_LABELS.next}
-              disabled={chosenIndex === paying.length - 1}
-              onClick={() => choose(paying[chosenIndex + 1])}
-              sx={{ width: 44, height: 44 }}
-            >
-              <ArrowForward />
-            </IconButton>
-          </Stack>
-          {facts.length > 0 ? (
-            <Box
-              component="dl"
-              aria-label={name(chosen)}
-              sx={{ m: 0, mt: 1, display: "flex", flexWrap: "wrap", columnGap: 2, rowGap: 0.5, "& dd": { m: 0, ml: 0.5, fontWeight: 500 } }}
-            >
-              {facts.map(([term, value]) => (
-                <Box key={term} sx={{ display: "flex" }}>
-                  <Typography component="dt" variant="body2" color="text.secondary">
-                    {term}
-                  </Typography>
-                  <Typography component="dd" variant="body2">
-                    {value}
-                  </Typography>
-                </Box>
-              ))}
-            </Box>
-          ) : null}
-          <TextField
-            select
-            size="small"
-            label={DIVIDEND_LABELS.month}
-            value={month}
-            onChange={(event) => setBreakdownMonth(event.target.value)}
-            slotProps={{ inputLabel: { shrink: true } }}
-            sx={{ mt: 2, width: { xs: "100%", sm: 200 }, "& .MuiInputBase-root": control }}
-          >
-            {[...splits].reverse().map((split) => (
-              <MenuItem key={split.period} value={split.period} sx={control}>
-                {gainsBucketLabel(split.period)}
-              </MenuItem>
-            ))}
-          </TextField>
-          <DividendStackedChart
-            ariaLabel={dividendStackedAriaLabel(heading, buckets, splits, securityNames, mode)}
-            categories={buckets.map((bucket) => monthYearLabel(bucket.period))}
-            buckets={buckets}
-            splits={splits}
-            securityIds={paying}
-            colorOf={colorOf}
-            name={name}
-            mode={mode}
-            chosen={chosen}
-            onMonthClick={(index) => {
-              if (splits[index]) setBreakdownMonth(splits[index].period);
-            }}
-          />
-          <Box
-            component="section"
-            aria-label={`${DIVIDEND_LABELS.kpis} ${name(chosen)}`}
-            sx={{ mt: 2, display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "repeat(3, minmax(0, 1fr))" }, gap: 1.5 }}
-          >
-            <Kpi label={breakdownMonthLabel(month)} value={formatMoney(kpis.month)} color="accent.main" note={modeLabel} />
-            <Kpi label={breakdownSinceLabel(month)} value={formatMoney(kpis.sinceJanuary)} color="accent.main" note={modeLabel} />
-            <Kpi
-              label={DIVIDEND_LABELS.yieldOnCost}
-              value={dividendYieldText(mode === "net" ? security.netYieldOnCost : security.grossYieldOnCost)}
-              color="accent.main"
-              note={modeLabel}
-            />
-          </Box>
         </CardContent>
       </Card>
     );
@@ -482,23 +376,6 @@ export function DividendsView({ analysis, securityNames, today, depotId = null, 
             </ToggleButton>
           ))}
         </ToggleButtonGroup>
-        {view === "months" ? (
-          <TextField
-            select
-            size="small"
-            label={DIVIDEND_LABELS.year}
-            value={year}
-            onChange={(event) => setChosenYear(event.target.value)}
-            slotProps={{ inputLabel: { shrink: true } }}
-            sx={{ width: { xs: "100%", sm: 140 }, "& .MuiInputBase-root": control }}
-          >
-            {years.map((option) => (
-              <MenuItem key={option} value={option} sx={control}>
-                {option}
-              </MenuItem>
-            ))}
-          </TextField>
-        ) : null}
         <ToggleButtonGroup
           exclusive
           size="small"
@@ -535,13 +412,11 @@ export function DividendsView({ analysis, securityNames, today, depotId = null, 
         ? securitiesCard(analysis.bySecurity)
         : view === "expected"
           ? bucketCard("expected", expectedList(analysis.expected))
-          : view === "months" || view === "running"
-            ? stackedCard(view)
+          : view === "months"
+            ? monthsCard()
             : view === "yearLines"
               ? yearLinesCard()
-              : view === "breakdown"
-                ? breakdownCard()
-                : bucketCard(view)}
+              : bucketCard(view)}
     </Stack>
   );
 }

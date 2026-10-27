@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { ThemeProvider } from "@mui/material/styles";
-import { act, render, screen, within } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerDomCleanup } from "../../../../test/helpers/dom";
@@ -46,10 +46,6 @@ const ROWS: GainsRow[] = [
 ];
 const ANALYSIS = dividendAnalysis([{ depotId: "d1", rows: ROWS, positions: [{ securityId: "sap", quantity: "20", value: "2000", costBasis: "1100" }] }], NO_CORPORATE_ACTIONS, TODAY);
 const NAMES = { sap: "SAP SE", alv: "Allianz SE" };
-const META = {
-  sap: { name: "SAP SE", isin: "DE0007164600", cryptoSymbol: null, assetType: "STOCK" as const },
-  alv: { name: "Allianz SE", isin: "DE0008404005", cryptoSymbol: null, assetType: "STOCK" as const },
-};
 // SAP as above plus Allianz: bought, paid 10 in March 2026 alongside a SAP payment of 5, then sold.
 const TWO = dividendAnalysis(
   [
@@ -94,7 +90,7 @@ afterEach(() => {
 function renderView(analysis: DividendAnalysis = ANALYSIS, depotId: string | null = null) {
   return render(
     <ThemeProvider theme={theme}>
-      <DividendsView analysis={analysis} securityNames={NAMES} today={TODAY} depotId={depotId} securities={META} />
+      <DividendsView analysis={analysis} securityNames={NAMES} today={TODAY} depotId={depotId} />
     </ThemeProvider>,
   );
 }
@@ -126,6 +122,22 @@ describe("DividendsView", () => {
     expect(lastChart().series[0].barLabel?.(3)).toBeNull();
     expect(lastChart().series[0].text(4)).toBe(`40,00${NBSP}€`);
     expect(screen.getByRole("figure").getAttribute("aria-label")).toContain(`Dividenden pro Monat (Brutto): Januar 2026 0,00${NBSP}€;`);
+  });
+
+  it("steps through the years with the arrows next to the year field", async () => {
+    const user = userEvent.setup();
+    renderView();
+    const card = () => screen.getByRole("region", { name: "Dividenden pro Monat" });
+    const next = () => within(card()).getByRole("button", { name: "Nächstes Jahr" }) as HTMLButtonElement;
+    const previous = () => within(card()).getByRole("button", { name: "Vorheriges Jahr" }) as HTMLButtonElement;
+    expect(within(card()).getByRole("combobox", { name: "Jahr" }).textContent).toBe("2026");
+    expect(next().disabled).toBe(true);
+    await user.click(previous());
+    expect(within(card()).getByRole("combobox", { name: "Jahr" }).textContent).toBe("2025");
+    expect(summaryValue(card(), "Summe (Brutto)")).toBe(`20,00${NBSP}€`);
+    expect(previous().disabled).toBe(true);
+    await user.click(next());
+    expect(within(card()).getByRole("combobox", { name: "Jahr" }).textContent).toBe("2026");
   });
 
   it("switches year, Netto, Jahre and Kumuliert", async () => {
@@ -207,17 +219,12 @@ describe("DividendsView", () => {
     expect(screen.queryByRole("figure")).toBeNull();
   });
   describe("story 7.7 charts", () => {
-    const breakdownKpi = (label: string) =>
-      within(screen.getByRole("region", { name: /^Kennzahlen / })).getByText(label).nextElementSibling?.textContent;
-
-    it("stacks the months by Security in stable colours with the total above the topmost segment", async () => {
-      const user = userEvent.setup();
+    it("stacks the months by Security in stable colours with the total above the topmost segment", () => {
       renderView(TWO);
-      let chart = lastChart();
+      const chart = lastChart();
       expect(chart.series.map((s) => s.id)).toEqual(["sap", "alv"]);
       expect(chart.series.map((s) => s.stack)).toEqual(["dividends", "dividends"]);
       expect(chart.series[0].color).not.toBe(chart.series[1].color);
-      const colors = chart.series.map((s) => s.color);
       // March 2026: SAP 5 below, Allianz 10 on top; the total label sits on Allianz.
       expect(chart.series.map((s) => s.values[2])).toEqual([5, 10]);
       expect(chart.series[0].barLabel?.(2)).toBeNull();
@@ -234,16 +241,6 @@ describe("DividendsView", () => {
       expect(tooltip.container.textContent).toContain(`10,00${NBSP}€`);
       expect(tooltip.container.textContent).toContain(`Summe März 2026: 15,00${NBSP}€`);
       tooltip.unmount();
-
-      await user.click(screen.getByRole("button", { name: "Monatlich (fortl.)" }));
-      chart = lastChart();
-      expect(screen.getByRole("region", { name: "Dividenden pro Monat (fortlaufend)" })).toBeTruthy();
-      expect(chart.categories[0]).toBe("Nov 25");
-      expect(chart.categories.at(-1)).toBe("Okt 26");
-      expect(chart.series.map((s) => s.color)).toEqual(colors);
-
-      await user.click(screen.getByRole("button", { name: "Netto" }));
-      expect(lastChart().series[0].values[0]).toBe(14.5);
     });
 
     it("shows the year lines and the dashed forecast labelled as an estimate", async () => {
@@ -275,73 +272,9 @@ describe("DividendsView", () => {
       expect(summaryValue(screen.getByRole("region", { name: "Dividenden akkumuliert pro Jahr" }), "Prognose 2026 (Schätzung) Dez.")).toBe(`59,00${NBSP}€`);
     });
 
-    it("breaks down one Security: default, stepping, month choice, dimming and KPIs", async () => {
-      const user = userEvent.setup();
-      renderView(TWO);
-      await user.click(screen.getByRole("button", { name: "Breakdown" }));
-      const card = () => screen.getByRole("region", { name: "Dividenden-Breakdown" });
-      expect(within(card()).getByRole("combobox", { name: "Wertpapier" }).textContent).toContain("SAP SE");
-      expect(card().textContent).toContain("WKN716460");
-      expect(card().textContent).toContain("ISINDE0007164600");
-      expect(card().textContent).toContain("TypAktie");
-      await user.click(within(card()).getByRole("combobox", { name: "Wertpapier" }));
-      expect(screen.getByRole("option", { name: /SAP SE/ }).textContent).toContain("Aktie · DE0007164600 · WKN 716460");
-      expect(screen.getByRole("option", { name: /Allianz SE/ }).textContent).toContain("Aktie · DE0008404005 · WKN 840400");
-      await user.keyboard("{Escape}");
-      expect(within(card()).getByRole("combobox", { name: "Monat" }).textContent).toBe("Mai 2026");
-      expect(breakdownKpi("Im Mai 2026")).toBe(`40,00${NBSP}€`);
-      expect(breakdownKpi("Seit Jan. 2026")).toBe(`45,00${NBSP}€`);
-      expect(breakdownKpi("Pers. Div-Rendite")).toBe(`5,91${NBSP}%`);
-      expect(lastChart().series.map((s) => [s.id, s.opacity])).toEqual([
-        ["sap", 1],
-        ["alv", 0.25],
-      ]);
-      expect(lastChart().categories[0]).toBe("Nov 25");
-      expect((screen.getByRole("button", { name: "Vorheriges" }) as HTMLButtonElement).disabled).toBe(true);
-
-      await user.click(screen.getByRole("button", { name: "Nächstes" }));
-      expect(within(card()).getByRole("combobox", { name: "Wertpapier" }).textContent).toContain("Allianz SE");
-      expect(within(card()).getByRole("combobox", { name: "Monat" }).textContent).toBe("März 2026");
-      expect(breakdownKpi("Im März 2026")).toBe(`10,00${NBSP}€`);
-      expect(breakdownKpi("Seit Jan. 2026")).toBe(`10,00${NBSP}€`);
-      expect(breakdownKpi("Pers. Div-Rendite")).toBe("–");
-      expect(lastChart().series.map((s) => s.opacity)).toEqual([0.25, 1]);
-      expect((screen.getByRole("button", { name: "Nächstes" }) as HTMLButtonElement).disabled).toBe(true);
-
-      await user.click(screen.getByRole("button", { name: "Vorheriges" }));
-      expect(within(card()).getByRole("combobox", { name: "Monat" }).textContent).toBe("Mai 2026");
-      await user.click(within(card()).getByRole("combobox", { name: "Monat" }));
-      await user.click(screen.getByRole("option", { name: "November 2025" }));
-      expect(breakdownKpi("Im November 2025")).toBe(`20,00${NBSP}€`);
-      expect(breakdownKpi("Seit Jan. 2025")).toBe(`20,00${NBSP}€`);
-
-      // Clicking a bar picks its month (index 4 = März 2026).
-      act(() => lastChart().onBarClick?.(4));
-      expect(breakdownKpi("Im März 2026")).toBe(`5,00${NBSP}€`);
-      expect(breakdownKpi("Seit Jan. 2026")).toBe(`5,00${NBSP}€`);
-
-      await user.click(screen.getByRole("button", { name: "Netto" }));
-      expect(breakdownKpi("Pers. Div-Rendite")).toBe(`4,50${NBSP}%`);
-    });
-
-    it("matches the reference Breakdown KPIs", async () => {
-      const user = userEvent.setup();
-      renderView();
-      await user.click(screen.getByRole("button", { name: "Breakdown" }));
-      expect(breakdownKpi("Im Mai 2026")).toBe(`40,00${NBSP}€`);
-      expect(breakdownKpi("Seit Jan. 2026")).toBe(`40,00${NBSP}€`);
-      expect(breakdownKpi("Pers. Div-Rendite")).toBe(`5,45${NBSP}%`);
-      await user.click(screen.getByRole("button", { name: "Netto" }));
-      expect(breakdownKpi("Pers. Div-Rendite")).toBe(`4,05${NBSP}%`);
-    });
-
-    it("shows no-dividend texts in the stacked views and Breakdown", async () => {
+    it("shows the no-dividend text in the monthly view", async () => {
       const user = userEvent.setup();
       renderView(dividendAnalysis([{ depotId: "d1", rows: [row("DEPOSIT", "2026-09-01", { amount: "100" })], positions: [] }], NO_CORPORATE_ACTIONS, TODAY));
-      expect(screen.getByText("Noch keine Dividenden.")).toBeTruthy();
-      await user.click(screen.getByRole("button", { name: "Monatlich (fortl.)" }));
-      expect(screen.getByText("Noch keine Dividenden.")).toBeTruthy();
-      await user.click(screen.getByRole("button", { name: "Breakdown" }));
       expect(screen.getByText("Noch keine Dividenden.")).toBeTruthy();
       await user.click(screen.getByRole("button", { name: "Akkumuliert (pro Jahr)" }));
       expect(lineCalls[lineCalls.length - 1].lines[0].points.slice(0, 10).every((p) => p?.gross === "0")).toBe(true);

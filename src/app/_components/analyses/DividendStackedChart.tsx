@@ -23,14 +23,7 @@ export type DividendStackedChartProps = {
   colorOf: (securityId: string) => string;
   name: (securityId: string) => string;
   mode: DividendMode;
-  /** Breakdown: the chosen Security; the others are dimmed. */
-  chosen?: string | null;
-  /** Called with the index of a clicked month. */
-  onMonthClick?: (index: number) => void;
 };
-
-/** Opacity of the Securities not chosen in the Breakdown. */
-export const DIMMED_OPACITY = 0.25;
 
 /** Chart coordinate of a decimal string (presentation edge only). */
 const plot = (value: string) => Number(value);
@@ -38,9 +31,9 @@ const plot = (value: string) => Number(value);
 /**
  * Monthly dividends stacked by Security (story 7.7): one series per paying Security in its stable colour,
  * the month total as a label above the topmost non-zero segment, an item tooltip per segment (logo, name,
- * amount, month total) and optional dimming of all but the chosen Security.
+ * amount, month total).
  */
-export function DividendStackedChart({ ariaLabel, categories, buckets, splits, securityIds, colorOf, name, mode, chosen = null, onMonthClick }: DividendStackedChartProps) {
+export function DividendStackedChart({ ariaLabel, categories, buckets, splits, securityIds, colorOf, name, mode }: DividendStackedChartProps) {
   // Per month: the last (topmost) Security with a non-zero amount carries the total label.
   const topmost = splits.map((split) => {
     for (let i = securityIds.length - 1; i >= 0; i -= 1) {
@@ -61,7 +54,6 @@ export function DividendStackedChart({ ariaLabel, categories, buckets, splits, s
     }),
     text: (index) => formatMoney(dividendSplitAmount(splits[index], securityId, mode)),
     barLabel: (index) => (topmost[index] === securityId ? total(index) : null),
-    opacity: chosen === null ? undefined : chosen === securityId ? 1 : DIMMED_OPACITY,
   }));
 
   const tooltip = ({ seriesId, dataIndex }: BarsItem) => {
@@ -87,5 +79,5 @@ export function DividendStackedChart({ ariaLabel, categories, buckets, splits, s
     );
   };
 
-  return <BarsChart ariaLabel={ariaLabel} categories={categories} series={series} onBarClick={onMonthClick} itemTooltip={tooltip} hideLegend />;
+  return <BarsChart ariaLabel={ariaLabel} categories={categories} series={series} itemTooltip={tooltip} hideLegend />;
 }

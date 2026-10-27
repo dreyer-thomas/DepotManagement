@@ -47,7 +47,7 @@ const BUCKETS = [
   { period: "2026-03", gross: "15", net: "13" },
 ];
 
-function renderStacked(onMonthClick = vi.fn()) {
+function renderStacked() {
   const view = render(
     <ThemeProvider theme={theme}>
       <DividendStackedChart
@@ -59,11 +59,10 @@ function renderStacked(onMonthClick = vi.fn()) {
         colorOf={(id) => (id === "x" ? "#0FA68A" : "#5BC8F5")}
         name={(id) => (id === "x" ? "SAP SE" : "Yolo AG")}
         mode="gross"
-        onMonthClick={onMonthClick}
       />
     </ThemeProvider>,
   );
-  return { ...view, onMonthClick };
+  return view;
 }
 
 async function tooltipText(expected: string): Promise<string> {
@@ -86,20 +85,7 @@ describe("dividend charts (real rendering)", () => {
     expect(text).toContain(`Summe März 2026: 15,00${NBSP}€`);
   });
 
-  it("reports the activated month band (pointer tap)", async () => {
-    const user = userEvent.setup({ delay: null });
-    const { container, onMonthClick } = renderStacked();
-    const svg = await waitFor(() => {
-      const element = container.querySelector("svg");
-      if (!element?.querySelector(".MuiBarChart-element")) throw new Error("not drawn yet");
-      return element;
-    });
-    // Chart area x 80..592 (two bands); the second band (März) is to the right.
-    await user.pointer([{ target: svg, coords: { clientX: 450, clientY: 100 }, keys: "[MouseLeft]" }]);
-    await waitFor(() => expect(onMonthClick).toHaveBeenCalledWith(1));
-  });
-
-  it("renders stacked bars with the total label and dimmed segments", async () => {
+  it("renders stacked bars with the total label", async () => {
     const { container } = render(
       <ThemeProvider theme={theme}>
         <DividendStackedChart
@@ -111,15 +97,11 @@ describe("dividend charts (real rendering)", () => {
           colorOf={(id) => (id === "x" ? "#0FA68A" : "#5BC8F5")}
           name={(id) => (id === "x" ? "SAP SE" : "Yolo AG")}
           mode="gross"
-          chosen="x"
-          onMonthClick={() => undefined}
         />
       </ThemeProvider>,
     );
     expect(screen.getByRole("figure", { name: "Dividenden pro Monat" })).toBeTruthy();
     await waitFor(() => expect(container.textContent).toContain(`15,00${NBSP}€`));
-    const bars = [...container.querySelectorAll("rect, path")].filter((element) => element.getAttribute("fill-opacity") === "0.25");
-    expect(bars.length).toBeGreaterThan(0);
   });
 
   it("renders the year lines with a legend and the forecast", async () => {

@@ -18,8 +18,6 @@ export type BarsSeries = {
   stack?: string;
   /** Optional label drawn above the bar at `index` (`null` for none). */
   barLabel?: (index: number) => string | null;
-  /** Optional opacity of the series' bars (default 1). */
-  opacity?: number;
 };
 
 /** The bar an item tooltip is shown for. */
@@ -31,8 +29,6 @@ export type BarsChartProps = {
   /** Axis label per category. */
   categories: readonly string[];
   series: readonly BarsSeries[];
-  /** Called with the category index of a clicked bar band. */
-  onBarClick?: (index: number) => void;
   /** Hide the legend (e.g. when the series are explained elsewhere). */
   hideLegend?: boolean;
   /** Item-triggered tooltip content for one bar segment (hover, tap); default: axis tooltip. */
@@ -62,15 +58,13 @@ function ItemTooltip(props: ChartsTooltipProps) {
 
 /**
  * Bar chart over categories (story 7.4): horizontal grid, legend, axis tooltip formatted by the
- * series' `text`. Plots exactly the given coordinates. Optional (story 7.7): labels above bars,
- * per-series opacity, band click, hidden legend and an item tooltip.
+ * series' `text`. Plots exactly the given coordinates. Optional (story 7.7): labels above bars, hidden
+ * legend and an item tooltip.
  */
-export function BarsChart({ ariaLabel, categories, series, onBarClick, hideLegend, itemTooltip }: BarsChartProps) {
+export function BarsChart({ ariaLabel, categories, series, hideLegend, itemTooltip }: BarsChartProps) {
   const theme = useTheme();
   const grid = (theme.vars ?? theme).palette.divider;
-  const opacities = new Map(series.map((s) => [s.id, s.opacity ?? 1]));
   const labelled = series.some((s) => s.barLabel !== undefined);
-  const dimmed = series.some((s) => s.opacity !== undefined && s.opacity !== 1);
   return (
     <Box
       role="figure"
@@ -98,9 +92,7 @@ export function BarsChart({ ariaLabel, categories, series, onBarClick, hideLegen
               ? { barLabel: (item: { dataIndex: number }) => s.barLabel?.(item.dataIndex) ?? null, barLabelPlacement: "outside" as const }
               : {}),
           }))}
-          onAxisClick={onBarClick ? (_event, data) => (data ? onBarClick(data.dataIndex) : undefined) : undefined}
           slots={itemTooltip ? { tooltip: ItemTooltip } : undefined}
-          slotProps={dimmed ? { bar: (owner) => ({ fillOpacity: opacities.get(String(owner.seriesId)) ?? 1 }) } : undefined}
         />
       </ItemTooltipContext.Provider>
     </Box>

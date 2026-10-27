@@ -252,11 +252,9 @@ export function cashFlowAriaLabel(buckets: readonly GainsBucket[]): string {
 /** Dividenden tab: views, amount modes, headings and texts. */
 export const DIVIDEND_VIEWS = [
   { value: "months", label: "Monatlich (pro Jahr)" },
-  { value: "running", label: "Monatlich (fortl.)" },
   { value: "years", label: "Jahre" },
   { value: "cumulative", label: "Akkumuliert" },
   { value: "yearLines", label: "Akkumuliert (pro Jahr)" },
-  { value: "breakdown", label: "Breakdown" },
   { value: "securities", label: "Wertpapiere" },
   { value: "expected", label: "Erwartet" },
 ] as const;
@@ -279,23 +277,12 @@ export const DIVIDEND_LABELS = {
   yield: "Dividendenrendite 12 Monate",
   expectedKpi: "Erwartet 12 Monate (Schätzung)",
   monthsHeading: "Dividenden pro Monat",
-  runningHeading: "Dividenden pro Monat (fortlaufend)",
   yearsHeading: "Dividenden pro Jahr",
   cumulativeHeading: "Dividenden kumuliert",
   yearLinesHeading: "Dividenden akkumuliert pro Jahr",
-  breakdownHeading: "Dividenden-Breakdown",
   forecast: "Prognose",
-  security: "Wertpapier",
-  month: "Monat",
-  previous: "Vorheriges",
-  next: "Nächstes",
-  monthKpi: "Im ",
-  sinceKpi: "Seit Jan. ",
-  yieldOnCost: "Pers. Div-Rendite",
-  type: "Typ",
-  isin: "ISIN",
-  wkn: "WKN",
-  symbol: "Symbol",
+  previousYear: "Vorheriges Jahr",
+  nextYear: "Nächstes Jahr",
   securitiesHeading: "Dividenden nach Wertpapier",
   expectedHeading: "Erwartete Dividenden (Schätzung)",
   expectedList: "Erwartete Zahlungen",
@@ -310,11 +297,10 @@ export const DIVIDEND_FORECAST_NOTE = "Schätzung: erwartete Zahlungen bis Dezem
 export const DIVIDEND_MISSING = "–";
 
 /** The bucket views with their chart headings. */
-export type DividendBucketView = Exclude<DividendView, "securities" | "yearLines" | "breakdown">;
+export type DividendBucketView = Exclude<DividendView, "securities" | "yearLines">;
 
 export const DIVIDEND_BUCKET_HEADINGS: Record<DividendBucketView, string> = {
   months: DIVIDEND_LABELS.monthsHeading,
-  running: DIVIDEND_LABELS.runningHeading,
   years: DIVIDEND_LABELS.yearsHeading,
   cumulative: DIVIDEND_LABELS.cumulativeHeading,
   expected: DIVIDEND_LABELS.expectedHeading,
@@ -336,8 +322,6 @@ export function dividendBuckets(analysis: DividendAnalysis, view: DividendBucket
   switch (view) {
     case "months":
       return analysis.months.filter((month) => month.period.startsWith(`${year}-`));
-    case "running":
-      return analysis.months.slice(dividendRunningStart(analysis));
     case "years":
       return [...analysis.years];
     case "cumulative":
@@ -394,22 +378,9 @@ export function dividendColor(index: number, series: readonly string[]): string 
   return palette[((index % palette.length) + palette.length) % palette.length];
 }
 
-/** WKN embedded in a German ISIN (`DE000` + WKN + check digit): characters 6–11; `null` otherwise. */
-export function wknOf(isin: string | null): string | null {
-  return isin !== null && /^DE000[A-Z0-9]{6}[0-9]$/.test(isin) ? isin.slice(5, 11) : null;
-}
-
-/** Index in `months` of the first month with a payment ("Monatlich (fortl.)" and Breakdown start); `months.length` without. */
-export function dividendRunningStart(analysis: Pick<DividendAnalysis, "months" | "monthsBySecurity">): number {
-  const index = analysis.monthsBySecurity.findIndex((month) => month.securities.length > 0);
-  return index === -1 ? analysis.months.length : index;
-}
-
-/** The month splits a stacked view shows: the months of `year`, or every month from the first payment on (fortl.). */
-export function dividendSplits(analysis: Pick<DividendAnalysis, "months" | "monthsBySecurity">, view: "months" | "running", year: string): DividendMonthSplit[] {
-  return view === "running"
-    ? analysis.monthsBySecurity.slice(dividendRunningStart(analysis))
-    : analysis.monthsBySecurity.filter((month) => month.period.startsWith(`${year}-`));
+/** The month splits of `year` (Monatlich pro Jahr). */
+export function dividendSplits(analysis: Pick<DividendAnalysis, "monthsBySecurity">, year: string): DividendMonthSplit[] {
+  return analysis.monthsBySecurity.filter((month) => month.period.startsWith(`${year}-`));
 }
 
 /** The Securities paying in `splits`, in `bySecurity` order. */
@@ -475,57 +446,4 @@ export function dividendYearLinesAriaLabel(lines: readonly DividendYearLine[], f
     parts.push(`${dividendForecastLabel(today.slice(0, 4))}: ${yearPointsText(forecast, mode)}`);
   }
   return `${DIVIDEND_LABELS.yearLinesHeading} (${dividendModeLabel(mode)}): ${parts.join("; ")}`;
-}
-
-/** Breakdown default month: the latest month (period) in `splits` with a payment of `securityId`; `null` without. */
-export function breakdownDefaultMonth(splits: readonly DividendMonthSplit[], securityId: string): string | null {
-  for (let i = splits.length - 1; i >= 0; i -= 1) {
-    if (splits[i].securities.some((security) => security.securityId === securityId)) return splits[i].period;
-  }
-  return null;
-}
-
-/**
- * Breakdown KPIs of `securityId` for the month `period` (`YYYY-MM`): its amount that month and its sum from
- * January of that year through that month (decimal strings).
- */
-export function breakdownKpis(
-  splits: readonly DividendMonthSplit[],
-  securityId: string,
-  period: string,
-  mode: DividendMode,
-): { month: string; sinceJanuary: string } {
-  const year = period.slice(0, 4);
-  let since = new Decimal(0);
-  let month = "0";
-  for (const split of splits) {
-    if (!split.period.startsWith(`${year}-`) || split.period > period) continue;
-    const amount = dividendSplitAmount(split, securityId, mode);
-    since = since.plus(amount);
-    if (split.period === period) month = amount;
-  }
-  return { month, sinceJanuary: since.isZero() ? "0" : since.toFixed() };
-}
-
-/** `Im Mai 2026`. */
-export function breakdownMonthLabel(period: string): string {
-  return `${DIVIDEND_LABELS.monthKpi}${gainsBucketLabel(period)}`;
-}
-
-/** `Seit Jan. 2026`. */
-export function breakdownSinceLabel(period: string): string {
-  return `${DIVIDEND_LABELS.sinceKpi}${period.slice(0, 4)}`;
-}
-
-/** Security data the Breakdown selector shows. */
-export type DividendSecurityMeta = { name: string; isin: string | null; cryptoSymbol: string | null; assetType: AssetType };
-
-/** Selector lines of a Security: type, ISIN (or crypto symbol) and WKN, `–` where missing. */
-export function breakdownSecurityFacts(meta: DividendSecurityMeta | undefined): [string, string][] {
-  if (!meta) return [];
-  const facts: [string, string][] = [[DIVIDEND_LABELS.type, ASSET_TYPE_LABELS[meta.assetType] ?? meta.assetType]];
-  if (meta.cryptoSymbol !== null) facts.push([DIVIDEND_LABELS.symbol, meta.cryptoSymbol]);
-  else facts.push([DIVIDEND_LABELS.isin, meta.isin ?? DIVIDEND_MISSING]);
-  facts.push([DIVIDEND_LABELS.wkn, wknOf(meta.isin) ?? DIVIDEND_MISSING]);
-  return facts;
 }

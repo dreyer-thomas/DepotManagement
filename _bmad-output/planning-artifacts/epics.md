@@ -1022,14 +1022,14 @@ So that I see which holdings pay when and whether my income grows.
 **Acceptance Criteria:**
 
 **Given** the "Analysen" tab "Dividenden" (Story 7.5)
-**When** I open the views "Monatlich (pro Jahr)" (the former "Monate", January–December of the chosen year) or the new "Monatlich (fortl.)" (every month since the first dividend on one time axis)
+**When** I open the view "Monatlich (pro Jahr)" (the former "Monate", January–December of the chosen year; the year is chosen in the card header with a year field and previous/next arrows)
 **Then** each month's bar is stacked by Security, one stable colour per Security, with the month total above the bar
 **And** hover (tap on phones) on a segment shows logo, name, amount of that Security and the month total
 **And** a new view "Akkumuliert (pro Jahr)" draws one line per year, cumulative from January to December, all years overlaid with a legend; a "Prognose" switch extends the current year's line, dashed, with the expected payments of Story 7.5 (marked as an estimate)
 **And** the former "Kumuliert" view stays as "Akkumuliert" (all-time cumulative)
-**And** a new view "Breakdown" shows the stacked monthly bars with a Security selector (logo, name, type, ISIN, WKN; up/down arrows step through the paying Securities); the chosen Security's segments are highlighted, the others dimmed; KPIs "Im <Monat>" (amount in the clicked month, default the latest month with a payment), "Seit Jan. <Jahr>" (sum since January of that year) and "Pers. Div-Rendite" (its dividends of the last 12 months ÷ its current Cost Basis; "–" when not held)
 **And** the Brutto/Netto toggle and the scope (Portfolio or one Depot) apply to every view; "Wertpapiere" and "Erwartet" stay unchanged
-**And** the per-Security monthly split, the yearly cumulative lines and the yield on cost come from `core/dividend-analysis` over the ledger, with unit tests
+**And** the per-Security monthly split and the yearly cumulative lines come from `core/dividend-analysis` over the ledger, with unit tests
+**And** (amended 2026-10-27 after use) the views "Monatlich (fortl.)" and "Breakdown" are removed: too cluttered in practice
 
 ### Story 7.8: Security Analyses
 

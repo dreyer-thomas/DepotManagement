@@ -214,3 +214,5 @@ NEW: ... by asset type (ETF, Fonds, Aktie, Zertifikat, Krypto, Guthaben, Unklass
 **Trigger.** Tommy wants Parqet's per-Security analyses: performance heatmap (quarters/months) and the chart tabs Performance and Kurs with moving average.
 
 **Change.** New Story 7.8 "Security Analyses" on Security detail: Position heatmap (TTWROR, Q | M, link to the Portfolio heatmap), chart option "Performance" (cumulative TTWROR %), optional moving-average overlay (200/38 days) on "Kurs". Reuses the Story 7.3 core heatmap. FR-22 wording and EXPERIENCE.md Security detail row extended. Sprint status gains 7-8-security-analyses.
+
+**Amendment to Addendum J (2026-10-27).** After use, Tommy found "Monatlich (fortl.)" and "Breakdown" cluttered: both views are removed; "Monatlich (pro Jahr)" gets a year switcher (year field with previous/next arrows) in its card header. Core keeps the per-Security yield on cost (unused by the UI for now).
