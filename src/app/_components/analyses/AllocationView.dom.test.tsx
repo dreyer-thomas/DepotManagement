@@ -74,6 +74,40 @@ describe("AllocationView", () => {
     expect(screen.queryByRole("list", { name: "Positionen: Technologie" })).toBeNull();
   });
 
+  it("shows a split fund's share of the region under its name", async () => {
+    // Acceptance: MSCI World ETF 1.000 € (World rule) and a US stock 500 €; "USA" lists both.
+    const user = userEvent.setup({ delay: null });
+    const holdings: AllocationHolding[] = [
+      { securityId: "aapl", securityName: "Apple", assetType: "STOCK", depotId: "a", depotName: "Hauptdepot", value: "500", group: "USA" },
+      ...[
+        ["USA", "720", "0.72"],
+        ["Europa", "150", "0.15"],
+        ["Japan", "60", "0.06"],
+        ["Pazifik ohne Japan", "40", "0.04"],
+        ["Sonstige", "30", "0.03"],
+      ].map(([group, value, weight]) => ({
+        securityId: "world",
+        securityName: "MSCI World ETF",
+        assetType: "ETF",
+        depotId: "a",
+        depotName: "Hauptdepot",
+        value,
+        group,
+        weight,
+      })),
+    ];
+    const result = allocation(holdings, "0", ALLOCATION_LABELS);
+    renderView({ scope: "a", dimensionLabel: "Region", segments: result.segments, positions: result.positions, showDepot: false });
+    expect(legendRows().map((row) => row.textContent?.split(/\d/)[0])).toEqual(["USA", "Europa", "Japan", "Pazifik ohne Japan", "Sonstige"]);
+    expect(legendRows()[0].textContent).toContain(`1.220,00${NBSP}€`);
+    await user.click(legendRows()[0]);
+    const items = within(screen.getByRole("list", { name: "Positionen: USA" })).getAllByRole("listitem");
+    expect(items.map((item) => item.textContent)).toEqual([
+      `MWMSCI World ETF72${NBSP}% des Fonds720,00${NBSP}€48,0${NBSP}%`,
+      `APApple500,00${NBSP}€33,3${NBSP}%`,
+    ]);
+  });
+
   it("hides the Depot name in a Depot scope", async () => {
     const user = userEvent.setup({ delay: null });
     renderView(props({ scope: "a", showDepot: false }));

@@ -173,7 +173,7 @@ const REGION_RULES: readonly [RegExp, Region, string | null][] = [
 ];
 
 /** Exclusion phrases such as "ex Japan" / "ex USA" name what an index leaves out; dropped before region matching. */
-const EXCLUSION = /(?<![\p{L}\p{N}])ex[\s-]+[\p{L}\p{N}]+/giu;
+export const EXCLUSION = /(?<![\p{L}\p{N}])ex[\s-]+[\p{L}\p{N}]+/giu;
 
 const CURRENCY_TOKEN = /(?<![\p{L}\p{N}])(USD|EUR|GBP|CHF|JPY)(?![\p{L}\p{N}])/u;
 

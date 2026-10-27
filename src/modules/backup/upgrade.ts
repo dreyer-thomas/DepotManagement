@@ -11,6 +11,16 @@ export const UPGRADES: Readonly<Record<number, ExportUpgrade>> = {
   1: (document) => ({ ...document, schemaVersion: 2, classifications: [] }),
   // Version 3 (story 8.3) adds the tax settings; a version-2 export has none.
   2: (document) => ({ ...document, schemaVersion: 3, taxAllowances: [], teilfreistellungOverrides: [] }),
+  // Version 4 (story 8.4) adds the manual region split per classification; a version-3 export has none.
+  3: (document) => ({
+    ...document,
+    schemaVersion: 4,
+    classifications: Array.isArray(document.classifications)
+      ? document.classifications.map((classification: unknown) =>
+          isRecord(classification) ? { ...classification, regionSplit: null } : classification,
+        )
+      : document.classifications,
+  }),
 };
 
 export type UpgradeResult =

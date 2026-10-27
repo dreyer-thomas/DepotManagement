@@ -24,7 +24,7 @@ vi.mock("@/app/_actions/prices", () => ({
 
 import { prisma } from "@/db";
 import { createDepot, ensureSecurity, recordTrade } from "@/modules/ledger";
-import { setManualClassification } from "@/modules/classification";
+import { refreshClassifications, setManualClassification, setManualRegionSplit } from "@/modules/classification";
 import { setMapping } from "@/modules/prices";
 import { setTeilfreistellungOverride } from "@/modules/tax";
 import { MappingAutoResolver } from "../../_components/securities/MappingAutoResolver";
@@ -118,6 +118,26 @@ describe("Securities page", () => {
     expect(html).toContain('aria-label="Teilfreistellung bearbeiten – MSCI World"');
     expect(html).toContain(`aria-label="Teilfreistellung bearbeiten – ${bonds.name}"`);
     expect(html).not.toContain('aria-label="Teilfreistellung bearbeiten – SAP"');
+  });
+
+  it("shows the region split line of funds and passes the splits on", async () => {
+    const world = await security({ isin: "IE00B4L5Y983" }, "iShares Core MSCI World UCITS ETF", "ETF");
+    const em = await security({ isin: "IE00BKM4GZ66" }, "iShares Core MSCI EM IMI UCITS ETF", "ETF");
+    await security({ isin: "DE0007164600" }, "SAP", "STOCK");
+    await refreshClassifications({ quoteSummary: async () => ({}), now: () => new Date("2026-10-27T08:00:00.000Z") });
+    expect(await setManualRegionSplit(em.id, { Schwellenländer: "90", Sonstige: "10" })).toMatchObject({ ok: true });
+
+    const tree = await SecuritiesPage();
+    const splits = findElement(tree, SecurityList)?.props.regionSplits as Record<string, { effective: { source: string } | null }>;
+    expect(splits[world.id].effective?.source).toBe("rule");
+    expect(splits[em.id].effective?.source).toBe("manual");
+    const text = renderText(tree);
+    expect(text).toContain(
+      "Regionen: USA 72\u00a0% · Europa 15\u00a0% · Japan 6\u00a0% · Pazifik ohne Japan 4\u00a0% · Sonstige 3\u00a0% (Regel MSCI World, Stand 30.09.2026)",
+    );
+    expect(text).toContain("Regionen: Schwellenländer 90\u00a0% · Sonstige 10\u00a0% (manuell)");
+    expect(text.match(/Regionen:/g)).toHaveLength(2);
+    expect(renderHtml(tree)).not.toContain('aria-label="Regionen bearbeiten – SAP"');
   });
 
   it("shows each Security's classification summary, manual values winning, and passes the classifications on", async () => {

@@ -2,7 +2,8 @@
  * Allocation of a Portfolio or Depot by one classification dimension (FR-21, story 7.2): valued holdings
  * grouped by the dimension's effective value, plus cash, as ordered segments with the composition share
  * logic (exact shares sum to 1, display shares to 1.000), and the Positions of each segment. Pure and
- * label-free: the shell passes each holding's group label and the German labels in. No ETF look-through.
+ * label-free: the shell passes each holding's group label and the German labels in. No ETF look-through; a
+ * fund split by region (story 8.4) arrives as one holding per region with its `weight`.
  */
 import {
   type CompositionCash,
@@ -16,8 +17,11 @@ import {
 } from "./composition";
 import { ExactDecimal, canonicalDecimal } from "./decimal";
 
-/** A valued holding with its group label in the chosen dimension (`null` = unclassified). */
-export type AllocationHolding = CompositionHolding & { group: string | null };
+/**
+ * A valued holding with its group label in the chosen dimension (`null` = unclassified). `weight` is set on
+ * one region's part of a split fund: the fraction of the fund's value in this group (decimal string).
+ */
+export type AllocationHolding = CompositionHolding & { group: string | null; weight?: string };
 
 export type AllocationLabels = { cash: string; unknown: string };
 
@@ -31,6 +35,8 @@ export type AllocationPosition = {
   value: string;
   /** Exact `value / total of the scope incl. cash` (decimal string). */
   share: string;
+  /** Fraction of the fund's value in this segment (split fund only; decimal string). */
+  weight?: string;
 };
 
 export type Allocation = {
@@ -74,6 +80,7 @@ export function allocation(holdings: readonly AllocationHolding[], cash: Composi
       depotName: holding.depotName,
       value: canonicalDecimal(holding.value),
       share: canonicalDecimal(new ExactDecimal(holding.value).div(total).toDecimalPlaces(SHARE_DECIMALS, ExactDecimal.ROUND_HALF_UP)),
+      ...(holding.weight !== undefined ? { weight: holding.weight } : {}),
     });
   }
   for (const list of Object.values(positions)) {

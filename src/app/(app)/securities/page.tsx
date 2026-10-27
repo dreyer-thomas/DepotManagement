@@ -9,24 +9,25 @@ import { MappingAutoResolver } from "@/app/_components/securities/MappingAutoRes
 import { PriceRefreshButton } from "@/app/_components/securities/PriceRefreshButton";
 import { SecurityList } from "@/app/_components/securities/SecurityList";
 import { businessDate } from "@/core/dates";
-import { listClassifications } from "@/modules/classification";
+import { listClassifications, listRegionSplits } from "@/modules/classification";
 import { listManualPrices, listSecuritiesWithMappings, securityPriceInfo } from "@/modules/prices";
 import { listTeilfreistellungOverrides } from "@/modules/tax";
 
 export const metadata: Metadata = { title: "Wertpapiere" };
 
 /**
- * All Securities with their classification, Teilfreistellung (funds), price source, latest price date and manual Prices. Missing mappings are resolved and
+ * All Securities with their classification, Teilfreistellung and region split (funds), price source, latest price date and manual Prices. Missing mappings are resolved and
  * Prices refreshed by the client after render (never during render or `next build`).
  */
 export default async function SecuritiesPage() {
   const today = businessDate(new Date());
-  const [securities, prices, manualPrices, classifications, teilfreistellungOverrides] = await Promise.all([
+  const [securities, prices, manualPrices, classifications, teilfreistellungOverrides, regionSplits] = await Promise.all([
     listSecuritiesWithMappings(),
     securityPriceInfo(today),
     listManualPrices(),
     listClassifications(),
     listTeilfreistellungOverrides(),
+    listRegionSplits(),
   ]);
   const pending = securities.filter((security) => security.mapping === null).length;
   return (
@@ -50,6 +51,7 @@ export default async function SecuritiesPage() {
             manualPrices={manualPrices}
             classifications={classifications}
             teilfreistellungOverrides={teilfreistellungOverrides}
+            regionSplits={regionSplits}
             today={today}
           />
         </>

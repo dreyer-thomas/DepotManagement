@@ -132,6 +132,20 @@ afterEach(async () => {
   for (const dir of scratch.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
+type ClassificationRecord = Record<string, unknown> & { regionSplit?: unknown };
+
+/** Classification records as a version-3 file has them (no `regionSplit` key). */
+function withoutRegionSplits(records: ClassificationRecord[]): ClassificationRecord[] {
+  return records.map((record) => Object.fromEntries(Object.entries(record).filter(([key]) => key !== "regionSplit")));
+}
+
+/** The records that still have a manual dimension value once their region splits are gone. */
+function onlyOverrides(records: ClassificationRecord[]): ClassificationRecord[] {
+  return records
+    .map((record) => ({ ...record, regionSplit: null }))
+    .filter((record) => Object.entries(record).some(([key, value]) => !["id", "securityId", "regionSplit"].includes(key) && value !== null));
+}
+
 describe("restoreExport", () => {
   it("round-trips: restoring into an empty instance yields a byte-identical export and equal evaluations", async () => {
     await seedFullLedger(source.testDb.client, source.dataDir);
@@ -159,8 +173,17 @@ describe("restoreExport", () => {
     expect(logo).toMatchObject({ id: "logo-b", source: "MANUAL", provider: null, contentType: "image/png", fetchedAt: TS });
     expect(readFileSync(join(target.dataDir, "logos", logo.fileName as string))).toEqual(PNG);
     // Manual classification overrides are back; their automatic layer waits for the next refresh.
-    expect(await target.testDb.client.securityClassification.findMany()).toEqual([
-      expect.objectContaining({ id: "cls-b", securityId: "sec-b", sectorManual: "Halbleiter", sector: null, providerSymbol: null }),
+    // The manual region split is back too; the rule split cache is not.
+    expect(await target.testDb.client.securityClassification.findMany({ orderBy: { id: "asc" } })).toEqual([
+      expect.objectContaining({
+        id: "cls-a",
+        securityId: "sec-a",
+        regionSplitManual: '{"USA":"60","Europa":"37.5","Sonstige":"2.5"}',
+        regionSplit: null,
+        regionSplitIndex: null,
+        region: null,
+      }),
+      expect.objectContaining({ id: "cls-b", securityId: "sec-b", sectorManual: "Halbleiter", sector: null, providerSymbol: null, regionSplitManual: null }),
     ]);
     // Tax settings are back.
     expect(await target.testDb.client.taxAllowance.findMany({ orderBy: { id: "asc" } })).toEqual([
@@ -173,7 +196,7 @@ describe("restoreExport", () => {
     // The automatic export of the (empty) target was written first.
     expect(readdirSync(target.backupDir)).toEqual([BACKUP_NAME]);
     expect(JSON.parse(readFileSync(join(target.backupDir, BACKUP_NAME), "utf8"))).toMatchObject({
-      schemaVersion: 3,
+      schemaVersion: 4,
       depots: [],
       classifications: [],
       taxAllowances: [],
@@ -214,7 +237,8 @@ describe("restoreExport", () => {
   it("restores a version-2 file with no tax settings, replacing the previous ones", async () => {
     await seedFullLedger(source.testDb.client, source.dataDir);
     const current = JSON.parse(await exportOf(source));
-    const version2 = { ...current, schemaVersion: 2 };
+    const version3Classifications = withoutRegionSplits(current.classifications);
+    const version2 = { ...current, schemaVersion: 2, classifications: version3Classifications };
     delete version2.taxAllowances;
     delete version2.teilfreistellungOverrides;
     await target.testDb.client.taxAllowance.create({ data: { broker: "COMDIRECT", year: 2024, amount: "100", updatedAt: TS } });
@@ -222,7 +246,23 @@ describe("restoreExport", () => {
     expect(await restoreInto(target, JSON.stringify(version2))).toEqual({ ok: true, backupFileName: BACKUP_NAME });
     expect(await target.testDb.client.taxAllowance.count()).toBe(0);
     expect(await target.testDb.client.teilfreistellungOverride.count()).toBe(0);
-    expect(JSON.parse(await exportOf(target))).toEqual({ ...current, taxAllowances: [], teilfreistellungOverrides: [] });
+    expect(JSON.parse(await exportOf(target))).toEqual({
+      ...current,
+      classifications: onlyOverrides(current.classifications),
+      taxAllowances: [],
+      teilfreistellungOverrides: [],
+    });
+  });
+
+  it("restores a version-3 file with no manual region splits, replacing the previous ones", async () => {
+    await seedFullLedger(source.testDb.client, source.dataDir);
+    const current = JSON.parse(await exportOf(source));
+    const version3 = { ...current, schemaVersion: 3, classifications: withoutRegionSplits(current.classifications) };
+    await seedFullLedger(target.testDb.client, target.dataDir);
+
+    expect(await restoreInto(target, JSON.stringify(version3))).toEqual({ ok: true, backupFileName: expect.any(String) });
+    expect(await target.testDb.client.securityClassification.count({ where: { regionSplitManual: { not: null } } })).toBe(0);
+    expect(JSON.parse(await exportOf(target))).toEqual({ ...current, classifications: onlyOverrides(current.classifications) });
   });
 
   it("accepts a file with a UTF-8 byte order mark", async () => {
@@ -278,7 +318,7 @@ describe("restoreExport", () => {
     });
 
     it("a newer schema version", async () => {
-      await expectRejected(JSON.stringify({ ...file, schemaVersion: 4 }), { ok: false, reason: "version-unsupported" });
+      await expectRejected(JSON.stringify({ ...file, schemaVersion: 5 }), { ok: false, reason: "version-unsupported" });
     });
 
     it("a dangling reference", async () => {

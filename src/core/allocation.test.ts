@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { type AllocationHolding, allocation } from "./allocation";
 import type { CompositionSegment } from "./composition";
 import { ExactDecimal } from "./decimal";
+import { distributeByRegion } from "./region-split";
 
 const LABELS = { cash: "Guthaben", unknown: "Unbekannt" };
 
@@ -100,5 +101,30 @@ describe("allocation", () => {
   it("leaves out an Unbekannt segment of zero", () => {
     const result = allocation([holding("a", "100", "Aktien")], "0", LABELS);
     expect(result.segments.map((s) => s.key)).toEqual(["group:Aktien"]);
+  });
+
+  it("adds a split fund to each region with its weight; slices and the scope total stay exact", () => {
+    // Acceptance: an MSCI World ETF worth 1.000 € and a US stock worth 500 €, by Region.
+    const fund = distributeByRegion("1000", [
+      { region: "USA", weight: "72" },
+      { region: "Europa", weight: "15" },
+      { region: "Japan", weight: "6" },
+      { region: "Pazifik ohne Japan", weight: "4" },
+      { region: "Sonstige", weight: "3" },
+    ]).map((slice) => holding("etf", slice.value, slice.region, { assetType: "ETF", weight: slice.weight }));
+    const result = allocation([...fund, holding("aapl", "500", "USA")], "0", LABELS);
+    expect(brief(result.segments)).toEqual([
+      ["group:USA", "USA", "1220", "0.813"],
+      ["group:Europa", "Europa", "150", "0.100"],
+      ["group:Japan", "Japan", "60", "0.040"],
+      ["group:Pazifik ohne Japan", "Pazifik ohne Japan", "40", "0.027"],
+      ["group:Sonstige", "Sonstige", "30", "0.020"],
+    ]);
+    expect(sum(result.segments.map((s) => s.amount))).toBe("1500");
+    expect(result.positions["group:USA"].map((p) => [p.securityId, p.value, p.weight])).toEqual([
+      ["etf", "720", "0.72"],
+      ["aapl", "500", undefined],
+    ]);
+    expect(result.positions["group:USA"][1]).not.toHaveProperty("weight");
   });
 });

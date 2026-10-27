@@ -1,5 +1,7 @@
 import type { Classification, Dimension, DimensionValue, EffectiveSource } from "@/core/classification";
-import type { ClassificationFailureReason } from "@/modules/classification";
+import { formatDate, formatQuantity } from "@/core/format";
+import type { EffectiveRegionSplit } from "@/core/region-split";
+import type { ClassificationFailureReason, RegionSplitFailureReason } from "@/modules/classification";
 import type { AssetType } from "@/modules/ledger";
 import type { PriceProvider, ProviderMappingSummary, SetMappingFailureReason } from "@/modules/prices";
 import { securityTypeLabel } from "@/app/_components/migration/labels";
@@ -140,4 +142,38 @@ export function classificationErrorField(reason: ClassificationErrorReason): Dim
     "currency-invalid": "currency",
   };
   return fields[reason] ?? null;
+}
+
+// ---- Region split of funds (story 8.4) ----
+
+/** A percent weight as German text: `"72"` → `"72 %"`, `"2.5"` → `"2,5 %"`. */
+export function weightPercent(weight: string): string {
+  return `${formatQuantity(weight)} %`;
+}
+
+/**
+ * Card line of a fund's effective region split: "Regionen: USA 72 % · Europa 15 % · … (Regel MSCI World,
+ * Stand 30.09.2026)" or "… (manuell)"; null without a split.
+ */
+export function regionSplitSummary(split: EffectiveRegionSplit | null | undefined): string | null {
+  if (!split) return null;
+  const parts = split.weights.map((weight) => `${weight.region} ${weightPercent(weight.weight)}`).join(" · ");
+  const origin = split.source === "manual" ? "manuell" : `Regel ${split.index}, Stand ${split.asOf ? formatDate(split.asOf) : "–"}`;
+  return `Regionen: ${parts} (${origin})`;
+}
+
+export type RegionSplitErrorReason = RegionSplitFailureReason | "unauthorized" | "action-failed";
+
+const REGION_SPLIT_ERROR_MESSAGES: Record<RegionSplitErrorReason, string> = {
+  "not-found": "Wertpapier nicht gefunden.",
+  "not-a-fund": "Eine Regionen-Aufteilung gibt es nur für ETFs und Fonds.",
+  "split-invalid": "Bitte je Region einen Anteil von 0 bis 100 % mit höchstens zwei Nachkommastellen eingeben.",
+  "split-sum": "Die Anteile müssen zusammen 100 % ergeben.",
+  unauthorized: "Sitzung abgelaufen. Bitte erneut anmelden.",
+  "action-failed": ACTION_FAILED_MESSAGE,
+};
+
+/** German message for a failed region split save. */
+export function regionSplitErrorMessage(reason: string): string {
+  return REGION_SPLIT_ERROR_MESSAGES[reason as RegionSplitErrorReason] ?? ACTION_FAILED_MESSAGE;
 }

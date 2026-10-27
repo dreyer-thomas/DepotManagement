@@ -24,6 +24,17 @@ import {
   ruleValues,
   sameLayer,
 } from "@/core/classification";
+import {
+  deserializeRegionSplit,
+  effectiveRegionSplit,
+  type EffectiveRegionSplit,
+  parseRegionSplit,
+  type RegionWeights,
+  regionSplitRule,
+  type RuleRegionSplit,
+  serializeRegionSplit,
+  type SplitRegion,
+} from "@/core/region-split";
 import { prisma } from "@/db";
 import type { Prisma } from "@/db/generated/prisma/client";
 import { getSecurity } from "@/modules/ledger";
@@ -129,11 +140,39 @@ async function providerFor(security: SecurityWithMapping, row: Row | undefined, 
   return { kind: "fetched", symbol: mapping.symbol, layer: lookup.status === "found" ? providerValues(lookup.value) : null };
 }
 
-/** Writes the automatic layer (and provider markers) of one Security when anything changed. */
+/** The rule-split cache columns of a split (all null without one). */
+function ruleSplitColumns(split: RuleRegionSplit | null) {
+  return {
+    regionSplit: split ? serializeRegionSplit(split.weights) : null,
+    regionSplitSource: split ? ("RULE" as const) : null,
+    regionSplitAsOf: split?.asOf ?? null,
+    regionSplitIndex: split?.index ?? null,
+  };
+}
+
+/** The stored rule split of a row (null when absent or unreadable). */
+function ruleSplitOf(row: Row): RuleRegionSplit | null {
+  const weights = deserializeRegionSplit(row.regionSplit);
+  if (!weights || row.regionSplitSource !== "RULE" || row.regionSplitIndex === null || row.regionSplitAsOf === null) return null;
+  return { weights, index: row.regionSplitIndex, asOf: row.regionSplitAsOf };
+}
+
+function sameRuleSplit(row: Row, split: RuleRegionSplit | null): boolean {
+  const columns = ruleSplitColumns(split);
+  return (
+    row.regionSplit === columns.regionSplit &&
+    row.regionSplitSource === columns.regionSplitSource &&
+    row.regionSplitAsOf === columns.regionSplitAsOf &&
+    row.regionSplitIndex === columns.regionSplitIndex
+  );
+}
+
+/** Writes the automatic layer, the rule split (and provider markers) of one Security when anything changed. */
 async function storeAutomatic(
   securityId: string,
   row: Row | undefined,
   layer: AutomaticLayer,
+  split: RuleRegionSplit | null,
   provider: ProviderOutcome,
   isStock: boolean,
   now: Date,
@@ -142,9 +181,10 @@ async function storeAutomatic(
   const fetched = provider.kind === "fetched";
   // A non-stock has no provider values: forget the answered symbol so a return to STOCK refetches.
   const clearProvider = !isStock && (row?.providerSymbol != null || row?.providerFetchedAt != null);
-  if (row && !fetched && !clearProvider && sameLayer(automaticOf(row), layer)) return null;
+  if (row && !fetched && !clearProvider && sameLayer(automaticOf(row), layer) && sameRuleSplit(row, split)) return null;
   const data = {
     ...automaticColumns(layer),
+    ...ruleSplitColumns(split),
     ...(fetched ? { providerSymbol: provider.symbol, providerFetchedAt: now.toISOString() } : {}),
     ...(clearProvider ? { providerSymbol: null, providerFetchedAt: null } : {}),
     updatedAt: now.toISOString(),
@@ -155,8 +195,8 @@ async function storeAutomatic(
 /**
  * Refreshes the automatic layer of every Security (serialized with other runs in this process):
  * non-certificates first (rules; stocks with a Yahoo mapping also fetch the provider profile once per
- * symbol), then certificates against the effective values of the others. Only changed rows are written;
- * manual columns are never touched. A failed provider fetch keeps the rule values and leaves the provider
+ * symbol), then certificates against the effective values of the others; ETFs/funds also get their rule
+ * region split (story 8.4). Only changed rows are written; manual columns (incl. the manual split) are never touched. A failed provider fetch keeps the rule values and leaves the provider
  * pending (retried by the next run). Never throws for a single Security.
  */
 export function refreshClassifications(deps: ClassificationDeps = {}, db: ClassificationDb = prisma): Promise<ClassificationRunResult> {
@@ -176,7 +216,9 @@ export function refreshClassifications(deps: ClassificationDeps = {}, db: Classi
         // A fetched "no data" answer is an empty provider result: rule values replace old provider values.
         const fresh = provider.kind === "fetched" ? (provider.layer ?? emptyLayer()) : null;
         const layer = mergeAutomatic(row ? automaticOf(row) : null, rules, fresh, assetType);
-        const written = await storeAutomatic(security.id, row, layer, provider, assetType === "STOCK", nowOf(deps), db);
+        // Only ETFs and funds get a rule split; every other type clears a stale one.
+        const split = assetType === "ETF" || assetType === "FUND" ? regionSplitRule(security.name) : null;
+        const written = await storeAutomatic(security.id, row, layer, split, provider, assetType === "STOCK", nowOf(deps), db);
         if (written) result.updated += 1;
         else result.unchanged += 1;
         const current = written ?? row;
@@ -288,3 +330,59 @@ export async function setManualClassification(
   };
 }
 
+
+// ---- Region split of funds (story 8.4) ----
+
+/** The region split of one Security: effective (manual ?? rule, see core), plus both layers for editing. */
+export type RegionSplitInfo = {
+  effective: EffectiveRegionSplit | null;
+  manual: RegionWeights | null;
+  rule: RuleRegionSplit | null;
+};
+
+/** Region split per Security id (every Security; non-funds and Securities without a row have none). */
+export async function listRegionSplits(db: ClassificationDb = prisma): Promise<Record<string, RegionSplitInfo>> {
+  const [securities, rows] = await Promise.all([listSecuritiesWithMappings(db), db.securityClassification.findMany()]);
+  const byId = new Map(rows.map((row) => [row.securityId, row]));
+  const result: Record<string, RegionSplitInfo> = {};
+  for (const security of securities) {
+    const row = byId.get(security.id);
+    const manual = row ? deserializeRegionSplit(row.regionSplitManual) : null;
+    const rule = row ? ruleSplitOf(row) : null;
+    result[security.id] = {
+      effective: effectiveRegionSplit({ assetType: security.assetType, manual, manualRegion: row?.regionManual ?? null, rule }),
+      manual,
+      rule,
+    };
+  }
+  return result;
+}
+
+export type RegionSplitFailureReason = "not-found" | "not-a-fund" | "split-invalid" | "split-sum";
+
+export type SetManualRegionSplitResult = { ok: true; manual: RegionWeights | null } | { ok: false; reason: RegionSplitFailureReason };
+
+/**
+ * Sets (or, with every region empty, clears) the manual region split of an ETF/fund. Validated before
+ * anything is written; the rule split and every other column are left untouched.
+ */
+export async function setManualRegionSplit(
+  securityId: string,
+  input: Partial<Record<SplitRegion, unknown>>,
+  db: ClassificationDb = prisma,
+  now: () => Date = () => new Date(),
+): Promise<SetManualRegionSplitResult> {
+  const security = securityId ? await getSecurity(securityId, db) : null;
+  if (!security) return { ok: false, reason: "not-found" };
+  if (security.assetType !== "ETF" && security.assetType !== "FUND") return { ok: false, reason: "not-a-fund" };
+  const parsed = parseRegionSplit(input);
+  if (!parsed.ok) return parsed;
+  const regionSplitManual = parsed.weights ? serializeRegionSplit(parsed.weights) : null;
+  const updatedAt = now().toISOString();
+  await db.securityClassification.upsert({
+    where: { securityId },
+    create: { securityId, regionSplitManual, updatedAt },
+    update: { regionSplitManual, updatedAt },
+  });
+  return { ok: true, manual: parsed.weights };
+}

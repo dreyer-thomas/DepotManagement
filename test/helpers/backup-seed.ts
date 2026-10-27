@@ -53,7 +53,8 @@ export async function seedFullLedger(c: PrismaClient, dataDir: string): Promise<
   await c.price.create({ data: { id: "p-1", securityId: "sec-a", date: "2026-02-01", source: "MANUAL", price: "10.50", fetchedAt: TS } });
   writeLogo(dataDir, "sec-b-1.png");
   await c.securityLogo.create({ data: { id: "logo-b", securityId: "sec-b", source: "MANUAL", fileName: "sec-b-1.png", contentType: "image/png", fetchedAt: TS } });
-  // Classification: manual overrides of sec-b (exported); sec-a has only automatic values (a cache, not exported).
+  // Classification: manual overrides of sec-b (exported); sec-a has automatic values and a rule split (a cache, not
+  // exported) plus a manual region split (exported).
   await c.securityClassification.create({
     data: {
       id: "cls-b",
@@ -71,7 +72,21 @@ export async function seedFullLedger(c: PrismaClient, dataDir: string): Promise<
     },
   });
   await c.securityClassification.create({
-    data: { id: "cls-a", securityId: "sec-a", assetClass: "Aktien", assetClassSource: "RULE", region: "Welt", regionSource: "RULE", updatedAt: TS },
+    data: {
+      id: "cls-a",
+      securityId: "sec-a",
+      assetClass: "Aktien",
+      assetClassSource: "RULE",
+      region: "Welt",
+      regionSource: "RULE",
+      // Rule split (a cache, not exported) and a manual region split (story 8.4, exported).
+      regionSplit: '{"USA":"72","Europa":"15","Japan":"6","Pazifik ohne Japan":"4","Sonstige":"3"}',
+      regionSplitSource: "RULE",
+      regionSplitAsOf: "2026-09-30",
+      regionSplitIndex: "MSCI World",
+      regionSplitManual: '{"USA":"60","Europa":"37.5","Sonstige":"2.5"}',
+      updatedAt: TS,
+    },
   });
   // Tax settings (story 8.3): Freistellungsaufträge and a Teilfreistellung override.
   await c.taxAllowance.create({ data: { id: "fsa-2", broker: "FINANZEN_ZERO", year: 2026, amount: "199", updatedAt: TS } });

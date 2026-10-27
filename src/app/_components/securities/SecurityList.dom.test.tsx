@@ -22,7 +22,7 @@ vi.mock("@/app/_actions/prices", () => ({
 }));
 
 vi.mock("@/app/_actions/logos", () => ({ uploadLogoAction: vi.fn() }));
-vi.mock("@/app/_actions/classification", () => ({ setClassificationAction: vi.fn() }));
+vi.mock("@/app/_actions/classification", () => ({ setClassificationAction: vi.fn(), setRegionSplitAction: vi.fn() }));
 vi.mock("@/app/_actions/tax", () => ({ setTeilfreistellungAction: vi.fn() }));
 
 registerDomCleanup();
@@ -162,6 +162,48 @@ describe("SecurityList", () => {
     expect(screen.getAllByRole("button", { name: /^Teilfreistellung bearbeiten/ }).map((button) => button.getAttribute("aria-label"))).toEqual([
       "Teilfreistellung bearbeiten – MSCI World",
       "Teilfreistellung bearbeiten – Rentenfonds",
+    ]);
+  });
+
+  it("shows the region split line of funds with a split and the Regionen button for every fund", () => {
+    const funds: SecurityWithMapping[] = [
+      { id: "f1", name: "MSCI World", isin: "IE00B4L5Y983", cryptoSymbol: null, assetType: "ETF", mapping: null },
+      { id: "f2", name: "Rentenfonds", isin: "DE0008474008", cryptoSymbol: null, assetType: "FUND", mapping: null },
+      { id: "f3", name: "Mein Fonds", isin: "DE0008474009", cryptoSymbol: null, assetType: "FUND", mapping: null },
+      ...securities,
+    ];
+    const world = [
+      { region: "USA" as const, weight: "72" },
+      { region: "Europa" as const, weight: "15" },
+      { region: "Japan" as const, weight: "6" },
+      { region: "Pazifik ohne Japan" as const, weight: "4" },
+      { region: "Sonstige" as const, weight: "3" },
+    ];
+    const manual = [
+      { region: "USA" as const, weight: "60" },
+      { region: "Europa" as const, weight: "37.5" },
+      { region: "Sonstige" as const, weight: "2.5" },
+    ];
+    render(
+      <SecurityList
+        securities={funds}
+        today="2026-10-26"
+        regionSplits={{
+          f1: { effective: { weights: world, source: "rule", index: "MSCI World", asOf: "2026-09-30" }, manual: null, rule: null },
+          f2: { effective: null, manual: null, rule: null },
+          f3: { effective: { weights: manual, source: "manual", index: null, asOf: null }, manual, rule: null },
+        }}
+      />,
+    );
+    expect(
+      screen.getByText("Regionen: USA 72 % · Europa 15 % · Japan 6 % · Pazifik ohne Japan 4 % · Sonstige 3 % (Regel MSCI World, Stand 30.09.2026)"),
+    ).toBeTruthy();
+    expect(screen.getByText("Regionen: USA 60 % · Europa 37,5 % · Sonstige 2,5 % (manuell)")).toBeTruthy();
+    expect(screen.getAllByText(/^Regionen:/)).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: /^Regionen bearbeiten/ }).map((button) => button.getAttribute("aria-label"))).toEqual([
+      "Regionen bearbeiten – MSCI World",
+      "Regionen bearbeiten – Rentenfonds",
+      "Regionen bearbeiten – Mein Fonds",
     ]);
   });
 });

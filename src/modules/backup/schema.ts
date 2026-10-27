@@ -1,13 +1,14 @@
 // The export file contract (story 6.1, AD-12): one versioned JSON document with every stored ledger,
 // price and manual-logo row, the manual classification overrides (version 2, story 7.1) and the tax settings
-// (version 3, story 8.3). Decimals and dates are the stored strings; nothing derived is included.
+// (version 3, story 8.3) and the manual region splits (version 4, story 8.4). Decimals and dates are the stored strings; nothing derived is included.
 // Restore (story 6.2) parses files with this schema; older versions are upgraded before parsing.
 import { z } from "zod";
 import { ASSET_CLASSES, COMPANY_SIZES, CURRENCY_PATTERN, REGIONS } from "@/core/classification";
 import { isBusinessDate } from "@/core/dates";
 import { isDecimalString } from "@/core/decimal";
+import { regionSplitFromRecord, SPLIT_REGIONS, type SplitRegion } from "@/core/region-split";
 
-export const EXPORT_SCHEMA_VERSION = 3;
+export const EXPORT_SCHEMA_VERSION = 4;
 
 const id = z.string().min(1);
 const decimal = z.string().refine(isDecimalString, "decimal string expected");
@@ -103,6 +104,14 @@ export const logoRecordSchema = z.strictObject({
   data: z.base64().min(1),
 });
 
+/**
+ * Manual region split of a fund: percent per split region (canonical decimal, > 0, ≤ 100, at most two
+ * decimals; zero regions omitted), summing to exactly 100.
+ */
+const regionSplitSchema = z
+  .strictObject(Object.fromEntries(SPLIT_REGIONS.map((region) => [region, decimal.optional()])) as Record<SplitRegion, z.ZodOptional<typeof decimal>>)
+  .refine((split) => regionSplitFromRecord(split) !== null, "region split must be canonical percentages summing to 100");
+
 /** Manual classification overrides of one Security (`null` = automatic); the automatic layer is not exported. */
 const classificationText = z.string().min(1).max(80).nullable();
 export const classificationRecordSchema = z.strictObject({
@@ -115,6 +124,7 @@ export const classificationRecordSchema = z.strictObject({
   country: classificationText,
   companySize: z.enum(COMPANY_SIZES).nullable(),
   currency: z.string().regex(CURRENCY_PATTERN).nullable(),
+  regionSplit: regionSplitSchema.nullable(),
 });
 
 /** One Freistellungsauftrag (tax module): EUR amount > 0 per broker and year. */

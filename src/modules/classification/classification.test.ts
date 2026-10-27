@@ -7,9 +7,11 @@ import {
   type ClassificationDeps,
   exportClassifications,
   listClassifications,
+  listRegionSplits,
   refreshClassifications,
   replaceAllClassifications,
   setManualClassification,
+  setManualRegionSplit,
 } from "./index";
 import type { YahooQuoteSummary } from "./providers/yahoo";
 
@@ -326,6 +328,7 @@ describe("exportClassifications / replaceAllClassifications", () => {
         country: null,
         companySize: null,
         currency: "USD",
+        regionSplit: null,
       },
     ]);
 
@@ -343,5 +346,126 @@ describe("exportClassifications / replaceAllClassifications", () => {
     expect(symbols).toEqual(["SAP.DE"]);
     expect((await summary(sap)).sector).toBe("Halbleiter (manual)");
     expect((await summary(sap)).industry).toBe("Software—Application (provider)");
+  });
+});
+
+const WORLD_WEIGHTS = [
+  { region: "USA", weight: "72" },
+  { region: "Europa", weight: "15" },
+  { region: "Japan", weight: "6" },
+  { region: "Pazifik ohne Japan", weight: "4" },
+  { region: "Sonstige", weight: "3" },
+];
+const MANUAL_WEIGHTS = [
+  { region: "USA", weight: "60" },
+  { region: "Europa", weight: "40" },
+];
+
+describe("region splits", () => {
+  it("stores the rule split of ETFs/funds only and counts a split change as an update", async () => {
+    const world = await security({ isin: "IE00B4L5Y983" }, "iShares Core MSCI World UCITS ETF", "ETF");
+    const bond = await security({ isin: "IE00B3F81409" }, "iShares Core Global Aggregate Bond UCITS ETF", "ETF");
+    const sap = await security({ isin: "DE0007164600" }, "SAP SE", "STOCK");
+    await refreshClassifications(deps(yahoo({}).quoteSummary), db());
+
+    const splits = await listRegionSplits(db());
+    expect(splits[world]).toEqual({
+      effective: { weights: WORLD_WEIGHTS, source: "rule", index: "MSCI World", asOf: "2026-09-30" },
+      manual: null,
+      rule: { weights: WORLD_WEIGHTS, index: "MSCI World", asOf: "2026-09-30" },
+    });
+    expect(splits[bond]).toEqual({ effective: null, manual: null, rule: null });
+    expect(splits[sap]).toEqual({ effective: null, manual: null, rule: null });
+    expect(await db().securityClassification.findUnique({ where: { securityId: world } })).toMatchObject({
+      regionSplit: '{"USA":"72","Europa":"15","Japan":"6","Pazifik ohne Japan":"4","Sonstige":"3"}',
+      regionSplitSource: "RULE",
+      regionSplitAsOf: "2026-09-30",
+      regionSplitIndex: "MSCI World",
+      regionSplitManual: null,
+    });
+
+    // Unchanged on the next run; a stale split (e.g. older table) is rewritten and counted.
+    expect(await refreshClassifications(deps(yahoo({}).quoteSummary), db())).toEqual({ updated: 0, unchanged: 3, failed: 0 });
+    await db().securityClassification.update({ where: { securityId: world }, data: { regionSplitAsOf: "2025-12-31" } });
+    expect(await refreshClassifications(deps(yahoo({}).quoteSummary), db())).toEqual({ updated: 1, unchanged: 2, failed: 0 });
+    expect((await listRegionSplits(db()))[world].rule?.asOf).toBe("2026-09-30");
+
+    // A type change away from ETF clears the rule split.
+    await changeSecurityType(world, "STOCK", db());
+    await refreshClassifications(deps(yahoo({}).quoteSummary), db());
+    expect(await db().securityClassification.findUnique({ where: { securityId: world } })).toMatchObject({
+      regionSplit: null,
+      regionSplitSource: null,
+      regionSplitAsOf: null,
+      regionSplitIndex: null,
+    });
+  });
+
+  it("lets a manual split win over the rule, keeps it across refreshes and clears it with all fields empty", async () => {
+    const world = await security({ isin: "IE00B4L5Y983" }, "iShares Core MSCI World UCITS ETF", "ETF");
+    await refreshClassifications(deps(yahoo({}).quoteSummary), db());
+    expect(await setManualRegionSplit(world, { USA: "60", Europa: "40" }, db())).toEqual({ ok: true, manual: MANUAL_WEIGHTS });
+
+    await refreshClassifications(deps(yahoo({}).quoteSummary), db());
+    expect((await listRegionSplits(db()))[world]).toEqual({
+      effective: { weights: MANUAL_WEIGHTS, source: "manual", index: null, asOf: null },
+      manual: MANUAL_WEIGHTS,
+      rule: { weights: WORLD_WEIGHTS, index: "MSCI World", asOf: "2026-09-30" },
+    });
+
+    expect(await setManualRegionSplit(world, { USA: "", Europa: "" }, db())).toEqual({ ok: true, manual: null });
+    expect((await listRegionSplits(db()))[world].effective?.source).toBe("rule");
+  });
+
+  it("has no effective split when the region dimension has a manual value", async () => {
+    const world = await security({ isin: "IE00B4L5Y983" }, "iShares Core MSCI World UCITS ETF", "ETF");
+    await refreshClassifications(deps(yahoo({}).quoteSummary), db());
+    await setManualClassification(world, { region: "Europa" }, db());
+    const split = (await listRegionSplits(db()))[world];
+    expect(split.effective).toBeNull();
+    expect(split.rule?.index).toBe("MSCI World");
+  });
+
+  it("validates before writing", async () => {
+    const world = await security({ isin: "IE00B4L5Y983" }, "iShares Core MSCI World UCITS ETF", "ETF");
+    const sap = await security({ isin: "DE0007164600" }, "SAP SE", "STOCK");
+    expect(await setManualRegionSplit("missing", { USA: "100" }, db())).toEqual({ ok: false, reason: "not-found" });
+    expect(await setManualRegionSplit(sap, { USA: "100" }, db())).toEqual({ ok: false, reason: "not-a-fund" });
+    expect(await setManualRegionSplit(world, { USA: "60", Europa: "39,5" }, db())).toEqual({ ok: false, reason: "split-sum" });
+    expect(await setManualRegionSplit(world, { USA: "-1", Europa: "101" }, db())).toEqual({ ok: false, reason: "split-invalid" });
+    expect(await setManualRegionSplit(world, { USA: "99,995", Europa: "0,005" }, db())).toEqual({ ok: false, reason: "split-invalid" });
+    expect(await db().securityClassification.count()).toBe(0);
+  });
+
+  it("exports and restores a manual split (also on a row without other overrides); the rule split is not exported", async () => {
+    const world = await security({ isin: "IE00B4L5Y983" }, "iShares Core MSCI World UCITS ETF", "ETF");
+    await refreshClassifications(deps(yahoo({}).quoteSummary), db());
+    expect(await exportClassifications(db())).toEqual([]);
+    await setManualRegionSplit(world, { USA: "60", Europa: "40" }, db());
+
+    const exported = await exportClassifications(db());
+    expect(exported).toEqual([
+      {
+        id: expect.any(String),
+        securityId: world,
+        assetClass: null,
+        sector: null,
+        industry: null,
+        region: null,
+        country: null,
+        companySize: null,
+        currency: null,
+        regionSplit: { USA: "60", Europa: "40" },
+      },
+    ]);
+
+    await replaceAllClassifications(exported, db(), () => NOW);
+    expect(await exportClassifications(db())).toEqual(exported);
+    expect(await db().securityClassification.findUnique({ where: { securityId: world } })).toMatchObject({
+      regionSplit: null,
+      regionSplitManual: '{"USA":"60","Europa":"40"}',
+    });
+    await refreshClassifications(deps(yahoo({}).quoteSummary), db());
+    expect((await listRegionSplits(db()))[world]).toMatchObject({ effective: { source: "manual" }, rule: { index: "MSCI World" } });
   });
 });

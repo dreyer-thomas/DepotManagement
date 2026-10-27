@@ -7,7 +7,7 @@ const TS = "2026-10-26T10:00:00.000Z";
 /** A small, consistent synthetic export file. */
 function base(): ExportFile {
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     depots: [
       { id: "d1", name: "Hauptdepot", broker: "COMDIRECT", archived: false },
       { id: "d2", name: "Zweitdepot", broker: "FINANZEN_ZERO", archived: false },
@@ -59,7 +59,7 @@ function base(): ExportFile {
     ],
     logos: [{ id: "l1", securityId: "s2", contentType: "image/png", fetchedAt: TS, data: "iVBORw0KGgo=" }],
     classifications: [
-      { id: "k1", securityId: "s2", assetClass: null, sector: "Halbleiter", industry: null, region: "Europa", country: null, companySize: null, currency: null },
+      { id: "k1", securityId: "s2", assetClass: null, sector: "Halbleiter", industry: null, region: "Europa", country: null, companySize: null, currency: null, regionSplit: null },
     ],
     taxAllowances: [
       { id: "a1", broker: "COMDIRECT", year: 2026, amount: "801" },

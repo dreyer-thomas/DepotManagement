@@ -2,8 +2,15 @@
 
 import { revalidatePath } from "next/cache";
 import { DIMENSIONS } from "@/core/classification";
+import { SPLIT_REGIONS, type SplitRegion } from "@/core/region-split";
 import { getSession } from "@/modules/auth";
-import { type ManualClassificationInput, setManualClassification, type SetManualClassificationResult } from "@/modules/classification";
+import {
+  type ManualClassificationInput,
+  setManualClassification,
+  type SetManualClassificationResult,
+  setManualRegionSplit,
+  type SetManualRegionSplitResult,
+} from "@/modules/classification";
 import { scheduleClassificationRefresh } from "./classification-refresh";
 
 const UNAUTHORIZED = { ok: false, reason: "unauthorized" } as const;
@@ -33,6 +40,30 @@ export async function setClassificationAction(
   if (result.ok) {
     revalidatePath("/securities");
     scheduleClassificationRefresh();
+  }
+  return result;
+}
+
+/** Result of "Regionen"; `null` before the first submit. */
+export type SetRegionSplitActionState = SetManualRegionSplitResult | Unauthorized | null;
+
+/**
+ * "Regionen" (story 8.4): stores the manual region split of fund `securityId` from the fields `split-<i>`
+ * (percent of `SPLIT_REGIONS[i]`, German input; every field empty = Automatisch, i.e. the rule split).
+ * Revalidates the Securities page and Analysen.
+ */
+export async function setRegionSplitAction(_previous: SetRegionSplitActionState, formData: FormData): Promise<SetRegionSplitActionState> {
+  if (!(await getSession())) return UNAUTHORIZED;
+  const securityId = formData.get("securityId");
+  const input: Partial<Record<SplitRegion, unknown>> = {};
+  SPLIT_REGIONS.forEach((region, index) => {
+    const value = formData.get(`split-${index}`);
+    if (value !== null) input[region] = value;
+  });
+  const result = await setManualRegionSplit(typeof securityId === "string" ? securityId.trim() : "", input);
+  if (result.ok) {
+    revalidatePath("/securities");
+    revalidatePath("/analyses");
   }
   return result;
 }

@@ -372,6 +372,14 @@ model SecurityClassification {
   currency          String?
   currencySource    ClassificationSource?
   currencyManual    String?
+  // Region split of a fund (story 8.4, owned by classification): JSON object of split region → percent
+  // decimal string. `regionSplit` + source/asOf/index are the rule cache (written only by the refresh, not
+  // exported); `regionSplitManual` is the user's split (always wins, never touched by the refresh).
+  regionSplit       String?
+  regionSplitSource ClassificationSource?
+  regionSplitAsOf   String?
+  regionSplitIndex  String?
+  regionSplitManual String?
   /// Yahoo symbol of the last provider answer (data or "no data"); null while provider data is pending.
   /// A mapping symbol different from this one triggers a new fetch.
   providerSymbol    String?

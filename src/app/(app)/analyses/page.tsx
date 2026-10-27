@@ -31,7 +31,7 @@ import { dividendAnalysis } from "@/core/dividend-analysis";
 import { gainsAnalysis } from "@/core/gains-analysis";
 import { returnHeatmap } from "@/core/return-heatmap";
 import { taxPreview } from "@/core/tax";
-import { listClassifications } from "@/modules/classification";
+import { listClassifications, listRegionSplits } from "@/modules/classification";
 import { gainsInput, listDepots, listPositions, returnSeries } from "@/modules/ledger";
 import { latestStoredPrices, storedPriceHistory } from "@/modules/prices";
 import { taxPreviewInput } from "@/modules/tax";
@@ -47,18 +47,20 @@ type Depot = Awaited<ReturnType<typeof listDepots>>[number];
 /**
  * Aufteilung: a today snapshot of the Portfolio (non-archived Depots, AD-17) or one Depot, grouped by
  * a classification dimension read through the classification module (AD-20); the same Position values
- * and cash as the composition card.
+ * and cash as the composition card. By "Region", a fund's value is distributed by its region split.
  */
 async function allocationPanel({ depots, scope, dimension, today }: { depots: Depot[]; scope: string; dimension: AllocationDimension; today: string }) {
   const inScope = scope === PORTFOLIO_SCOPE ? depots : depots.filter((depot) => depot.id === scope);
-  const [positionsByDepot, classifications] = await Promise.all([
+  const [positionsByDepot, classifications, regionSplits] = await Promise.all([
     // Stored manual / provider Prices win over Transaction prices (resolver), as on the Positions tab.
     Promise.all(inScope.map((depot) => listPositions(depot.id, today, undefined, { storedPrices: latestStoredPrices }))),
     listClassifications(),
+    // Funds with a region split are distributed over the split regions (story 8.4; "Region" only).
+    dimension === "region" ? listRegionSplits() : Promise.resolve({}),
   ]);
   const holdings = inScope.flatMap((depot, index) => compositionHoldings(depot, positionsByDepot[index]));
   const result = allocation(
-    allocationHoldings(holdings, classifications, dimension),
+    allocationHoldings(holdings, classifications, dimension, regionSplits),
     inScope.map((depot) => depot.cashBalance),
     ALLOCATION_LABELS,
   );

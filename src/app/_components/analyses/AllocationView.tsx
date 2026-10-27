@@ -15,7 +15,7 @@ import { segmentColorKeys } from "../composition/labels";
 import { CardHeading } from "../overview/CardHeading";
 import { SecurityLink } from "../security-detail/SecurityLink";
 import { SecurityLogo } from "../securities/SecurityLogo";
-import { ALLOCATION_CASH_TEXT, ALLOCATION_EMPTY_TEXT, allocationAriaLabel } from "./labels";
+import { ALLOCATION_CASH_TEXT, ALLOCATION_EMPTY_TEXT, allocationAriaLabel, fundWeightLabel } from "./labels";
 
 export type AllocationViewProps = {
   /** Scope value (`portfolio` or a Depot id); a change clears the selected segment. */
@@ -41,6 +41,11 @@ function PositionRow({ position, showDepot }: { position: AllocationPosition; sh
             {position.securityName}
           </SecurityLink>
         </Typography>
+        {position.weight !== undefined ? (
+          <Typography variant="caption" color="text.secondary" component="p">
+            {fundWeightLabel(position.weight)}
+          </Typography>
+        ) : null}
         {showDepot ? (
           <Typography variant="caption" color="text.secondary" component="p" sx={{ overflowWrap: "anywhere" }}>
             {position.depotName}

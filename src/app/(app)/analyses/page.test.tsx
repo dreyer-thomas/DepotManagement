@@ -5,6 +5,7 @@ import { renderText } from "../../../../test/helpers/render-text";
 const listDepots = vi.hoisted(() => vi.fn());
 const listPositions = vi.hoisted(() => vi.fn());
 const listClassifications = vi.hoisted(() => vi.fn());
+const listRegionSplits = vi.hoisted(() => vi.fn());
 const latestStoredPrices = vi.hoisted(() => vi.fn());
 const storedPriceHistory = vi.hoisted(() => vi.fn());
 const returnSeries = vi.hoisted(() => vi.fn());
@@ -13,7 +14,7 @@ const taxPreviewInput = vi.hoisted(() => vi.fn());
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn(), push: vi.fn(), refresh: vi.fn() }) }));
 vi.mock("@/modules/ledger", () => ({ gainsInput, listDepots, listPositions, returnSeries }));
-vi.mock("@/modules/classification", () => ({ listClassifications }));
+vi.mock("@/modules/classification", () => ({ listClassifications, listRegionSplits }));
 vi.mock("@/modules/prices", () => ({ latestStoredPrices, storedPriceHistory }));
 vi.mock("@/modules/tax", () => ({ taxPreviewInput }));
 
@@ -73,6 +74,8 @@ beforeEach(() => {
   listDepots.mockReset();
   listPositions.mockReset();
   listClassifications.mockReset();
+  listRegionSplits.mockReset();
+  listRegionSplits.mockResolvedValue({});
   returnSeries.mockReset();
   gainsInput.mockReset();
   listDepots.mockResolvedValue([depot("a", "Hauptdepot", "100"), depot("b", "Zweitdepot", "0"), depot("z", "Altdepot", "0", true)]);
@@ -150,6 +153,35 @@ describe("Analyses page", () => {
       "Unbekannt",
       "Guthaben",
     ]);
+  });
+
+  it("distributes a fund with a region split over its regions by Region only", async () => {
+    listRegionSplits.mockResolvedValue({
+      etf: {
+        effective: {
+          weights: [
+            { region: "USA", weight: "60" },
+            { region: "Europa", weight: "40" },
+          ],
+          source: "manual",
+          index: null,
+          asOf: null,
+        },
+      },
+    });
+    const props = viewProps(await page({ scope: "a", dimension: "region" }));
+    expect(brief(props)).toEqual([
+      ["Welt", "600", "0.600"],
+      ["USA", "180", "0.180"],
+      ["Europa", "120", "0.120"],
+      ["Guthaben", "100", "0.100"],
+    ]);
+    expect(props.positions["group:USA"]).toEqual([expect.objectContaining({ securityId: "etf", value: "180", weight: "0.6" })]);
+    expect(listRegionSplits).toHaveBeenCalledTimes(1);
+
+    listRegionSplits.mockClear();
+    await page({ scope: "a", dimension: "sector" });
+    expect(listRegionSplits).not.toHaveBeenCalled();
   });
 
   it("limits the scope to one Depot without Depot names", async () => {

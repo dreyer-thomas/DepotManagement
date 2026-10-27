@@ -30,6 +30,7 @@ import {
   sumGainsBuckets,
   allocationDimension,
   allocationHoldings,
+  fundWeightLabel,
   allocationHref,
   analysisHref,
   analysisScope,
@@ -150,6 +151,43 @@ describe("analyses labels", () => {
       "currency",
     );
     expect(holdings[0].group).toBe("EUR");
+  });
+
+  it("distributes a fund with an effective region split over its regions, by Region only", () => {
+    const etf = { securityId: "w", securityName: "MSCI World", assetType: "ETF", depotId: "d", depotName: "D", value: "1000" };
+    const stock = { securityId: "s", securityName: "Apple", assetType: "STOCK", depotId: "d", depotName: "D", value: "500" };
+    const classifications = { w: classification("ETF", { region: dimension("Welt") }), s: classification("STOCK", { region: dimension("USA") }) };
+    const splits = {
+      w: {
+        effective: {
+          weights: [
+            { region: "USA" as const, weight: "72" },
+            { region: "Europa" as const, weight: "15" },
+            { region: "Japan" as const, weight: "6" },
+            { region: "Pazifik ohne Japan" as const, weight: "4" },
+            { region: "Sonstige" as const, weight: "3" },
+          ],
+        },
+      },
+      s: { effective: null },
+    };
+    expect(allocationHoldings([etf, stock], classifications, "region", splits)).toEqual([
+      { ...etf, group: "USA", value: "720", weight: "0.72" },
+      { ...etf, group: "Europa", value: "150", weight: "0.15" },
+      { ...etf, group: "Japan", value: "60", weight: "0.06" },
+      { ...etf, group: "Pazifik ohne Japan", value: "40", weight: "0.04" },
+      { ...etf, group: "Sonstige", value: "30", weight: "0.03" },
+      { ...stock, group: "USA" },
+    ]);
+    // Other dimensions and funds without an effective split keep one group.
+    expect(allocationHoldings([etf], classifications, "assetClass", splits)).toEqual([{ ...etf, group: null }]);
+    expect(allocationHoldings([etf], classifications, "region", { w: { effective: null } })).toEqual([{ ...etf, group: "Welt" }]);
+    expect(allocationHoldings([etf], classifications, "region")).toEqual([{ ...etf, group: "Welt" }]);
+  });
+
+  it("labels a fund's share of a region", () => {
+    expect(fundWeightLabel("0.72")).toBe("72\u00a0% des Fonds");
+    expect(fundWeightLabel("0.025")).toBe("2,5\u00a0% des Fonds");
   });
 });
 

@@ -3,9 +3,11 @@
 export {
   CLASSIFICATION_TEXT_MAX_LENGTH,
   listClassifications,
+  listRegionSplits,
   MANUAL_VALUE_SCHEMAS,
   refreshClassifications,
   setManualClassification,
+  setManualRegionSplit,
 } from "./classification";
 export type {
   Classification,
@@ -17,7 +19,11 @@ export type {
   DimensionValue,
   EffectiveSource,
   ManualClassificationInput,
+  RegionSplitFailureReason,
+  RegionSplitInfo,
   SetManualClassificationResult,
+  SetManualRegionSplitResult,
 } from "./classification";
+export type { EffectiveRegionSplit, RegionWeight, RegionWeights, RuleRegionSplit, SplitRegion } from "@/core/region-split";
 export { exportClassifications, replaceAllClassifications } from "./backup";
 export type { ClassificationExport } from "./backup";

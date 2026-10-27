@@ -1,7 +1,8 @@
 import type { AllocationHolding, AllocationLabels } from "@/core/allocation";
 import type { CompositionHolding, CompositionSegment } from "@/core/composition";
 import Decimal from "decimal.js";
-import { formatDate, formatMoney, formatMonth, formatPercent, formatShare } from "@/core/format";
+import { formatDate, formatMoney, formatMonth, formatPercent, formatQuantity, formatShare } from "@/core/format";
+import { distributeByRegion, type RegionWeights } from "@/core/region-split";
 import type { DividendAnalysis, DividendBucket, DividendMonthSplit, DividendSecurity, DividendYearLine, DividendYearPoint } from "@/core/dividend-analysis";
 import type { GainsBucket, GainsSale } from "@/core/gains-analysis";
 import type { AssetType } from "@/modules/ledger";
@@ -101,13 +102,32 @@ export function groupOf(classification: Classification | undefined, dimension: A
   return value;
 }
 
-/** Composition holdings with their group in the dimension. */
+/** The effective region split per Security id (`listRegionSplits`); only `effective.weights` is read. */
+export type RegionSplits = Readonly<Record<string, { effective: { weights: RegionWeights } | null }>>;
+
+/**
+ * Composition holdings with their group in the dimension. In the "Region" dimension a fund with an effective
+ * region split becomes one holding per split region (`distributeByRegion`, with its `weight`); every other
+ * holding and dimension keeps its single group.
+ */
 export function allocationHoldings(
   holdings: readonly CompositionHolding[],
   classifications: Readonly<Record<string, Classification>>,
   dimension: AllocationDimension,
+  splits: RegionSplits = {},
 ): AllocationHolding[] {
-  return holdings.map((holding) => ({ ...holding, group: groupOf(classifications[holding.securityId], dimension) }));
+  return holdings.flatMap((holding) => {
+    const split = dimension === "region" ? splits[holding.securityId]?.effective : null;
+    if (split) {
+      return distributeByRegion(holding.value, split.weights).map((slice) => ({ ...holding, group: slice.region, value: slice.value, weight: slice.weight }));
+    }
+    return [{ ...holding, group: groupOf(classifications[holding.securityId], dimension) }];
+  });
+}
+
+/** Share of a split fund in a region: `"0.72"` → `"72 % des Fonds"`, `"0.025"` → `"2,5 % des Fonds"`. */
+export function fundWeightLabel(weight: string): string {
+  return `${formatQuantity(new Decimal(weight).times(100))}\u00a0% des Fonds`;
 }
 
 /** Text alternative of the donut: `Aufteilung nach Sektor: Technologie 60,0 % (600,00 €), …`. */

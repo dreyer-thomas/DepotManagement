@@ -44,14 +44,26 @@ describe("createExport", () => {
       "taxAllowances",
       "teilfreistellungOverrides",
     ]);
-    expect(file.schemaVersion).toBe(3);
+    expect(file.schemaVersion).toBe(4);
     expect(file.taxAllowances).toEqual([
       { id: "fsa-1", broker: "COMDIRECT", year: 2026, amount: "801" },
       { id: "fsa-2", broker: "FINANZEN_ZERO", year: 2026, amount: "199" },
     ]);
     expect(file.teilfreistellungOverrides).toEqual([{ id: "tfs-a", securityId: "sec-a", rate: "0.15" }]);
-    // Manual overrides only; a row with automatic values alone is a cache.
+    // Manual overrides and manual region splits only; automatic values and the rule split are a cache.
     expect(file.classifications).toEqual([
+      {
+        id: "cls-a",
+        securityId: "sec-a",
+        assetClass: null,
+        sector: null,
+        industry: null,
+        region: null,
+        country: null,
+        companySize: null,
+        currency: null,
+        regionSplit: { USA: "60", Europa: "37.5", Sonstige: "2.5" },
+      },
       {
         id: "cls-b",
         securityId: "sec-b",
@@ -62,6 +74,7 @@ describe("createExport", () => {
         country: null,
         companySize: null,
         currency: "EUR",
+        regionSplit: null,
       },
     ]);
     expect(file.depots).toEqual([
@@ -280,11 +293,17 @@ describe("exportFileSchema", () => {
     await seedFullLedger();
     const file = await createExport(deps(), db());
     expect(exportFileSchema.safeParse({ ...file, schemaVersion: 1 }).success).toBe(false);
-    expect(exportFileSchema.safeParse({ ...file, schemaVersion: 2 }).success).toBe(false);
-    expect(exportFileSchema.safeParse({ ...file, schemaVersion: 4 }).success).toBe(false);
+    expect(exportFileSchema.safeParse({ ...file, schemaVersion: 3 }).success).toBe(false);
+    expect(exportFileSchema.safeParse({ ...file, schemaVersion: 5 }).success).toBe(false);
     expect(exportFileSchema.safeParse({ ...file, taxAllowances: [{ ...file.taxAllowances[0], amount: "-1" }] }).success).toBe(false);
     const classifications = [{ ...file.classifications[0], region: "Mars" }];
     expect(exportFileSchema.safeParse({ ...file, classifications }).success).toBe(false);
+    // A region split must be canonical percentages of the split regions summing to exactly 100.
+    for (const regionSplit of [{ USA: "60", Europa: "39.5" }, { USA: "100", Mars: "0" }, { USA: "60.0", Europa: "40" }, { USA: 100 }, {}]) {
+      expect(exportFileSchema.safeParse({ ...file, classifications: [{ ...file.classifications[0], regionSplit }] }).success).toBe(false);
+    }
+    expect(exportFileSchema.safeParse({ ...file, classifications: [{ ...file.classifications[0], regionSplit: { Japan: "100" } }] }).success).toBe(true);
+    expect(exportFileSchema.safeParse({ ...file, classifications: [{ ...file.classifications[0], regionSplit: undefined }] }).success).toBe(false);
     expect(exportFileSchema.safeParse({ ...file, exportedAt: TS }).success).toBe(false);
     const transactions = [{ ...file.transactions[0], amount: 1000 }];
     expect(exportFileSchema.safeParse({ ...file, transactions }).success).toBe(false);

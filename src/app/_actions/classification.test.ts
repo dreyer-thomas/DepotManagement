@@ -19,7 +19,7 @@ vi.mock("./classification-refresh", () => ({ scheduleClassificationRefresh, runC
 
 import { prisma } from "@/db";
 import { ensureSecurity } from "@/modules/ledger";
-import { setClassificationAction } from "./classification";
+import { setClassificationAction, setRegionSplitAction } from "./classification";
 
 const SECRET = "test-secret-with-at-least-32-characters";
 const HASH = "$2b$04$Raf6EM460q2HE2THwTzIR.5Uk58FNzZG7FhlOvTFD.sbuFp.We4pO";
@@ -87,5 +87,50 @@ describe("setClassificationAction", () => {
     expect(await setClassificationAction(null, form({ securityId, sector: "Halbleiter" }))).toEqual({ ok: false, reason: "unauthorized" });
     expect(await stored()).toBeNull();
     expect(revalidatePath).not.toHaveBeenCalled();
+  });
+});
+
+describe("setRegionSplitAction", () => {
+  async function fund() {
+    const result = await ensureSecurity({ isin: "IE00B4L5Y983" }, { name: "iShares Core MSCI World UCITS ETF", assetType: "ETF" });
+    if (!result.ok) throw new Error("setup failed");
+    return result.security.id;
+  }
+  const fields = (id: string, values: string[]) => form({ securityId: id, ...Object.fromEntries(values.map((v, i) => [`split-${i}`, v])) });
+  const manualOf = async (id: string) => (await prisma.securityClassification.findUnique({ where: { securityId: id } }))?.regionSplitManual;
+
+  it("stores the split from the indexed fields and revalidates Securities and Analysen", async () => {
+    const id = await fund();
+    expect(await setRegionSplitAction(null, fields(id, ["60", "37,5", "", "", "", "2,5"]))).toEqual({
+      ok: true,
+      manual: [
+        { region: "USA", weight: "60" },
+        { region: "Europa", weight: "37.5" },
+        { region: "Sonstige", weight: "2.5" },
+      ],
+    });
+    expect(await manualOf(id)).toBe('{"USA":"60","Europa":"37.5","Sonstige":"2.5"}');
+    expect(revalidatePath).toHaveBeenCalledWith("/securities");
+    expect(revalidatePath).toHaveBeenCalledWith("/analyses");
+
+    // "Automatisch": all fields empty clears the manual split.
+    expect(await setRegionSplitAction(null, fields(id, ["", "", "", "", "", ""]))).toEqual({ ok: true, manual: null });
+    expect(await manualOf(id)).toBeNull();
+  });
+
+  it("returns the reason without writing", async () => {
+    const id = await fund();
+    expect(await setRegionSplitAction(null, fields(id, ["60", "39,5", "", "", "", ""]))).toEqual({ ok: false, reason: "split-sum" });
+    expect(await setRegionSplitAction(null, fields(id, ["abc", "100", "", "", "", ""]))).toEqual({ ok: false, reason: "split-invalid" });
+    expect(await setRegionSplitAction(null, fields(securityId, ["100", "", "", "", "", ""]))).toEqual({ ok: false, reason: "not-a-fund" });
+    expect(await prisma.securityClassification.count()).toBe(0);
+    expect(revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("writes nothing without a session", async () => {
+    const id = await fund();
+    fakes.current.state.incoming.clear();
+    expect(await setRegionSplitAction(null, fields(id, ["100", "", "", "", "", ""]))).toEqual({ ok: false, reason: "unauthorized" });
+    expect(await prisma.securityClassification.count()).toBe(0);
   });
 });

@@ -8,15 +8,17 @@ import { securityTypeLabel } from "@/app/_components/migration/labels";
 import { type Classification, type ClassifiedAssetType, effective } from "@/core/classification";
 import { taxSecurity } from "@/core/tax";
 import { allowedAssetTypes } from "@/modules/ledger";
+import type { RegionSplitInfo } from "@/modules/classification";
 import type { ManualPriceRow, SecurityPriceInfo, SecurityWithMapping } from "@/modules/prices";
 import { fetchErrorText } from "../prices/price-labels";
 import { PriceDate } from "../prices/StaleBadge";
 import { ClassificationButton } from "./ClassificationDialog";
-import { classificationSummary, mappingLabel } from "./labels";
+import { classificationSummary, mappingLabel, regionSplitSummary } from "./labels";
 import { LogoUploadButton } from "./LogoUploadDialog";
 import { ManualPriceButton } from "./ManualPriceDialog";
 import { ManualPriceList } from "./ManualPriceList";
 import { MappingDialogButton, ResolveMappingButton } from "./MappingDialog";
+import { RegionSplitButton } from "./RegionSplitDialog";
 import { SecurityLink } from "../security-detail/SecurityLink";
 import { teilfreistellungSummary } from "../tax/labels";
 import { TeilfreistellungButton } from "../tax/TeilfreistellungDialog";
@@ -28,7 +30,8 @@ import { TypeDialogButton } from "./TypeDialog";
  * ("Aktien · Technologie · Europa · …", unknown values "Unbekannt"), price source and latest price date (stale badge for held Securities), its manual Prices ("Manuelle Kurse" with edit/delete),
  * plus "Kursquelle bearbeiten", "Typ ändern", "Klassifizierung", "Kurs manuell eintragen", (after a miss) "Automatisch
  * suchen", "Logo hochladen" / "Logo ersetzen" and, for funds (ETF/FUND), "Teilfreistellung" with its summary line
- * ("Teilfreistellung 30 % (automatisch|manuell)"). A failed last fetch shows an error naming the provider; there "Kurs manuell eintragen" is
+ * ("Teilfreistellung 30 % (automatisch|manuell)"), plus "Regionen" with the region split line when the fund has one
+ * ("Regionen: USA 72 % · … (Regel MSCI World, Stand 30.09.2026)" / "(manuell)", story 8.4). A failed last fetch shows an error naming the provider; there "Kurs manuell eintragen" is
  * the Alert's action instead (one per card).
  */
 export function SecurityList({
@@ -37,6 +40,7 @@ export function SecurityList({
   manualPrices = {},
   classifications = {},
   teilfreistellungOverrides = {},
+  regionSplits = {},
   today,
 }: {
   securities: SecurityWithMapping[];
@@ -48,6 +52,8 @@ export function SecurityList({
   classifications?: Record<string, Classification>;
   /** Manual Teilfreistellung per Security id (`listTeilfreistellungOverrides`); absent ids are automatic. */
   teilfreistellungOverrides?: Record<string, string>;
+  /** Region split per Security id (`listRegionSplits`); absent ids have none. */
+  regionSplits?: Record<string, RegionSplitInfo>;
   /** Today's business date (default date of a manual Price). */
   today: string;
 }) {
@@ -61,6 +67,8 @@ export function SecurityList({
         const classification = classifications[security.id] ?? effective(null, security.assetType as ClassifiedAssetType);
         const fund = security.assetType === "ETF" || security.assetType === "FUND";
         const override = teilfreistellungOverrides[security.id] ?? null;
+        const regionSplit = fund ? (regionSplits[security.id]?.effective ?? null) : null;
+        const regionSummary = regionSplitSummary(regionSplit);
         const automaticRate = taxSecurity({ type: security.assetType, assetClass: classification.assetClass.value }, null).teilfreistellung;
         return (
           <li key={security.id}>
@@ -85,6 +93,7 @@ export function SecurityList({
                     </Stack>
                     <Typography variant="body2">{classificationSummary(classification)}</Typography>
                     {fund ? <Typography variant="body2">{teilfreistellungSummary(override ?? automaticRate, override !== null)}</Typography> : null}
+                    {regionSummary ? <Typography variant="body2">{regionSummary}</Typography> : null}
                     <Typography variant="body2" color={security.mapping?.provider ? "text.primary" : "text.secondary"}>
                       {mappingLabel(security.mapping)}
                     </Typography>
@@ -108,6 +117,7 @@ export function SecurityList({
                       <TypeDialogButton security={security} allowedTypes={allowedAssetTypes(security)} />
                       <ClassificationButton security={security} classification={classification} />
                       {fund ? <TeilfreistellungButton security={security} automaticRate={automaticRate} override={override} /> : null}
+                      {fund ? <RegionSplitButton security={security} weights={regionSplit?.weights ?? null} /> : null}
                       {fetchFailed ? null : <ManualPriceButton security={security} today={today} />}
                       {notFound ? <ResolveMappingButton security={security} /> : null}
                       <LogoUploadButton security={security} />
