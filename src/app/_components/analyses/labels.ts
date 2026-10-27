@@ -1,18 +1,20 @@
 import type { AllocationHolding, AllocationLabels } from "@/core/allocation";
 import type { CompositionHolding, CompositionSegment } from "@/core/composition";
 import Decimal from "decimal.js";
-import { formatMoney, formatMonth, formatShare } from "@/core/format";
+import { formatDate, formatMoney, formatMonth, formatPercent, formatShare } from "@/core/format";
+import type { DividendAnalysis, DividendBucket, DividendSecurity } from "@/core/dividend-analysis";
 import type { GainsBucket, GainsSale } from "@/core/gains-analysis";
 import type { AssetType } from "@/modules/ledger";
 import type { Classification } from "@/modules/classification";
 import { ratioTone } from "../security-detail/labels";
 import { ASSET_TYPE_LABELS } from "../transactions/labels";
 
-/** Analysen tabs, driven by `?tab=`; a later story adds Dividenden. */
+/** Analysen tabs, driven by `?tab=`. */
 export const ANALYSIS_TABS = [
   { value: "allocation", label: "Aufteilung" },
   { value: "returns", label: "Rendite" },
   { value: "gains", label: "Gewinne" },
+  { value: "dividends", label: "Dividenden" },
 ] as const;
 
 export type AnalysisTab = (typeof ANALYSIS_TABS)[number]["value"];
@@ -184,7 +186,7 @@ export function negateAmount(value: string): string {
 }
 
 /** Years of the analysis, newest first (the "Jahr" select). */
-export function gainsYears(years: readonly GainsBucket[]): string[] {
+export function gainsYears(years: readonly { period: string }[]): string[] {
   return years.map((year) => year.period).reverse();
 }
 
@@ -239,4 +241,118 @@ export function gainsChartAriaLabel(buckets: readonly GainsBucket[], layers: { d
 export function cashFlowAriaLabel(buckets: readonly GainsBucket[]): string {
   const parts = buckets.map((bucket) => `${gainsBucketLabel(bucket.period)} ${formatMoney(bucket.netCashFlow, { sign: true })}`);
   return `${GAINS_LABELS.cashFlowHeading} (netto): ${parts.join("; ")}`;
+}
+
+/** Dividenden tab: views, amount modes, headings and texts. */
+export const DIVIDEND_VIEWS = [
+  { value: "months", label: "Monate" },
+  { value: "years", label: "Jahre" },
+  { value: "cumulative", label: "Kumuliert" },
+  { value: "securities", label: "Wertpapiere" },
+  { value: "expected", label: "Erwartet" },
+] as const;
+
+export type DividendView = (typeof DIVIDEND_VIEWS)[number]["value"];
+
+export const DIVIDEND_MODES = [
+  { value: "gross", label: "Brutto" },
+  { value: "net", label: "Netto" },
+] as const;
+
+export type DividendMode = (typeof DIVIDEND_MODES)[number]["value"];
+
+export const DIVIDEND_LABELS = {
+  view: "Ansicht",
+  year: "Jahr",
+  mode: "Betrag",
+  kpis: "Kennzahlen",
+  income: "Einkommen 12 Monate",
+  yield: "Dividendenrendite 12 Monate",
+  expectedKpi: "Erwartet 12 Monate (Schätzung)",
+  monthsHeading: "Dividenden pro Monat",
+  yearsHeading: "Dividenden pro Jahr",
+  cumulativeHeading: "Dividenden kumuliert",
+  securitiesHeading: "Dividenden nach Wertpapier",
+  expectedHeading: "Erwartete Dividenden (Schätzung)",
+  expectedList: "Erwartete Zahlungen",
+  total: "Summe",
+} as const;
+
+export const DIVIDEND_EMPTY_TEXT = "Noch keine Transaktionen.";
+export const DIVIDEND_NONE_TEXT = "Noch keine Dividenden.";
+export const DIVIDEND_NO_EXPECTED_TEXT = "Keine erwarteten Zahlungen.";
+export const DIVIDEND_ESTIMATE_NOTE = "Schätzung: Zahlungen der letzten 12 Monate in denselben Monaten, mit aktuellem Bestand.";
+export const DIVIDEND_MISSING = "–";
+
+/** The bucket views with their chart headings. */
+export type DividendBucketView = Exclude<DividendView, "securities">;
+
+export const DIVIDEND_BUCKET_HEADINGS: Record<DividendBucketView, string> = {
+  months: DIVIDEND_LABELS.monthsHeading,
+  years: DIVIDEND_LABELS.yearsHeading,
+  cumulative: DIVIDEND_LABELS.cumulativeHeading,
+  expected: DIVIDEND_LABELS.expectedHeading,
+};
+
+/** The gross or net amount of a bucket, Security total or expected payment. */
+export function dividendAmount(item: { gross: string; net: string }, mode: DividendMode): string {
+  return mode === "net" ? item.net : item.gross;
+}
+
+/** Σ of the mode's amount over `items` (decimal string). */
+export function sumDividendAmounts(items: readonly { gross: string; net: string }[], mode: DividendMode): string {
+  const sum = items.reduce((total, item) => total.plus(dividendAmount(item, mode)), new Decimal(0));
+  return sum.isZero() ? "0" : sum.toFixed();
+}
+
+/** The buckets a view shows: months of `year`, years, the running total per year or the expected months. */
+export function dividendBuckets(analysis: DividendAnalysis, view: DividendBucketView, year: string): DividendBucket[] {
+  switch (view) {
+    case "months":
+      return analysis.months.filter((month) => month.period.startsWith(`${year}-`));
+    case "years":
+      return [...analysis.years];
+    case "cumulative":
+      return [...analysis.cumulative];
+    case "expected":
+      return [...analysis.expectedMonths];
+  }
+}
+
+/** The total under a bucket chart: Σ of the shown buckets, or the last running total (Kumuliert). */
+export function dividendRangeTotal(buckets: readonly DividendBucket[], view: DividendBucketView, mode: DividendMode): string {
+  if (view === "cumulative") return buckets.length === 0 ? "0" : dividendAmount(buckets[buckets.length - 1], mode);
+  return sumDividendAmounts(buckets, mode);
+}
+
+/** `Brutto` / `Netto`. */
+export function dividendModeLabel(mode: DividendMode): string {
+  return mode === "net" ? "Netto" : "Brutto";
+}
+
+/** Yield as an unsigned percentage with two decimals (`3,00 %`), `–` without one. */
+export function dividendYieldText(ratio: string | null): string {
+  return ratio === null ? DIVIDEND_MISSING : formatPercent(ratio).replace(/^\+/, "");
+}
+
+/** Text alternative of a bucket chart: `Dividenden pro Monat (Brutto): Januar 2026 0,00 €; …`. */
+export function dividendChartAriaLabel(heading: string, buckets: readonly DividendBucket[], mode: DividendMode): string {
+  const parts = buckets.map((bucket) => `${gainsBucketLabel(bucket.period)} ${formatMoney(dividendAmount(bucket, mode))}`);
+  return `${heading} (${dividendModeLabel(mode)}): ${parts.join("; ")}`;
+}
+
+/** Text alternative of the per-Security chart: `Dividenden nach Wertpapier (Netto): SAP SE 44,50 €; …`. */
+export function dividendSecuritiesAriaLabel(securities: readonly DividendSecurity[], names: Readonly<Record<string, string>>, mode: DividendMode): string {
+  const parts = securities.map((security) => `${names[security.securityId] ?? security.securityId} ${formatMoney(dividendAmount(security, mode))}`);
+  return `${DIVIDEND_LABELS.securitiesHeading} (${dividendModeLabel(mode)}): ${parts.join("; ")}`;
+}
+
+/** `2 Zahlungen · zuletzt 10.05.2026`. */
+export function dividendCountText(count: number, lastDate: string): string {
+  return `${count} ${count === 1 ? "Zahlung" : "Zahlungen"} · zuletzt ${formatDate(lastDate)}`;
+}
+
+/** `15.11.2026 · aus Zahlung vom 15.11.2025`. */
+export function expectedDividendText(date: string, basedOn: string): string {
+  return `${formatDate(date)} · aus Zahlung vom ${formatDate(basedOn)}`;
 }

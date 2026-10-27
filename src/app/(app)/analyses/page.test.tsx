@@ -21,6 +21,8 @@ import { AnalysisFilters } from "@/app/_components/analyses/AnalysisFilters";
 import { AnalysisTabs } from "@/app/_components/analyses/AnalysisTabs";
 import { ReturnHeatmap, type ReturnHeatmapProps } from "@/app/_components/analyses/ReturnHeatmap";
 import { GainsView, type GainsViewProps } from "@/app/_components/analyses/GainsView";
+import { DividendsView, type DividendsViewProps } from "@/app/_components/analyses/DividendsView";
+import { dividendAnalysis } from "@/core/dividend-analysis";
 import { NO_CORPORATE_ACTIONS } from "@/core/corporate-actions";
 import { gainsAnalysis } from "@/core/gains-analysis";
 import { returnHeatmap } from "@/core/return-heatmap";
@@ -273,6 +275,77 @@ describe("Analyses page", () => {
       gainsInput.mockResolvedValue({ depots: [], actions: NO_CORPORATE_ACTIONS, securityNames: {} });
       const tree = await page({ tab: "gains" });
       expect(gainsInput).toHaveBeenCalledWith("portfolio");
+      expect(renderText(tree)).toContain("Noch keine Transaktionen.");
+    });
+  });
+  describe("Dividenden tab", () => {
+    const row = (type: string, date: string, sequence: number, input: Record<string, string | null> = {}) => ({
+      securityId: null,
+      type,
+      date,
+      sequence,
+      quantity: null,
+      price: null,
+      amount: "0",
+      fee: "0",
+      tax: "0",
+      ...input,
+    });
+    const INPUT = {
+      depots: [
+        {
+          depotId: "a",
+          rows: [
+            row("BUY", "2025-01-02", 1, { securityId: "sap", quantity: "10", price: "50", amount: "500" }),
+            row("DIVIDEND", "2025-11-15", 1, { securityId: "sap", amount: "20", tax: "5", fee: "0.5" }),
+            row("BUY", "2026-03-01", 1, { securityId: "sap", quantity: "10", price: "60", amount: "600" }),
+            row("DIVIDEND", "2026-05-10", 1, { securityId: "sap", amount: "40", tax: "10" }),
+          ],
+        },
+        { depotId: "b", rows: [] },
+      ],
+      actions: NO_CORPORATE_ACTIONS,
+      securityNames: { sap: "SAP SE" },
+    };
+
+    it("loads the scope's ledger and today's Positions with stored Prices and renders the dividends view", async () => {
+      gainsInput.mockResolvedValue(INPUT);
+      listPositions.mockImplementation(async (depotId: string) =>
+        depotId === "a" ? [{ security: { id: "sap", name: "SAP SE", assetType: "STOCK" }, quantity: "20", value: "2000" }] : [],
+      );
+      const tree = await page({ tab: "dividends", dimension: "sector" });
+      expect(gainsInput).toHaveBeenCalledWith("portfolio");
+      expect(listPositions.mock.calls.map((call) => call[0])).toEqual(["a", "b"]);
+      expect(listPositions).toHaveBeenCalledWith("a", TODAY, undefined, { storedPrices: latestStoredPrices });
+      expect(listClassifications).not.toHaveBeenCalled();
+      expect(returnSeries).not.toHaveBeenCalled();
+      const props = findElement(tree, DividendsView)?.props as unknown as DividendsViewProps;
+      const expected = dividendAnalysis(
+        [
+          { ...INPUT.depots[0], positions: [{ securityId: "sap", quantity: "20", value: "2000" }] },
+          { ...INPUT.depots[1], positions: [] },
+        ],
+        INPUT.actions,
+        TODAY,
+      );
+      expect(props.analysis).toEqual(expected);
+      expect(props.analysis.trailing).toMatchObject({ gross: "60", net: "44.5", payingValue: "2000", grossYield: "0.03" });
+      expect(props).toMatchObject({ securityNames: { sap: "SAP SE" }, today: TODAY, depotId: null });
+      expect(findElement(tree, AnalysisFilters)?.props).toMatchObject({ tab: "dividends", scope: "portfolio", dimension: "sector" });
+      expect(findElement(tree, GainsView)).toBeFalsy();
+      const html = renderHtml(tree);
+      expect(html).toContain('role="tabpanel" id="analysis-tabpanel-dividends"');
+      expect(html).toContain('href="/analyses?tab=dividends&amp;scope=portfolio&amp;dimension=sector"');
+      expect(html).not.toContain(">Dimension<");
+    });
+
+    it("limits the scope to one Depot and shows the empty text without Transactions", async () => {
+      gainsInput.mockResolvedValue({ depots: [{ depotId: "b", rows: [] }], actions: NO_CORPORATE_ACTIONS, securityNames: {} });
+      listPositions.mockResolvedValue([]);
+      const tree = await page({ tab: "dividends", scope: "b" });
+      expect(gainsInput).toHaveBeenCalledWith({ depotId: "b" });
+      expect(listPositions.mock.calls.map((call) => call[0])).toEqual(["b"]);
+      expect((findElement(tree, DividendsView)?.props as unknown as DividendsViewProps).depotId).toBe("b");
       expect(renderText(tree)).toContain("Noch keine Transaktionen.");
     });
   });

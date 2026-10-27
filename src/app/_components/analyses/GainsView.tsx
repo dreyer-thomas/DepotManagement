@@ -65,7 +65,7 @@ function colors(theme: Theme) {
 }
 
 /** Summary of the selected range as a definition list. */
-function Summary({ entries }: { entries: [string, string][] }) {
+export function Summary({ entries }: { entries: [string, string][] }) {
   return (
     <Box component="dl" sx={{ m: 0, mt: 1.5, display: "grid", gridTemplateColumns: "auto 1fr", columnGap: 2, rowGap: 0.5, maxWidth: 360 }}>
       {entries.map(([term, value]) => (
@@ -85,7 +85,7 @@ function Summary({ entries }: { entries: [string, string][] }) {
 const cell = { px: 1, py: 0.75, textAlign: "right", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", fontSize: 13, borderBottom: 1, borderColor: "divider" } as const;
 
 /** Compact value table: "Zeitraum" plus one column per value, so nothing relies on colour or hover. */
-function ValueTable({ caption, columns, buckets }: { caption: string; columns: [string, (bucket: GainsBucket) => string][]; buckets: readonly GainsBucket[] }) {
+export function ValueTable<B extends { period: string } = GainsBucket>({ caption, columns, buckets }: { caption: string; columns: [string, (bucket: B) => string][]; buckets: readonly B[] }) {
   return (
     <Box sx={{ overflowX: "auto", maxWidth: "100%", mt: 1.5 }}>
       <Box component="table" sx={{ borderCollapse: "collapse", width: "100%" }}>

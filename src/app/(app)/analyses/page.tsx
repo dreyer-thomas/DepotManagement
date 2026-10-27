@@ -6,6 +6,7 @@ import type { Metadata } from "next";
 import { AllocationView } from "@/app/_components/analyses/AllocationView";
 import { AnalysisFilters } from "@/app/_components/analyses/AnalysisFilters";
 import { AnalysisTabs } from "@/app/_components/analyses/AnalysisTabs";
+import { DividendsView } from "@/app/_components/analyses/DividendsView";
 import { GainsView } from "@/app/_components/analyses/GainsView";
 import { ReturnHeatmap } from "@/app/_components/analyses/ReturnHeatmap";
 import {
@@ -25,6 +26,7 @@ import { AppLink } from "@/app/_components/depots/DepotLink";
 import { PageTitle } from "@/app/_components/Placeholder";
 import { allocation } from "@/core/allocation";
 import { businessDate } from "@/core/dates";
+import { dividendAnalysis } from "@/core/dividend-analysis";
 import { gainsAnalysis } from "@/core/gains-analysis";
 import { returnHeatmap } from "@/core/return-heatmap";
 import { listClassifications } from "@/modules/classification";
@@ -89,7 +91,31 @@ async function gainsPanel({ scope, today }: { scope: string; today: string }) {
 }
 
 /**
- * Analysen (FR-21, FR-22): tabs Aufteilung, Rendite and Gewinne over the Portfolio or one non-archived Depot,
+ * Dividenden: payments per month / year / Security, trailing-12-month income and yield over today's
+ * paying Positions (stored Prices, as on the Aufteilung tab) and the next 12 months' estimate (FR-22),
+ * from one core function.
+ */
+async function dividendsPanel({ scope, today }: { scope: string; today: string }) {
+  const { depots, actions, securityNames } = await gainsInput(scope === PORTFOLIO_SCOPE ? "portfolio" : { depotId: scope });
+  const positionsByDepot = await Promise.all(
+    depots.map((depot) => listPositions(depot.depotId, today, undefined, { storedPrices: latestStoredPrices })),
+  );
+  const inputs = depots.map((depot, index) => ({
+    ...depot,
+    positions: positionsByDepot[index].map((position) => ({ securityId: position.security.id, quantity: position.quantity, value: position.value })),
+  }));
+  return (
+    <DividendsView
+      analysis={dividendAnalysis(inputs, actions, today)}
+      securityNames={securityNames}
+      today={today}
+      depotId={scope === PORTFOLIO_SCOPE ? null : scope}
+    />
+  );
+}
+
+/**
+ * Analysen (FR-21, FR-22): tabs Aufteilung, Rendite, Gewinne and Dividenden over the Portfolio or one non-archived Depot,
  * scope (and dimension) in the URL. Everything is computed on read; nothing is stored; no provider call.
  */
 export default async function AnalysesPage({ searchParams }: Props) {
@@ -126,6 +152,8 @@ export default async function AnalysesPage({ searchParams }: Props) {
           await returnsPanel({ scope, today })
         ) : tab === "gains" ? (
           await gainsPanel({ scope, today })
+        ) : tab === "dividends" ? (
+          await dividendsPanel({ scope, today })
         ) : (
           await allocationPanel({ depots, scope, dimension, today })
         )}
