@@ -102,9 +102,9 @@ export default async function SecurityDetailPage({ params, searchParams }: Props
 
   return (
     <>
+      <BackLink parent={{ href: "/securities", label: "Wertpapiere" }} self={security.name} />
       <Stack direction="row" sx={{ mb: 2, flexWrap: "wrap", alignItems: "center", columnGap: 2, rowGap: 1 }}>
         <Stack direction="row" spacing={1.5} sx={{ alignItems: "center", minWidth: 0, flex: "1 1 auto" }}>
-          <BackLink parent={{ href: "/securities", label: "Wertpapiere" }} self={security.name} />
           <SecurityLogo securityId={security.id} name={security.name} />
           <Box sx={{ minWidth: 0 }}>
             <Typography variant="pageTitle" component="h1" sx={{ overflowWrap: "anywhere" }}>

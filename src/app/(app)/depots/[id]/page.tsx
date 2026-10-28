@@ -198,12 +198,12 @@ export default async function DepotDetailPage({ params, searchParams }: Props) {
 
   return (
     <>
+      <BackLink parent={{ href: "/depots", label: "Depots" }} self={depot.name} />
       <Stack
         direction="row"
         sx={{ mb: 2, flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", columnGap: 2, rowGap: 1 }}
       >
         <Stack direction="row" spacing={1} sx={{ alignItems: "center", minWidth: 0 }}>
-          <BackLink parent={{ href: "/depots", label: "Depots" }} self={depot.name} />
           <Typography variant="pageTitle" component="h1" sx={{ overflowWrap: "anywhere", minWidth: 0 }}>
             {depot.name}
           </Typography>

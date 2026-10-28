@@ -13,8 +13,8 @@ export { ImportStatusChip } from "./ImportReview";
 export function ImportBatchView({ batch, securities, today }: { batch: Batch; securities: SecuritySummary[]; today: string }) {
   return (
     <>
+      <BackLink parent={{ href: "/import", label: "Import" }} self="Import prüfen" />
       <Stack direction="row" spacing={1} sx={{ mb: 0.5, alignItems: "center", minWidth: 0 }}>
-        <BackLink parent={{ href: "/import", label: "Import" }} self="Import prüfen" />
         <Typography variant="pageTitle" component="h1">
           Import prüfen
         </Typography>

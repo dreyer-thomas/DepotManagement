@@ -15,8 +15,8 @@ export default async function ParqetMigrationPage() {
   const depots = (await listDepots()).filter((depot) => !depot.archived).map(({ id, name }) => ({ id, name }));
   return (
     <>
+      <BackLink parent={{ href: "/settings", label: "Einstellungen" }} self="Aus Parqet übernehmen" />
       <Stack direction="row" spacing={1} sx={{ mb: 2, alignItems: "center", minWidth: 0 }}>
-        <BackLink parent={{ href: "/settings", label: "Einstellungen" }} self="Aus Parqet übernehmen" />
         <Typography variant="pageTitle" component="h1">
           Aus Parqet übernehmen
         </Typography>

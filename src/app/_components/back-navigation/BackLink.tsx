@@ -17,7 +17,7 @@ function useRegisteredLabel(label: string | undefined): void {
 }
 
 /**
- * "‹ <label>" left of a sub-page title (story 8.6): returns to the previous different page of this tab
+ * "‹ <label>" on its own line above a sub-page's header (story 8.6): returns to the previous different page of this tab
  * by history traversal (`history.go(-steps)`), else links to the logical `parent`. SSR and the first
  * client render show the parent, so hydration matches; the resolved origin replaces it after mount.
  * `self` is the label under which this page appears as another back link's origin.
@@ -49,12 +49,13 @@ export function BackLink({ parent, self }: { parent: BackParent; self?: string }
       aria-label={`Zurück zu ${target.label}`}
       title={`Zurück zu ${target.label}`}
       sx={{
-        display: "inline-flex",
+        display: "flex",
+        width: "fit-content",
         alignItems: "center",
         minHeight: 44,
         minWidth: 44,
-        maxWidth: { xs: "9rem", sm: "16rem" },
-        flexShrink: 0,
+        maxWidth: "100%",
+        mt: -1,
         whiteSpace: "nowrap",
       }}
     >

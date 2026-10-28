@@ -28,9 +28,9 @@ export default async function ReconcilePage({ params }: Props) {
   const readOnly = depot.archived;
   return (
     <>
+      <BackLink parent={{ href: `/depots/${encodeURIComponent(depot.id)}`, label: depot.name }} self="Depot abgleichen" />
       <Stack spacing={0.5} sx={{ mb: 2 }}>
         <Stack direction="row" spacing={1} sx={{ alignItems: "center", minWidth: 0 }}>
-          <BackLink parent={{ href: `/depots/${encodeURIComponent(depot.id)}`, label: depot.name }} self="Depot abgleichen" />
           <Typography variant="pageTitle" component="h1">
             Depot abgleichen
           </Typography>
