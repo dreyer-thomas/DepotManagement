@@ -4,6 +4,7 @@
 import { after } from "next/server";
 import { businessDate } from "@/core/dates";
 import { backfillHeldPrices, type PriceRunResult, refetchPriceHistory } from "@/modules/prices";
+import { watchlistPriceTargets } from "@/modules/watchlist";
 import { runClassificationRefresh } from "./classification-refresh";
 import { runLogoFetch } from "./logo-fetch";
 
@@ -28,7 +29,7 @@ function schedule(job: string, run: (today: string) => Promise<PriceRunResult>, 
 }
 
 /**
- * Schedules a backfill of held Securities that need one (e.g. a new held Security) after the response,
+ * Schedules a backfill of held and watched Securities that need one (e.g. a new held or watched Security) after the response,
  * followed by a logo fetch for Securities without a logo and then a classification refresh (AD-20). Both
  * run in the same callback after the backfill (which resolves missing mappings) so they see the new
  * ticker / coin id; they also run when the backfill (or the logo fetch) failed.
@@ -36,7 +37,7 @@ function schedule(job: string, run: (today: string) => Promise<PriceRunResult>, 
 export function schedulePriceBackfill(): void {
   schedule(
     "backfill",
-    (today) => backfillHeldPrices(today),
+    (today) => backfillHeldPrices(today, { watched: watchlistPriceTargets }),
     async () => {
       await runLogoFetch();
       await runClassificationRefresh();

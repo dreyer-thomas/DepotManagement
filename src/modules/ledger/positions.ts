@@ -72,6 +72,25 @@ export async function lineageObservations(
   return observations;
 }
 
+export type SecurityPriceObservationsOptions = { storedPrices?: StoredPriceLoader };
+
+/**
+ * Price observations of `securityIds` and their ISIN-change successors dated on or before `asOf` (BUY/SELL
+ * prices of any Depot plus, when `storedPrices` is given, the stored Prices it loads) together with every
+ * recorded corporate action: what core needs to resolve split-adjusted Prices of Securities that need not
+ * be held (e.g. watchlist entries). Read-only.
+ */
+export async function securityPriceObservations(
+  securityIds: readonly string[],
+  asOf: string,
+  { storedPrices }: SecurityPriceObservationsOptions = {},
+  db: LedgerDb = prisma,
+): Promise<{ observations: PriceObservation[]; actions: CorporateActions }> {
+  const actions = await loadCorporateActions(db);
+  if (securityIds.length === 0) return { observations: [], actions };
+  return { observations: await lineageObservations(securityIds, actions, asOf, db, storedPrices), actions };
+}
+
 /**
  * Open Positions of a Depot as of `today` (`YYYY-MM-DD`). Prices come from the core resolver over the
  * BUY/SELL prices of each Security in any Depot dated on or before `today` and, when `storedPrices` is

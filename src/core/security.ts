@@ -238,7 +238,7 @@ export function securityPrice(
 }
 
 /** Observations carried to the Securities and units as of `asOf` (`adjustedPrice`). */
-function adjustedObservations(
+export function adjustedObservations(
   observations: readonly PriceObservation[],
   actions: CorporateActions,
   asOf: string,

@@ -17,6 +17,7 @@ import {
   updateManualPrice,
   type YahooChart,
 } from "./index";
+import { addWatchlistEntry, createWatchlist, removeWatchlistEntry, watchlistPriceTargets } from "@/modules/watchlist";
 
 let testDb: TestDatabase;
 let depotId: string;
@@ -556,6 +557,61 @@ describe("benchmark ETFs", () => {
     expect((await listPositions(depotId, "2026-10-23", db())).map((position) => position.security.id).sort()).toEqual(
       [sap, world].sort(),
     );
+  });
+});
+
+describe("watched Securities", () => {
+  async function watch(securityId: string, dateAdded: string) {
+    const list = await createWatchlist({ name: `Liste ${securityId}` }, db());
+    if (!list.ok) throw new Error("setup failed");
+    const entry = await addWatchlistEntry({ watchlistId: list.watchlist.id, security: { id: securityId }, dateAdded }, "2026-10-23", db());
+    if (!entry.ok) throw new Error(`setup failed: ${entry.reason}`);
+    return entry.entry.id;
+  }
+  const watchedDeps = (chart: YahooChart): PriceDeps => ({ ...deps(chart), watched: watchlistPriceTargets });
+
+  it("backfills a watched, unheld Security from watchlistHistoryStart, never holds it, and drops it after it leaves every list", async () => {
+    const sap = await security(SAP, "SAP SE");
+    await mapTo(sap, "YAHOO", "SAP.DE");
+    const entryId = await watch(sap, "2026-10-20");
+    const chart = charts({ "SAP.DE": recorded("yahoo-chart-sap-de") });
+
+    // Without the injected loader the Security is not planned at all.
+    expect(await refreshPrices("2026-10-23", deps(chart), db())).toEqual({ updated: 0, failed: [] });
+    expect(chart).not.toHaveBeenCalled();
+
+    expect(await refreshPrices("2026-10-23", watchedDeps(chart), db())).toEqual({ updated: 1, failed: [] });
+    // 3J preset start − 10 days (the date added is later).
+    expect(chart.mock.calls[0][1]).toMatchObject({ period1: "2023-10-13", period2: "2026-10-24" });
+    expect(await mapping(sap)).toMatchObject({ historyFrom: "2023-10-13", fetchError: null });
+    expect((await providerRows(sap)).length).toBeGreaterThan(0);
+    expect(await listHeldSecurities("2026-10-23", db())).toEqual([]);
+    expect(await backfillHeldPrices("2026-10-23", watchedDeps(chart), db())).toEqual({ updated: 0, failed: [] });
+
+    expect((await removeWatchlistEntry(entryId, db())).ok).toBe(true);
+    const stored = (await providerRows(sap)).length;
+    chart.mockClear();
+    expect(await refreshPrices("2026-10-23", watchedDeps(chart), db())).toEqual({ updated: 0, failed: [] });
+    expect(chart).not.toHaveBeenCalled();
+    expect(await providerRows(sap)).toHaveLength(stored);
+  });
+
+  it("takes the earlier of the first activity date and the watchlist start for a held and watched Security", async () => {
+    const sap = await security(SAP, "SAP SE");
+    await buy(sap, "2026-10-13");
+    await mapTo(sap, "YAHOO", "SAP.DE");
+    await benchmarkMarkers();
+    await watch(sap, "2026-10-20");
+    const chart = charts({ "SAP.DE": recorded("yahoo-chart-sap-de") });
+
+    expect(await refreshPrices("2026-10-23", watchedDeps(chart), db())).toEqual({ updated: 1, failed: [] });
+    expect(chart.mock.calls[0][1]).toMatchObject({ period1: "2023-10-13" });
+
+    // A first activity before the watchlist start wins.
+    await buy(sap, "2020-05-04");
+    chart.mockClear();
+    await backfillHeldPrices("2026-10-23", watchedDeps(chart), db());
+    expect(chart.mock.calls[0][1]).toMatchObject({ period1: "2020-05-04" });
   });
 });
 

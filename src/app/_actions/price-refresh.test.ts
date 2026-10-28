@@ -9,6 +9,8 @@ vi.mock("next/server", () => ({ after }));
 vi.mock("@/modules/prices", () => prices);
 vi.mock("@/modules/logos", () => logos);
 vi.mock("@/modules/classification", () => classification);
+const watchlist = vi.hoisted(() => ({ watchlistPriceTargets: vi.fn() }));
+vi.mock("@/modules/watchlist", () => watchlist);
 
 import { schedulePriceBackfill, schedulePriceRefetch } from "./price-refresh";
 
@@ -41,7 +43,7 @@ describe("schedulePriceBackfill", () => {
     schedulePriceBackfill();
     expect(prices.backfillHeldPrices).not.toHaveBeenCalled();
     await runScheduled();
-    expect(prices.backfillHeldPrices).toHaveBeenCalledExactlyOnceWith("2026-10-26");
+    expect(prices.backfillHeldPrices).toHaveBeenCalledExactlyOnceWith("2026-10-26", { watched: watchlist.watchlistPriceTargets });
   });
 
   it("logs a failing backfill instead of throwing", async () => {

@@ -32,6 +32,12 @@ import { type YahooChart, yahooPrices } from "./providers/yahoo";
 export type PriceDeps = MappingDeps & {
   /** Yahoo `chart()`; tests pass a fake serving recorded results. */
   chart?: YahooChart;
+  /**
+   * Watched Securities to price like benchmarks (never held): securityId → first date of their price
+   * history. Injected by the app layer (`watchlist.watchlistPriceTargets`); `prices` never imports the
+   * watchlist module (AD-2).
+   */
+  watched?: (today: string, db: PricesDb) => Promise<ReadonlyMap<string, string>>;
 };
 
 export type PriceRunFailure = { securityId: string; name: string; provider: PriceProvider; reason: PriceFetchFailure };
@@ -91,12 +97,14 @@ async function loadSplits(db: PricesDb): Promise<Split[]> {
 }
 
 /**
- * Plans for the held Securities and the benchmark ETFs (`core/benchmarks`, created once the ledger has a
- * row) mapped to Yahoo, onvista or CoinGecko: a full backfill from the target's first date — a held
- * Security's first activity date, a benchmark's `benchmarkStartDate` (back to the `3J` preset start; the earlier one when a benchmark is
- * also held) — when `historyFrom` is unset or later than it; otherwise (unless `backfillOnly`) an
- * incremental refresh from `REFRESH_OVERLAP_DAYS` before the latest stored provider Price. Benchmarks are
- * priced only: `listHeldSecurities` stays the definition of held.
+ * Plans for the held Securities, the benchmark ETFs (`core/benchmarks`, created once the ledger has a
+ * row) and the watched Securities (`deps.watched`) mapped to Yahoo, onvista or CoinGecko: a full backfill
+ * from the target's first date — a held Security's first activity date, a benchmark's
+ * `benchmarkStartDate` (back to the `3J` preset start), a watched Security's date from `deps.watched`;
+ * the earliest when a Security is several of these — when `historyFrom` is unset or later than it;
+ * otherwise (unless `backfillOnly`) an incremental refresh from `REFRESH_OVERLAP_DAYS` before the latest
+ * stored provider Price. Benchmarks and watched Securities are priced only: `listHeldSecurities` stays the
+ * definition of held. A Security that is none of these is not planned (its stored Prices stay).
  */
 async function heldPlans(today: string, backfillOnly: boolean, deps: PriceDeps, db: PricesDb): Promise<Plan[]> {
   const firstLedger = await firstLedgerDate(db);
@@ -106,7 +114,8 @@ async function heldPlans(today: string, backfillOnly: boolean, deps: PriceDeps, 
   } catch (error) {
     console.warn(`Prices: mapping resolution failed (${error instanceof Error ? error.name : "unknown"})`);
   }
-  const targets = [...new Set([...(await listHeldSecurities(today, db)), ...benchmarkIds])];
+  const watched = deps.watched ? await deps.watched(today, db) : new Map<string, string>();
+  const targets = [...new Set([...(await listHeldSecurities(today, db)), ...benchmarkIds, ...watched.keys()])];
   const mappings = await mappingsOf(targets, FETCHED_PROVIDERS, db);
   if (mappings.length === 0) return [];
   const firstDates = await firstActivityDates(
@@ -117,6 +126,10 @@ async function heldPlans(today: string, backfillOnly: boolean, deps: PriceDeps, 
     const benchmarkFrom = benchmarkStartDate(firstLedger, today);
     // benchmarkFrom ≤ first ledger date − 10 days, so it is never after a held benchmark's own first activity.
     for (const securityId of benchmarkIds) firstDates.set(securityId, benchmarkFrom);
+  }
+  for (const [securityId, from] of watched) {
+    const current = firstDates.get(securityId);
+    if (current === undefined || from < current) firstDates.set(securityId, from);
   }
   const plans: Plan[] = [];
   for (const { securityId, provider, symbol, historyFrom } of mappings) {

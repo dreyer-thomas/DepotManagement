@@ -1,0 +1,161 @@
+// @vitest-environment happy-dom
+import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { registerDomCleanup } from "../../../../test/helpers/dom";
+import type { WatchlistEntryView } from "@/modules/watchlist";
+import { LogoProvider } from "../securities/LogoContext";
+import { WatchlistTable } from "./WatchlistTable";
+
+const push = vi.hoisted(() => vi.fn());
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push, refresh: vi.fn() }) }));
+vi.mock("@/app/_actions/watchlists", () => ({
+  addWatchlistEntryAction: vi.fn(),
+  updateWatchlistEntryAction: vi.fn(),
+  removeWatchlistEntryAction: vi.fn(),
+}));
+
+registerDomCleanup();
+
+beforeEach(() => push.mockReset());
+
+function entry(overrides: Partial<WatchlistEntryView> & { id: string; name: string }): WatchlistEntryView {
+  const { id, name, ...rest } = overrides;
+  return {
+    id,
+    watchlistId: "w1",
+    securityId: `s-${id}`,
+    note: "",
+    dateAdded: "2026-10-01",
+    position: 1,
+    source: "APP",
+    clientName: null,
+    price: null,
+    priceDate: null,
+    priceSource: null,
+    priceFetchedAt: null,
+    priceProvider: null,
+    stale: false,
+    changeToday: null,
+    sinceAdded: null,
+    held: false,
+    security: { id: `s-${id}`, name, isin: "DE0007164600", cryptoSymbol: null, assetType: "STOCK" },
+    ...rest,
+  };
+}
+
+const SAP = entry({
+  id: "e1",
+  name: "SAP SE",
+  note: "\nKGV niedrig\nzweite Zeile",
+  dateAdded: "2026-10-01",
+  price: "26",
+  priceDate: "2026-10-27",
+  priceSource: "provider",
+  priceFetchedAt: "2026-10-27T18:05:00.000Z",
+  priceProvider: "YAHOO",
+  changeToday: { perUnit: "1", ratio: "0.04" },
+  sinceAdded: "0.04",
+  held: true,
+});
+const BTC = entry({
+  id: "e2",
+  name: "Bitcoin",
+  dateAdded: "2026-10-20",
+  source: "MCP",
+  clientName: "Claude",
+  price: "60000",
+  priceDate: "2026-10-20",
+  priceSource: "provider",
+  priceFetchedAt: "2026-10-20T18:05:00.000Z",
+  priceProvider: "COINGECKO",
+  stale: true,
+  changeToday: { perUnit: "-600", ratio: "-0.01" },
+  sinceAdded: "-0.2",
+  security: { id: "s-e2", name: "Bitcoin", isin: null, cryptoSymbol: "BTC", assetType: "CRYPTO" },
+});
+const NEW = entry({ id: "e3", name: "Allianz", dateAdded: "2026-10-10" });
+
+const LISTS = [{ id: "w1", name: "Ideen" }];
+
+function renderTable(entries = [SAP, BTC, NEW]) {
+  const result = render(
+    <LogoProvider versions={{}}>
+      <WatchlistTable entries={entries} lists={LISTS} today="2026-10-28" />
+    </LogoProvider>,
+  );
+  const table = result.container.querySelector("table") as HTMLElement;
+  return { ...result, table };
+}
+
+const rowNames = (table: HTMLElement) =>
+  [...table.querySelectorAll("tbody tr")].map((row) => row.querySelector("a")?.textContent);
+
+describe("WatchlistTable", () => {
+  it("shows logo, name, identifier, Price with date / stale badge, changes, date added, first note line and chips", () => {
+    const { table } = renderTable();
+    const [btcRow, allianzRow, sapRow] = [...table.querySelectorAll("tbody tr")] as HTMLElement[];
+    // Default: date added newest first.
+    expect(rowNames(table)).toEqual(["Bitcoin", "Allianz", "SAP SE"]);
+    const sap = sapRow.textContent!;
+    expect(sap).toContain("SAP SE");
+    expect(sap).toContain("DE0007164600");
+    expect(sap).toContain("im Bestand");
+    expect(sap).toContain("26,00 €");
+    expect(sap).toContain("Kurs vom 27.10.2026");
+    expect(sap).toContain("+4,00 %");
+    expect(sap).toContain("+1,00 €");
+    expect(sap).toContain("01.10.2026");
+    expect(sap).toContain("KGV niedrig");
+    expect(sap).not.toContain("zweite Zeile");
+    expect(sapRow.querySelector("a")?.getAttribute("href")).toBe("/securities/s-e1");
+
+    const btc = btcRow.textContent!;
+    expect(btc).toContain("BTC");
+    expect(btc).toContain("via Claude");
+    expect(btc).not.toContain("im Bestand");
+    expect(btc).toContain("Kurs vom 20.10.2026 – veraltet");
+    expect(btc).toContain("-1,00 %");
+    expect(btc).toContain("-20,00 %");
+
+    expect(allianzRow.textContent).toContain("Allianz");
+    expect(allianzRow.textContent?.match(/–/g)?.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("reorders rows when clicking a sortable header (nulls last both ways)", async () => {
+    const user = userEvent.setup({ delay: null });
+    const { table } = renderTable();
+    await user.click(within(table).getByRole("button", { name: "Seit Aufnahme" }));
+    expect(rowNames(table)).toEqual(["SAP SE", "Bitcoin", "Allianz"]);
+    await user.click(within(table).getByRole("button", { name: "Seit Aufnahme" }));
+    expect(rowNames(table)).toEqual(["Bitcoin", "SAP SE", "Allianz"]);
+    await user.click(within(table).getByRole("button", { name: "Wertpapier" }));
+    expect(rowNames(table)).toEqual(["Allianz", "Bitcoin", "SAP SE"]);
+    await user.click(within(table).getByRole("button", { name: "Heute" }));
+    expect(rowNames(table)).toEqual(["SAP SE", "Bitcoin", "Allianz"]);
+  });
+
+  it("opens the Security detail on a row click and the edit dialog from the pencil", async () => {
+    const user = userEvent.setup({ delay: null });
+    const { table } = renderTable([SAP]);
+    await user.click(table.querySelector("tbody tr td:nth-child(5)") as HTMLElement);
+    expect(push).toHaveBeenCalledWith("/securities/s-e1");
+    push.mockReset();
+    await user.click(within(table).getByRole("button", { name: "SAP SE bearbeiten" }));
+    expect(push).not.toHaveBeenCalled();
+    const dialog = await screen.findByRole("dialog", { name: "Eintrag bearbeiten" });
+    expect((within(dialog).getByRole("textbox", { name: "Notiz" }) as HTMLTextAreaElement).value).toBe(SAP.note);
+  });
+
+  it("renders stacked rows for phones with the same entries", () => {
+    const { container } = renderTable();
+    const list = container.querySelector('ul[aria-label="Watchlist-Einträge"]') as HTMLElement;
+    expect(list.querySelectorAll("li")).toHaveLength(3);
+    expect(list.textContent).toContain("seit Aufnahme");
+  });
+
+  it("shows an empty text without entries", () => {
+    renderTable([]);
+    expect(screen.getByText("Noch keine Wertpapiere auf dieser Watchlist.")).toBeDefined();
+  });
+});

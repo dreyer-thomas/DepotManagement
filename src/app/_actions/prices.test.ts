@@ -23,6 +23,7 @@ vi.mock("@/modules/prices", async (importOriginal) => ({
 
 import { prisma } from "@/db";
 import { ensureSecurity } from "@/modules/ledger";
+import { watchlistPriceTargets } from "@/modules/watchlist";
 import { deleteManualPriceAction, refreshPricesAction, saveManualPriceAction, updateManualPriceAction } from "./prices";
 
 const SECRET = "test-secret-with-at-least-32-characters";
@@ -64,7 +65,7 @@ describe("refreshPricesAction", () => {
     const failed = [{ securityId: "s1", name: "SAP SE", provider: "YAHOO", reason: "network" }];
     refreshPrices.mockResolvedValue({ updated: 1, failed });
     expect(await refreshPricesAction()).toEqual({ ok: true, updated: 1, failed });
-    expect(refreshPrices).toHaveBeenCalledExactlyOnceWith("2026-10-26");
+    expect(refreshPrices).toHaveBeenCalledExactlyOnceWith("2026-10-26", { watched: watchlistPriceTargets });
     expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
   });
 

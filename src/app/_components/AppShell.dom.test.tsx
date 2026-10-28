@@ -47,6 +47,18 @@ describe("MoreLinks open-import count", () => {
   });
 });
 
+describe("Watchlists navigation", () => {
+  it("lists Watchlists between Wertpapiere and Einstellungen in the drawer", () => {
+    render(<AppShell openImports={0}>page</AppShell>);
+    const { drawer } = navs();
+    const labels = within(drawer)
+      .getAllByRole("link", { hidden: true })
+      .map((link) => link.textContent);
+    expect(labels.slice(-3)).toEqual(["Wertpapiere", "Watchlists", "Einstellungen"]);
+    expect(within(drawer).getByRole("link", { name: "Watchlists", hidden: true }).getAttribute("href")).toBe("/watchlists");
+  });
+});
+
 describe("Analysen navigation", () => {
   it("lists Analysen between Depots and Import in the drawer", () => {
     render(<AppShell openImports={0}>page</AppShell>);
@@ -60,6 +72,6 @@ describe("Analysen navigation", () => {
 
   it("no longer lists Analysen under Mehr (it is in the bottom navigation)", () => {
     render(<MoreLinks />);
-    expect(screen.getAllByRole("link").map((link) => link.textContent)).toEqual(["Import", "Wertpapiere", "Einstellungen"]);
+    expect(screen.getAllByRole("link").map((link) => link.textContent)).toEqual(["Import", "Wertpapiere", "Watchlists", "Einstellungen"]);
   });
 });

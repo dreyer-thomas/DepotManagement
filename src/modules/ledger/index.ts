@@ -77,8 +77,14 @@ export type {
   SecurityResult,
   SecuritySummary,
 } from "./securities";
-export { latestTradePrices, listPositions, listRealizedSales } from "./positions";
-export type { ListPositionsOptions, PositionRecord, RealizedSaleRecord, StoredPriceLoader } from "./positions";
+export { latestTradePrices, listPositions, listRealizedSales, securityPriceObservations } from "./positions";
+export type {
+  ListPositionsOptions,
+  PositionRecord,
+  RealizedSaleRecord,
+  SecurityPriceObservationsOptions,
+  StoredPriceLoader,
+} from "./positions";
 export { benchmarkLines, depotValuation, portfolioValuation, returnSeries } from "./valuation";
 export type { BenchmarkLines, DepotValuation, DepotValuationOptions, PortfolioValuation, ReturnScope, ReturnSeries } from "./valuation";
 export { gainsInput, taxLedgerInput } from "./gains";

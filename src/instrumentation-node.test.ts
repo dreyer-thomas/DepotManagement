@@ -19,6 +19,10 @@ vi.mock("@/modules/classification", () => ({ refreshClassifications }));
 const startBackupScheduler = vi.hoisted(() => vi.fn(() => true));
 vi.mock("@/modules/backup", () => ({ startBackupScheduler }));
 
+// The watched-Securities loader is a fake: no database.
+const watchlistPriceTargets = vi.hoisted(() => vi.fn(async () => new Map<string, string>()));
+vi.mock("@/modules/watchlist", () => ({ watchlistPriceTargets }));
+
 const LOGO_START = Symbol.for("depotmanagement.logoStartupRun");
 
 import { stopPriceScheduler } from "@/modules/prices";
@@ -87,7 +91,8 @@ describe("startBackgroundJobs", () => {
     await startBackgroundJobs();
     await startBackgroundJobs();
     await vi.waitFor(() => expect(refreshPrices).toHaveBeenCalledTimes(1));
-    expect(refreshPrices.mock.calls[0]).toEqual([expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/)]);
+    // Watched Securities are priced too, through the injected watchlist loader.
+    expect(refreshPrices.mock.calls[0]).toEqual([expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), { watched: watchlistPriceTargets }]);
   });
 
   it("refreshes the news after the price run", async () => {

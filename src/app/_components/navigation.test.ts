@@ -23,7 +23,7 @@ describe("activeBottomHref", () => {
     expect(activeBottomHref("/more")).toBe("/more");
   });
 
-  it.each(["/settings", "/import", "/securities"])("maps %s to /more", (path) => {
+  it.each(["/settings", "/import", "/securities", "/watchlists"])("maps %s to /more", (path) => {
     expect(activeBottomHref(path)).toBe("/more");
   });
 
@@ -61,9 +61,21 @@ describe("Analysen entry", () => {
       "Import",
       "Nachrichten",
       "Wertpapiere",
+      "Watchlists",
       "Einstellungen",
     ]);
     expect(bottomItems.map((item) => item.label)).toEqual(["Übersicht", "Depots", "Analysen", "Nachrichten", "Mehr"]);
-    expect(moreItems.map((item) => item.label)).toEqual(["Import", "Wertpapiere", "Einstellungen"]);
+    expect(moreItems.map((item) => item.label)).toEqual(["Import", "Wertpapiere", "Watchlists", "Einstellungen"]);
+  });
+});
+
+describe("Watchlists entry", () => {
+  it("sits between Wertpapiere and Einstellungen in the drawer and under Mehr on phones", () => {
+    const watchlists = drawerItems.find((item) => item.label === "Watchlists");
+    expect(watchlists?.href).toBe("/watchlists");
+    expect(drawerItems.map((item) => item.label).slice(-3)).toEqual(["Wertpapiere", "Watchlists", "Einstellungen"]);
+    expect(bottomItems.some((item) => item.label === "Watchlists")).toBe(false);
+    expect(moreItems.map((item) => item.label)).toContain("Watchlists");
+    expect(activeBottomHref("/watchlists")).toBe("/more");
   });
 });

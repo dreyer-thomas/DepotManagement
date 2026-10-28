@@ -14,6 +14,7 @@ import {
   updateManualPrice,
   type UpdateManualPriceResult,
 } from "@/modules/prices";
+import { watchlistPriceTargets } from "@/modules/watchlist";
 
 const UNAUTHORIZED = { ok: false, reason: "unauthorized" } as const;
 type Unauthorized = typeof UNAUTHORIZED;
@@ -34,12 +35,12 @@ export type UpdateManualPriceActionState = UpdateManualPriceResult | Unauthorize
 export type DeleteManualPriceActionResult = DeleteManualPriceResult | Unauthorized;
 
 /**
- * "Kurse aktualisieren": fetches the Prices of every held Security now and waits for the run (serialized
+ * "Kurse aktualisieren": fetches the Prices of every held (and watched) Security now and waits for the run (serialized
  * with scheduler runs). Fetch failures are part of the result, never thrown.
  */
 export async function refreshPricesAction(): Promise<RefreshPricesActionResult> {
   if (!(await getSession())) return UNAUTHORIZED;
-  const result = await refreshPrices(businessDate(new Date()));
+  const result = await refreshPrices(businessDate(new Date()), { watched: watchlistPriceTargets });
   // Prices and fetch errors show on Securities and Positions.
   revalidatePath("/", "layout");
   return { ok: true, updated: result.updated, failed: result.failed };

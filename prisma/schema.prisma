@@ -73,6 +73,8 @@ model Security {
   newsArticles       NewsArticle[]
   newsFetch          NewsFetch?
   reconciliationRows ReconciliationRow[]
+  /// Watchlist entries of this Security (owned by the watchlist module; cascade with the Security).
+  watchlistEntries   WatchlistEntry[]
 }
 
 // Canonical Transaction shape (AD-14). Decimal values are TEXT strings; ordered by (date, sequence).
@@ -424,4 +426,44 @@ model TargetAllocation {
   threshold String
   /// UTC ISO timestamp of the last write.
   updatedAt String
+}
+
+// Owned by the watchlist module (story 9.1). A named list of investment ideas; ordered by `position`
+// (creation order, max + 1). `name` is trimmed NFC, ≤ 60 characters, unique case-insensitively (service).
+model Watchlist {
+  id        String           @id @default(cuid())
+  name      String           @unique
+  position  Int              @unique
+  /// UTC ISO timestamp of the creation.
+  createdAt String
+  entries   WatchlistEntry[]
+}
+
+enum WatchlistEntrySource {
+  APP
+  MCP
+}
+
+// Owned by the watchlist module (story 9.1). One Security on one list (a Security may be on several
+// lists). Price, changes and stale flag are computed on read by core, never stored. Cascades with its
+// list and its Security (removing an entry never deletes the Security or its Prices).
+model WatchlistEntry {
+  id          String               @id @default(cuid())
+  watchlistId String
+  watchlist   Watchlist            @relation(fields: [watchlistId], references: [id], onDelete: Cascade)
+  securityId  String
+  security    Security             @relation(fields: [securityId], references: [id], onDelete: Cascade)
+  /// Plain-text note (≤ 2000 characters); empty allowed.
+  note        String               @default("")
+  /// Business date YYYY-MM-DD (Europe/Berlin) the idea was added; ≤ today.
+  dateAdded   String
+  position    Int
+  source      WatchlistEntrySource @default(APP)
+  /// Name of the MCP client that created the entry; null for APP entries.
+  clientName  String?
+  /// UTC ISO timestamp of the creation.
+  createdAt   String
+
+  @@unique([watchlistId, securityId])
+  @@index([securityId])
 }

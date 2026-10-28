@@ -1,6 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createTestDatabase, type TestDatabase } from "../../../test/helpers/test-db";
-import { createDepot, ensureSecurity, latestTradePrices, listPositions, listRealizedSales, recordIsinChange, recordTrade, type RecordTradeInput, recordTransaction } from "./index";
+import type { PriceObservation } from "@/core/prices";
+import {
+  createDepot,
+  ensureSecurity,
+  latestTradePrices,
+  listPositions,
+  listRealizedSales,
+  recordIsinChange,
+  recordSplit,
+  recordTrade,
+  type RecordTradeInput,
+  recordTransaction,
+  securityPriceObservations,
+} from "./index";
 
 let testDb: TestDatabase;
 let depotId: string;
@@ -92,6 +105,41 @@ describe("latestTradePrices", () => {
     // Same date: the later sequence wins.
     expect((await latestTradePrices([appleId], "2026-10-11", db()))[0]).toMatchObject({ date: "2026-10-10", price: "111" });
     expect(await latestTradePrices([], TODAY, db())).toEqual([]);
+  });
+});
+
+describe("securityPriceObservations", () => {
+  it("returns Transaction and stored observations up to asOf with every corporate action, for unheld Securities too", async () => {
+    await record({ date: "2026-10-01", quantity: "1", price: "100" });
+    await record({ date: "2026-10-30", quantity: "1", price: "999" });
+    const split = await recordSplit({ securityId: appleId, date: "2026-10-10", ratio: "1:4" }, db());
+    expect(split.ok).toBe(true);
+    const sap = await ensureSecurity({ isin: "DE0007164600" }, { name: "SAP SE", assetType: "STOCK" }, db());
+    if (!sap.ok) throw new Error("setup failed");
+    const stored: PriceObservation = {
+      id: "p1",
+      securityId: sap.security.id,
+      date: "2026-10-20",
+      sequence: 0,
+      price: "120",
+      source: "provider",
+      fetchedAt: "2026-10-20T18:00:00.000Z",
+      provider: "YAHOO",
+    };
+    const calls: [string[], string][] = [];
+    const storedPrices = async (ids: string[], asOf: string) => {
+      calls.push([ids, asOf]);
+      return [stored, { ...stored, id: "p2", securityId: "unrelated" }];
+    };
+
+    const result = await securityPriceObservations([appleId, sap.security.id], TODAY, { storedPrices }, db());
+    expect(result.actions.splits).toEqual([{ securityId: appleId, date: "2026-10-10", ratioOld: "1", ratioNew: "4" }]);
+    expect(result.observations.map((observation) => [observation.securityId, observation.date, observation.price])).toEqual([
+      [appleId, "2026-10-01", "100"],
+      [sap.security.id, "2026-10-20", "120"],
+    ]);
+    expect(calls).toEqual([[[appleId, sap.security.id], TODAY]]);
+    expect((await securityPriceObservations([], TODAY, {}, db())).observations).toEqual([]);
   });
 });
 

@@ -45,10 +45,12 @@ async function refreshClassificationsAfterNews(): Promise<void> {
 export async function startBackgroundJobs(): Promise<void> {
   if (process.env.NEXT_PHASE === "phase-production-build") return;
   const { refreshPrices, startPriceScheduler } = await import("@/modules/prices");
+  // Watched Securities are priced too; `prices` never imports `watchlist` (AD-2), so the loader is passed in.
+  const { watchlistPriceTargets } = await import("@/modules/watchlist");
   startPriceScheduler({
     run: async (today) => {
       try {
-        return await refreshPrices(today);
+        return await refreshPrices(today, { watched: watchlistPriceTargets });
       } finally {
         await refreshNewsAfterPrices();
         await refreshClassificationsAfterNews();

@@ -148,6 +148,21 @@ function onlyOverrides(records: ClassificationRecord[]): ClassificationRecord[] 
 }
 
 describe("restoreExport", () => {
+  it("restores over a watchlist entry: the entry goes with its Security (until story 9.3), the list stays", async () => {
+    await seedFullLedger(source.testDb.client, source.dataDir);
+    const text = await exportOf(source);
+    await seedOtherData(target);
+    const c = target.testDb.client;
+    await c.watchlist.create({ data: { id: "wl-1", name: "Ideen", position: 1, createdAt: TS } });
+    await c.watchlistEntry.create({
+      data: { watchlistId: "wl-1", securityId: "other-sec", dateAdded: "2025-05-06", position: 1, createdAt: TS },
+    });
+
+    expect(await restoreInto(target, text)).toEqual({ ok: true, backupFileName: BACKUP_NAME });
+    expect(await c.watchlistEntry.count()).toBe(0);
+    expect(await c.watchlist.count()).toBe(1);
+  });
+
   it("round-trips: restoring into an empty instance yields a byte-identical export and equal evaluations", async () => {
     await seedFullLedger(source.testDb.client, source.dataDir);
     await seedMorePrices(source.testDb.client);
