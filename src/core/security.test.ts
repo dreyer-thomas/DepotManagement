@@ -13,6 +13,7 @@ import {
   securityPerformance,
   securityPerformanceLine,
   securityPrice,
+  securityPriceChange,
   securityPriceSeries,
   securitySeries,
   securitySnapshot,
@@ -376,6 +377,33 @@ describe("securityPriceSeries", () => {
     const actions: CorporateActions = { splits: [], isinChanges: [isinChange("x", "y", "2026-03-01", "1", "2")] };
     const observations = [provider("2026-02-27", "100", "x"), provider("2026-03-02", "51", "y")];
     expect(securityPriceSeries(observations, "y", actions, "2026-02-28", "2026-03-02").map((point) => point.price)).toEqual(["50", "50", "51"]);
+  });
+});
+
+describe("securityPriceChange", () => {
+  it("base on the day before from: 100 → 110 is +10 / +10 %", () => {
+    const observations = [provider("2026-01-31", "100"), provider("2026-02-10", "110")];
+    expect(securityPriceChange(observations, "s1", NONE, "2026-02-01", "2026-02-28")).toEqual({ perUnit: "10", ratio: "0.1" });
+  });
+
+  it("base inside the Period: first Price on from+3 = 50, end 60 is +10 / +20 %", () => {
+    const observations = [provider("2026-02-04", "50"), provider("2026-02-20", "60")];
+    expect(securityPriceChange(observations, "s1", NONE, "2026-02-01", "2026-02-28")).toEqual({ perUnit: "10", ratio: "0.2" });
+  });
+
+  it("split in the Period: base adjusted 100 → 25, end 26 is +4 %", () => {
+    const actions: CorporateActions = { splits: [{ securityId: "s1", date: "2026-02-10", ratioOld: "1", ratioNew: "4" }], isinChanges: [] };
+    const observations = [provider("2026-01-31", "100"), provider("2026-02-20", "26")];
+    expect(securityPriceChange(observations, "s1", actions, "2026-02-01", "2026-02-28")).toEqual({ perUnit: "1", ratio: "0.04" });
+  });
+
+  it("null without end, without base or with a zero base; other Securities ignored", () => {
+    expect(securityPriceChange([], "s1", NONE, "2026-02-01", "2026-02-28")).toBeNull();
+    expect(securityPriceChange([provider("2026-03-05", "10")], "s1", NONE, "2026-02-01", "2026-02-28")).toBeNull();
+    expect(securityPriceChange([provider("2026-02-05", "10", "s2")], "s1", NONE, "2026-02-01", "2026-02-28")).toBeNull();
+    expect(securityPriceChange([provider("2026-01-31", "0"), provider("2026-02-05", "10")], "s1", NONE, "2026-02-01", "2026-02-28")).toBeNull();
+    // A single Price inside the Period is both base and end.
+    expect(securityPriceChange([provider("2026-02-05", "10")], "s1", NONE, "2026-02-01", "2026-02-28")).toEqual({ perUnit: "0", ratio: "0" });
   });
 });
 

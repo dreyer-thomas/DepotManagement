@@ -69,6 +69,21 @@ describe("securityDetail", () => {
     expect(detail?.price).toBeNull();
   });
 
+  it("Not booked with stored Prices: MAX starts on the earliest Price, Period price change", async () => {
+    const storedPrices = async (_ids: string[], asOf: string) =>
+      [provider("2025-03-01", "100"), provider("2026-10-20", "110")].filter((p) => p.date <= asOf);
+    const detail = await securityDetail(securityId, undefined, MAX, TODAY, db(), { storedPrices });
+    expect(detail?.from).toBe("2025-03-01");
+    expect(detail?.to).toBe(TODAY);
+    expect(detail?.price?.price).toBe("110");
+    expect(detail?.priceChange).toEqual({ perUnit: "10", ratio: "0.1" });
+    expect(detail?.priceSeries[0]).toEqual({ date: "2025-03-01", price: "100" });
+
+    const none = await securityDetail(securityId, undefined, MAX, TODAY, db());
+    expect(none?.from).toBe(TODAY);
+    expect(none?.priceChange).toBeNull();
+  });
+
   it("Two Depots: Alle Depots sums the Depots, a Depot param selects one", async () => {
     await book(depotA, { type: "BUY", date: "2026-02-02", quantity: "10", price: "100", security: { id: securityId } });
     await book(depotB, { type: "BUY", date: "2026-03-02", quantity: "5", price: "120", security: { id: securityId } });

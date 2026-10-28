@@ -8,8 +8,8 @@ import { NO_PRICE_TEXT, STALE_HINT_TEXT } from "./labels";
 
 /**
  * The latest price's date ("Kurs vom …", or the stale badge), "Kein Kurs vorhanden." without one. A stale
- * price of a held scope adds "Keine Kursquelle liefert aktuelle Kurse." with "Kurs manuell eintragen"
- * for `security` (prices are only fetched for held Securities, so a sold one is not flagged).
+ * price of a held or watched Security adds "Keine Kursquelle liefert aktuelle Kurse." with "Kurs manuell
+ * eintragen" for `security` (prices are only fetched for held or watched Securities, so a sold one is not flagged).
  */
 export function PriceLine({
   price,
@@ -20,7 +20,7 @@ export function PriceLine({
   price: ResolvedPrice | null;
   /** The Security the price belongs to (the chain's current one). */
   security: { id: string; name: string };
-  /** Scope quantity > 0. */
+  /** Prices are fetched for it: scope quantity > 0, or on a watchlist. */
   held: boolean;
   today: string;
 }) {

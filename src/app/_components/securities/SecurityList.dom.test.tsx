@@ -50,6 +50,12 @@ describe("SecurityList", () => {
     expect(screen.getByRole("link", { name: "SAP" }).getAttribute("href")).toBe("/securities/s2");
   });
 
+  it("marks watchlist-only Securities with the Watchlist chip", () => {
+    render(<SecurityList securities={securities} watchlistOnly={new Set(["s2"])} today="2026-10-26" />);
+    expect(screen.getAllByText("Watchlist")).toHaveLength(1);
+    expect(screen.getByText("Watchlist").closest("li")?.textContent).toContain("SAP");
+  });
+
   it("offers the types allowed for each identifier in 'Typ ändern'", async () => {
     render(<SecurityList securities={securities} today="2026-10-26" />);
     expect(await offeredTypes("SAP")).toEqual(["Aktie", "ETF", "Fonds", "Zertifikat"]);

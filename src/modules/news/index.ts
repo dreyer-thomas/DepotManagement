@@ -2,6 +2,7 @@
 export {
   clearNews,
   listNews,
+  listSecurityNews,
   NEWS_MAX_AGE_HOURS,
   NEWS_PER_SECURITY_LIMIT,
   NEWS_WINDOW_DAYS,

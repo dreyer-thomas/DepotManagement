@@ -19,7 +19,9 @@ type LogoStartGlobal = typeof globalThis & { [LOGO_START]?: boolean };
 async function refreshNewsAfterPrices(): Promise<void> {
   try {
     const { refreshNews } = await import("@/modules/news");
-    await refreshNews();
+    // Watched Securities are in the news set; `news` never imports `watchlist` (AD-2), so the loader is passed in.
+    const { watchedSecurityIds } = await import("@/modules/watchlist");
+    await refreshNews({ watched: watchedSecurityIds });
   } catch (error) {
     console.error(`News: scheduled refresh failed (${error instanceof Error ? error.name : "unknown"})`);
   }

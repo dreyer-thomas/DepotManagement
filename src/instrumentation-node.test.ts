@@ -21,7 +21,8 @@ vi.mock("@/modules/backup", () => ({ startBackupScheduler }));
 
 // The watched-Securities loader is a fake: no database.
 const watchlistPriceTargets = vi.hoisted(() => vi.fn(async () => new Map<string, string>()));
-vi.mock("@/modules/watchlist", () => ({ watchlistPriceTargets }));
+const watchedSecurityIds = vi.hoisted(() => vi.fn(async () => [] as string[]));
+vi.mock("@/modules/watchlist", () => ({ watchlistPriceTargets, watchedSecurityIds }));
 
 const LOGO_START = Symbol.for("depotmanagement.logoStartupRun");
 
@@ -109,7 +110,7 @@ describe("startBackgroundJobs", () => {
     await startBackgroundJobs();
     await vi.waitFor(() => expect(refreshNews).toHaveBeenCalledTimes(1));
     expect(order).toEqual(["prices", "news"]);
-    expect(refreshNews).toHaveBeenCalledWith();
+    expect(refreshNews).toHaveBeenCalledWith({ watched: watchedSecurityIds });
   });
 
   it("refreshes the news also when the price run failed, and only logs a failed news refresh", async () => {

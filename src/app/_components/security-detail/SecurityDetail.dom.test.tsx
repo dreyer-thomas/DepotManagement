@@ -319,6 +319,18 @@ describe("SecurityChart", () => {
     document.cookie = "dm_security_chart=; path=/; max-age=0";
   });
 
+  it("price only (no value points): no mode toggle, Kurs with the overlay even when Wert was stored", () => {
+    render(
+      <ThemeProvider theme={theme}>
+        <SecurityChart valuePoints={[]} pricePoints={pricePoints} trades={[]} movingAverages={movingAverages} initialMode="value" />
+      </ThemeProvider>,
+    );
+    expect(screen.queryByRole("group", { name: "Diagramm" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Wert" })).toBeNull();
+    expect(screen.getByRole("figure").getAttribute("aria-label")).toMatch(/^Kursverlauf/);
+    expect(screen.getByRole("switch", { name: "Gleitender Durchschnitt" })).toBeTruthy();
+  });
+
   it("shows the no-price text in Kurs mode without any price", () => {
     render(
       <ThemeProvider theme={theme}>

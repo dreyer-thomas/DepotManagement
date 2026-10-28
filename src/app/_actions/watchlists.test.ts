@@ -92,16 +92,22 @@ describe("watchlist actions without a session", () => {
 });
 
 describe("list actions", () => {
-  it("create, rename and delete a list, revalidating /watchlists", async () => {
+  it("create, rename and delete a list, revalidating /watchlists and the Securities pages", async () => {
     const id = await createList(" Ideen ");
     expect(revalidatePath).toHaveBeenCalledWith("/watchlists");
+    expect(revalidatePath).toHaveBeenCalledWith("/securities");
+    expect(revalidatePath).toHaveBeenCalledWith("/securities/[id]", "page");
     expect(await createWatchlistAction(null, form({ name: "ideen" }))).toEqual({ ok: false, reason: "name-taken" });
 
+    revalidatePath.mockClear();
     expect(await renameWatchlistAction(null, form({ watchlistId: id, name: "Dividenden" }))).toMatchObject({
       ok: true,
       watchlist: { name: "Dividenden" },
     });
+    expect(revalidatePath).toHaveBeenCalledWith("/securities/[id]", "page");
+    revalidatePath.mockClear();
     expect(await deleteWatchlistAction(null, form({ watchlistId: id }))).toEqual({ ok: true, deleted: { entries: 0 } });
+    expect(revalidatePath).toHaveBeenCalledWith("/securities/[id]", "page");
     expect(await prisma.watchlist.count()).toBe(0);
   });
 });
@@ -117,6 +123,7 @@ describe("entry actions", () => {
     expect(result).toMatchObject({ ok: true, entry: { securityId: security, note: "Idee", dateAdded: "2026-10-01", source: "APP" } });
     expect(schedulePriceBackfill).toHaveBeenCalledTimes(1);
     expect(revalidatePath).toHaveBeenCalledWith("/watchlists");
+    expect(revalidatePath).toHaveBeenCalledWith("/securities/[id]", "page");
 
     expect(await addWatchlistEntryAction(null, form({ watchlistId: list, securityId: security }))).toEqual({
       ok: false,
@@ -149,10 +156,12 @@ describe("entry actions", () => {
     schedulePriceBackfill.mockClear();
     const entryId = added.entry.id;
 
+    revalidatePath.mockClear();
     expect(await updateWatchlistEntryAction(null, form({ entryId, note: "neu", dateAdded: "2026-10-25", watchlistId: a }))).toMatchObject({
       ok: true,
       entry: { note: "neu", dateAdded: "2026-10-25" },
     });
+    expect(revalidatePath).toHaveBeenCalledWith("/securities/[id]", "page");
     expect(schedulePriceBackfill).not.toHaveBeenCalled();
     expect(await updateWatchlistEntryAction(null, form({ entryId, note: "neu", dateAdded: "2026-09-01", watchlistId: b }))).toMatchObject({
       ok: true,
@@ -164,8 +173,12 @@ describe("entry actions", () => {
       reason: "date-invalid",
     });
 
+    revalidatePath.mockClear();
     expect(await removeWatchlistEntryAction(entryId)).toEqual({ ok: true });
+    expect(revalidatePath).toHaveBeenCalledWith("/securities/[id]", "page");
+    revalidatePath.mockClear();
     expect(await removeWatchlistEntryAction(entryId)).toEqual({ ok: false, reason: "not-found" });
+    expect(revalidatePath).toHaveBeenCalledWith("/securities/[id]", "page");
     expect(await prisma.security.count()).toBe(1);
   });
 });

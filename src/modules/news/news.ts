@@ -4,7 +4,7 @@
 import { prisma } from "@/db";
 import { addDays, businessDate } from "@/core/dates";
 import type { NewsProvider, Prisma } from "@/db/generated/prisma/client";
-import { listHeldSecurities, listSecurities } from "@/modules/ledger";
+import { getSecurity, listHeldSecurities, listSecurities } from "@/modules/ledger";
 import { listSecuritiesWithMappings } from "@/modules/prices";
 import { searchGoogleNews } from "./providers/google-news";
 import { type FetchedArticle, type FetchLike, NEWS_ERROR, type NewsLookup } from "./providers/shared";
@@ -38,8 +38,13 @@ export type NewsRunFailure = { securityId: string; name: string };
 export type NewsRunResult = { updated: number; failed: NewsRunFailure[] };
 
 export type RefreshNewsOptions = {
-  /** Only held Securities without a refresh in the last `NEWS_MAX_AGE_HOURS`. */
+  /** Only target Securities (held ∪ watched) without a refresh in the last `NEWS_MAX_AGE_HOURS`. */
   onlyStale?: boolean;
+  /**
+   * Watched Security ids (AD-17: watchlist Securities are in the news set, never held), injected so
+   * `news` does not depend on `watchlist`; without it the set is the held Securities only.
+   */
+  watched?: (db: NewsDb) => Promise<readonly string[]>;
   /** Current time; defaults to `new Date()`. */
   now?: Date;
   deps?: NewsDeps;
@@ -138,12 +143,13 @@ function merge(lookups: { provider: NewsProvider; lookup: NewsLookup }[], today:
 }
 
 /**
- * Refreshes the news cache of the held Securities (all, or only stale ones with `onlyStale`), one Security
+ * Refreshes the news cache of the news set — the held Securities plus the `watched` ones (all, or only
+ * stale ones with `onlyStale`), one Security
  * after another, its lookups (Google News de, Google News en, Yahoo search and — for stocks and crypto with
  * a Yahoo symbol — the Yahoo RSS feed) concurrently. RSS items are kept only when they mention the
  * Security; consecutive RSS requests are spaced by `YAHOO_RSS_SPACING_MS`. When every queried provider
  * fails nothing is written for that Security (it stays stale); otherwise its articles are replaced and its `NewsFetch` set in one DB
- * transaction. Every run deletes the cache of Securities no longer held. Serialized in-process; provider
+ * transaction. Every run deletes the cache of Securities no longer in the set. Serialized in-process; provider
  * failures are part of the result, never thrown.
  */
 export function refreshNews(options: RefreshNewsOptions = {}, db: NewsDb = prisma): Promise<NewsRunResult> {
@@ -155,11 +161,13 @@ export function refreshNews(options: RefreshNewsOptions = {}, db: NewsDb = prism
     let lastRssStart: number | undefined;
     const today = businessDate(now);
     const held = await listHeldSecurities(today, db);
+    const watched = options.watched ? await options.watched(db) : [];
+    const set = [...new Set([...held, ...watched])];
     await inTransaction(db, async (tx) => {
-      await tx.newsArticle.deleteMany({ where: { securityId: { notIn: held } } });
-      await tx.newsFetch.deleteMany({ where: { securityId: { notIn: held } } });
+      await tx.newsArticle.deleteMany({ where: { securityId: { notIn: set } } });
+      await tx.newsFetch.deleteMany({ where: { securityId: { notIn: set } } });
     });
-    const targets = options.onlyStale ? await staleOf(held, now, db) : held;
+    const targets = options.onlyStale ? await staleOf(set, now, db) : set;
     if (targets.length === 0) return { updated: 0, failed: [] };
 
     const securities = new Map((await listSecuritiesWithMappings(db)).map((security) => [security.id, security]));
@@ -242,6 +250,24 @@ export async function listNews(today: string, securityId?: string, db: NewsDb = 
     .map((row) => ({ ...row, name: names.get(row.securityId) ?? "" }))
     .sort(byNewest);
   return { securities, articles };
+}
+
+/**
+ * Cached headlines of one Security within the 14-day window ending `today`, newest first (tie: title),
+ * whether held or not (the Security detail page; a watched Security's cache is kept by `refreshNews`).
+ * Empty for an unknown id.
+ */
+export async function listSecurityNews(today: string, securityId: string, db: NewsDb = prisma): Promise<NewsListArticle[]> {
+  const security = await getSecurity(securityId, db);
+  if (!security) return [];
+  const rows = await db.newsArticle.findMany({
+    where: { securityId },
+    select: { id: true, securityId: true, title: true, url: true, source: true, publishedAt: true, teaser: true },
+  });
+  return rows
+    .filter((row) => inWindow(row.publishedAt, today))
+    .map((row) => ({ ...row, name: security.name }))
+    .sort(byNewest);
 }
 
 /** True when any held Security has no news refresh within the last `NEWS_MAX_AGE_HOURS`. */

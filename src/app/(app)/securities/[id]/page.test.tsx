@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { findElement } from "../../../../../test/helpers/next-mocks";
-import { renderHtml, renderText } from "../../../../../test/helpers/render-text";
+import { renderHtml } from "../../../../../test/helpers/render-text";
 
 const dbFile = await vi.hoisted(async () => {
   const { useMigratedDatabaseForSingleton } = await import("../../../../../test/helpers/migrated-db-file");
@@ -30,6 +30,11 @@ import { SecurityHero } from "../../../_components/security-detail/SecurityHero"
 import { MOVING_AVERAGE_COOKIE, SECURITY_CHART_COOKIE } from "../../../_components/charts/chart-preference";
 import { securityDetail } from "@/modules/ledger";
 import { storedPriceHistory } from "@/modules/prices";
+import { addWatchlistEntry, createWatchlist } from "@/modules/watchlist";
+import { setManualClassification } from "@/modules/classification";
+import { WatchHeader } from "../../../_components/security-detail/WatchHeader";
+import { WatchlistCard } from "../../../_components/security-detail/WatchlistCard";
+import { AddToWatchlistButton } from "../../../_components/watchlists/WatchlistEntryDialog";
 import SecurityDetailPage, { generateMetadata } from "./page";
 
 const TODAY = "2026-10-26";
@@ -38,6 +43,9 @@ beforeEach(async () => {
   vi.useFakeTimers({ now: new Date(`${TODAY}T10:00:00.000Z`), toFake: ["Date"] });
   cookieJar.clear();
   cookieJar.set(PERIOD_COOKIE, "MAX");
+  await prisma.watchlistEntry.deleteMany();
+  await prisma.watchlist.deleteMany();
+  await prisma.securityClassification.deleteMany();
   await prisma.newsArticle.deleteMany();
   await prisma.newsFetch.deleteMany();
   await prisma.price.deleteMany();
@@ -116,15 +124,78 @@ describe("Security detail page", () => {
     expect(await generateMetadata(props("nope"))).toEqual({ title: "Wertpapier nicht gefunden" });
   });
 
-  it("shows only the header and the empty state for a Security without Transactions", async () => {
+  it("Watch layout: header with Period change, Kurs chart with overlay, Auf Watchlists, news and classification; no holding blocks", async () => {
+    const id = await security();
+    await providerPrice(id, "2025-03-01", "100");
+    await providerPrice(id, addDays(TODAY, -1), "110");
+    const list = await createWatchlist({ name: "Ideen" });
+    if (!list.ok) throw new Error("setup failed");
+    const entry = await addWatchlistEntry({ watchlistId: list.watchlist.id, security: { id }, note: "Zeile 1\nZeile 2", dateAdded: "2025-03-01" }, TODAY);
+    if (!entry.ok) throw new Error("setup failed");
+    await prisma.newsArticle.create({
+      data: { securityId: id, url: "https://news.example/w", title: "Welt-Idee", source: "Quelle", provider: "GOOGLE_NEWS", publishedAt: `${addDays(TODAY, -1)}T08:00:00.000Z`, fetchedAt: `${TODAY}T08:00:00.000Z` },
+    });
+
+    const tree = await SecurityDetailPage(props(id));
+    const html = renderHtml(tree);
+    const page = text(html);
+    expect(page).toContain("IE00B4L5Y983 · ETF");
+    expect(page).not.toContain("Noch keine Buchungen.");
+    // MAX starts on the first stored Price: 100 → 110.
+    const header = text(section(html, 'aria-label="Kurs"', 'id="security-watchlists"'));
+    expect(header).toContain("110,00 €");
+    expect(header).toContain("+10,00 € · Max +10,00 %");
+    expect(header).toContain("Kurs vom 25.10.2026");
+    expect(header).toContain("Gleitender Durchschnitt");
+    expect(header).not.toContain("Wert");
+    expect(html).not.toContain('aria-label="Diagramm"');
+    const chart = findElement(tree, WatchHeader)!.props.chart as { props: Record<string, unknown> };
+    expect(chart.props.valuePoints).toEqual([]);
+    expect((chart.props.pricePoints as { date: string }[])[0].date).toBe("2025-03-01");
+
+    const card = text(section(html, 'id="security-watchlists"', 'id="security-news"'));
+    expect(card).toContain("Auf Watchlists");
+    expect(card).toContain("Ideen");
+    expect(card).toContain("Aufgenommen 01.03.2025 · seit Aufnahme +10,00 %");
+    expect(card).toContain("Zeile 1 Zeile 2");
+    expect(card).toContain("Bearbeiten");
+    expect(section(html, 'id="security-watchlists"', 'id="security-news"')).toContain(`href="/watchlists?list=${list.watchlist.id}"`);
+    expect(findElement(tree, WatchlistCard)!.props.entries).toEqual([expect.objectContaining({ note: "Zeile 1\nZeile 2", source: "APP" })]);
+
+    expect(text(section(html, 'id="security-news"', 'id="security-classification"'))).toContain("Welt-Idee");
+    expect(text(section(html, 'id="security-classification"'))).toContain("Klassifizierung");
+    // A stored manual classification wins over the asset-type default.
+    expect(await setManualClassification(id, { sector: "Halbleiter" })).toMatchObject({ ok: true });
+    const classified = text(section(renderHtml(await SecurityDetailPage(props(id))), 'id="security-classification"'));
+    expect(classified).toMatch(/Halbleiter/);
+    expect(html).toContain('aria-label="Klassifizierung bearbeiten – Welt ETF"');
+
+    // List chip in the header, "Zur Watchlist" with this list as already containing the Security.
+    expect(section(html, "<h1", 'aria-label="Kurs"')).toContain(`href="/watchlists?list=${list.watchlist.id}"`);
+    const add = findElement(tree, AddToWatchlistButton)!;
+    expect(add.props.onLists).toEqual([list.watchlist.id]);
+    expect(add.props.lists).toEqual([{ id: list.watchlist.id, name: "Ideen" }]);
+    expect(page).toContain("Zur Watchlist");
+
+    for (const block of ['aria-label="Depot"', 'aria-label="Wert"', 'id="security-total"', 'id="security-heatmap"', 'id="security-lots"', 'id="security-transactions"']) {
+      expect(html).not.toContain(block);
+    }
+    expect(findElement(tree, SecurityHero)).toBeUndefined();
+    expect(findElement(tree, SecurityActions)!.props.transactionDepots).toEqual([]);
+    expect(await generateMetadata(props(id))).toEqual({ title: "Welt ETF" });
+  });
+
+  it("Watch layout without Price or lists: Kein Kurs vorhanden, change –, no chart, no Auf Watchlists", async () => {
     const id = await security();
     const tree = await SecurityDetailPage(props(id));
-    const page = renderText(tree);
-    expect(page).toContain("Welt ETF");
-    expect(page).toContain("IE00B4L5Y983 · ETF");
-    expect(page).toContain("Noch keine Buchungen.");
-    expect(renderHtml(tree)).not.toContain('aria-label="Depot"');
-    expect(await generateMetadata(props(id))).toEqual({ title: "Welt ETF" });
+    const html = renderHtml(tree);
+    const header = text(section(html, 'aria-label="Kurs"', 'id="security-news"'));
+    expect(header).toContain("Kein Kurs vorhanden.");
+    expect(header).toMatch(/Kurs – – Kein Kurs vorhanden\./);
+    expect(findElement(tree, WatchHeader)!.props.chart).toBeUndefined();
+    expect(html).not.toContain('id="security-watchlists"');
+    expect(html).toContain('id="security-classification"');
+    expect(findElement(tree, AddToWatchlistButton)!.props.lists).toEqual([]);
   });
 
   it("sums the non-archived Depots under Alle Depots", async () => {
@@ -238,6 +309,34 @@ describe("Security detail page", () => {
     expect(news).toContain("Ein erfundener Kurztext zur Welt-Meldung.");
     expect(news).toContain("Zum Artikel");
     expect(html).toContain('href="https://finance.example.com/welt" target="_blank" rel="noopener noreferrer"');
+  });
+
+  it("Booked: full layout plus the list chips and Zur Watchlist; news through the Security's own articles", async () => {
+    const { id } = await twoDepots();
+    const list = await createWatchlist({ name: "Dividenden" });
+    if (!list.ok) throw new Error("setup failed");
+    const entry = await addWatchlistEntry({ watchlistId: list.watchlist.id, security: { id } }, TODAY);
+    if (!entry.ok) throw new Error("setup failed");
+    const other = await ensureSecurity({ isin: "US0378331005" }, { name: "Apple Inc.", assetType: "STOCK" });
+    if (!other.ok) throw new Error("setup failed");
+    const at = { source: "Quelle", provider: "GOOGLE_NEWS" as const, publishedAt: `${addDays(TODAY, -1)}T08:00:00.000Z`, fetchedAt: `${TODAY}T08:00:00.000Z` };
+    await prisma.newsArticle.createMany({
+      data: [
+        { securityId: id, url: "https://news.example/own", title: "Eigene Meldung", ...at },
+        { securityId: other.security.id, url: "https://news.example/other", title: "Fremde Meldung", ...at },
+      ],
+    });
+    const tree = await SecurityDetailPage(props(id));
+    const html = renderHtml(tree);
+    expect(findElement(tree, SecurityHero)).toBeDefined();
+    expect(findElement(tree, WatchHeader)).toBeUndefined();
+    expect(html).not.toContain('id="security-watchlists"');
+    expect(html).not.toContain('id="security-classification"');
+    expect(section(html, "<h1", 'aria-label="Depot"')).toContain(`href="/watchlists?list=${list.watchlist.id}"`);
+    expect(findElement(tree, AddToWatchlistButton)!.props.onLists).toEqual([list.watchlist.id]);
+    const news = text(section(html, 'id="security-news"'));
+    expect(news).toContain("Eigene Meldung");
+    expect(news).not.toContain("Fremde Meldung");
   });
 
   it("shows a fully sold Security with its realized gain and no lots", async () => {

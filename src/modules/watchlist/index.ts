@@ -4,11 +4,20 @@
 // imports this module: the app layer passes `watchlistPriceTargets` to the price runs.
 export { createWatchlist, deleteWatchlist, getWatchlist, listWatchlists, renameWatchlist } from "./watchlists";
 export type { DeleteWatchlistResult, WatchlistDb, WatchlistFailureReason, WatchlistResult, WatchlistSummary } from "./watchlists";
-export { addWatchlistEntry, removeWatchlistEntry, updateWatchlistEntry, watchlistPriceTargets, watchlistView } from "./entries";
+export {
+  addWatchlistEntry,
+  removeWatchlistEntry,
+  securityWatchlistEntries,
+  updateWatchlistEntry,
+  watchedSecurityIds,
+  watchlistPriceTargets,
+  watchlistView,
+} from "./entries";
 export type {
   AddWatchlistEntryInput,
   AddWatchlistEntryResult,
   RemoveWatchlistEntryResult,
+  SecurityWatchlistEntry,
   UpdateWatchlistEntryInput,
   UpdateWatchlistEntryResult,
   WatchlistEntryFailureReason,

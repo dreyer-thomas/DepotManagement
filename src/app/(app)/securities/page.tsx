@@ -10,25 +10,31 @@ import { PriceRefreshButton } from "@/app/_components/securities/PriceRefreshBut
 import { SecurityList } from "@/app/_components/securities/SecurityList";
 import { businessDate } from "@/core/dates";
 import { listClassifications, listRegionSplits } from "@/modules/classification";
+import { listHeldSecurities } from "@/modules/ledger";
 import { listManualPrices, listSecuritiesWithMappings, securityPriceInfo } from "@/modules/prices";
 import { listTeilfreistellungOverrides } from "@/modules/tax";
+import { watchedSecurityIds } from "@/modules/watchlist";
 
 export const metadata: Metadata = { title: "Wertpapiere" };
 
 /**
- * All Securities with their classification, Teilfreistellung and region split (funds), price source, latest price date and manual Prices. Missing mappings are resolved and
+ * All Securities (watchlist-only ones marked "Watchlist") with their classification, Teilfreistellung and region split (funds), price source, latest price date and manual Prices. Missing mappings are resolved and
  * Prices refreshed by the client after render (never during render or `next build`).
  */
 export default async function SecuritiesPage() {
   const today = businessDate(new Date());
-  const [securities, prices, manualPrices, classifications, teilfreistellungOverrides, regionSplits] = await Promise.all([
+  const [securities, prices, manualPrices, classifications, teilfreistellungOverrides, regionSplits, watched, held] = await Promise.all([
     listSecuritiesWithMappings(),
     securityPriceInfo(today),
     listManualPrices(),
     listClassifications(),
     listTeilfreistellungOverrides(),
     listRegionSplits(),
+    watchedSecurityIds(),
+    listHeldSecurities(today),
   ]);
+  const heldSet = new Set(held);
+  const watchlistOnly = new Set(watched.filter((id) => !heldSet.has(id)));
   const pending = securities.filter((security) => security.mapping === null).length;
   return (
     <>
@@ -52,6 +58,7 @@ export default async function SecuritiesPage() {
             classifications={classifications}
             teilfreistellungOverrides={teilfreistellungOverrides}
             regionSplits={regionSplits}
+            watchlistOnly={watchlistOnly}
             today={today}
           />
         </>

@@ -20,7 +20,9 @@ import {
   securityMovingAverage,
   securityPerformance,
   securityPerformanceLine,
+  type PriceChange,
   securityPrice,
+  securityPriceChange,
   securityPriceSeries,
   securitySeries,
   type SecuritySnapshot,
@@ -72,6 +74,8 @@ export type SecurityDetail = {
   transactions: SecurityTransactionRecord[];
   /** All-time result since the first buy as of `today`, summed over the scope; independent of the Period. */
   total: SecurityTotal;
+  /** Price change of `priceSecurity` over `from..to` (`securityPriceChange`); `null` without end or base. */
+  priceChange: PriceChange | null;
   /** Daily resolver price of `priceSecurity` for `from..to`, in its units as of `to`. */
   priceSeries: PricePoint[];
   /** BUY/SELL scope rows dated `from..to` as chart markers, in `priceSecurity`'s units as of `to`. */
@@ -98,7 +102,7 @@ type ChainRow = ValuationRow & { depotId: string; price: string | null };
  * are the Transactions of the Security chain (`core/security`: the Security plus its ISIN-change
  * relatives). `depotParam` selects a booking Depot; otherwise "Alle Depots" (non-archived booking
  * Depots, AD-17), or the first booking Depot when all are archived. Every scope Depot is evaluated over
- * one common Period (`MAX` starts on the scope's first row) and summed by core. Prices as
+ * one common Period (`MAX` starts on the scope's first row, without rows on the chain's earliest Price) and summed by core. Prices as
  * `depotValuation` (pass the full stored history for per-day carry-forward). Read-only.
  */
 export async function securityDetail(
@@ -156,9 +160,20 @@ export async function securityDetail(
   }
   const scopeRows = [...rowsByDepot.values()].flat();
   const firstDate = scopeRows.reduce<string | null>((first, row) => (first === null || row.date < first ? row.date : first), null);
-  const { from, to } = resolvePeriod(selection, today, firstDate);
+  // `to` never depends on the first date: resolve it first, load the observations, then `from`.
+  const { to } = resolvePeriod(selection, today, firstDate);
   // As of today (≥ to): the all-time total needs today's price; the Period figures ignore later dates.
   const observations = await lineageObservations(chain, actions, to > today ? to : today, db, storedPrices);
+  // Without rows (a watched Security, story 9.2) MAX starts on the chain's earliest known Price.
+  const chainIds = new Set(chain);
+  const maxStart =
+    firstDate ??
+    observations.reduce<string | null>(
+      (first, observation) =>
+        chainIds.has(observation.securityId) && (first === null || observation.date < first) ? observation.date : first,
+      null,
+    );
+  const { from } = resolvePeriod(selection, today, maxStart);
 
   // One series from the day before `from` per Depot: its first point is the start, the rest the Period.
   const startDate = addDays(from, -1);
@@ -219,6 +234,7 @@ export async function securityDetail(
     snapshot,
     priceSecurity,
     price: securityPrice(observations, priceSecurity.id, actions, to),
+    priceChange: securityPriceChange(observations, priceSecurity.id, actions, from, to),
     lots,
     transactions: records
       .filter((record) => scopeIds.has(record.depotId))

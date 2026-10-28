@@ -53,7 +53,8 @@ const WINDOWS: readonly PriceChartAverageWindow[] = ["200", "38"];
 const TOGGLE_SX = { minHeight: 44, minWidth: 44, px: 1.5, textTransform: "none" } as const;
 
 /**
- * Hero chart of the Security page with the "Kurs" / "Wert" / "Performance" / "Drawdown" toggle and, on
+ * Hero chart of the Security page with the "Kurs" / "Wert" / "Performance" / "Drawdown" toggle (modes
+ * without data are not offered — no value points, no "Wert"; a single mode shows no toggle) and, on
  * "Kurs", the optional "Gleitender Durchschnitt" overlay (200 / 38 Tage). Switching never reloads the
  * page; the choices are stored in the `dm_security_chart` and `dm_moving_average` cookies.
  */
@@ -69,7 +70,10 @@ export function SecurityChart({
   initialMovingAverage = "off",
 }: SecurityChartProps) {
   const modes = SECURITY_CHART_MODES.filter(
-    (m) => (m !== "drawdown" || drawdown !== undefined) && (m !== "performance" || performance !== undefined),
+    (m) =>
+      (m !== "value" || valuePoints.length > 0) &&
+      (m !== "drawdown" || drawdown !== undefined) &&
+      (m !== "performance" || performance !== undefined),
   );
   const [selected, setMode] = useState<ChartMode>(initialMode);
   const [averageOn, setAverageOn] = useState(initialMovingAverage !== "off");
@@ -84,24 +88,26 @@ export function SecurityChart({
     storeChartPreference(MOVING_AVERAGE_COOKIE, on ? windowSize : "off");
   return (
     <Box sx={{ mt: 1.5 }}>
-      <ToggleButtonGroup
-        value={mode}
-        exclusive
-        size="small"
-        aria-label="Diagramm"
-        onChange={(_, next: string | null) => {
-          if (next === null) return;
-          const value = parseSecurityChartMode(next);
-          setMode(value);
-          storeChartPreference(SECURITY_CHART_COOKIE, value);
-        }}
-      >
-        {modes.map((m) => (
-          <ToggleButton key={m} value={m} sx={TOGGLE_SX}>
-            {CHART_MODE_LABELS[m]}
-          </ToggleButton>
-        ))}
-      </ToggleButtonGroup>
+      {modes.length > 1 ? (
+        <ToggleButtonGroup
+          value={mode}
+          exclusive
+          size="small"
+          aria-label="Diagramm"
+          onChange={(_, next: string | null) => {
+            if (next === null) return;
+            const value = parseSecurityChartMode(next);
+            setMode(value);
+            storeChartPreference(SECURITY_CHART_COOKIE, value);
+          }}
+        >
+          {modes.map((m) => (
+            <ToggleButton key={m} value={m} sx={TOGGLE_SX}>
+              {CHART_MODE_LABELS[m]}
+            </ToggleButton>
+          ))}
+        </ToggleButtonGroup>
+      ) : null}
       {mode === "price" && movingAverages ? (
         <Box sx={{ mt: 1, display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
           <FormControlLabel

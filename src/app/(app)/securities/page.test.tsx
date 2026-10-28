@@ -27,6 +27,7 @@ import { createDepot, ensureSecurity, recordTrade } from "@/modules/ledger";
 import { refreshClassifications, setManualClassification, setManualRegionSplit } from "@/modules/classification";
 import { setMapping } from "@/modules/prices";
 import { setTeilfreistellungOverride } from "@/modules/tax";
+import { addWatchlistEntry, createWatchlist } from "@/modules/watchlist";
 import { MappingAutoResolver } from "../../_components/securities/MappingAutoResolver";
 import { PriceRefreshButton } from "../../_components/securities/PriceRefreshButton";
 import { SecurityList } from "../../_components/securities/SecurityList";
@@ -35,6 +36,8 @@ import SecuritiesPage from "./page";
 beforeEach(async () => {
   vi.stubGlobal("fetch", fetchSpy);
   fetchSpy.mockReset();
+  await prisma.watchlistEntry.deleteMany();
+  await prisma.watchlist.deleteMany();
   await prisma.securityClassification.deleteMany();
   await prisma.teilfreistellungOverride.deleteMany();
   await prisma.price.deleteMany();
@@ -100,6 +103,30 @@ describe("Securities page", () => {
     expect(text.match(/Typ ändern/g)).toHaveLength(4);
     expect(text.match(/Klassifizierung/g)).toHaveLength(4);
     expect(renderHtml(tree)).toMatch(/MuiChip-colorWarning[^>]*>(?:(?!<\/div>).)*Typ unbekannt/);
+  });
+
+  it("marks a Security only on watchlists with the Watchlist chip, a held one on a list not", async () => {
+    const idea = await security({ isin: "DE0007164600" }, "SAP", "STOCK");
+    const held = await security({ isin: "US0378331005" }, "Apple", "STOCK");
+    await security({ isin: "IE00B4L5Y983" }, "MSCI World", "ETF");
+    const depot = await createDepot({ name: "Hauptdepot", broker: "COMDIRECT" });
+    if (!depot.ok) throw new Error("setup failed");
+    const today = new Date().toISOString().slice(0, 10);
+    const trade = await recordTrade({ depotId: depot.depot.id, type: "BUY", date: "2026-01-02", quantity: "1", price: "100", security: { id: held.id } });
+    if (!trade.ok) throw new Error("setup failed");
+    const list = await createWatchlist({ name: "Ideen" });
+    if (!list.ok) throw new Error("setup failed");
+    for (const id of [idea.id, held.id]) {
+      const entry = await addWatchlistEntry({ watchlistId: list.watchlist.id, security: { id } }, today);
+      if (!entry.ok) throw new Error(`setup failed: ${entry.reason}`);
+    }
+
+    const tree = await SecuritiesPage();
+    expect([...(findElement(tree, SecurityList)?.props.watchlistOnly as Set<string>)]).toEqual([idea.id]);
+    const text = renderText(tree);
+    expect(text).toContain("SAP DE0007164600 Aktie Watchlist");
+    expect(text).not.toContain("Apple US0378331005 Aktie Watchlist");
+    expect(text.match(/Aktie Watchlist|ETF Watchlist/g)).toHaveLength(1);
   });
 
   it("passes the Teilfreistellung overrides on and shows the fund summary line and button", async () => {

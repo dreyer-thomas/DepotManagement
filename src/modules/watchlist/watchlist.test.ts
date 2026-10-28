@@ -8,7 +8,9 @@ import {
   listWatchlists,
   removeWatchlistEntry,
   renameWatchlist,
+  securityWatchlistEntries,
   updateWatchlistEntry,
+  watchedSecurityIds,
   watchlistPriceTargets,
   watchlistView,
 } from "./index";
@@ -250,6 +252,41 @@ describe("watchlistView", () => {
     await add(ideas, await security(SAP, "SAP SE"));
     const [view] = await watchlistView(TODAY, db());
     expect(view.entries[0]).toMatchObject({ price: null, stale: false, changeToday: null, sinceAdded: null, held: false });
+  });
+});
+
+describe("securityWatchlistEntries / watchedSecurityIds", () => {
+  it("lists a Security's entries in list order with change since added; distinct watched ids", async () => {
+    const ideas = await list("Ideen");
+    const later = await list("Später");
+    const sap = await security(SAP, "SAP SE");
+    const apple = await security(APPLE, "Apple Inc.");
+    await price(sap, "2026-10-01", "100");
+    await price(sap, "2026-10-27", "110");
+    await add(later, sap, "2026-10-27", "Zweite Liste");
+    await add(ideas, sap, "2026-10-01", "Zeile 1\nZeile 2");
+    await add(ideas, apple);
+
+    expect(await securityWatchlistEntries(sap, TODAY, db())).toEqual([
+      {
+        id: expect.any(String),
+        watchlistId: ideas,
+        watchlistName: "Ideen",
+        note: "Zeile 1\nZeile 2",
+        dateAdded: "2026-10-01",
+        source: "APP",
+        clientName: null,
+        sinceAdded: "0.1",
+      },
+      expect.objectContaining({ watchlistId: later, watchlistName: "Später", sinceAdded: "0" }),
+    ]);
+    expect(await securityWatchlistEntries(apple, TODAY, db())).toEqual([expect.objectContaining({ watchlistName: "Ideen", sinceAdded: null })]);
+    expect(await securityWatchlistEntries("unknown", TODAY, db())).toEqual([]);
+    expect((await watchedSecurityIds(db())).sort()).toEqual([sap, apple].sort());
+  });
+
+  it("watchedSecurityIds is empty without entries", async () => {
+    expect(await watchedSecurityIds(db())).toEqual([]);
   });
 });
 

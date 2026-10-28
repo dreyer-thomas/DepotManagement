@@ -3,7 +3,7 @@ import { createTestDatabase, type TestDatabase } from "../../../test/helpers/tes
 import { type FetchCall, fakeFetch, recorded, recordedText } from "../../../test/helpers/providers";
 import { createDepot, ensureSecurity, recordTrade } from "@/modules/ledger";
 import { setMapping } from "@/modules/prices";
-import { clearNews, listNews, NEWS_PER_SECURITY_LIMIT, newsNeedsRefresh, refreshNews, YAHOO_RSS_SPACING_MS } from "./index";
+import { clearNews, listNews, listSecurityNews, NEWS_PER_SECURITY_LIMIT, newsNeedsRefresh, refreshNews, YAHOO_RSS_SPACING_MS } from "./index";
 import type { FetchLike } from "./providers/shared";
 import type { YahooNewsSearch } from "./providers/yahoo";
 
@@ -72,7 +72,11 @@ async function held(
 /** No-op spacing (the spacing test injects its own). */
 const sleep = async () => {};
 
-const run = (fetch: FetchLike, search: YahooNewsSearch, options: { onlyStale?: boolean; now?: Date } = {}) =>
+const run = (
+  fetch: FetchLike,
+  search: YahooNewsSearch,
+  options: { onlyStale?: boolean; now?: Date; watched?: (db: unknown) => Promise<readonly string[]> } = {},
+) =>
   refreshNews({ now: NOW, ...options, deps: { fetch, search, sleep } }, db());
 
 const articles = (securityId: string) =>
@@ -191,6 +195,38 @@ describe("refreshNews", () => {
     expect(await run(archived.fetch, yahoo())).toEqual({ updated: 0, failed: [] });
     expect(archived.calls).toHaveLength(0);
     expect(await db().newsArticle.count({ where: { securityId: sap } })).toBe(0);
+  });
+
+  it("adds watched Securities to the news set: fetched, cache kept, onlyStale applies, never listed as held", async () => {
+    const sap = await held("DE0007164600", "SAP SE");
+    const idea = await ensureSecurity({ isin: "DE0007236101" }, { name: "Siemens AG", assetType: "STOCK" }, db());
+    if (!idea.ok) throw new Error("setup failed");
+    const watchedId = idea.security.id;
+    const watched = vi.fn(async () => [watchedId, sap]);
+
+    const first = googleFetch(SAP_DE, SAP_EN);
+    expect(await run(first.fetch, yahoo(), { watched })).toEqual({ updated: 2, failed: [] });
+    expect(watched).toHaveBeenCalledWith(db());
+    expect(first.calls.map((call) => new URL(call.url).searchParams.get("q"))).toContain('"Siemens" when:14d');
+    expect(await db().newsFetch.findUnique({ where: { securityId: watchedId } })).not.toBeNull();
+    const cached = await db().newsArticle.count({ where: { securityId: watchedId } });
+    expect(cached).toBeGreaterThan(0);
+
+    // Fresh caches: onlyStale queries nothing and keeps the watched cache.
+    const stale = googleFetch(SAP_DE, SAP_EN);
+    expect(await run(stale.fetch, yahoo(), { watched, onlyStale: true })).toEqual({ updated: 0, failed: [] });
+    expect(stale.calls).toHaveLength(0);
+    expect(await db().newsArticle.count({ where: { securityId: watchedId } })).toBe(cached);
+
+    // The news page stays held-only; the detail page lists the watched Security's own articles.
+    expect((await listNews(TODAY, undefined, db())).securities.map((security) => security.id)).toEqual([sap]);
+    expect((await listNews(TODAY, undefined, db())).articles.every((article) => article.securityId === sap)).toBe(true);
+    expect(await listSecurityNews(TODAY, watchedId, db())).toHaveLength(cached);
+
+    // Without the loader the watched Security leaves the set and its cache is deleted.
+    await run(googleFetch(SAP_DE, SAP_EN).fetch, yahoo());
+    expect(await db().newsArticle.count({ where: { securityId: watchedId } })).toBe(0);
+    expect(await db().newsFetch.findUnique({ where: { securityId: watchedId } })).toBeNull();
   });
 
   it("with onlyStale queries only Securities without a refresh in the last 4 hours", async () => {
@@ -448,6 +484,24 @@ describe("listNews / newsNeedsRefresh", () => {
     expect((await listNews(TODAY, sap, db())).articles.map((article) => article.title)).toEqual(["A SAP gleichzeitig", "B SAP neu"]);
     expect((await listNews(TODAY, idle, db())).articles).toHaveLength(4);
     expect((await listNews(TODAY, "unknown", db())).articles).toHaveLength(4);
+  });
+
+  it("listSecurityNews lists one Security's window articles, held or not; unknown id is empty", async () => {
+    const { sap, idle } = await seed();
+    expect((await listSecurityNews(TODAY, sap, db())).map((article) => article.title)).toEqual(["A SAP gleichzeitig", "B SAP neu"]);
+    expect(await listSecurityNews(TODAY, idle, db())).toEqual([
+      {
+        id: expect.any(String),
+        securityId: idle,
+        name: "Apple Inc.",
+        title: "Apple nicht gehalten",
+        url: "https://a.example.com/Apple%20nicht%20gehalten",
+        source: "Example",
+        publishedAt: "2026-10-26T06:00:00.000Z",
+        teaser: null,
+      },
+    ]);
+    expect(await listSecurityNews(TODAY, "unknown", db())).toEqual([]);
   });
 
   it("returns nothing when nothing is held", async () => {

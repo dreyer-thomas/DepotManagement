@@ -116,7 +116,7 @@ development_status:
 
   epic-9: backlog
   9-1-watchlists-and-entries: done
-  9-2-security-detail-without-a-holding: backlog
+  9-2-security-detail-without-a-holding: done
   9-3-watchlists-in-export-and-restore: backlog
   9-4-claude-connector-with-login-mcp-oauth: backlog
   9-5-connected-apps-in-settings: backlog

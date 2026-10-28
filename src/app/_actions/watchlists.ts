@@ -44,6 +44,13 @@ const formText = z.string().catch("");
 
 const WATCHLISTS_PATH = "/watchlists";
 
+/** The watchlist page plus the Securities pages showing chips and "Auf Watchlists" (story 9.2). */
+function revalidateWatchlists(): void {
+  revalidatePath(WATCHLISTS_PATH);
+  revalidatePath("/securities");
+  revalidatePath("/securities/[id]", "page");
+}
+
 function field(formData: FormData, name: string): string {
   return formText.parse(formData.get(name));
 }
@@ -52,7 +59,7 @@ function field(formData: FormData, name: string): string {
 export async function createWatchlistAction(_previous: WatchlistActionState, formData: FormData): Promise<WatchlistActionState> {
   if (!(await getSession())) return UNAUTHORIZED;
   const result = await createWatchlist({ name: field(formData, WATCHLIST_FIELDS.name) });
-  if (result.ok) revalidatePath(WATCHLISTS_PATH);
+  if (result.ok) revalidateWatchlists();
   return result;
 }
 
@@ -60,7 +67,7 @@ export async function createWatchlistAction(_previous: WatchlistActionState, for
 export async function renameWatchlistAction(_previous: WatchlistActionState, formData: FormData): Promise<WatchlistActionState> {
   if (!(await getSession())) return UNAUTHORIZED;
   const result = await renameWatchlist(field(formData, WATCHLIST_FIELDS.watchlistId), { name: field(formData, WATCHLIST_FIELDS.name) });
-  if (result.ok) revalidatePath(WATCHLISTS_PATH);
+  if (result.ok) revalidateWatchlists();
   return result;
 }
 
@@ -72,7 +79,7 @@ export async function deleteWatchlistAction(
   if (!(await getSession())) return UNAUTHORIZED;
   const result = await deleteWatchlist(field(formData, WATCHLIST_FIELDS.watchlistId));
   // not-found: the list is gone already; refresh so it disappears.
-  revalidatePath(WATCHLISTS_PATH);
+  revalidateWatchlists();
   return result;
 }
 
@@ -103,7 +110,7 @@ export async function addWatchlistEntryAction(
     businessDate(new Date()),
   );
   if (result.ok) {
-    revalidatePath(WATCHLISTS_PATH);
+    revalidateWatchlists();
     schedulePriceBackfill();
   }
   return result;
@@ -129,10 +136,10 @@ export async function updateWatchlistEntryAction(
     businessDate(new Date()),
   );
   if (result.ok) {
-    revalidatePath(WATCHLISTS_PATH);
+    revalidateWatchlists();
     if (result.entry.dateAdded < result.previousDateAdded) schedulePriceBackfill();
   } else if (result.reason === "not-found") {
-    revalidatePath(WATCHLISTS_PATH);
+    revalidateWatchlists();
   }
   return result;
 }
@@ -142,6 +149,6 @@ export async function removeWatchlistEntryAction(entryId: unknown): Promise<Remo
   if (!(await getSession())) return UNAUTHORIZED;
   const result = await removeWatchlistEntry(formText.parse(entryId));
   // not-found: the entry is gone already; refresh so it disappears.
-  revalidatePath(WATCHLISTS_PATH);
+  revalidateWatchlists();
   return result;
 }

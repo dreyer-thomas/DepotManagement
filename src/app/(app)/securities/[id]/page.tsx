@@ -8,12 +8,14 @@ import { notFound } from "next/navigation";
 import { readMovingAverage, readSecurityChartMode } from "@/app/_actions/chart-preference-cookie";
 import { readPeriod } from "@/app/_actions/period-cookie";
 import { NewsList } from "@/app/_components/news/NewsList";
+import { ClassificationButton } from "@/app/_components/securities/ClassificationDialog";
+import { classificationSummary } from "@/app/_components/securities/labels";
 import { CardHeading } from "@/app/_components/overview/CardHeading";
 import { PeriodSelector } from "@/app/_components/period/PeriodSelector";
 import { toChartPoints } from "@/app/_components/charts/value-chart";
 import { DepotSwitcher } from "@/app/_components/security-detail/DepotSwitcher";
 import { FifoLots } from "@/app/_components/security-detail/FifoLots";
-import { NO_TRANSACTIONS_TEXT, securityCaption } from "@/app/_components/security-detail/labels";
+import { securityCaption } from "@/app/_components/security-detail/labels";
 import { PriceLine } from "@/app/_components/security-detail/PriceLine";
 import { SecurityActions } from "@/app/_components/security-detail/SecurityActions";
 import { SecurityChart } from "@/app/_components/security-detail/SecurityChart";
@@ -22,13 +24,20 @@ import { SecurityHero } from "@/app/_components/security-detail/SecurityHero";
 import { SecurityKpis } from "@/app/_components/security-detail/SecurityKpis";
 import { SecurityTotal } from "@/app/_components/security-detail/SecurityTotal";
 import { SecurityTransactions } from "@/app/_components/security-detail/SecurityTransactions";
+import { WatchHeader } from "@/app/_components/security-detail/WatchHeader";
+import { WatchlistCard } from "@/app/_components/security-detail/WatchlistCard";
+import { WatchlistChips } from "@/app/_components/security-detail/WatchlistChips";
+import { AddToWatchlistButton } from "@/app/_components/watchlists/WatchlistEntryDialog";
 import { SecurityLogo } from "@/app/_components/securities/SecurityLogo";
+import { type ClassifiedAssetType, effective } from "@/core/classification";
 import { businessDate } from "@/core/dates";
 import { ExactDecimal } from "@/core/decimal";
 import { periodLabel } from "@/core/period";
 import { getSecurity, listIsinChanges, listSecurities, listSplits, securityDetail } from "@/modules/ledger";
-import { listNews } from "@/modules/news";
+import { listClassifications } from "@/modules/classification";
+import { listSecurityNews } from "@/modules/news";
 import { storedPriceHistory } from "@/modules/prices";
+import { listWatchlists, securityWatchlistEntries } from "@/modules/watchlist";
 
 type Props = {
   params: Promise<{ id: string }>;
@@ -42,11 +51,13 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 /**
  * One Security across all Depots or one Depot (story 4-6), also when no longer held: header with the
- * actions menu, Depot switcher, hero (value, Period gain/loss, TTWROR, XIRR, price line,
- * Kurs/Wert/Performance/Drawdown chart with the optional moving average, breakdown), KPIs, "Gesamt seit
- * Erstkauf" (story 4-7), "Performance-Heatmap" (story 7-8), open FIFO lots, Transaction history and
- * 14-day news. Every figure comes from
- * `core` via `securityDetail` (AD-10); no provider call during render.
+ * watchlist chips, Period selector, "Zur Watchlist" and the actions menu, Depot switcher, hero (value,
+ * Period gain/loss, TTWROR, XIRR, price line, Kurs/Wert/Performance/Drawdown chart with the optional
+ * moving average, breakdown), KPIs, "Gesamt seit Erstkauf" (story 4-7), "Performance-Heatmap" (story
+ * 7-8), open FIFO lots, Transaction history and 14-day news. A never-booked Security (story 9.2) gets
+ * the watch layout instead: Price header with the Period change and the Kurs chart, "Auf Watchlists",
+ * news and classification — no holding or Transaction blocks. Every figure comes from `core` via
+ * `securityDetail` (AD-10); no provider call during render.
  */
 export default async function SecurityDetailPage({ params, searchParams }: Props) {
   const id = (await params).id;
@@ -59,14 +70,19 @@ export default async function SecurityDetailPage({ params, searchParams }: Props
   if (!detail) notFound();
   const { security } = detail;
   const booked = detail.depots.length > 0;
-  const [splits, isinChanges, securities, news, chartMode, movingAverage] = await Promise.all([
+  const [splits, isinChanges, securities, articles, chartMode, movingAverage, watchlists, entries, classifications] = await Promise.all([
     listSplits(),
     listIsinChanges(),
     listSecurities(),
-    booked ? listNews(today, security.id) : Promise.resolve(null),
+    listSecurityNews(today, security.id),
     readSecurityChartMode(),
     readMovingAverage(),
+    listWatchlists(),
+    securityWatchlistEntries(security.id, today),
+    booked ? Promise.resolve(null) : listClassifications(),
   ]);
+  const watchlistOptions = watchlists.map(({ id: listId, name }) => ({ id: listId, name }));
+  const onLists = entries.map((entry) => ({ id: entry.watchlistId, name: entry.watchlistName }));
 
   // "Neue Buchung": the selected Depot when it is not archived; for "Alle Depots" every non-archived booking Depot.
   const transactionDepots = detail.depots
@@ -74,8 +90,14 @@ export default async function SecurityDetailPage({ params, searchParams }: Props
     .map(({ id: depotId, name }) => ({ id: depotId, name }));
   const end = detail.series.at(-1) ?? detail.start;
   const held = new ExactDecimal(detail.snapshot.quantity).greaterThan(0);
-  // listNews lists every held Security's news for a non-held id: keep this Security's only.
-  const articles = news?.articles.filter((article) => article.securityId === security.id) ?? [];
+  // Watch layout only (`classifications` is not loaded for a booked Security).
+  const classification = classifications?.[security.id] ?? effective(null, security.assetType as ClassifiedAssetType);
+  const news = (
+    <Box component="section" aria-labelledby="security-news">
+      <CardHeading id="security-news">Nachrichten · 14 Tage</CardHeading>
+      <NewsList articles={articles} />
+    </Box>
+  );
 
   return (
     <>
@@ -89,10 +111,12 @@ export default async function SecurityDetailPage({ params, searchParams }: Props
             <Typography variant="body2" color="text.secondary">
               {securityCaption(security)}
             </Typography>
+            <WatchlistChips lists={onLists} />
           </Box>
         </Stack>
         <Stack direction="row" spacing={1} sx={{ alignItems: "center", flexWrap: "wrap", rowGap: 1 }}>
-          {booked ? <PeriodSelector period={period} today={today} /> : null}
+          <PeriodSelector period={period} today={today} />
+          <AddToWatchlistButton security={security} lists={watchlistOptions} onLists={onLists.map((list) => list.id)} today={today} />
           <SecurityActions
             security={security}
             splits={splits}
@@ -146,17 +170,45 @@ export default async function SecurityDetailPage({ params, searchParams }: Props
             isinChanges={isinChanges}
             today={today}
           />
-          <Box component="section" aria-labelledby="security-news">
-            <CardHeading id="security-news">Nachrichten · 14 Tage</CardHeading>
-            <NewsList articles={articles} />
-          </Box>
+          {news}
         </>
       ) : (
-        <Card>
-          <CardContent>
-            <Typography>{NO_TRANSACTIONS_TEXT}</Typography>
-          </CardContent>
-        </Card>
+        <>
+          <WatchHeader
+            price={detail.price}
+            security={detail.priceSecurity}
+            priceChange={detail.priceChange}
+            periodLabel={periodLabel(period)}
+            fetched={entries.length > 0}
+            to={detail.to}
+            today={today}
+            chart={
+              detail.price === null ? undefined : (
+                <SecurityChart
+                  valuePoints={[]}
+                  pricePoints={detail.priceSeries}
+                  trades={[]}
+                  movingAverages={detail.movingAverages}
+                  initialMode={chartMode}
+                  initialMovingAverage={movingAverage}
+                />
+              )
+            }
+          />
+          <WatchlistCard entries={entries} lists={watchlistOptions} security={security} today={today} />
+          <Box sx={{ mb: 1.5 }}>{news}</Box>
+          <Box component="section" aria-labelledby="security-classification">
+            <Card>
+              <CardContent>
+                <CardHeading id="security-classification">Klassifizierung</CardHeading>
+                <Stack spacing={1.5} sx={{ alignItems: "flex-start" }}>
+                  <Typography variant="body2">{classificationSummary(classification)}</Typography>
+                  <ClassificationButton security={security} classification={classification} />
+                </Stack>
+              </CardContent>
+            </Card>
+          </Box>
+        </>
       )}
     </>
   );

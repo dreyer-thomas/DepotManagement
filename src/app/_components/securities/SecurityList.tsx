@@ -26,7 +26,7 @@ import { SecurityLogo } from "./SecurityLogo";
 import { TypeDialogButton } from "./TypeDialog";
 
 /**
- * Securities with logo, name, ISIN or crypto symbol, type chip, classification summary
+ * Securities with logo, name, ISIN or crypto symbol, type chip ("Watchlist" chip when only watched), classification summary
  * ("Aktien · Technologie · Europa · …", unknown values "Unbekannt"), price source and latest price date (stale badge for held Securities), its manual Prices ("Manuelle Kurse" with edit/delete),
  * plus "Kursquelle bearbeiten", "Typ ändern", "Klassifizierung", "Kurs manuell eintragen", (after a miss) "Automatisch
  * suchen", "Logo hochladen" / "Logo ersetzen" and, for funds (ETF/FUND), "Teilfreistellung" with its summary line
@@ -41,6 +41,7 @@ export function SecurityList({
   classifications = {},
   teilfreistellungOverrides = {},
   regionSplits = {},
+  watchlistOnly = new Set(),
   today,
 }: {
   securities: SecurityWithMapping[];
@@ -54,6 +55,8 @@ export function SecurityList({
   teilfreistellungOverrides?: Record<string, string>;
   /** Region split per Security id (`listRegionSplits`); absent ids have none. */
   regionSplits?: Record<string, RegionSplitInfo>;
+  /** Securities on ≥ 1 watchlist and not held (story 9.2): chip "Watchlist". */
+  watchlistOnly?: ReadonlySet<string>;
   /** Today's business date (default date of a manual Price). */
   today: string;
 }) {
@@ -90,6 +93,7 @@ export function SecurityList({
                         label={securityTypeLabel(security.assetType)}
                         color={unclassified ? "warning" : "default"}
                       />
+                      {watchlistOnly.has(security.id) ? <Chip size="small" variant="outlined" color="primary" label="Watchlist" /> : null}
                     </Stack>
                     <Typography variant="body2">{classificationSummary(classification)}</Typography>
                     {fund ? <Typography variant="body2">{teilfreistellungSummary(override ?? automaticRate, override !== null)}</Typography> : null}

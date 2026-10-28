@@ -522,3 +522,36 @@ export function securityMovingAverage(
   }
   return points;
 }
+
+/** Change of the Price over a Period: € per unit (end − base, decimal string) and end ÷ base − 1 (ratio string). */
+export type PriceChange = { perUnit: string; ratio: string };
+
+/**
+ * The Price change of `securityId` over `from..to` (story 9.2): end = resolver Price as of `to`; base =
+ * resolver Price as of `from − 1`, else the first Price dated within `from..to`; both carried to the
+ * Securities and units as of `to` (so a split in the Period is neutral). `null` without end or base, or
+ * with a base of zero.
+ */
+export function securityPriceChange(
+  observations: readonly PriceObservation[],
+  securityId: string,
+  actions: CorporateActions,
+  from: string,
+  to: string,
+): PriceChange | null {
+  const adjusted = adjustedObservations(observations, actions, to);
+  const end = resolvePrice(adjusted, securityId, to);
+  if (end === null) return null;
+  let base = resolvePrice(adjusted, securityId, addDays(from, -1));
+  if (base === null) {
+    const first = adjusted
+      .filter((observation) => observation.securityId === securityId && observation.date >= from && observation.date <= to)
+      .reduce<string | null>((date, observation) => (date === null || observation.date < date ? observation.date : date), null);
+    base = first === null ? null : resolvePrice(adjusted, securityId, first);
+  }
+  if (base === null || new ReturnDecimal(base.price).isZero()) return null;
+  return {
+    perUnit: canonicalDecimal(new ExactDecimal(end.price).minus(base.price)),
+    ratio: ratioString(new ReturnDecimal(end.price).dividedBy(base.price).minus(1)),
+  };
+}

@@ -13,6 +13,8 @@ vi.mock("next/headers", () => ({
 vi.mock("next/cache", () => ({ revalidatePath }));
 // The refresh never reaches a provider or the database here.
 vi.mock("@/modules/news", () => ({ refreshNews }));
+const watchedSecurityIds = vi.hoisted(() => vi.fn(async () => [] as string[]));
+vi.mock("@/modules/watchlist", () => ({ watchedSecurityIds }));
 
 import { refreshNewsAction } from "./news";
 
@@ -33,7 +35,7 @@ describe("refreshNewsAction", () => {
   it("refreshes only stale Securities, revalidates the news page and returns the result", async () => {
     refreshNews.mockResolvedValue({ updated: 2, failed: [{ securityId: "s1", name: "SAP SE" }] });
     expect(await refreshNewsAction()).toEqual({ ok: true, updated: 2, failed: [{ securityId: "s1", name: "SAP SE" }] });
-    expect(refreshNews).toHaveBeenCalledWith({ onlyStale: true });
+    expect(refreshNews).toHaveBeenCalledWith({ onlyStale: true, watched: watchedSecurityIds });
     expect(revalidatePath).toHaveBeenCalledWith("/news");
   });
 

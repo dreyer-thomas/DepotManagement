@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { formEntries, registerDomCleanup } from "../../../../test/helpers/dom";
 import { addWatchlistEntryAction, removeWatchlistEntryAction, updateWatchlistEntryAction } from "@/app/_actions/watchlists";
 import type { SecuritySummary } from "@/modules/ledger";
-import { AddWatchlistEntryButton, EditWatchlistEntryDialog } from "./WatchlistEntryDialog";
+import { AddToWatchlistButton, AddWatchlistEntryButton, EditWatchlistEntryDialog } from "./WatchlistEntryDialog";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }) }));
 vi.mock("@/app/_actions/watchlists", () => ({
@@ -136,5 +136,46 @@ describe("EditWatchlistEntryDialog", () => {
     await user.click(within(dialog).getByRole("button", { name: "Entfernen" }));
     await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
     expect(remove).toHaveBeenCalledWith("e1");
+  });
+});
+
+describe("AddToWatchlistButton", () => {
+  const LISTS = [
+    { id: "w1", name: "Ideen" },
+    { id: "w2", name: "Dividenden" },
+  ];
+
+  async function openTo(lists = LISTS, onLists: string[] = []) {
+    const user = userEvent.setup({ delay: null });
+    render(<AddToWatchlistButton security={SAP} lists={lists} onLists={onLists} today="2026-10-28" />);
+    await user.click(screen.getByRole("button", { name: "Zur Watchlist" }));
+    const dialog = await screen.findByRole("dialog", { name: "Zur Watchlist" });
+    return { user, dialog };
+  }
+
+  it("adds the fixed Security to the first list not containing it, with note and date added", async () => {
+    add.mockResolvedValue(OK_ADD);
+    const { user, dialog } = await openTo(LISTS, ["w1"]);
+    expect(within(dialog).getByText("SAP SE")).toBeTruthy();
+    expect(within(dialog).getByRole("combobox", { name: /Watchlist/ }).textContent).toBe("Dividenden");
+    expect((within(dialog).getByLabelText(/Aufgenommen am/) as HTMLInputElement).value).toBe("2026-10-28");
+    await user.type(within(dialog).getByRole("textbox", { name: "Notiz" }), "Idee");
+    await user.click(within(dialog).getByRole("button", { name: "Hinzufügen" }));
+    await waitForElementToBeRemoved(dialog);
+    expect(formEntries(add.mock.calls[0][1])).toEqual({ securityId: "s1", watchlistId: "w2", note: "Idee", dateAdded: "2026-10-28" });
+  }, SLOW);
+
+  it("shows a duplicate as an Alert and keeps the dialog open", async () => {
+    add.mockResolvedValue({ ok: false, reason: "already-on-list" });
+    const { user, dialog } = await openTo();
+    await user.click(within(dialog).getByRole("button", { name: "Hinzufügen" }));
+    expect((await within(dialog).findByRole("alert")).textContent).toBe("Steht schon auf dieser Liste");
+    expect(screen.getByRole("dialog", { name: "Zur Watchlist" })).toBeTruthy();
+  }, SLOW);
+
+  it("without lists links to Watchlist anlegen", async () => {
+    const { dialog } = await openTo([]);
+    expect(within(dialog).getByRole("link", { name: "Watchlist anlegen" }).getAttribute("href")).toBe("/watchlists");
+    expect(within(dialog).queryByRole("button", { name: "Hinzufügen" })).toBeNull();
   });
 });

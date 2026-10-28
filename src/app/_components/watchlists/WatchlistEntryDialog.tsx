@@ -1,6 +1,7 @@
 "use client";
 
 import AddOutlined from "@mui/icons-material/AddOutlined";
+import BookmarkAddOutlined from "@mui/icons-material/BookmarkAddOutlined";
 import Alert from "@mui/material/Alert";
 import Autocomplete from "@mui/material/Autocomplete";
 import Box from "@mui/material/Box";
@@ -9,12 +10,14 @@ import Dialog from "@mui/material/Dialog";
 import DialogActions from "@mui/material/DialogActions";
 import DialogContent from "@mui/material/DialogContent";
 import DialogTitle from "@mui/material/DialogTitle";
+import Link from "@mui/material/Link";
 import MenuItem from "@mui/material/MenuItem";
 import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import { useTheme } from "@mui/material/styles";
 import useMediaQuery from "@mui/material/useMediaQuery";
+import NextLink from "next/link";
 import { type ReactNode, useActionState, useId, useState, useTransition } from "react";
 import {
   type AddWatchlistEntryActionState,
@@ -327,6 +330,109 @@ function EditEntryForm({
   );
 }
 
+/**
+ * "Zur Watchlist" (story 9.2): the Security is fixed; list (default the first list not containing it),
+ * note and date added (default today). Every error — "Steht schon auf dieser Liste" included — shows as
+ * an Alert, as the form has no Security field. Without lists: a hint with "Watchlist anlegen".
+ */
+function AddToWatchlistForm({
+  security,
+  lists,
+  onLists,
+  today,
+  titleId,
+  onClose,
+}: {
+  security: { id: string; name: string; isin: string | null; cryptoSymbol: string | null };
+  lists: readonly { id: string; name: string }[];
+  onLists: readonly string[];
+  today: string;
+  titleId: string;
+  onClose: () => void;
+}) {
+  const [watchlistId, setWatchlistId] = useState(() => (lists.find((list) => !onLists.includes(list.id)) ?? lists[0])?.id ?? "");
+  const [note, setNote] = useState("");
+  const [dateAdded, setDateAdded] = useState(today);
+  const [state, formAction, pending] = useActionState<AddWatchlistEntryActionState, FormData>(async (previous, formData) => {
+    const result = await addWatchlistEntryAction(previous, formData);
+    if (result?.ok) onClose();
+    return result;
+  }, null);
+  const failure = state && !state.ok ? state : undefined;
+  const field = failure ? watchlistEntryErrorField(failure.reason) : undefined;
+  const message = failure ? watchlistEntryErrorMessage(failure.reason) : undefined;
+  const inField = field === "note" || field === "dateAdded";
+  const errorFor = (name: WatchlistEntryField) => (inField && field === name ? message : undefined);
+  const alert = failure && !inField ? message : undefined;
+  if (lists.length === 0) {
+    return (
+      <>
+        <DialogTitle id={titleId}>Zur Watchlist</DialogTitle>
+        <DialogContent sx={{ pt: 1 }}>
+          <Typography>
+            Noch keine Watchlist.{" "}
+            <Link component={NextLink} href="/watchlists">
+              Watchlist anlegen
+            </Link>
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={onClose} sx={TOUCH_TARGET}>
+            Schließen
+          </Button>
+        </DialogActions>
+      </>
+    );
+  }
+  return (
+    <>
+      <DialogTitle id={titleId}>Zur Watchlist</DialogTitle>
+      <Box component="form" action={formAction} noValidate sx={{ display: "flex", flexDirection: "column", flex: "1 1 auto", minHeight: 0 }}>
+        <DialogContent sx={{ pt: 1 }}>
+          <Stack spacing={2} sx={{ pt: 1 }}>
+            {alert ? (
+              <Alert severity="error" role="alert">
+                {alert}
+              </Alert>
+            ) : null}
+            <input type="hidden" name={WATCHLIST_FIELDS.securityId} value={security.id} />
+            <Typography sx={{ fontWeight: 600 }}>
+              {security.name}{" "}
+              <Typography component="span" variant="body2" color="text.secondary">
+                {security.isin ?? security.cryptoSymbol ?? ""}
+              </Typography>
+            </Typography>
+            <TextField
+              select
+              name={WATCHLIST_FIELDS.watchlistId}
+              label="Watchlist"
+              value={watchlistId}
+              onChange={(event) => setWatchlistId(event.target.value)}
+              required
+              fullWidth
+            >
+              {lists.map((list) => (
+                <MenuItem key={list.id} value={list.id} sx={TOUCH_TARGET}>
+                  {list.name}
+                </MenuItem>
+              ))}
+            </TextField>
+            <NoteAndDate note={note} setNote={setNote} dateAdded={dateAdded} setDateAdded={setDateAdded} today={today} errorFor={errorFor} />
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2, mt: "auto" }}>
+          <Button onClick={onClose} disabled={pending} sx={TOUCH_TARGET}>
+            Abbrechen
+          </Button>
+          <Button type="submit" variant="contained" disabled={pending} sx={TOUCH_TARGET}>
+            Hinzufügen
+          </Button>
+        </DialogActions>
+      </Box>
+    </>
+  );
+}
+
 function EntryDialog({ open, onClose, children }: { open: boolean; onClose: () => void; children: (titleId: string) => ReactNode }) {
   const theme = useTheme();
   const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
@@ -385,5 +491,43 @@ export function EditWatchlistEntryDialog({
         entry ? <EditEntryForm key={formKey} entry={entry} lists={lists} today={today} titleId={titleId} onClose={onClose} /> : null
       }
     </EntryDialog>
+  );
+}
+
+/**
+ * Button "Zur Watchlist" of the Security detail page (story 9.2) with its dialog. `onLists`: ids of the
+ * lists the Security is already on (the default list is the first other one).
+ */
+export function AddToWatchlistButton({
+  security,
+  lists,
+  onLists,
+  today,
+}: {
+  security: { id: string; name: string; isin: string | null; cryptoSymbol: string | null };
+  lists: readonly { id: string; name: string }[];
+  onLists: readonly string[];
+  today: string;
+}) {
+  const dialog = useDialog();
+  return (
+    <>
+      <Button variant="outlined" startIcon={<BookmarkAddOutlined />} onClick={dialog.show} sx={TOUCH_TARGET}>
+        Zur Watchlist
+      </Button>
+      <EntryDialog open={dialog.open} onClose={dialog.hide}>
+        {(titleId) => (
+          <AddToWatchlistForm
+            key={dialog.session}
+            security={security}
+            lists={lists}
+            onLists={onLists}
+            today={today}
+            titleId={titleId}
+            onClose={dialog.hide}
+          />
+        )}
+      </EntryDialog>
+    </>
   );
 }

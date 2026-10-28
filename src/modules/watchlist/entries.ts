@@ -260,3 +260,56 @@ export async function watchlistPriceTargets(today: string, db: WatchlistDb = pri
   }
   return new Map([...earliest].map(([securityId, date]) => [securityId, watchlistHistoryStart(date, today)]));
 }
+
+/** An entry of one Security as its detail page shows it (story 9.2): list, note, date added, change since added. */
+export type SecurityWatchlistEntry = {
+  id: string;
+  watchlistId: string;
+  watchlistName: string;
+  note: string;
+  dateAdded: string;
+  source: WatchlistEntrySource;
+  clientName: string | null;
+  /** Change since the date added (`entryFigures`); `null` without a Price. */
+  sinceAdded: string | null;
+};
+
+/**
+ * The entries of `securityId` on every watchlist, in list order, with the change since added as of
+ * `today` (as `watchlistView`). Empty when the Security is on no list. Read-only, no provider call.
+ */
+export async function securityWatchlistEntries(
+  securityId: string,
+  today: string,
+  db: WatchlistDb = prisma,
+): Promise<SecurityWatchlistEntry[]> {
+  const entries = await db.watchlistEntry.findMany({
+    where: { securityId },
+    select: { ...ENTRY_SELECT, watchlist: { select: { name: true, position: true } } },
+  });
+  if (entries.length === 0) return [];
+  const { observations, actions } = await securityPriceObservations(
+    [securityId],
+    today,
+    { storedPrices: (ids, asOf) => storedPriceHistory(ids, asOf, db) },
+    db,
+  );
+  return entries
+    .sort((a, b) => a.watchlist.position - b.watchlist.position)
+    .map((entry) => ({
+      id: entry.id,
+      watchlistId: entry.watchlistId,
+      watchlistName: entry.watchlist.name,
+      note: entry.note,
+      dateAdded: entry.dateAdded,
+      source: entry.source,
+      clientName: entry.clientName,
+      sinceAdded: entryFigures(observations, securityId, actions, entry.dateAdded, today).sinceAdded,
+    }));
+}
+
+/** Distinct Security ids on any watchlist: the watched part of the news set (injected into `news`). */
+export async function watchedSecurityIds(db: WatchlistDb = prisma): Promise<string[]> {
+  const rows = await db.watchlistEntry.findMany({ distinct: ["securityId"], select: { securityId: true } });
+  return rows.map((row) => row.securityId);
+}
