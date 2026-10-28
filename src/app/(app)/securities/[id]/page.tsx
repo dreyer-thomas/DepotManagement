@@ -7,6 +7,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { readMovingAverage, readSecurityChartMode } from "@/app/_actions/chart-preference-cookie";
 import { readPeriod } from "@/app/_actions/period-cookie";
+import { BackLink } from "@/app/_components/back-navigation/BackLink";
 import { NewsList } from "@/app/_components/news/NewsList";
 import { ClassificationButton } from "@/app/_components/securities/ClassificationDialog";
 import { classificationSummary } from "@/app/_components/securities/labels";
@@ -103,6 +104,7 @@ export default async function SecurityDetailPage({ params, searchParams }: Props
     <>
       <Stack direction="row" sx={{ mb: 2, flexWrap: "wrap", alignItems: "center", columnGap: 2, rowGap: 1 }}>
         <Stack direction="row" spacing={1.5} sx={{ alignItems: "center", minWidth: 0, flex: "1 1 auto" }}>
+          <BackLink parent={{ href: "/securities", label: "Wertpapiere" }} self={security.name} />
           <SecurityLogo securityId={security.id} name={security.name} />
           <Box sx={{ minWidth: 0 }}>
             <Typography variant="pageTitle" component="h1" sx={{ overflowWrap: "anywhere" }}>

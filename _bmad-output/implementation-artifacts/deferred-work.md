@@ -173,3 +173,10 @@ source_spec: `spec-9-3-watchlists-in-export-and-restore.md`
 severity: low
 reason: The restore dialog and README already say connected apps must reconnect after a restore, but no OAuth tables exist yet, so nothing in code or tests enforces it; once 9.4 adds the tables, restore must delete them (backup/restore.ts) or the text becomes untrue.
 status: open
+
+### DW-20: Real-runtime behavior of the back link (Next.js 16 router interplay, scroll restoration, installed iOS app, swipe gesture) is verified only by argument and happy-dom tests, not in a real browser or
+origin: spec-deferred feacc2b233dc
+location: src/app/_components/back-navigation/history-tracker.ts
+source_spec: `spec-8-6-back-navigation.md`
+reason: Intent-alignment audit: tests exercise the pure resolver and a happy-dom render with a simulated Next-like history patch; no test drives the real App Router. Settled by the operator device check listed under operator_actions.
+status: open

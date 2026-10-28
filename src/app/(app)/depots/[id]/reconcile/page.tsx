@@ -3,7 +3,7 @@ import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { AppLink } from "@/app/_components/depots/DepotLink";
+import { BackLink } from "@/app/_components/back-navigation/BackLink";
 import { lastReconciledText } from "@/app/_components/reconciliation/labels";
 import { ReconciliationRun, ReconciliationStart } from "@/app/_components/reconciliation/ReconciliationView";
 import { businessDate } from "@/core/dates";
@@ -29,10 +29,12 @@ export default async function ReconcilePage({ params }: Props) {
   return (
     <>
       <Stack spacing={0.5} sx={{ mb: 2 }}>
-        <AppLink href={`/depots/${encodeURIComponent(depot.id)}`}>← {depot.name}</AppLink>
-        <Typography variant="pageTitle" component="h1">
-          Depot abgleichen
-        </Typography>
+        <Stack direction="row" spacing={1} sx={{ alignItems: "center", minWidth: 0 }}>
+          <BackLink parent={{ href: `/depots/${encodeURIComponent(depot.id)}`, label: depot.name }} self="Depot abgleichen" />
+          <Typography variant="pageTitle" component="h1">
+            Depot abgleichen
+          </Typography>
+        </Stack>
         {lastReconciled ? <Typography color="text.secondary">{lastReconciledText(lastReconciled)}</Typography> : null}
       </Stack>
       {readOnly ? (

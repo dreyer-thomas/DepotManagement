@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { findElement } from "../../../../../test/helpers/next-mocks";
-import { renderText } from "../../../../../test/helpers/render-text";
+import { renderHtml, renderText } from "../../../../../test/helpers/render-text";
 
 const dbFile = await vi.hoisted(async () => {
   const { useMigratedDatabaseForSingleton } = await import("../../../../../test/helpers/migrated-db-file");
@@ -30,6 +30,8 @@ describe("Parqet migration page", () => {
     const text = renderText(tree);
     expect(text).toContain("Aus Parqet übernehmen");
     expect(text).toContain("Lege zuerst ein Depot an.");
+    const html = renderHtml(tree);
+    expect(html).toMatch(/<a(?=[^>]*aria-label="Zurück zu Einstellungen")(?=[^>]*href="\/settings")[^>]*>/);
   });
 
   it("asks for a Depot first when every Depot is archived", async () => {

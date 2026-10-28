@@ -72,6 +72,7 @@ describe("Import batch page", () => {
     const tree = await page(staged.batchId);
     const text = renderText(tree);
     const html = renderHtml(tree);
+    expect(html).toMatch(/<a(?=[^>]*aria-label="Zurück zu Import")(?=[^>]*href="\/import")[^>]*>/);
     expect(text).toContain("Import prüfen ROBIN · Deutsche Bank · hochgeladen am 26.10.2026, 11:00");
     expect(text).toContain("3 Dateien: 0 erkannt, 2 mehrdeutig, 1 fehlgeschlagen · 2 Entscheidungen offen");
     expect(findElement(tree, ImportBatchView)?.props.batch).toMatchObject({ id: staged.batchId, status: "OPEN" });

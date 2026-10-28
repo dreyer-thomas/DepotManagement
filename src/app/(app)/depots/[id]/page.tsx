@@ -10,6 +10,7 @@ import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
 import { type DepotTab, depotTab, depotTabId, depotTabPanelId } from "@/app/_components/depots/depot-tabs";
 import { AppLink } from "@/app/_components/depots/DepotLink";
+import { BackLink } from "@/app/_components/back-navigation/BackLink";
 import { DepotActionsMenu } from "@/app/_components/depots/DepotActionsMenu";
 import { DepotTabs } from "@/app/_components/depots/DepotTabs";
 import { continueText, lastReconciledText } from "@/app/_components/reconciliation/labels";
@@ -201,8 +202,9 @@ export default async function DepotDetailPage({ params, searchParams }: Props) {
         direction="row"
         sx={{ mb: 2, flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", columnGap: 2, rowGap: 1 }}
       >
-        <Stack direction="row" spacing={0.5} sx={{ alignItems: "center" }}>
-          <Typography variant="pageTitle" component="h1">
+        <Stack direction="row" spacing={1} sx={{ alignItems: "center", minWidth: 0 }}>
+          <BackLink parent={{ href: "/depots", label: "Depots" }} self={depot.name} />
+          <Typography variant="pageTitle" component="h1" sx={{ overflowWrap: "anywhere", minWidth: 0 }}>
             {depot.name}
           </Typography>
           {readOnly ? null : <DepotActionsMenu depotId={depot.id} />}

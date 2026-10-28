@@ -1,10 +1,11 @@
 import Card from "@mui/material/Card";
 import CardContent from "@mui/material/CardContent";
+import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import type { Metadata } from "next";
+import { BackLink } from "@/app/_components/back-navigation/BackLink";
 import { CreateDepotButton } from "@/app/_components/depots/DepotDialogs";
 import { ParqetMigrationWizard } from "@/app/_components/migration/ParqetMigrationWizard";
-import { PageTitle } from "@/app/_components/Placeholder";
 import { listDepots } from "@/modules/ledger";
 
 export const metadata: Metadata = { title: "Aus Parqet übernehmen" };
@@ -14,7 +15,12 @@ export default async function ParqetMigrationPage() {
   const depots = (await listDepots()).filter((depot) => !depot.archived).map(({ id, name }) => ({ id, name }));
   return (
     <>
-      <PageTitle>Aus Parqet übernehmen</PageTitle>
+      <Stack direction="row" spacing={1} sx={{ mb: 2, alignItems: "center", minWidth: 0 }}>
+        <BackLink parent={{ href: "/settings", label: "Einstellungen" }} self="Aus Parqet übernehmen" />
+        <Typography variant="pageTitle" component="h1">
+          Aus Parqet übernehmen
+        </Typography>
+      </Stack>
       {depots.length === 0 ? (
         <Card>
           <CardContent>

@@ -94,6 +94,7 @@ describe("Depot detail page", () => {
     const tree = await DepotDetailPage(props(id));
     const text = renderText(tree);
     const html = renderHtml(tree);
+    expect(html).toMatch(/<a(?=[^>]*aria-label="Zurück zu Depots")(?=[^>]*href="\/depots")[^>]*>/);
     expect(text).toContain("Hauptdepot");
     expect(text).toContain("comdirect");
     expect(text).toContain("Cash-Konto 0,00\u00a0€");

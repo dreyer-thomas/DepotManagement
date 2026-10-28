@@ -1,4 +1,6 @@
+import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
+import { BackLink } from "@/app/_components/back-navigation/BackLink";
 import { brokerLabel } from "@/app/_components/depots/labels";
 import { formatDateTime } from "@/core/format";
 import type { ImportBatchView as Batch } from "@/modules/import";
@@ -11,9 +13,12 @@ export { ImportStatusChip } from "./ImportReview";
 export function ImportBatchView({ batch, securities, today }: { batch: Batch; securities: SecuritySummary[]; today: string }) {
   return (
     <>
-      <Typography variant="pageTitle" component="h1" sx={{ mb: 0.5 }}>
-        Import prüfen
-      </Typography>
+      <Stack direction="row" spacing={1} sx={{ mb: 0.5, alignItems: "center", minWidth: 0 }}>
+        <BackLink parent={{ href: "/import", label: "Import" }} self="Import prüfen" />
+        <Typography variant="pageTitle" component="h1">
+          Import prüfen
+        </Typography>
+      </Stack>
       <Typography color="text.secondary" sx={{ mb: 2 }}>
         {batch.depotName} · {brokerLabel(batch.broker)} · hochgeladen am {formatDateTime(batch.createdAt)}
       </Typography>

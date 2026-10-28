@@ -4,7 +4,7 @@
 
 ## Goal
 
-Tommy uses DepotManagement like a native app on his phone, checks his returns against market indices and against his other Depots, tracks his German capital-gains tax position per broker and year (making good use of his Freistellungsauftrag and catching withholding mistakes), and rebalances towards a robo-advisor-style target allocation with concrete, tax-aware buy and sell suggestions. Global ETFs get a region split so that region analyses and regional targets see, for example, the US share inside an MSCI World fund. All tax figures and trade suggestions are estimates and advice only. Nothing is booked, and the broker's tax statement is authoritative.
+Tommy uses DepotManagement like a native app on his phone, checks his returns against market indices and against his other Depots, tracks his German capital-gains tax position per broker and year (making good use of his Freistellungsauftrag and catching withholding mistakes), and rebalances towards a robo-advisor-style target allocation with concrete, tax-aware buy and sell suggestions. Global ETFs get a region split so that region analyses and regional targets see, for example, the US share inside an MSCI World fund. Sub-pages get a back link naming where Tommy came from, so the installed app (which has no browser back button) has no dead ends. All tax figures and trade suggestions are estimates and advice only. Nothing is booked, and the broker's tax statement is authoritative.
 
 ## Stories
 
@@ -13,6 +13,7 @@ Tommy uses DepotManagement like a native app on his phone, checks his returns ag
 - Story 8.3: Tax Preview with Freistellungsauftrag
 - Story 8.4: Region Weights for Global Funds
 - Story 8.5: Target Allocation and Rebalancing
+- Story 8.6: Back Navigation
 
 ## Requirements & Constraints
 
@@ -33,11 +34,17 @@ Tommy uses DepotManagement like a native app on his phone, checks his returns ag
   - An optional new deposit goes first to the most underweight segments.
   - A deviation below the threshold (default 2 points, editable) counts as "im Rahmen" and produces no trade.
   - Sells choose the lowest-tax holdings and FIFO lots first (losses before small gains). Each sell shows its estimated gain and tax, and the proposal shows its total tax.
+- **Back navigation:**
+  - Applies to sub-pages only: Security detail, Depot detail, Depot reconciliation, import batch, Parqet migration. Top-level pages (Übersicht, Depots, Analysen, Nachrichten, Import, Wertpapiere, Watchlists, Einstellungen, Mehr) get no back arrow; neither do the "Mehr" pages on phones.
+  - Target = the previous *different* page, returned to as left (same URL incl. query such as selected watchlist, Depot switcher, tab; scroll, Period and chart choices kept), like browser back. In-page changes of the sub-page (Depot switcher, chart mode, Period, tabs) are never the target.
+  - Without an in-app origin (direct open, bookmark, new tab, origin gone from history) fall back to the logical parent: Security detail → "Wertpapiere", Depot detail → "Depots", reconciliation → the Depot, import batch → "Import", Parqet migration → "Einstellungen".
+  - The label must always match the target, also after reload, browser back/forward and the iOS swipe gesture. The origin is kept per browser tab only: no server state, and nothing added to the URL that changes what the page shows.
 - **Testing:** every calculation is a pure core function with unit tests against hand-calculated references:
   - TTWROR series and rebasing, including a deposit inside the Period
   - tax loss pots, Teilfreistellung, allowance usage and the withheld comparison
   - region distribution
   - segment mapping, deposit distribution and trade selection
+  - back-link target and label resolution: origin vs fallback, in-page changes, reload, back/forward
 - **Accessibility:** WCAG 2.2 AA. Gains and losses are never shown by colour alone. Touch targets are at least 44 px.
 
 ## Technical Decisions
@@ -60,6 +67,7 @@ Tommy uses DepotManagement like a native app on his phone, checks his returns ag
   - Teilfreistellung overrides
 
   Freistellungsauftrag amounts must be added to the JSON export/restore. Bump `schemaVersion` and add a pure upgrade function for older files. Restore replaces data and never merges.
+- **Back navigation (Story 8.6):** one shared back-link component used on every sub-page, plus one pure function that resolves target and label from the origin entry with parent fallback. Client-side only, per-tab state; no spec, PRD or architecture change is involved.
 - **Usual invariants:**
   - Money is a decimal string computed with `decimal.js`, never a JS `number`.
   - `src/core` is pure: no Prisma, I/O or `Date.now()`; pass "today" in.
@@ -94,6 +102,7 @@ Tommy uses DepotManagement like a native app on his phone, checks his returns ag
   - a table per segment: actual €, actual %, target %, deviation in points and in €
   - a "Neue Einzahlung" amount
   - a "Rebalancing-Vorschlag" list. Buys name the largest existing holding of the segment as the suggested instrument. Sells show per-sale gain and tax. Rows within the threshold are marked "im Rahmen".
+- **Back link:** in the page header, left of the title, "‹ <label>" where the label names the origin: the Depot name, the watchlist name, "Übersicht", "Depots", "Wertpapiere", "Nachrichten", "Analysen", "Import", "Einstellungen" or the Security name. Long labels are truncated with an ellipsis; `aria-label` is "Zurück zu <label>" with the full label. Keyboard-operable, touch target ≥ 44 px, works at phone and desktop width.
 - **Layout:** UI text is German with de-DE number formats. Gutters are 16 px on phones and 24 px on desktop. Phones use bottom navigation, and Analysen and Settings are reached via "Mehr".
 
 ## Cross-Story Dependencies
@@ -103,3 +112,4 @@ Tommy uses DepotManagement like a native app on his phone, checks his returns ag
 - Story 8.2 builds on the Epic 4 TTWROR series and Period selector, the Story 7.6 Drawdown tab, and Epic 3 price backfill.
 - Story 8.3 depends on Story 7.1 asset classes (Teilfreistellung), the Epic 1 and 4 FIFO realized results, the TAX amounts in the ledger, and the Epic 6 export/restore format.
 - Story 8.1 depends on the Epic 1 auth gate and theme tokens. It is independent of the other Epic 8 stories.
+- Story 8.6 complements Story 8.1 (the installed app lacks a browser back button). It touches the page headers of the sub-pages built in Epics 1 to 5 (Depot detail, reconciliation, import batch, Parqet migration) and the Security detail, and must recognise watchlists (Epic 9) as an origin. It is independent of Stories 8.2 to 8.5.

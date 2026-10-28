@@ -21,6 +21,7 @@ import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { spacing } from "@/theme/tokens";
 import { logout } from "../_actions/logout";
+import { HistoryTracker } from "./back-navigation/HistoryTracker";
 import { ColorModeToggle } from "./ColorModeToggle";
 import { type NavItem, activeBottomHref, bottomItems, drawerItems, isActive, navBadgeCount, openImportsLabel } from "./navigation";
 
@@ -64,6 +65,7 @@ export function AppShell({ children, openImports = 0 }: { children: ReactNode; o
 
   return (
     <Box sx={{ display: "flex", minHeight: "100dvh" }}>
+      <HistoryTracker />
       <AppBar
         position="fixed"
         elevation={0}

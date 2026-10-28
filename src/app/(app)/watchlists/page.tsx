@@ -4,6 +4,7 @@ import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
+import { PageLabel } from "@/app/_components/back-navigation/BackLink";
 import { PageTitle } from "@/app/_components/Placeholder";
 import { CreateWatchlistButton, DeleteWatchlistButton, RenameWatchlistButton } from "@/app/_components/watchlists/WatchlistDialogs";
 import { AddWatchlistEntryButton } from "@/app/_components/watchlists/WatchlistEntryDialog";
@@ -56,6 +57,7 @@ export default async function WatchlistsPage({ searchParams }: Props) {
         </Typography>
         <CreateWatchlistButton label="Neue Watchlist" variant="outlined" />
       </Stack>
+      <PageLabel label={selected.name} />
       <WatchlistTabs lists={tabs} selectedId={selected.id} />
       <Stack direction="row" sx={{ mb: 2, alignItems: "center", flexWrap: "wrap", columnGap: 1, rowGap: 1 }}>
         <AddWatchlistEntryButton watchlistId={selected.id} securities={securities} today={today} />

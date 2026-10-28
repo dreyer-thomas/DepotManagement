@@ -138,6 +138,7 @@ describe("Security detail page", () => {
 
     const tree = await SecurityDetailPage(props(id));
     const html = renderHtml(tree);
+    expect(html).toMatch(/<a(?=[^>]*aria-label="Zurück zu Wertpapiere")(?=[^>]*href="\/securities")[^>]*>/);
     const page = text(html);
     expect(page).toContain("IE00B4L5Y983 · ETF");
     expect(page).not.toContain("Noch keine Buchungen.");
