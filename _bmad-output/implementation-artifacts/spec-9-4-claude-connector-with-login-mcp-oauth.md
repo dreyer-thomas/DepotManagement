@@ -2,7 +2,7 @@
 title: 'Claude Connector with Login — MCP + OAuth (story 9-4)'
 type: 'feature'
 created: '2026-10-28'
-status: 'awaiting-operator'
+status: done
 baseline_revision: 'a19a55299332552b2671385c43ca26e59dd0c7dd'
 review_loop_iteration: 0
 followup_review_recommended: true
@@ -182,3 +182,14 @@ Status: awaiting-operator
 
 **Residual risks:** Not tested with real Claude Desktop/claude.ai/iOS/Claude Code clients (operator actions). The external redirect after "Erlauben" via a server action is unit-tested, not checked in a browser. Without `APP_URL` the consent page shows an error card with HTTP 200 (pages cannot answer 503). Public registration can be exhausted by 200 anonymous requests for 24 h. The MCP SDK is now part of the restore server bundle.
 
+## Operator Confirmation
+
+Confirmed 2026-10-28: the external actions this story owed were carried out.
+
+- Set APP_URL in the production server environment to the public HTTPS origin (e.g. https://depot.example.com, no path) and restart the service before deploying story 9.4.
+- Deploy the build and run prisma migrate deploy so migration 20261102000000_add_oauth is applied on the server.
+- In Claude Desktop or claude.ai add a custom connector with APP_URL/api/mcp, sign in with the app login, click Erlauben, and confirm list_watchlists works.
+- On the iPhone Claude app confirm the same connector works and that add_watchlist_entry creates an entry that appears in the app with Price, change since added and via Claude.
+- Run claude mcp add --transport http depotmanagement <APP_URL>/api/mcp in Claude Code, complete the browser login and consent, and confirm a tool call succeeds.
+
+_Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._
