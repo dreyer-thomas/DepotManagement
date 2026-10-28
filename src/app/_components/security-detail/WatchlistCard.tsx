@@ -15,9 +15,9 @@ import { Fragment, useState } from "react";
 import { CardHeading } from "@/app/_components/overview/CardHeading";
 import { EditWatchlistEntryDialog, type EditableWatchlistEntry } from "@/app/_components/watchlists/WatchlistEntryDialog";
 import { VIA_CLAUDE_LABEL } from "@/app/_components/watchlists/labels";
+import { watchlistHref } from "@/app/_components/watchlists/watchlist-cookie";
 import { formatDate } from "@/core/format";
 import { percentOrMissing, ratioTone } from "./labels";
-import { watchlistHref } from "./WatchlistChips";
 
 /** An entry of this Security as the card shows it (`securityWatchlistEntries`). */
 export type WatchlistCardEntry = {

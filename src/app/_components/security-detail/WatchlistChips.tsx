@@ -1,13 +1,14 @@
+"use client";
+
 import Chip from "@mui/material/Chip";
 import Stack from "@mui/material/Stack";
 import NextLink from "next/link";
+import { watchlistHref } from "@/app/_components/watchlists/watchlist-cookie";
 
-/** `/watchlists?list=<id>`: the watchlist page with that list selected. */
-export function watchlistHref(watchlistId: string): string {
-  return `/watchlists?list=${encodeURIComponent(watchlistId)}`;
-}
-
-/** The watchlists a Security is on, as chips linking to each list (story 9.2); nothing when on none. */
+/**
+ * The watchlists a Security is on, as chips linking to each list (story 9.2); nothing when on none.
+ * A client component: `Chip` gets `NextLink` as `component`, a function the server cannot pass.
+ */
 export function WatchlistChips({ lists }: { lists: readonly { id: string; name: string }[] }) {
   if (lists.length === 0) return null;
   return (
