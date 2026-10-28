@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 10-25-2026 14:10
-last_updated: 2026-10-27
+last_updated: 2026-10-28
 project: DepotManagement
 project_key: NOKEY
 tracking_system: file-system
@@ -107,7 +107,7 @@ development_status:
   epic-7-retrospective: optional
 
   epic-8: backlog
-  8-1-home-screen-app: awaiting-operator
+  8-1-home-screen-app: done
   8-2-benchmark-comparison: done
   8-3-tax-preview-with-freistellungsauftrag: done
   8-4-region-weights-for-global-funds: done

@@ -2,7 +2,7 @@
 title: 'Story 8.1: Home-Screen App'
 type: 'feature'
 created: '2026-10-27'
-status: 'awaiting-operator'
+status: done
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -139,3 +139,13 @@ Status: awaiting-operator
 **Residual risks:** Status bar colour follows the OS scheme, not the in-app Hell/Dunkel override; Android splash uses the light background in dark mode (manifest limitation); iOS rendering of `theme-color` with `statusBarStyle: "default"` is unverified until checked on a device.
 
 **Operator actions owed:** see `operator_actions` in frontmatter.
+
+## Operator Confirmation
+
+Confirmed 2026-10-28: the external actions this story owed were carried out.
+
+- Deploy this commit to the HTTPS production host (scripts/deploy.sh) so the manifest and icons are served over HTTPS.
+- On an iPhone in Safari, open the HTTPS app, choose Teilen › Zum Home-Bildschirm, start it from the home screen and confirm it opens full-screen with the Depot icon, asks for a login once and shows the app colours in the status bar in both light and dark mode.
+- On an Android phone in Chrome, open the HTTPS app, choose App installieren, start it and confirm it opens full-screen with the icon (maskable, not cropped) and the app colours in the status bar in both light and dark mode.
+
+_Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._
