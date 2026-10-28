@@ -1,5 +1,6 @@
 import { prisma } from "@/db";
 import type { WatchlistEntrySource } from "@/db/generated/prisma/client";
+import { type FiftyTwoWeekFigures, fiftyTwoWeekFigures } from "@/core/key-figures";
 import { currentSecurityId, entryFigures, type EntryFigures, isValidDateAdded, WATCHLIST_NOTE_MAX_LENGTH, watchlistHistoryStart } from "@/core/watchlist";
 import {
   ensureSecurity,
@@ -210,6 +211,8 @@ export type WatchlistEntryView = WatchlistEntryRecord &
     security: SecuritySummary;
     /** True when the Security is held (`listHeldSecurities`): the "im Bestand" chip. */
     held: boolean;
+    /** 52-week figures from the stored, split-adjusted closes as of today (story 9.6). */
+    fiftyTwoWeek: FiftyTwoWeekFigures;
   };
 
 export type WatchlistView = { id: string; name: string; position: number; entries: WatchlistEntryView[] };
@@ -217,7 +220,7 @@ export type WatchlistView = { id: string; name: string; position: number; entrie
 /**
  * Every watchlist in creation order with its entries (by position) and their figures as of `today`:
  * resolved Price (stored Prices and Transaction prices, split-adjusted), stale flag, change today and
- * change since added (`core/watchlist`). Read-only, no provider call.
+ * change since added (`core/watchlist`) and the 52-week figures (`core/key-figures`). Read-only, no provider call.
  */
 export async function watchlistView(today: string, db: WatchlistDb = prisma): Promise<WatchlistView[]> {
   const lists = await db.watchlist.findMany({
@@ -247,6 +250,7 @@ export async function watchlistView(today: string, db: WatchlistDb = prisma): Pr
           security,
           // Held when the Security it maps to today (its ISIN-change successor, if any) is held.
           held: heldSet.has(currentSecurityId(entry.securityId, actions, today)),
+          fiftyTwoWeek: fiftyTwoWeekFigures(observations, entry.securityId, actions, today),
         },
       ];
     }),

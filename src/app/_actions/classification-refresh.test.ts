@@ -4,6 +4,8 @@ const classification = vi.hoisted(() => ({ refreshClassifications: vi.fn() }));
 const after = vi.hoisted(() => vi.fn());
 vi.mock("@/modules/classification", () => classification);
 vi.mock("next/server", () => ({ after }));
+const watchedSecurityIds = vi.hoisted(() => vi.fn(async () => [] as string[]));
+vi.mock("@/modules/watchlist", () => ({ watchedSecurityIds }));
 
 import { runClassificationRefresh, scheduleClassificationRefresh } from "./classification-refresh";
 
@@ -21,6 +23,7 @@ describe("runClassificationRefresh", () => {
     classification.refreshClassifications.mockResolvedValue({ updated: 1, unchanged: 0, failed: 0 });
     await runClassificationRefresh();
     expect(classification.refreshClassifications).toHaveBeenCalledTimes(1);
+    expect(classification.refreshClassifications).toHaveBeenCalledWith({ watched: watchedSecurityIds });
   });
 
   it("logs a failing refresh instead of throwing", async () => {

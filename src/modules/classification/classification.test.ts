@@ -1,14 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { recorded } from "../../../test/helpers/providers";
 import { createTestDatabase, type TestDatabase } from "../../../test/helpers/test-db";
-import { changeSecurityType, ensureSecurity } from "@/modules/ledger";
+import { changeSecurityType, createDepot, ensureSecurity, recordTrade } from "@/modules/ledger";
 import { setMapping } from "@/modules/prices";
 import {
   type ClassificationDeps,
   exportClassifications,
   listClassifications,
+  listKeyFigures,
   listRegionSplits,
   refreshClassifications,
+  refreshKeyFigures,
   replaceAllClassifications,
   setManualClassification,
   setManualRegionSplit,
@@ -467,5 +469,199 @@ describe("region splits", () => {
     });
     await refreshClassifications(deps(yahoo({}).quoteSummary), db());
     expect((await listRegionSplits(db()))[world]).toMatchObject({ effective: { source: "manual" }, rule: { index: "MSCI World" } });
+  });
+});
+
+describe("key figures (story 9.6)", () => {
+  const SAP_FIGURES = recorded("yahoo-quotesummary-keyfigures-sap-de") as Record<string, unknown>;
+  const EUNL_FIGURES = recorded("yahoo-quotesummary-keyfigures-eunl-de");
+  const SAP_FULL = { ...(SAP_PROFILE as Record<string, unknown>), ...SAP_FIGURES };
+  const ALL_MODULES = ["assetProfile", "price", "summaryDetail", "defaultKeyStatistics", "financialData", "calendarEvents", "fundProfile"];
+  const KEY_FIGURE_MODULES = ["summaryDetail", "defaultKeyStatistics", "financialData", "calendarEvents", "fundProfile"];
+
+  /** A fake quoteSummary recording symbol and modules per call. */
+  function recording(replies: Record<string, unknown>) {
+    const calls: { symbol: string; modules: string[] }[] = [];
+    const quoteSummary: YahooQuoteSummary = async (symbol, query) => {
+      calls.push({ symbol, modules: [...query.modules] });
+      const reply = replies[symbol];
+      if (reply instanceof Error) throw reply;
+      if (reply === undefined) throw new Error(`Quote not found for symbol: ${symbol}`);
+      return reply;
+    };
+    return { quoteSummary, calls };
+  }
+
+  let depotId: string;
+  beforeEach(async () => {
+    const depot = await createDepot({ name: "Hauptdepot", broker: "COMDIRECT" }, db());
+    if (!depot.ok) throw new Error("setup failed");
+    depotId = depot.depot.id;
+  });
+
+  async function hold(securityId: string) {
+    const trade = await recordTrade({ depotId, type: "BUY", date: "2026-10-01", quantity: "1", price: "100", security: { id: securityId } }, db());
+    if (!trade.ok) throw new Error("setup failed");
+  }
+
+  const at = (iso: string, watched: readonly string[] = [], quoteSummary?: YahooQuoteSummary): ClassificationDeps => ({
+    quoteSummary,
+    now: () => new Date(iso),
+    watched: async () => watched,
+  });
+
+  it("shares one request with the pending profile and stores the snapshot; a second run the same day asks nothing", async () => {
+    const sap = await security({ isin: "DE0007164600" }, "SAP SE", "STOCK");
+    await mapYahoo(sap, "SAP.DE");
+    await hold(sap);
+    const { quoteSummary, calls } = recording({ "SAP.DE": SAP_FULL });
+
+    expect(await refreshClassifications(at("2026-10-28T10:00:00.000Z", [], quoteSummary), db())).toMatchObject({ failed: 0 });
+    expect(calls).toEqual([{ symbol: "SAP.DE", modules: ALL_MODULES }]);
+    expect((await summary(sap)).sector).toBe("Technologie (provider)");
+    const info = (await listKeyFigures([sap], "2026-10-28", db()))[sap];
+    expect(info).toMatchObject({
+      refreshable: true,
+      snapshot: { symbol: "SAP.DE", asOf: "2026-10-28", stale: false, fetchedToday: true, fetchedAt: "2026-10-28T10:00:00.000Z" },
+    });
+    expect(info.snapshot?.figures).toMatchObject({ trailingPE: "30.4321", dividendYield: "0.0118", marketCap: "243770000000", marketCapCurrency: "EUR" });
+
+    const again = recording({ "SAP.DE": SAP_FULL });
+    await refreshClassifications(at("2026-10-28T21:00:00.000Z", [], again.quoteSummary), db());
+    expect(again.calls).toEqual([]);
+    expect(await refreshKeyFigures(sap, at("2026-10-28T21:30:00.000Z", [], again.quoteSummary), db())).toEqual({ status: "fresh" });
+    expect(again.calls).toEqual([]);
+
+    // The next Berlin day: key figures only (the profile is answered already).
+    const nextDay = recording({ "SAP.DE": SAP_FIGURES });
+    await refreshClassifications(at("2026-10-28T23:30:00.000Z", [], nextDay.quoteSummary), db());
+    expect(nextDay.calls).toEqual([{ symbol: "SAP.DE", modules: KEY_FIGURE_MODULES }]);
+    expect((await listKeyFigures([sap], "2026-10-29", db()))[sap].snapshot).toMatchObject({ asOf: "2026-10-29" });
+  });
+
+  it("a classification-only fetch keeps its exact query; a watched ETF gets key figures only", async () => {
+    const sap = await security({ isin: "DE0007164600" }, "SAP SE", "STOCK");
+    const msci = await security({ isin: "IE00B4L5Y983" }, "iShares Core MSCI World UCITS ETF USD (Acc)", "ETF");
+    await mapYahoo(sap, "SAP.DE");
+    await mapYahoo(msci, "EUNL.DE");
+    const { quoteSummary, calls } = recording({ "SAP.DE": SAP_PROFILE, "EUNL.DE": EUNL_FIGURES });
+
+    await refreshClassifications(at("2026-10-28T10:00:00.000Z", [msci], quoteSummary), db());
+    expect(calls).toHaveLength(2);
+    expect(calls).toEqual(
+      expect.arrayContaining([
+        { symbol: "SAP.DE", modules: ["assetProfile", "price"] },
+        { symbol: "EUNL.DE", modules: KEY_FIGURE_MODULES },
+      ]),
+    );
+    const figures = await listKeyFigures([sap, msci], "2026-10-28", db());
+    expect(figures[sap]).toEqual({ snapshot: null, refreshable: true });
+    expect(figures[msci].snapshot?.figures).toMatchObject({ fundFamily: "iShares", expenseRatio: "0.002", inceptionDate: "2009-09-25", trailingPE: null });
+  });
+
+  it("never asks for crypto, certificates or unmapped Securities", async () => {
+    const btc = await security({ cryptoSymbol: "BTC" }, "Bitcoin", "CRYPTO");
+    const turbo = await security({ isin: "DE000SYN0013" }, "Turbo Long auf SAP SE", "CERTIFICATE");
+    const unmapped = await security({ isin: "DE0007164600" }, "SAP SE", "STOCK");
+    await mapYahoo(btc, "BTC-EUR");
+    await mapYahoo(turbo, "TURBO.DE");
+    const { quoteSummary, calls } = recording({});
+    await refreshClassifications(at("2026-10-28T10:00:00.000Z", [btc, turbo, unmapped], quoteSummary), db());
+    expect(calls).toEqual([]);
+    expect(await refreshKeyFigures(btc, at("2026-10-28T10:00:00.000Z", [btc], quoteSummary), db())).toEqual({ status: "unavailable" });
+    expect(await refreshKeyFigures(unmapped, at("2026-10-28T10:00:00.000Z", [unmapped], quoteSummary), db())).toEqual({ status: "unavailable" });
+    expect(calls).toEqual([]);
+    expect((await listKeyFigures([btc], "2026-10-28", db()))[btc]).toEqual({ snapshot: null, refreshable: false });
+  });
+
+  it("a transient error keeps the old snapshot; 'no data' stores an all-null snapshot", async () => {
+    const sap = await security({ isin: "DE0007164600" }, "SAP SE", "STOCK");
+    await mapYahoo(sap, "SAP.DE");
+    await hold(sap);
+    await refreshClassifications(at("2026-10-20T10:00:00.000Z", [], recording({ "SAP.DE": SAP_FULL }).quoteSummary), db());
+
+    const failing = recording({ "SAP.DE": new TypeError("fetch failed") });
+    expect(await refreshClassifications(at("2026-10-28T10:00:00.000Z", [], failing.quoteSummary), db())).toMatchObject({ failed: 1 });
+    expect(failing.calls).toHaveLength(1);
+    const kept = (await listKeyFigures([sap], "2026-10-28", db()))[sap].snapshot;
+    expect(kept).toMatchObject({ asOf: "2026-10-20", stale: true, figures: { trailingPE: "30.4321" } });
+    expect(await refreshKeyFigures(sap, at("2026-10-28T11:00:00.000Z", [], failing.quoteSummary), db())).toEqual({ status: "failed" });
+
+    const noData = recording({ "SAP.DE": new Error("Quote not found for symbol: SAP.DE") });
+    expect(await refreshKeyFigures(sap, at("2026-10-28T12:00:00.000Z", [], noData.quoteSummary), db())).toEqual({ status: "updated" });
+    const empty = (await listKeyFigures([sap], "2026-10-28", db()))[sap].snapshot;
+    expect(empty).toMatchObject({ asOf: "2026-10-28", stale: false });
+    expect(Object.values(empty!.figures).every((value) => value === null)).toBe(true);
+    // Not retried until the next day.
+    const later = recording({ "SAP.DE": SAP_FIGURES });
+    await refreshClassifications(at("2026-10-28T20:00:00.000Z", [], later.quoteSummary), db());
+    expect(later.calls).toEqual([]);
+  });
+
+  it("refetches on a symbol change", async () => {
+    const sap = await security({ isin: "DE0007164600" }, "SAP SE", "STOCK");
+    await mapYahoo(sap, "SAP.DE");
+    await hold(sap);
+    await refreshClassifications(at("2026-10-28T10:00:00.000Z", [], recording({ "SAP.DE": SAP_FULL }).quoteSummary), db());
+    await mapYahoo(sap, "SAP.F");
+    // Fetched today, but for the old symbol: not fresh, so the button stays enabled.
+    expect((await listKeyFigures([sap], "2026-10-28", db()))[sap].snapshot).toMatchObject({ symbol: "SAP.DE", fetchedToday: false });
+    const { quoteSummary, calls } = recording({ "SAP.F": SAP_FULL });
+    expect(await refreshKeyFigures(sap, at("2026-10-28T11:00:00.000Z", [], quoteSummary), db())).toEqual({ status: "updated" });
+    expect(calls).toEqual([{ symbol: "SAP.F", modules: KEY_FIGURE_MODULES }]);
+    expect((await listKeyFigures([sap], "2026-10-28", db()))[sap].snapshot).toMatchObject({ symbol: "SAP.F", fetchedToday: true });
+  });
+
+  it("'Typ ändern' STOCK → ETF on the day of the fetch: the stock snapshot is hidden and refetched as fund figures", async () => {
+    const id = await security({ isin: "IE00B4L5Y983" }, "iShares Core MSCI World UCITS ETF USD (Acc)", "STOCK");
+    await mapYahoo(id, "EUNL.DE");
+    await hold(id);
+    await refreshClassifications(at("2026-10-28T10:00:00.000Z", [], recording({ "EUNL.DE": SAP_FULL }).quoteSummary), db());
+    expect((await listKeyFigures([id], "2026-10-28", db()))[id].snapshot).toMatchObject({ fetchedToday: true });
+    expect((await db().securityKeyFigures.findUnique({ where: { securityId: id } }))?.kind).toBe("stock");
+
+    await changeSecurityType(id, "ETF", db());
+    expect((await listKeyFigures([id], "2026-10-28", db()))[id]).toEqual({ snapshot: null, refreshable: true });
+    const { quoteSummary, calls } = recording({ "EUNL.DE": EUNL_FIGURES });
+    expect(await refreshKeyFigures(id, at("2026-10-28T11:00:00.000Z", [], quoteSummary), db())).toEqual({ status: "updated" });
+    expect(calls).toEqual([{ symbol: "EUNL.DE", modules: KEY_FIGURE_MODULES }]);
+    expect((await listKeyFigures([id], "2026-10-28", db()))[id].snapshot).toMatchObject({
+      fetchedToday: true,
+      figures: { fundFamily: "iShares", trailingPE: null },
+    });
+  });
+
+  it("deletes snapshots outside held ∪ watched, of a type without key figures, and with the Security", async () => {
+    const sap = await security({ isin: "DE0007164600" }, "SAP SE", "STOCK");
+    const msci = await security({ isin: "IE00B4L5Y983" }, "iShares Core MSCI World UCITS ETF USD (Acc)", "ETF");
+    const apple = await security({ isin: "US0378331005" }, "Apple Inc.", "STOCK");
+    await mapYahoo(sap, "SAP.DE");
+    await mapYahoo(msci, "EUNL.DE");
+    await mapYahoo(apple, "APC.DE");
+    const replies = { "SAP.DE": SAP_FULL, "EUNL.DE": EUNL_FIGURES, "APC.DE": recorded("yahoo-quotesummary-keyfigures-apc-de") };
+    await refreshClassifications(at("2026-10-28T10:00:00.000Z", [sap, msci, apple], recording(replies).quoteSummary), db());
+    expect(await db().securityKeyFigures.count()).toBe(3);
+    expect(await refreshKeyFigures(sap, at("2026-10-28T11:00:00.000Z", [msci], recording(replies).quoteSummary), db())).toEqual({
+      status: "unavailable",
+    });
+
+    await changeSecurityType(apple, "CERTIFICATE", db());
+    await refreshClassifications(at("2026-10-29T10:00:00.000Z", [msci, apple], recording(replies).quoteSummary), db());
+    expect((await db().securityKeyFigures.findMany()).map((row) => row.securityId)).toEqual([msci]);
+
+    // A removed Yahoo mapping forgets the snapshot of a still watched Security.
+    await db().providerMapping.deleteMany({ where: { securityId: msci } });
+    await refreshClassifications(at("2026-10-30T10:00:00.000Z", [msci], recording(replies).quoteSummary), db());
+    expect(await db().securityKeyFigures.count()).toBe(0);
+    await mapYahoo(msci, "EUNL.DE");
+    await refreshClassifications(at("2026-10-30T11:00:00.000Z", [msci], recording(replies).quoteSummary), db());
+    expect(await db().securityKeyFigures.count()).toBe(1);
+
+    await db().security.delete({ where: { id: msci } });
+    expect(await db().securityKeyFigures.count()).toBe(0);
+  });
+
+  it("refreshKeyFigures: not-found for an unknown id", async () => {
+    expect(await refreshKeyFigures("nope", at("2026-10-28T10:00:00.000Z"), db())).toEqual({ status: "not-found" });
   });
 });

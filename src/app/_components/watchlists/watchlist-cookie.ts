@@ -32,3 +32,27 @@ export function storeLastWatchlist(watchlistId: string): void {
 export function watchlistHref(watchlistId: string): string {
   return `/watchlists?list=${encodeURIComponent(watchlistId)}`;
 }
+
+/** The optional key-figure columns (story 9.6), remembered per browser; hidden by default. */
+export const WATCHLIST_COLUMNS_COOKIE = "dm_watchlist_columns";
+export const WATCHLIST_COLUMN_KEYS = ["kgv", "dividendYield", "distanceToHigh"] as const;
+export type WatchlistColumnKey = (typeof WATCHLIST_COLUMN_KEYS)[number];
+
+/** The stored column choice (comma list): unknown keys dropped, duplicates removed, in column order. */
+export function parseWatchlistColumns(value: string | undefined | null): WatchlistColumnKey[] {
+  let text = value ?? "";
+  try {
+    // The client writes the value URI-encoded ("%2C"); tolerate both forms.
+    text = decodeURIComponent(text);
+  } catch {
+    // Malformed escapes: keep the raw text (its keys are dropped as unknown).
+  }
+  const chosen = new Set(text.split(",").map((key) => key.trim()));
+  return WATCHLIST_COLUMN_KEYS.filter((key) => chosen.has(key));
+}
+
+/** Remembers the shown optional columns (client components only; never reloads the page). */
+export function storeWatchlistColumns(columns: readonly WatchlistColumnKey[]): void {
+  if (typeof document === "undefined") return;
+  document.cookie = chartPreferenceCookie(WATCHLIST_COLUMNS_COOKIE, columns.join(","), window.location.protocol === "https:");
+}

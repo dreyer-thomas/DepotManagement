@@ -1,0 +1,33 @@
+{
+  "summaryDetail": {
+    "maxAge": 1,
+    "trailingPE": 35.12,
+    "priceToSalesTrailing12Months": 8.1,
+    "dividendYield": 0.0045,
+    "payoutRatio": 0.1556,
+    "exDividendDate": "2026-08-11T00:00:00.000Z",
+    "beta": 1.2,
+    "marketCap": 3250000000000,
+    "currency": "EUR"
+  },
+  "defaultKeyStatistics": {
+    "maxAge": 1,
+    "priceToBook": 52.3,
+    "pegRatio": 2.4
+  },
+  "financialData": {
+    "maxAge": 86400,
+    "totalRevenue": 466820000000,
+    "financialCurrency": "USD",
+    "profitMargins": 0.243,
+    "returnOnEquity": 1.38,
+    "revenueGrowth": 0.06,
+    "debtToEquity": 154.5
+  },
+  "calendarEvents": {
+    "maxAge": 1,
+    "earnings": {
+      "earningsDate": ["2026-10-30T20:30:00.000Z"]
+    }
+  }
+}

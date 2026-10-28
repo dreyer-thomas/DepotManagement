@@ -1,4 +1,5 @@
 import { formatAuthConfigProblems, readAuthConfig } from "@/modules/auth/config";
+import type { ClassificationDb } from "@/modules/classification";
 
 /**
  * Stops the process when the auth variables are missing or invalid. Uses process.exit because
@@ -27,11 +28,15 @@ async function refreshNewsAfterPrices(): Promise<void> {
   }
 }
 
-/** A classification refresh after the scheduled news refresh (AD-20); a failure is only logged. */
-async function refreshClassificationsAfterNews(): Promise<void> {
+/**
+ * A classification refresh after the scheduled news refresh (AD-20); a failure is only logged. Key figures
+ * are kept for held ∪ watched Securities; `classification` never imports `watchlist` (AD-2), so the
+ * watched-ids loader is passed in.
+ */
+async function refreshClassificationsAfterNews(watched: (db: ClassificationDb) => Promise<readonly string[]>): Promise<void> {
   try {
     const { refreshClassifications } = await import("@/modules/classification");
-    await refreshClassifications();
+    await refreshClassifications({ watched });
   } catch (error) {
     console.error(`Classification: scheduled refresh failed (${error instanceof Error ? error.name : "unknown"})`);
   }
@@ -48,14 +53,14 @@ export async function startBackgroundJobs(): Promise<void> {
   if (process.env.NEXT_PHASE === "phase-production-build") return;
   const { refreshPrices, startPriceScheduler } = await import("@/modules/prices");
   // Watched Securities are priced too; `prices` never imports `watchlist` (AD-2), so the loader is passed in.
-  const { watchlistPriceTargets } = await import("@/modules/watchlist");
+  const { watchlistPriceTargets, watchedSecurityIds } = await import("@/modules/watchlist");
   startPriceScheduler({
     run: async (today) => {
       try {
         return await refreshPrices(today, { watched: watchlistPriceTargets });
       } finally {
         await refreshNewsAfterPrices();
-        await refreshClassificationsAfterNews();
+        await refreshClassificationsAfterNews(watchedSecurityIds);
       }
     },
   });

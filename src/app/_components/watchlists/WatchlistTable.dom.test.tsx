@@ -5,7 +5,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { registerDomCleanup } from "../../../../test/helpers/dom";
 import type { WatchlistEntryView } from "@/modules/watchlist";
 import { LogoProvider } from "../securities/LogoContext";
-import { WatchlistTable } from "./WatchlistTable";
+import { type WatchlistColumnKey } from "./watchlist-cookie";
+import { type WatchlistKeyFigures, WatchlistTable } from "./WatchlistTable";
 
 const push = vi.hoisted(() => vi.fn());
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push, refresh: vi.fn() }) }));
@@ -39,6 +40,7 @@ function entry(overrides: Partial<WatchlistEntryView> & { id: string; name: stri
     changeToday: null,
     sinceAdded: null,
     held: false,
+    fiftyTwoWeek: { high: null, low: null, distanceToHigh: null, performance: null },
     security: { id: `s-${id}`, name, isin: "DE0007164600", cryptoSymbol: null, assetType: "STOCK" },
     ...rest,
   };
@@ -57,6 +59,7 @@ const SAP = entry({
   changeToday: { perUnit: "1", ratio: "0.04" },
   sinceAdded: "0.04",
   held: true,
+  fiftyTwoWeek: { high: { price: "27.4", date: "2026-09-01" }, low: { price: "20", date: "2026-03-01" }, distanceToHigh: "-0.052", performance: "0.1" },
 });
 const BTC = entry({
   id: "e2",
@@ -78,10 +81,12 @@ const NEW = entry({ id: "e3", name: "Allianz", dateAdded: "2026-10-10" });
 
 const LISTS = [{ id: "w1", name: "Ideen" }];
 
-function renderTable(entries = [SAP, BTC, NEW]) {
+const KEY_FIGURES: Record<string, WatchlistKeyFigures> = { "s-e1": { trailingPE: "30.4321", dividendYield: "0.0118" } };
+
+function renderTable(entries = [SAP, BTC, NEW], initialColumns: WatchlistColumnKey[] = []) {
   const result = render(
     <LogoProvider versions={{}}>
-      <WatchlistTable entries={entries} lists={LISTS} today="2026-10-28" />
+      <WatchlistTable entries={entries} lists={LISTS} today="2026-10-28" keyFigures={KEY_FIGURES} initialColumns={initialColumns} />
     </LogoProvider>,
   );
   const table = result.container.querySelector("table") as HTMLElement;
@@ -157,5 +162,33 @@ describe("WatchlistTable", () => {
   it("shows an empty text without entries", () => {
     renderTable([]);
     expect(screen.getByText("Noch keine Wertpapiere auf dieser Watchlist.")).toBeDefined();
+  });
+
+  it("hides the key-figure columns by default; the column menu toggles them and remembers the choice", async () => {
+    document.cookie = "dm_watchlist_columns=; max-age=0; path=/";
+    const user = userEvent.setup({ delay: null });
+    const { table } = renderTable();
+    const headers = () => [...table.querySelectorAll("thead th")].map((cell) => cell.textContent);
+    expect(headers()).not.toContain("KGV");
+    await user.click(screen.getByRole("button", { name: "Spalten" }));
+    await user.click(await screen.findByRole("menuitemcheckbox", { name: "KGV" }));
+    expect(headers()).toContain("KGV");
+    expect(screen.getByRole("menuitemcheckbox", { name: "KGV" }).getAttribute("aria-checked")).toBe("true");
+    expect(document.cookie).toContain("dm_watchlist_columns=kgv");
+    const sapRow = [...table.querySelectorAll("tbody tr")].find((row) => row.textContent?.includes("SAP SE")) as HTMLElement;
+    expect(sapRow.textContent).toContain("30,43");
+    await user.click(screen.getByRole("menuitemcheckbox", { name: "KGV" }));
+    expect(headers()).not.toContain("KGV");
+  });
+
+  it("shows the chosen figures as columns and as a caption line in the phone rows ('–' when missing)", () => {
+    const { table, container } = renderTable([SAP, BTC], ["kgv", "dividendYield", "distanceToHigh"]);
+    const headers = [...table.querySelectorAll("thead th")].map((cell) => cell.textContent);
+    expect(headers).toEqual(expect.arrayContaining(["KGV", "Dividendenrendite", "Abstand zum 52-Wochen-Hoch"]));
+    const lines = [...container.querySelectorAll("[data-key-figures]")].map((line) => line.textContent);
+    expect(lines).toEqual([
+      "KGV – · Dividendenrendite – · Abstand zum Hoch –",
+      "KGV 30,43 · Dividendenrendite 1,18\u00a0% · Abstand zum Hoch -5,20\u00a0%",
+    ]);
   });
 });

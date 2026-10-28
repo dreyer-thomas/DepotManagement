@@ -29,11 +29,12 @@ import { SecurityActions } from "../../../_components/security-detail/SecurityAc
 import { SecurityHero } from "../../../_components/security-detail/SecurityHero";
 import { MOVING_AVERAGE_COOKIE, SECURITY_CHART_COOKIE } from "../../../_components/charts/chart-preference";
 import { securityDetail } from "@/modules/ledger";
-import { storedPriceHistory } from "@/modules/prices";
+import { setMapping, storedPriceHistory } from "@/modules/prices";
 import { addWatchlistEntry, createWatchlist } from "@/modules/watchlist";
 import { setManualClassification } from "@/modules/classification";
 import { WatchHeader } from "../../../_components/security-detail/WatchHeader";
 import { WatchlistCard } from "../../../_components/security-detail/WatchlistCard";
+import { KeyFiguresCard } from "../../../_components/security-detail/KeyFiguresCard";
 import { AddToWatchlistButton } from "../../../_components/watchlists/WatchlistEntryDialog";
 import SecurityDetailPage, { generateMetadata } from "./page";
 
@@ -46,6 +47,7 @@ beforeEach(async () => {
   await prisma.watchlistEntry.deleteMany();
   await prisma.watchlist.deleteMany();
   await prisma.securityClassification.deleteMany();
+  await prisma.securityKeyFigures.deleteMany();
   await prisma.newsArticle.deleteMany();
   await prisma.newsFetch.deleteMany();
   await prisma.price.deleteMany();
@@ -197,6 +199,52 @@ describe("Security detail page", () => {
     expect(html).not.toContain('id="security-watchlists"');
     expect(html).toContain('id="security-classification"');
     expect(findElement(tree, AddToWatchlistButton)!.props.lists).toEqual([]);
+  });
+
+  it("Kennzahlen in both layouts: snapshot with source and date, 52-week figures, refresh only when held or watched", async () => {
+    const result = await ensureSecurity({ isin: "DE0007164600" }, { name: "SAP SE", assetType: "STOCK" });
+    if (!result.ok) throw new Error("setup failed");
+    const id = result.security.id;
+    expect((await setMapping(id, { provider: "YAHOO", symbol: "SAP.DE" })).ok).toBe(true);
+    await providerPrice(id, "2026-01-15", "120");
+    await providerPrice(id, addDays(TODAY, -1), "108");
+    await prisma.securityKeyFigures.create({
+      data: { securityId: id, symbol: "SAP.DE", kind: "stock", figures: JSON.stringify({ trailingPE: "30.4321", dividendYield: "0.0118" }), fetchedAt: "2026-10-18T09:00:00.000Z" },
+    });
+
+    // Neither held nor watched: the card shows, without the refresh button.
+    let tree = await SecurityDetailPage(props(id));
+    let card = findElement(tree, KeyFiguresCard)!;
+    expect(card.props).toMatchObject({ assetType: "STOCK", canRefresh: false, snapshot: { asOf: "2026-10-18", stale: true } });
+    expect(card.props.fiftyTwoWeek).toMatchObject({ high: { price: "120", date: "2026-01-15" }, distanceToHigh: "-0.1" });
+    let html = renderHtml(tree);
+    const watchCard = text(section(html, 'id="security-key-figures"', 'id="security-news"'));
+    expect(watchCard).toContain("Yahoo Finance, Stand 18.10.2026 – veraltet");
+    expect(watchCard).toContain("KGV 30,43");
+    expect(watchCard).toContain("KGV erwartet –");
+    expect(watchCard).toContain("52-Wochen-Hoch 120,00 € (15.01.2026)");
+    expect(watchCard).toContain("auf Schlusskursbasis");
+    expect(watchCard).toContain("Angaben ohne Gewähr, keine Anlageberatung");
+    expect(watchCard).not.toContain("Kennzahlen aktualisieren");
+
+    // Watched only (never booked, not held): refreshable in the watch layout.
+    const list = await createWatchlist({ name: "Ideen" });
+    if (!list.ok) throw new Error("setup failed");
+    expect((await addWatchlistEntry({ watchlistId: list.watchlist.id, security: { id } }, TODAY)).ok).toBe(true);
+    tree = await SecurityDetailPage(props(id));
+    expect(findElement(tree, WatchHeader)).toBeDefined();
+    expect(findElement(tree, KeyFiguresCard)!.props.canRefresh).toBe(true);
+    await prisma.watchlistEntry.deleteMany();
+
+    // Booked and held: after "Gesamt seit Erstkauf", with the refresh button.
+    const a = await depot("Alpha");
+    await book({ depotId: a, type: "BUY", date: "2026-02-02", quantity: "1", price: "100", security: { id } });
+    tree = await SecurityDetailPage(props(id));
+    card = findElement(tree, KeyFiguresCard)!;
+    expect(card.props.canRefresh).toBe(true);
+    html = renderHtml(tree);
+    expect(html.indexOf('id="security-total"')).toBeLessThan(html.indexOf('id="security-key-figures"'));
+    expect(text(section(html, 'id="security-key-figures"'))).toContain("Kennzahlen aktualisieren");
   });
 
   it("sums the non-archived Depots under Alle Depots", async () => {

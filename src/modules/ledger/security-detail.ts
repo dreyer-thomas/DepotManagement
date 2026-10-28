@@ -1,6 +1,7 @@
 import { prisma } from "@/db";
 import { addDays } from "@/core/dates";
 import { type Drawdown, drawdown } from "@/core/drawdown";
+import { type FiftyTwoWeekFigures, fiftyTwoWeekFigures } from "@/core/key-figures";
 import { type PeriodSelection, resolvePeriod } from "@/core/period";
 import { computePositions } from "@/core/positions";
 import type { ResolvedPrice } from "@/core/prices";
@@ -90,6 +91,8 @@ export type SecurityDetail = {
   movingAverages: Record<MovingAverageWindow, MovingAveragePoint[]>;
   /** All-time monthly heatmap of the scope's Security series (first row..today), years without a return dropped. */
   heatmap: HeatmapYear[];
+  /** 52-week figures as of `today` from the stored, split-adjusted closes (story 9.6), independent of the Period. */
+  fiftyTwoWeek: FiftyTwoWeekFigures;
 };
 
 /** Moving-average windows in stored closes. */
@@ -255,5 +258,6 @@ export async function securityDetail(
       "38": securityMovingAverage(observations, priceSecurity.id, actions, from, to, 38),
     },
     heatmap,
+    fiftyTwoWeek: fiftyTwoWeekFigures(observations, securityId, actions, today),
   };
 }

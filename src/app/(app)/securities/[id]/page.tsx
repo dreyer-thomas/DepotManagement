@@ -16,6 +16,7 @@ import { PeriodSelector } from "@/app/_components/period/PeriodSelector";
 import { toChartPoints } from "@/app/_components/charts/value-chart";
 import { DepotSwitcher } from "@/app/_components/security-detail/DepotSwitcher";
 import { FifoLots } from "@/app/_components/security-detail/FifoLots";
+import { KeyFiguresCard } from "@/app/_components/security-detail/KeyFiguresCard";
 import { securityCaption } from "@/app/_components/security-detail/labels";
 import { PriceLine } from "@/app/_components/security-detail/PriceLine";
 import { SecurityActions } from "@/app/_components/security-detail/SecurityActions";
@@ -34,8 +35,8 @@ import { type ClassifiedAssetType, effective } from "@/core/classification";
 import { businessDate } from "@/core/dates";
 import { ExactDecimal } from "@/core/decimal";
 import { periodLabel } from "@/core/period";
-import { getSecurity, listIsinChanges, listSecurities, listSplits, securityDetail } from "@/modules/ledger";
-import { listClassifications } from "@/modules/classification";
+import { getSecurity, listHeldSecurities, listIsinChanges, listSecurities, listSplits, securityDetail } from "@/modules/ledger";
+import { listClassifications, listKeyFigures } from "@/modules/classification";
 import { listSecurityNews } from "@/modules/news";
 import { storedPriceHistory } from "@/modules/prices";
 import { listWatchlists, securityWatchlistEntries } from "@/modules/watchlist";
@@ -54,10 +55,10 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
  * One Security across all Depots or one Depot (story 4-6), also when no longer held: header with the
  * watchlist chips, Period selector, "Zur Watchlist" and the actions menu, Depot switcher, hero (value,
  * Period gain/loss, TTWROR, XIRR, price line, Kurs/Wert/Performance/Drawdown chart with the optional
- * moving average, breakdown), KPIs, "Gesamt seit Erstkauf" (story 4-7), "Performance-Heatmap" (story
+ * moving average, breakdown), KPIs, "Gesamt seit Erstkauf" (story 4-7), "Kennzahlen" (story 9.6), "Performance-Heatmap" (story
  * 7-8), open FIFO lots, Transaction history and 14-day news. A never-booked Security (story 9.2) gets
  * the watch layout instead: Price header with the Period change and the Kurs chart, "Auf Watchlists",
- * news and classification — no holding or Transaction blocks. Every figure comes from `core` via
+ * "Kennzahlen", news and classification — no holding or Transaction blocks. Every figure comes from `core` via
  * `securityDetail` (AD-10); no provider call during render.
  */
 export default async function SecurityDetailPage({ params, searchParams }: Props) {
@@ -71,7 +72,7 @@ export default async function SecurityDetailPage({ params, searchParams }: Props
   if (!detail) notFound();
   const { security } = detail;
   const booked = detail.depots.length > 0;
-  const [splits, isinChanges, securities, articles, chartMode, movingAverage, watchlists, entries, classifications] = await Promise.all([
+  const [splits, isinChanges, securities, articles, chartMode, movingAverage, watchlists, entries, classifications, keyFigures, heldIds] = await Promise.all([
     listSplits(),
     listIsinChanges(),
     listSecurities(),
@@ -81,6 +82,8 @@ export default async function SecurityDetailPage({ params, searchParams }: Props
     listWatchlists(),
     securityWatchlistEntries(security.id, today),
     booked ? Promise.resolve(null) : listClassifications(),
+    listKeyFigures([security.id], today),
+    listHeldSecurities(today),
   ]);
   const watchlistOptions = watchlists.map(({ id: listId, name }) => ({ id: listId, name }));
   const onLists = entries.map((entry) => ({ id: entry.watchlistId, name: entry.watchlistName }));
@@ -93,6 +96,18 @@ export default async function SecurityDetailPage({ params, searchParams }: Props
   const held = new ExactDecimal(detail.snapshot.quantity).greaterThan(0);
   // Watch layout only (`classifications` is not loaded for a booked Security).
   const classification = classifications?.[security.id] ?? effective(null, security.assetType as ClassifiedAssetType);
+  // Key figures (story 9.6): refreshable for a held or watched STOCK/ETF/FUND with a Yahoo mapping.
+  const keyFigureInfo = keyFigures[security.id];
+  const keyFiguresCard = (
+    <KeyFiguresCard
+      securityId={security.id}
+      assetType={security.assetType}
+      snapshot={keyFigureInfo?.snapshot ?? null}
+      fiftyTwoWeek={detail.fiftyTwoWeek}
+      canRefresh={Boolean(keyFigureInfo?.refreshable) && (heldIds.includes(security.id) || entries.length > 0)}
+      today={today}
+    />
+  );
   const news = (
     <Box component="section" aria-labelledby="security-news">
       <CardHeading id="security-news">Nachrichten · 14 Tage</CardHeading>
@@ -163,6 +178,7 @@ export default async function SecurityDetailPage({ params, searchParams }: Props
           />
           <SecurityKpis snapshot={detail.snapshot} dividends={detail.performance.dividends} periodLabel={periodLabel(period)} />
           <SecurityTotal total={detail.total} />
+          {keyFiguresCard}
           <SecurityHeatmap scope={detail.selected ?? "all"} years={detail.heatmap} />
           <FifoLots groups={detail.lots} />
           <SecurityTransactions
@@ -198,6 +214,7 @@ export default async function SecurityDetailPage({ params, searchParams }: Props
             }
           />
           <WatchlistCard entries={entries} lists={watchlistOptions} security={security} today={today} />
+          {keyFiguresCard}
           <Box sx={{ mb: 1.5 }}>{news}</Box>
           <Box component="section" aria-labelledby="security-classification">
             <Card>

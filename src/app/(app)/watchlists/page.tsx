@@ -8,10 +8,16 @@ import { PageLabel } from "@/app/_components/back-navigation/BackLink";
 import { PageTitle } from "@/app/_components/Placeholder";
 import { CreateWatchlistButton, DeleteWatchlistButton, RenameWatchlistButton } from "@/app/_components/watchlists/WatchlistDialogs";
 import { AddWatchlistEntryButton } from "@/app/_components/watchlists/WatchlistEntryDialog";
-import { WatchlistTable } from "@/app/_components/watchlists/WatchlistTable";
+import { type WatchlistKeyFigures, WatchlistTable } from "@/app/_components/watchlists/WatchlistTable";
 import { WatchlistTabs } from "@/app/_components/watchlists/WatchlistTabs";
-import { selectWatchlistId, WATCHLIST_COOKIE } from "@/app/_components/watchlists/watchlist-cookie";
+import {
+  parseWatchlistColumns,
+  selectWatchlistId,
+  WATCHLIST_COLUMNS_COOKIE,
+  WATCHLIST_COOKIE,
+} from "@/app/_components/watchlists/watchlist-cookie";
 import { businessDate } from "@/core/dates";
+import { listKeyFigures } from "@/modules/classification";
 import { listSecurities } from "@/modules/ledger";
 import { watchlistView } from "@/modules/watchlist";
 
@@ -22,7 +28,8 @@ type Props = { searchParams?: Promise<{ list?: string | string[] }> };
 /**
  * Watchlists: the list from `?list=`, else the last opened one (cookie), else the first; tabs (select on
  * phones) in creation order; toolbar "Wertpapier hinzufügen", rename, delete; empty state "Watchlist
- * anlegen". Figures are computed on read by the watchlist module.
+ * anlegen". Figures are computed on read by the watchlist module; the optional key-figure columns (cookie)
+ * read the provider snapshots of the classification module.
  */
 export default async function WatchlistsPage({ searchParams }: Props) {
   const today = businessDate(new Date());
@@ -46,6 +53,14 @@ export default async function WatchlistsPage({ searchParams }: Props) {
     );
   }
   const tabs = lists.map((list) => ({ id: list.id, name: list.name }));
+  const figures = await listKeyFigures(
+    selected.entries.map((entry) => entry.securityId),
+    today,
+  );
+  const keyFigures: Record<string, WatchlistKeyFigures> = {};
+  for (const [securityId, info] of Object.entries(figures)) {
+    if (info.snapshot) keyFigures[securityId] = { trailingPE: info.snapshot.figures.trailingPE, dividendYield: info.snapshot.figures.dividendYield };
+  }
   return (
     <>
       <Stack
@@ -66,7 +81,14 @@ export default async function WatchlistsPage({ searchParams }: Props) {
           <DeleteWatchlistButton key={`delete-${selected.id}`} watchlist={{ id: selected.id, name: selected.name, entryCount: selected.entries.length }} />
         </Stack>
       </Stack>
-      <WatchlistTable key={selected.id} entries={selected.entries} lists={tabs} today={today} />
+      <WatchlistTable
+        key={selected.id}
+        entries={selected.entries}
+        lists={tabs}
+        today={today}
+        keyFigures={keyFigures}
+        initialColumns={parseWatchlistColumns(cookieStore.get(WATCHLIST_COLUMNS_COOKIE)?.value)}
+      />
     </>
   );
 }

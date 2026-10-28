@@ -9,7 +9,7 @@ vi.mock("next/server", () => ({ after }));
 vi.mock("@/modules/prices", () => prices);
 vi.mock("@/modules/logos", () => logos);
 vi.mock("@/modules/classification", () => classification);
-const watchlist = vi.hoisted(() => ({ watchlistPriceTargets: vi.fn() }));
+const watchlist = vi.hoisted(() => ({ watchlistPriceTargets: vi.fn(), watchedSecurityIds: vi.fn() }));
 vi.mock("@/modules/watchlist", () => watchlist);
 
 import { schedulePriceBackfill, schedulePriceRefetch } from "./price-refresh";

@@ -393,6 +393,43 @@ describe("MCP tools through a real MCP client", () => {
     await client.close();
   });
 
+  it("get_watchlist returns the key figures per entry: snapshot decimals or null, as_of, stale and fifty_two_week", async () => {
+    const { ideas, sap } = await seed();
+    await addWatchlistEntry({ watchlistId: ideas, security: { id: sap } }, TODAY, testDb.client);
+    const client = await mcpClient((await connect()).access_token);
+    let got = await call(client, "get_watchlist", { watchlist_id: ideas });
+    expect(got.payload.entries[0].key_figures).toMatchObject({
+      source: "Yahoo Finance",
+      as_of: null,
+      stale: false,
+      trailing_pe: null,
+      fifty_two_week: { high: "110", high_date: "2026-10-27", low: "100", low_date: "2026-10-26", distance_to_high: "0", performance: null },
+    });
+
+    await testDb.client.securityKeyFigures.create({
+      data: {
+        securityId: sap,
+        symbol: "SAP.DE", kind: "stock",
+        figures: JSON.stringify({ trailingPE: "30.4321", dividendYield: "0.0118", marketCap: "243770000000", marketCapCurrency: "EUR" }),
+        fetchedAt: "2026-10-27T09:00:00.000Z",
+      },
+    });
+    got = await call(client, "get_watchlist", { watchlist_id: ideas });
+    const figures = got.payload.entries[0].key_figures;
+    expect(figures).toMatchObject({
+      as_of: "2026-10-27",
+      stale: false,
+      trailing_pe: "30.4321",
+      forward_pe: null,
+      dividend_yield: "0.0118",
+      market_cap: "243770000000",
+      market_cap_currency: "EUR",
+      expense_ratio: null,
+    });
+    expect(got.payload.entries[0]).not.toHaveProperty("held");
+    await client.close();
+  });
+
   it("lists, gets, creates, renames and deletes watchlists", async () => {
     const { ideas, sap } = await seed();
     await addWatchlistEntry({ watchlistId: ideas, security: { id: sap } }, TODAY, testDb.client);

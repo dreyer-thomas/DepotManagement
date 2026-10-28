@@ -75,6 +75,8 @@ model Security {
   reconciliationRows ReconciliationRow[]
   /// Watchlist entries of this Security (owned by the watchlist module; cascade with the Security).
   watchlistEntries   WatchlistEntry[]
+  /// Key-figures snapshot (owned by the classification module; disposable cache, cascades with the Security).
+  keyFigures         SecurityKeyFigures?
 }
 
 // Canonical Transaction shape (AD-14). Decimal values are TEXT strings; ordered by (date, sequence).
@@ -538,4 +540,21 @@ model OAuthToken {
   @@index([grantId])
   @@index([clientId])
   @@index([expiresAt])
+}
+
+// Owned by the classification module (story 9.6). A disposable per-Security key-figures snapshot from Yahoo
+// `quoteSummary`: never input to any calculation, never exported; deleted when the Security is neither
+// held nor watched.
+model SecurityKeyFigures {
+  id         String   @id @default(cuid())
+  securityId String   @unique
+  security   Security @relation(fields: [securityId], references: [id], onDelete: Cascade)
+  /// Yahoo symbol the snapshot was fetched for.
+  symbol     String
+  /// Kind of figures: "stock" or "fund" (ETF/fund); a different kind than the current asset type is ignored.
+  kind       String
+  /// JSON object of decimal strings, business dates and texts (null = not delivered).
+  figures    String
+  /// UTC ISO timestamp of the fetch.
+  fetchedAt  String
 }

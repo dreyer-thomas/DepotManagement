@@ -170,7 +170,7 @@ describe("createExport", () => {
     expect(file.prices.map((p) => p.id)).toContain("p-d");
   });
 
-  it("leaves out fetched logos, markers, news and import staging", async () => {
+  it("leaves out fetched logos, markers, news, key figures and import staging", async () => {
     await seedFullLedger();
     const c = db();
     writeLogo("sec-a-1.png");
@@ -190,6 +190,9 @@ describe("createExport", () => {
       },
     });
     await c.newsFetch.create({ data: { securityId: "sec-a", fetchedAt: "2026-10-26T09:59:59.999Z" } });
+    await c.securityKeyFigures.create({
+      data: { securityId: "sec-a", symbol: "MARKER_KEY_FIGURES_SYMBOL", kind: "stock", figures: JSON.stringify({ trailingPE: "MARKER_KGV" }), fetchedAt: TS },
+    });
     await c.importBatch.create({
       data: {
         depotId: "depot-a",
@@ -205,6 +208,8 @@ describe("createExport", () => {
       "MARKER_NEWS_TITLE",
       "MARKER_NEWS_SOURCE",
       "2026-10-26T09:59:59.999Z",
+      "MARKER_KEY_FIGURES_SYMBOL",
+      "MARKER_KGV",
       "MARKER_IMPORT_FILE",
       "MARKER_IMPORT_HASH",
       "LOGO_DEV",

@@ -27,6 +27,7 @@ beforeEach(async () => {
   cookieValues.clear();
   await prisma.watchlistEntry.deleteMany();
   await prisma.watchlist.deleteMany();
+  await prisma.securityKeyFigures.deleteMany();
   await prisma.security.deleteMany();
 });
 
@@ -93,5 +94,31 @@ describe("Watchlists page", () => {
     expect(table?.props.lists).toEqual([{ id: a, name: "A" }]);
     expect(findElement(tree, AddWatchlistEntryButton)?.props.securities).toEqual([expect.objectContaining({ id: sap.security.id })]);
     expect(findElement(tree, DeleteWatchlistButton)?.props.watchlist).toMatchObject({ entryCount: 1 });
+  });
+
+  it("passes the key figures of the entries' snapshots and the remembered columns (unknown keys dropped)", async () => {
+    const a = await list("A");
+    const sap = await ensureSecurity({ isin: "DE0007164600" }, { name: "SAP SE", assetType: "STOCK" });
+    if (!sap.ok) throw new Error("setup failed");
+    const today = businessDate(new Date());
+    expect((await addWatchlistEntry({ watchlistId: a, security: { id: sap.security.id } }, today)).ok).toBe(true);
+    await prisma.securityKeyFigures.create({
+      data: {
+        securityId: sap.security.id,
+        symbol: "SAP.DE", kind: "stock",
+        figures: JSON.stringify({ trailingPE: "30.4321", dividendYield: "0.0118" }),
+        fetchedAt: new Date().toISOString(),
+      },
+    });
+    cookieValues.set("dm_watchlist_columns", "distanceToHigh%2Cbogus%2Ckgv");
+    const table = findElement(await page(), WatchlistTable);
+    expect(table?.props.keyFigures).toEqual({ [sap.security.id]: { trailingPE: "30.4321", dividendYield: "0.0118" } });
+    expect(table?.props.initialColumns).toEqual(["kgv", "distanceToHigh"]);
+    expect((table?.props.entries as { fiftyTwoWeek: unknown }[])[0].fiftyTwoWeek).toEqual({ high: null, low: null, distanceToHigh: null, performance: null });
+  });
+
+  it("shows no key-figure column without the cookie", async () => {
+    await list("A");
+    expect(findElement(await page(), WatchlistTable)?.props.initialColumns).toEqual([]);
   });
 });

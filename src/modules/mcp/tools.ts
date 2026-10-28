@@ -1,11 +1,14 @@
 // The nine watchlist tools (story 9.4, scope `watchlist`). Thin adapters over the `watchlist` and `ledger`
 // services and the `prices` OpenFIGI lookup: arguments go to the services unvalidated (so the app and Claude
 // refuse the same inputs), reasons become `{ error, message }`. No figures are computed here; `held` is never
-// part of a payload. Payload values are never logged.
+// part of a payload. Payload values are never logged. `get_watchlist` adds each entry's key figures (story
+// 9.6: the classification module's snapshot plus the 52-week figures computed by core).
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
+import { emptyKeyFigures } from "@/core/key-figures";
 import { WATCHLIST_NAME_MAX_LENGTH, WATCHLIST_NOTE_MAX_LENGTH } from "@/core/watchlist";
+import { type KeyFiguresInfo, listKeyFigures } from "@/modules/classification";
 import { type AssetType, findSecurity, listSecurities, SECURITY_NAME_MAX_LENGTH } from "@/modules/ledger";
 import type { IsinDetails, Lookup } from "@/modules/prices";
 import {
@@ -109,8 +112,56 @@ function summaryPayload(list: WatchlistSummary) {
   return { id: list.id, name: list.name, entry_count: list.entryCount };
 }
 
-/** An entry as the tools return it (snake_case, decimals as strings, never `held`). */
-export function entryPayload(entry: WatchlistEntryView) {
+/**
+ * The key figures of an entry (snake_case, decimals as strings or null, dates `YYYY-MM-DD`): the provider
+ * snapshot with `as_of` / `stale` (all null without one) and the 52-week figures from the stored closes.
+ */
+export function keyFiguresPayload(entry: WatchlistEntryView, info: KeyFiguresInfo | undefined) {
+  const snapshot = info?.snapshot ?? null;
+  const figures = snapshot?.figures ?? emptyKeyFigures();
+  const week = entry.fiftyTwoWeek;
+  return {
+    source: "Yahoo Finance",
+    as_of: snapshot?.asOf ?? null,
+    stale: snapshot?.stale ?? false,
+    trailing_pe: figures.trailingPE,
+    forward_pe: figures.forwardPE,
+    price_to_book: figures.priceToBook,
+    price_to_sales: figures.priceToSales,
+    peg_ratio: figures.pegRatio,
+    market_cap: figures.marketCap,
+    market_cap_currency: figures.marketCapCurrency,
+    revenue: figures.revenue,
+    revenue_currency: figures.revenueCurrency,
+    dividend_yield: figures.dividendYield,
+    payout_ratio: figures.payoutRatio,
+    ex_dividend_date: figures.exDividendDate,
+    profit_margin: figures.profitMargin,
+    return_on_equity: figures.returnOnEquity,
+    revenue_growth: figures.revenueGrowth,
+    debt_to_equity_percent: figures.debtToEquity,
+    beta: figures.beta,
+    next_earnings_date: figures.nextEarningsDate,
+    fund_family: figures.fundFamily,
+    expense_ratio: figures.expenseRatio,
+    inception_date: figures.inceptionDate,
+    fifty_two_week: {
+      basis: "closing prices",
+      high: week.high?.price ?? null,
+      high_date: week.high?.date ?? null,
+      low: week.low?.price ?? null,
+      low_date: week.low?.date ?? null,
+      distance_to_high: week.distanceToHigh,
+      performance: week.performance,
+    },
+  };
+}
+
+/**
+ * An entry as the tools return it (snake_case, decimals as strings, never `held`); with `keyFigures`
+ * (from `listKeyFigures`) it also carries `key_figures`.
+ */
+export function entryPayload(entry: WatchlistEntryView, keyFigures?: Readonly<Record<string, KeyFiguresInfo>>) {
   return {
     id: entry.id,
     security_id: entry.securityId,
@@ -127,6 +178,7 @@ export function entryPayload(entry: WatchlistEntryView) {
     change_since_added: entry.sinceAdded,
     source: entry.source,
     client_name: entry.clientName,
+    ...(keyFigures ? { key_figures: keyFiguresPayload(entry, keyFigures[entry.securityId]) } : {}),
   };
 }
 
@@ -218,14 +270,19 @@ export function registerWatchlistTools(server: McpServer, ctx: McpToolContext): 
     "get_watchlist",
     {
       description:
-        "Returns one watchlist with its entries: Security, note, date added, latest price (EUR, decimal string), price date, stale flag, change today and change since added (ratios).",
+        "Returns one watchlist with its entries: Security, note, date added, latest price (EUR, decimal string), price date, stale flag, change today and change since added (ratios), and key_figures: Yahoo Finance figures as of `as_of` (null when not delivered; `stale` when older than 7 days; ratios as plain decimals, e.g. dividend_yield 0.0118 = 1.18 %, debt_to_equity_percent in percent units; amounts with their currency) plus fifty_two_week high/low (with dates), distance to high and 52-week performance computed from stored closing prices. Not investment advice.",
       inputSchema: { watchlist_id: id("watchlist") },
       annotations: { readOnlyHint: true },
     },
     guarded("get_watchlist", async ({ watchlist_id }) => {
       const list = (await watchlistView(ctx.today, ctx.db)).find((candidate) => candidate.id === watchlist_id);
       if (!list) return refusal("watchlist-not-found");
-      return result({ id: list.id, name: list.name, entries: list.entries.map(entryPayload) });
+      const keyFigures = await listKeyFigures(
+        list.entries.map((entry) => entry.securityId),
+        ctx.today,
+        ctx.db,
+      );
+      return result({ id: list.id, name: list.name, entries: list.entries.map((entry) => entryPayload(entry, keyFigures)) });
     }),
   );
 

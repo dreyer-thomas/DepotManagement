@@ -3,11 +3,15 @@
 import ArrowDownward from "@mui/icons-material/ArrowDownward";
 import ArrowUpward from "@mui/icons-material/ArrowUpward";
 import EditOutlined from "@mui/icons-material/EditOutlined";
+import ViewColumnOutlined from "@mui/icons-material/ViewColumnOutlined";
 import Box from "@mui/material/Box";
 import Card from "@mui/material/Card";
 import CardContent from "@mui/material/CardContent";
+import Checkbox from "@mui/material/Checkbox";
 import Chip from "@mui/material/Chip";
 import IconButton from "@mui/material/IconButton";
+import ListItemText from "@mui/material/ListItemText";
+import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
 import Stack from "@mui/material/Stack";
 import Table from "@mui/material/Table";
@@ -21,7 +25,7 @@ import Typography from "@mui/material/Typography";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { ExactDecimal } from "@/core/decimal";
-import { formatDate, formatMoney, formatPercent } from "@/core/format";
+import { formatDate, formatFigure, formatMoney, formatPercent, formatRate } from "@/core/format";
 import {
   DEFAULT_WATCHLIST_SORT,
   firstNoteLine,
@@ -38,6 +42,7 @@ import { securityHref } from "../security-detail/labels";
 import { SecurityLogo } from "../securities/SecurityLogo";
 import { EditWatchlistEntryDialog, type EditableWatchlistEntry } from "./WatchlistEntryDialog";
 import { HELD_LABEL, initialWatchlistSortDirection, VIA_CLAUDE_LABEL, WATCHLIST_SORT_LABELS } from "./labels";
+import { storeWatchlistColumns, WATCHLIST_COLUMN_KEYS, type WatchlistColumnKey } from "./watchlist-cookie";
 
 const MISSING = "–";
 const numeric = { textAlign: "right", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" } as const;
@@ -135,6 +140,65 @@ function EditButton({ entry, onEdit }: { entry: WatchlistEntryView; onEdit: (ent
   );
 }
 
+/** The provider key figures a watchlist column shows (from the Security's snapshot; `null` = not delivered). */
+export type WatchlistKeyFigures = { trailingPE: string | null; dividendYield: string | null };
+
+/** Column header / menu label of each optional column. */
+const COLUMN_LABELS: Record<WatchlistColumnKey, string> = {
+  kgv: "KGV",
+  dividendYield: "Dividendenrendite",
+  distanceToHigh: "Abstand zum 52-Wochen-Hoch",
+};
+
+/** Short label of each optional column in the phone row's caption line. */
+const PHONE_LABELS: Record<WatchlistColumnKey, string> = {
+  kgv: "KGV",
+  dividendYield: "Dividendenrendite",
+  distanceToHigh: "Abstand zum Hoch",
+};
+
+/** The displayed value of an optional column; "–" when not delivered or not computable. */
+function columnValue(key: WatchlistColumnKey, entry: WatchlistEntryView, figures: WatchlistKeyFigures | undefined): string {
+  switch (key) {
+    case "kgv":
+      return figures?.trailingPE ? formatFigure(figures.trailingPE) : MISSING;
+    case "dividendYield":
+      return figures?.dividendYield ? formatRate(figures.dividendYield) : MISSING;
+    case "distanceToHigh":
+      return entry.fiftyTwoWeek.distanceToHigh === null ? MISSING : formatRate(entry.fiftyTwoWeek.distanceToHigh);
+  }
+}
+
+/** "Spalten": a menu of checkboxes that shows or hides the optional key-figure columns. */
+function ColumnMenu({ columns, onToggle }: { columns: readonly WatchlistColumnKey[]; onToggle: (key: WatchlistColumnKey) => void }) {
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  return (
+    <>
+      <IconButton
+        aria-label="Spalten"
+        title="Spalten"
+        aria-haspopup="menu"
+        aria-expanded={anchor ? "true" : undefined}
+        onClick={(event) => setAnchor(event.currentTarget)}
+        sx={{ width: 44, height: 44 }}
+      >
+        <ViewColumnOutlined aria-hidden />
+      </IconButton>
+      <Menu anchorEl={anchor} open={anchor !== null} onClose={() => setAnchor(null)}>
+        {WATCHLIST_COLUMN_KEYS.map((key) => {
+          const checked = columns.includes(key);
+          return (
+            <MenuItem key={key} role="menuitemcheckbox" aria-checked={checked} onClick={() => onToggle(key)} sx={{ minHeight: 44 }}>
+              <Checkbox edge="start" checked={checked} tabIndex={-1} disableRipple slotProps={{ input: { "aria-hidden": true } }} sx={{ py: 0 }} />
+              <ListItemText>{COLUMN_LABELS[key]}</ListItemText>
+            </MenuItem>
+          );
+        })}
+      </Menu>
+    </>
+  );
+}
+
 const rowLink = { cursor: "pointer", "&:hover": { bgcolor: "action.hover" } } as const;
 
 function DesktopTable({
@@ -143,8 +207,12 @@ function DesktopTable({
   onSort,
   onOpen,
   onEdit,
+  columns,
+  keyFigures,
 }: {
   rows: WatchlistEntryView[];
+  columns: readonly WatchlistColumnKey[];
+  keyFigures: Readonly<Record<string, WatchlistKeyFigures>>;
   sort: WatchlistSort;
   onSort: (key: WatchlistSortKey) => void;
   onOpen: (entry: WatchlistEntryView) => void;
@@ -174,6 +242,11 @@ function DesktopTable({
             <TableCell sx={numeric}>Kurs</TableCell>
             {sortHeader("changeToday")}
             {sortHeader("sinceAdded")}
+            {columns.map((key) => (
+              <TableCell key={key} sx={numeric}>
+                {COLUMN_LABELS[key]}
+              </TableCell>
+            ))}
             {sortHeader("dateAdded")}
             <TableCell>Notiz</TableCell>
             <TableCell padding="none">
@@ -198,6 +271,11 @@ function DesktopTable({
               <TableCell sx={numeric}>
                 <Ratio ratio={entry.sinceAdded} />
               </TableCell>
+              {columns.map((key) => (
+                <TableCell key={key} sx={numeric}>
+                  {columnValue(key, entry, keyFigures[entry.securityId])}
+                </TableCell>
+              ))}
               <TableCell sx={numeric}>{formatDate(entry.dateAdded)}</TableCell>
               <TableCell sx={{ maxWidth: 240 }}>
                 <Typography variant="body2" color="text.secondary" noWrap title={firstNoteLine(entry.note)}>
@@ -221,8 +299,12 @@ function PhoneList({
   onChange,
   onOpen,
   onEdit,
+  columns,
+  keyFigures,
 }: {
   rows: WatchlistEntryView[];
+  columns: readonly WatchlistColumnKey[];
+  keyFigures: Readonly<Record<string, WatchlistKeyFigures>>;
   sort: WatchlistSort;
   onChange: (sort: WatchlistSort) => void;
   onOpen: (entry: WatchlistEntryView) => void;
@@ -279,6 +361,11 @@ function PhoneList({
                   <Typography variant="caption" color="text.secondary">
                     Aufgenommen {formatDate(entry.dateAdded)} · seit Aufnahme <Ratio ratio={entry.sinceAdded} />
                   </Typography>
+                  {columns.length > 0 ? (
+                    <Typography variant="caption" color="text.secondary" data-key-figures="">
+                      {columns.map((key) => `${PHONE_LABELS[key]} ${columnValue(key, entry, keyFigures[entry.securityId])}`).join(" · ")}
+                    </Typography>
+                  ) : null}
                   {entry.note ? (
                     <Typography variant="caption" color="text.secondary" noWrap>
                       {firstNoteLine(entry.note)}
@@ -300,22 +387,36 @@ function PhoneList({
 /**
  * Entries of one watchlist: sortable table from `md`, stacked rows below (one shared sort state, default
  * date added newest first, `sortWatchlistEntries`). A row opens the Security detail; the pencil opens
- * "Eintrag bearbeiten" (note, date, list, "Entfernen").
+ * "Eintrag bearbeiten" (note, date, list, "Entfernen"). "Spalten" shows the optional key-figure columns
+ * (KGV, Dividendenrendite, Abstand zum 52-Wochen-Hoch; not sortable), remembered per browser; on phones
+ * the chosen figures form an extra caption line of each row.
  */
 export function WatchlistTable({
   entries,
   lists,
   today,
   initialSort = DEFAULT_WATCHLIST_SORT,
+  keyFigures = {},
+  initialColumns = [],
 }: {
   entries: WatchlistEntryView[];
   /** Every list, offered as the target of a move. */
   lists: readonly { id: string; name: string }[];
   today: string;
   initialSort?: WatchlistSort;
+  /** Provider key figures per Security id (absent = no snapshot). */
+  keyFigures?: Readonly<Record<string, WatchlistKeyFigures>>;
+  /** The optional columns shown at first (from the cookie). */
+  initialColumns?: readonly WatchlistColumnKey[];
 }) {
   const router = useRouter();
   const [sort, setSort] = useState<WatchlistSort>(initialSort);
+  const [columns, setColumns] = useState<readonly WatchlistColumnKey[]>(initialColumns);
+  const toggleColumn = (key: WatchlistColumnKey) => {
+    const next = WATCHLIST_COLUMN_KEYS.filter((candidate) => (candidate === key ? !columns.includes(key) : columns.includes(candidate)));
+    setColumns(next);
+    storeWatchlistColumns(next);
+  };
   const [editing, setEditing] = useState<EditableWatchlistEntry | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [editKey, setEditKey] = useState(0);
@@ -343,8 +444,11 @@ export function WatchlistTable({
   }
   return (
     <>
-      <DesktopTable rows={rows} sort={sort} onSort={onSort} onOpen={open} onEdit={edit} />
-      <PhoneList rows={rows} sort={sort} onChange={setSort} onOpen={open} onEdit={edit} />
+      <Stack direction="row" sx={{ justifyContent: "flex-end", mb: 0.5 }}>
+        <ColumnMenu columns={columns} onToggle={toggleColumn} />
+      </Stack>
+      <DesktopTable rows={rows} sort={sort} onSort={onSort} onOpen={open} onEdit={edit} columns={columns} keyFigures={keyFigures} />
+      <PhoneList rows={rows} sort={sort} onChange={setSort} onOpen={open} onEdit={edit} columns={columns} keyFigures={keyFigures} />
       <EditWatchlistEntryDialog
         open={editOpen}
         onClose={() => setEditOpen(false)}

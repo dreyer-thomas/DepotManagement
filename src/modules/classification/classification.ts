@@ -19,6 +19,7 @@ import {
   findUnderlying,
   type ManualLayer,
   mergeAutomatic,
+  type ProviderProfile,
   providerValues,
   REGIONS,
   ruleValues,
@@ -35,11 +36,28 @@ import {
   serializeRegionSplit,
   type SplitRegion,
 } from "@/core/region-split";
+import { businessDate } from "@/core/dates";
+import {
+  emptyKeyFigures,
+  hasProviderKeyFigures,
+  isKeyFiguresStale,
+  PROVIDER_KEY_FIGURE_FIELDS,
+  type ProviderKeyFigures,
+} from "@/core/key-figures";
 import { prisma } from "@/db";
 import type { Prisma } from "@/db/generated/prisma/client";
-import { getSecurity } from "@/modules/ledger";
+import { getSecurity, listHeldSecurities } from "@/modules/ledger";
 import { listSecuritiesWithMappings, type SecurityWithMapping } from "@/modules/prices";
-import { fetchProfile, type YahooQuoteSummary } from "./providers/yahoo";
+import {
+  fetchQuoteSummary,
+  KEY_FIGURE_MODULES,
+  keyFiguresOf,
+  type Lookup,
+  PROFILE_MODULES,
+  profileOf,
+  type QuoteSummaryModule,
+  type YahooQuoteSummary,
+} from "./providers/yahoo";
 
 export type { Classification, Dimension, DimensionValue, EffectiveSource } from "@/core/classification";
 
@@ -49,8 +67,13 @@ export type ClassificationDb = Prisma.TransactionClient;
 /** External dependencies of the refresh; each defaults to the real thing (tests inject fakes). */
 export type ClassificationDeps = {
   quoteSummary?: YahooQuoteSummary;
-  /** Current time for `updatedAt` / `providerFetchedAt`. */
+  /** Current time for `updatedAt` / `providerFetchedAt` / the key figures' `fetchedAt` (and "today"). */
   now?: () => Date;
+  /**
+   * Ids of the watched Securities (story 9.6): with the held ones the set whose key figures are kept.
+   * `classification` never imports `watchlist`, so the app layer passes the loader in; absent = none.
+   */
+  watched?: (db: ClassificationDb) => Promise<readonly string[]>;
 };
 
 /**
@@ -130,14 +153,112 @@ type ProviderOutcome =
   | { kind: "fetched"; layer: AutomaticLayer | null; symbol: string }
   | { kind: "failed" };
 
-/** Provider fetch of a STOCK with a Yahoo mapping whose symbol differs from the last answered one. */
-async function providerFor(security: SecurityWithMapping, row: Row | undefined, deps: ClassificationDeps): Promise<ProviderOutcome> {
-  const mapping = security.mapping;
-  if (security.assetType !== "STOCK" || mapping?.provider !== "YAHOO" || !mapping.symbol) return { kind: "none" };
-  if (row?.providerSymbol === mapping.symbol) return { kind: "none" };
-  const lookup = await fetchProfile(mapping.symbol, { quoteSummary: deps.quoteSummary });
-  if (lookup.status === "error") return { kind: "failed" };
-  return { kind: "fetched", symbol: mapping.symbol, layer: lookup.status === "found" ? providerValues(lookup.value) : null };
+type KeyFiguresOutcome =
+  | { kind: "none" }
+  | { kind: "fetched"; figures: ProviderKeyFigures; symbol: string; figureKind: "stock" | "fund" }
+  | { kind: "failed" };
+
+type KeyFiguresRow = Prisma.SecurityKeyFiguresGetPayload<object>;
+
+/** The Yahoo symbol of a Security's mapping; `null` without a Yahoo mapping. */
+function yahooSymbolOf(security: SecurityWithMapping): string | null {
+  return security.mapping?.provider === "YAHOO" && security.mapping.symbol ? security.mapping.symbol : null;
+}
+
+/** A STOCK with a Yahoo mapping whose symbol differs from the last answered one needs its profile. */
+function needsProfile(security: SecurityWithMapping, row: Row | undefined): boolean {
+  const symbol = yahooSymbolOf(security);
+  return security.assetType === "STOCK" && symbol !== null && row?.providerSymbol !== symbol;
+}
+
+/**
+ * True when the snapshot was fetched today for `symbol` and the kind of `assetType` (at most one request
+ * per Security and Berlin day; a mapping or "Typ ändern" change makes it not fresh).
+ */
+function fetchedToday(snapshot: KeyFiguresRow | undefined, symbol: string | null, assetType: string, today: string): boolean {
+  return (
+    snapshot !== undefined &&
+    symbol !== null &&
+    snapshot.symbol === symbol &&
+    snapshot.kind === kindOf(assetType) &&
+    businessDate(new Date(snapshot.fetchedAt)) === today
+  );
+}
+
+/**
+ * A held or watched STOCK/ETF/FUND with a Yahoo mapping needs key figures unless its snapshot was fetched
+ * today for the same symbol.
+ */
+function needsKeyFigures(security: SecurityWithMapping, snapshot: KeyFiguresRow | undefined, tracked: boolean, today: string): boolean {
+  const symbol = yahooSymbolOf(security);
+  return tracked && hasProviderKeyFigures(security.assetType) && symbol !== null && !fetchedToday(snapshot, symbol, security.assetType, today);
+}
+
+function kindOf(assetType: string): "stock" | "fund" {
+  return assetType === "STOCK" ? "stock" : "fund";
+}
+
+/**
+ * The provider requests of one Security: the classification profile and/or the key figures, sharing ONE
+ * `quoteSummary` request when both are due. A profile-only request keeps its exact modules
+ * (`assetProfile, price`).
+ */
+async function providerFor(
+  security: SecurityWithMapping,
+  wants: { profile: boolean; keyFigures: boolean },
+  today: string,
+  deps: ClassificationDeps,
+): Promise<{ provider: ProviderOutcome; keyFigures: KeyFiguresOutcome }> {
+  const symbol = yahooSymbolOf(security);
+  if (symbol === null || (!wants.profile && !wants.keyFigures)) return { provider: { kind: "none" }, keyFigures: { kind: "none" } };
+  const modules: QuoteSummaryModule[] = [...(wants.profile ? PROFILE_MODULES : []), ...(wants.keyFigures ? KEY_FIGURE_MODULES : [])];
+  const lookup = await fetchQuoteSummary(symbol, modules, { quoteSummary: deps.quoteSummary });
+  const profile: Lookup<ProviderProfile> | null = wants.profile ? (lookup.status === "found" ? profileOf(lookup.value) : lookup) : null;
+  const figures: Lookup<ProviderKeyFigures> | null = wants.keyFigures
+    ? lookup.status === "found"
+      ? keyFiguresOf(lookup.value, kindOf(security.assetType), today)
+      : lookup
+    : null;
+  return {
+    provider:
+      profile === null
+        ? { kind: "none" }
+        : profile.status === "error"
+          ? { kind: "failed" }
+          : {
+              kind: "fetched",
+              symbol,
+              layer: profile.status === "found" ? providerValues(profile.value) : null,
+            },
+    keyFigures:
+      figures === null
+        ? { kind: "none" }
+        : figures.status === "error"
+          ? { kind: "failed" }
+          : {
+              kind: "fetched",
+              symbol,
+              figureKind: kindOf(security.assetType),
+              figures: figures.status === "found" ? figures.value : emptyKeyFigures(),
+            },
+  };
+}
+
+/** Stores a fetched key-figures snapshot (replacing the previous one). */
+async function storeKeyFigures(
+  securityId: string,
+  fetched: { symbol: string; figureKind: "stock" | "fund"; figures: ProviderKeyFigures },
+  now: Date,
+  db: ClassificationDb,
+): Promise<void> {
+  const data = { symbol: fetched.symbol, kind: fetched.figureKind, figures: JSON.stringify(fetched.figures), fetchedAt: now.toISOString() };
+  await db.securityKeyFigures.upsert({ where: { securityId }, create: { securityId, ...data }, update: data });
+}
+
+/** Held ∪ watched Security ids as of `today`: the set whose key figures are kept. */
+async function trackedSecurityIds(today: string, deps: ClassificationDeps, db: ClassificationDb): Promise<Set<string>> {
+  const [held, watched] = await Promise.all([listHeldSecurities(today, db), deps.watched ? deps.watched(db) : Promise.resolve([])]);
+  return new Set([...held, ...watched]);
 }
 
 /** The rule-split cache columns of a split (all null without one). */
@@ -202,15 +323,30 @@ async function storeAutomatic(
 export function refreshClassifications(deps: ClassificationDeps = {}, db: ClassificationDb = prisma): Promise<ClassificationRunResult> {
   return serialized(async () => {
     const result: ClassificationRunResult = { updated: 0, unchanged: 0, failed: 0 };
-    const [securities, rows] = await Promise.all([listSecuritiesWithMappings(db), db.securityClassification.findMany()]);
+    const today = businessDate(nowOf(deps));
+    const tracked = await trackedSecurityIds(today, deps, db);
+    // Key figures are kept only for held ∪ watched Securities (a disposable cache, like the news).
+    await db.securityKeyFigures.deleteMany({ where: { securityId: { notIn: [...tracked] } } });
+    const [securities, rows, snapshots] = await Promise.all([
+      listSecuritiesWithMappings(db),
+      db.securityClassification.findMany(),
+      db.securityKeyFigures.findMany(),
+    ]);
     const byId = new Map(rows.map((row) => [row.securityId, row]));
+    const snapshotById = new Map(snapshots.map((snapshot) => [snapshot.securityId, snapshot]));
     const effectiveById = new Map<string, Classification>();
 
     const refreshOne = async (security: SecurityWithMapping, underlying?: Classification | null) => {
       const row = byId.get(security.id);
+      const snapshot = snapshotById.get(security.id);
       try {
-        const provider = await providerFor(security, row, deps);
-        if (provider.kind === "failed") result.failed += 1;
+        const { provider, keyFigures } = await providerFor(
+          security,
+          { profile: needsProfile(security, row), keyFigures: needsKeyFigures(security, snapshot, tracked.has(security.id), today) },
+          today,
+          deps,
+        );
+        if (provider.kind === "failed" || keyFigures.kind === "failed") result.failed += 1;
         const assetType = security.assetType as ClassifiedAssetType;
         const rules = ruleValues({ name: security.name, assetType }, underlying);
         // A fetched "no data" answer is an empty provider result: rule values replace old provider values.
@@ -223,6 +359,11 @@ export function refreshClassifications(deps: ClassificationDeps = {}, db: Classi
         else result.unchanged += 1;
         const current = written ?? row;
         effectiveById.set(security.id, effective(current ? { automatic: automaticOf(current), manual: manualOf(current) } : null, assetType));
+        if (keyFigures.kind === "fetched") await storeKeyFigures(security.id, keyFigures, nowOf(deps), db);
+        // A type without provider key figures (e.g. after "Typ ändern") or a removed Yahoo mapping forgets its snapshot.
+        else if (snapshot && (!hasProviderKeyFigures(assetType) || yahooSymbolOf(security) === null)) {
+          await db.securityKeyFigures.deleteMany({ where: { securityId: security.id } });
+        }
       } catch (error) {
         console.error(`Classification: refreshing a Security failed (${error instanceof Error ? error.name : "unknown"})`);
         result.failed += 1;
@@ -240,6 +381,120 @@ export function refreshClassifications(deps: ClassificationDeps = {}, db: Classi
     if (result.failed > 0) console.warn(`Classification: refresh finished with ${result.failed} failed Securities`);
     return result;
   });
+}
+
+// ---- Key figures (story 9.6) ----
+
+/** Outcome of "Kennzahlen aktualisieren" for one Security. */
+export type RefreshKeyFiguresResult = { status: "updated" | "fresh" | "unavailable" | "failed" | "not-found" };
+
+/**
+ * Refreshes the key figures of one Security now (serialized with the classification runs): `not-found`
+ * for an unknown id; `unavailable` unless it is a held or watched STOCK/ETF/FUND with a Yahoo mapping;
+ * `fresh` when its snapshot was fetched today for the same symbol (no request); `failed` on a transient
+ * error (nothing written); `updated` otherwise (Yahoo's "no data" stores an all-null snapshot).
+ */
+export function refreshKeyFigures(
+  securityId: string,
+  deps: ClassificationDeps = {},
+  db: ClassificationDb = prisma,
+): Promise<RefreshKeyFiguresResult> {
+  return serialized(async (): Promise<RefreshKeyFiguresResult> => {
+    const security = (await listSecuritiesWithMappings(db)).find((candidate) => candidate.id === securityId);
+    if (!security) return { status: "not-found" };
+    const now = nowOf(deps);
+    const today = businessDate(now);
+    const tracked = await trackedSecurityIds(today, deps, db);
+    if (!tracked.has(security.id) || !isRefreshable(security)) return { status: "unavailable" };
+    const snapshot = (await db.securityKeyFigures.findUnique({ where: { securityId } })) ?? undefined;
+    if (!needsKeyFigures(security, snapshot, true, today)) return { status: "fresh" };
+    const { keyFigures } = await providerFor(security, { profile: false, keyFigures: true }, today, deps);
+    if (keyFigures.kind !== "fetched") return { status: "failed" };
+    await storeKeyFigures(security.id, keyFigures, now, db);
+    return { status: "updated" };
+  });
+}
+
+/** A STOCK/ETF/FUND with a Yahoo mapping can have provider key figures. */
+function isRefreshable(security: SecurityWithMapping): boolean {
+  return hasProviderKeyFigures(security.assetType) && yahooSymbolOf(security) !== null;
+}
+
+/** A stored snapshot as the surfaces read it. */
+export type KeyFiguresSnapshot = {
+  /** Yahoo symbol it was fetched for. */
+  symbol: string;
+  figures: ProviderKeyFigures;
+  /** UTC ISO instant of the fetch. */
+  fetchedAt: string;
+  /** Business date (Europe/Berlin) of the fetch: "Stand". */
+  asOf: string;
+  /** Older than `KEY_FIGURES_STALE_AFTER_DAYS` on today. */
+  stale: boolean;
+  /** Fetched today: "Kennzahlen aktualisieren" sends no request. */
+  fetchedToday: boolean;
+};
+
+/** Key figures of one Security: its snapshot (if any) and whether it can have provider key figures at all. */
+export type KeyFiguresInfo = { snapshot: KeyFiguresSnapshot | null; refreshable: boolean };
+
+/** The stored figures, every unknown or non-string value read as `null`. */
+function parseFigures(json: string): ProviderKeyFigures {
+  const figures = emptyKeyFigures();
+  let raw: unknown;
+  try {
+    raw = JSON.parse(json);
+  } catch {
+    return figures;
+  }
+  if (raw === null || typeof raw !== "object") return figures;
+  for (const field of PROVIDER_KEY_FIGURE_FIELDS) {
+    const value = (raw as Record<string, unknown>)[field];
+    if (typeof value === "string") figures[field] = value;
+  }
+  return figures;
+}
+
+/**
+ * Key figures per requested Security id (unknown ids are left out) as of `today`: the stored snapshot
+ * with its date and stale flag, and `refreshable` (STOCK/ETF/FUND with a Yahoo mapping). Read-only.
+ */
+export async function listKeyFigures(
+  securityIds: readonly string[],
+  today: string,
+  db: ClassificationDb = prisma,
+): Promise<Record<string, KeyFiguresInfo>> {
+  if (securityIds.length === 0) return {};
+  const wanted = new Set(securityIds);
+  const [securities, snapshots] = await Promise.all([
+    listSecuritiesWithMappings(db),
+    db.securityKeyFigures.findMany({ where: { securityId: { in: [...wanted] } } }),
+  ]);
+  const snapshotById = new Map(snapshots.map((snapshot) => [snapshot.securityId, snapshot]));
+  const result: Record<string, KeyFiguresInfo> = {};
+  for (const security of securities) {
+    if (!wanted.has(security.id)) continue;
+    const row = snapshotById.get(security.id);
+    const refreshable = isRefreshable(security);
+    // A snapshot of the other kind (after "Typ ändern" STOCK ↔ ETF/FUND) is not shown.
+    if (!row || !hasProviderKeyFigures(security.assetType) || row.kind !== kindOf(security.assetType)) {
+      result[security.id] = { snapshot: null, refreshable };
+      continue;
+    }
+    const asOf = businessDate(new Date(row.fetchedAt));
+    result[security.id] = {
+      refreshable,
+      snapshot: {
+        symbol: row.symbol,
+        figures: parseFigures(row.figures),
+        fetchedAt: row.fetchedAt,
+        asOf,
+        stale: isKeyFiguresStale(asOf, today),
+        fetchedToday: fetchedToday(row, yahooSymbolOf(security), security.assetType, today),
+      },
+    };
+  }
+  return result;
 }
 
 /** Effective classification per Security id (every Security; a missing row is all unknown). */

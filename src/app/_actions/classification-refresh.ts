@@ -4,11 +4,16 @@
 // thrown, so it never affects a ledger write.
 import { after } from "next/server";
 import { refreshClassifications } from "@/modules/classification";
+import { watchedSecurityIds } from "@/modules/watchlist";
 
-/** Refreshes the classification of every Security; logs a failure instead of throwing. */
+/**
+ * Refreshes the classification of every Security (and the key figures of held and watched ones); logs a
+ * failure instead of throwing.
+ */
 export async function runClassificationRefresh(): Promise<void> {
   try {
-    await refreshClassifications();
+    // `classification` never imports `watchlist` (AD-2): the watched-ids loader is passed in.
+    await refreshClassifications({ watched: watchedSecurityIds });
   } catch (error) {
     console.error(`Classification: refresh failed (${error instanceof Error ? error.name : "unknown"})`);
   }

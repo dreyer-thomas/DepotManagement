@@ -1,0 +1,20 @@
+{
+  "summaryDetail": {
+    "maxAge": 1,
+    "currency": "EUR",
+    "fiftyTwoWeekHigh": 112.3
+  },
+  "defaultKeyStatistics": {
+    "maxAge": 1,
+    "fundInceptionDate": "2009-09-25T00:00:00.000Z",
+    "fundFamily": null
+  },
+  "fundProfile": {
+    "maxAge": 86400,
+    "family": "iShares",
+    "categoryName": "Global Large-Cap Blend Equity",
+    "feesExpensesInvestment": {
+      "annualReportExpenseRatio": 0.002
+    }
+  }
+}

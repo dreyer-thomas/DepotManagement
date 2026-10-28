@@ -141,7 +141,7 @@ describe("startBackgroundJobs", () => {
     await startBackgroundJobs();
     await vi.waitFor(() => expect(error).toHaveBeenCalledWith("Classification: scheduled refresh failed (RangeError)"));
     expect(order).toEqual(["prices", "news", "classification"]);
-    expect(refreshClassifications).toHaveBeenCalledWith();
+    expect(refreshClassifications).toHaveBeenCalledWith({ watched: watchedSecurityIds });
   });
 
   it("starts the backup scheduler on every call (it guards against a second start itself)", async () => {

@@ -127,3 +127,33 @@ export function formatMonth(isoDate: string): string {
   const [y, m] = isoDate.split("-");
   return `${MONTHS_DE[Number(m) - 1]} ${y}`;
 }
+
+/** A plain figure (e.g. KGV, Beta): two decimals, "-" only when negative, no unit: `"30.432"` → `"30,43"`. */
+export function formatFigure(value: DecimalInput): string {
+  return formatDecimal(toDecimal(value), 2, {});
+}
+
+/** Takes a ratio, two decimals, unsigned unless negative: `"0.0118"` → `"1,18 %"`, `"-0.052"` → `"-5,20 %"`. */
+export function formatRate(ratio: DecimalInput): string {
+  return `${formatDecimal(toDecimal(ratio).times(100), 2, {})}${NBSP}%`;
+}
+
+const COMPACT_UNITS: ReadonlyArray<[number, string]> = [
+  [12, "Bio."],
+  [9, "Mrd."],
+  [6, "Mio."],
+  [3, "Tsd."],
+];
+
+/**
+ * A large amount with a de-DE magnitude word and its currency (€ for EUR, else the ISO code), two
+ * decimals: `"243770000000", "EUR"` → `"243,77 Mrd. €"`, `"466820000000", "USD"` → `"466,82 Mrd. USD"`.
+ * Below 1.000 the plain amount.
+ */
+export function formatCompactAmount(value: DecimalInput, currency: string): string {
+  const amount = toDecimal(value);
+  const symbol = currency === "EUR" ? "€" : currency;
+  const unit = COMPACT_UNITS.find(([exponent]) => amount.abs().greaterThanOrEqualTo(new D(10).pow(exponent)));
+  if (!unit) return `${formatDecimal(amount, 2, {})}${NBSP}${symbol}`;
+  return `${formatDecimal(amount.dividedBy(new D(10).pow(unit[0])), 2, {})}${NBSP}${unit[1]}${NBSP}${symbol}`;
+}

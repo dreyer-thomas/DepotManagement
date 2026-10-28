@@ -1,6 +1,18 @@
 import Decimal from "decimal.js";
 import { describe, expect, it } from "vitest";
-import { formatDate, formatDateTime, formatMonth, formatMoney, formatPercent, formatPercentagePoints, formatQuantity, formatShare } from "./format";
+import {
+  formatCompactAmount,
+  formatDate,
+  formatDateTime,
+  formatFigure,
+  formatMonth,
+  formatMoney,
+  formatPercent,
+  formatPercentagePoints,
+  formatQuantity,
+  formatRate,
+  formatShare,
+} from "./format";
 
 const NBSP = " ";
 
@@ -141,5 +153,34 @@ describe("formatQuantity with sign", () => {
     expect(formatQuantity("2", { sign: true })).toBe("+2");
     expect(formatQuantity("-5.5", { sign: true })).toBe("-5,5");
     expect(formatQuantity("0", { sign: true })).toBe("0");
+  });
+});
+
+describe("formatFigure", () => {
+  it("two decimals, minus only when negative, no unit", () => {
+    expect(formatFigure("30.432")).toBe("30,43");
+    expect(formatFigure("1234.5")).toBe("1.234,50");
+    expect(formatFigure("-0.125")).toBe("-0,13");
+    expect(formatFigure("0")).toBe("0,00");
+  });
+});
+
+describe("formatRate", () => {
+  it("ratio × 100, two decimals, unsigned unless negative", () => {
+    expect(formatRate("0.0118")).toBe(`1,18${NBSP}%`);
+    expect(formatRate("0.002")).toBe(`0,20${NBSP}%`);
+    expect(formatRate("-0.052")).toBe(`-5,20${NBSP}%`);
+    expect(formatRate("22.789")).toBe(`2.278,90${NBSP}%`);
+  });
+});
+
+describe("formatCompactAmount", () => {
+  it("magnitude word and € for EUR, the code otherwise", () => {
+    expect(formatCompactAmount("243770000000", "EUR")).toBe(`243,77${NBSP}Mrd.${NBSP}€`);
+    expect(formatCompactAmount("466820000000", "USD")).toBe(`466,82${NBSP}Mrd.${NBSP}USD`);
+    expect(formatCompactAmount("3500000000000", "USD")).toBe(`3,50${NBSP}Bio.${NBSP}USD`);
+    expect(formatCompactAmount("12345678", "EUR")).toBe(`12,35${NBSP}Mio.${NBSP}€`);
+    expect(formatCompactAmount("-4500", "EUR")).toBe(`-4,50${NBSP}Tsd.${NBSP}€`);
+    expect(formatCompactAmount("999.5", "EUR")).toBe(`999,50${NBSP}€`);
   });
 });

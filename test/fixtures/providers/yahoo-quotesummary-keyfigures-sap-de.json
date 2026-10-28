@@ -1,0 +1,42 @@
+{
+  "summaryDetail": {
+    "maxAge": 1,
+    "trailingPE": 30.4321,
+    "forwardPE": 24.1,
+    "priceToSalesTrailing12Months": 6.789,
+    "dividendYield": 0.0118,
+    "payoutRatio": 0.4512,
+    "exDividendDate": "2026-05-15T00:00:00.000Z",
+    "beta": 0.987,
+    "marketCap": 243770000000,
+    "currency": "EUR",
+    "fiftyTwoWeekHigh": 283.5,
+    "fiftyTwoWeekLow": 190.1
+  },
+  "defaultKeyStatistics": {
+    "maxAge": 1,
+    "forwardPE": 24.1,
+    "priceToBook": 6.5432,
+    "pegRatio": 1.87,
+    "fundInceptionDate": null,
+    "annualReportExpenseRatio": null
+  },
+  "financialData": {
+    "maxAge": 86400,
+    "totalRevenue": 35900000000,
+    "financialCurrency": "EUR",
+    "profitMargins": 0.1987,
+    "returnOnEquity": 0.1534,
+    "revenueGrowth": 0.091,
+    "debtToEquity": 22.789
+  },
+  "calendarEvents": {
+    "maxAge": 1,
+    "earnings": {
+      "earningsDate": ["2027-01-28T06:00:00.000Z", "2027-01-29T06:00:00.000Z"],
+      "earningsAverage": 1.5,
+      "isEarningsDateEstimate": true
+    },
+    "exDividendDate": "2026-05-15T00:00:00.000Z"
+  }
+}
