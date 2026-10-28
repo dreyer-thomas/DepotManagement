@@ -51,7 +51,7 @@ FR26: Tommy can set target weights by equity region and asset class (global fund
 FR27: Tommy can keep several named watchlists of Securities he does not need to hold, each entry with a note and the date added, see Price, change today and since added, open the Security detail, and has them in export/restore.
 FR28: Tommy can connect Claude (Desktop, Code, iOS) via MCP with OAuth using his login, let it create, edit and delete watchlists and entries, and see and revoke connections in Settings.
 FR29: Per connection, Tommy can grant Claude read-only access to Depots, Positions, Transactions and figures; nothing is written via MCP.
-FR19: Tommy can open a detail page per Security across all Depots (also when no longer held) showing news, price history with his buys and sells marked, the Transaction history with Depot, and the all-time result since the first buy (realized, unrealized, dividends, fees, taxes, total, return in % and XIRR).
+FR19: Tommy can open a detail page per Security across all Depots (also when no longer held) showing news, price history with his buys and sells marked, the Transaction history with Depot, and the all-time result since the first buy (realized, unrealized, dividends, fees, taxes, total, return in % and XIRR), and key figures (valuation, size, dividend, quality, 52-week range).
 
 ### NonFunctional Requirements
 
@@ -138,7 +138,7 @@ FR15: Epic 2 - One-time Parqet migration (Stories 2.3, 2.4; hands-off rework in 
 FR16: Epic 6 - Export and restore
 FR17: Epic 1 - Cash Account balance and history
 FR18: Epic 4 - Cash in overviews and return metrics
-FR19: Epic 4 - Security detail page and all-time performance (Stories 4.6, 4.7)
+FR19: Epic 4 - Security detail page and all-time performance (Stories 4.6, 4.7); key figures and analyst ratings in Epic 9 (Stories 9.6, 9.7)
 FR21: Epic 7 - Security classification and allocation analysis (Stories 7.1, 7.2)
 FR22: Epic 7 - Return heatmap, realized gains, cash flow, dividends, drawdown, dividend charts, Security analyses (Stories 7.3–7.8)
 FR20: Epic 2 - Depot reconciliation and holding corrections (Story 2.9)
@@ -1277,6 +1277,56 @@ So that I keep control over access to my data.
 **Then** each grant shows client name, redirect host, granted scopes in plain German, connected since and last used (updated at most once per minute); an empty state explains how to connect Claude
 **And** "Trennen" (confirm naming the client) revokes the grant and all its tokens immediately — the next MCP call gets 401; "Alle trennen" does the same for all grants
 **And** a revoked client can reconnect through the normal login and consent
+
+### Story 9.6: Key Figures
+
+As Tommy,
+I want the usual key figures of a stock or ETF on its detail page and in my watchlists,
+So that I can judge an idea or a holding without opening another finance site.
+
+**Acceptance Criteria:**
+
+**Given** a Security with a Yahoo provider mapping (AD-9)
+**When** the scheduler runs (daily, with the classification refresh) or I choose "Kennzahlen aktualisieren" on its detail page
+**Then** one Yahoo `quoteSummary` request per symbol (modules `summaryDetail`, `defaultKeyStatistics`, `financialData`, `calendarEvents`, `fundProfile`, sharing the classification request where possible) stores a key-figures snapshot for held and watchlist Securities; only the symbol leaves the server (AD-13); the snapshot is a disposable cache with `fetchedAt` (AD-1), not exported, refreshed at most once a day per Security
+**And** the Security detail page (both layouts, Story 9.2) shows a card "Kennzahlen" with source and date ("Yahoo Finance, Stand 28.10.2026"), grouped for stocks:
+  - Bewertung: KGV (trailing), KGV erwartet, KBV, KUV, PEG
+  - Größe: Marktkapitalisierung, Umsatz (12 Monate)
+  - Dividende: Dividendenrendite, Ausschüttungsquote, letzter Ex-Tag
+  - Qualität: Nettomarge, Eigenkapitalrendite, Umsatzwachstum, Verschuldungsgrad
+  - Risiko: Beta
+  - Termine: nächste Quartalszahlen
+**And** for ETFs and funds: Fondsgesellschaft, laufende Kosten (TER), Auflagedatum; for crypto and certificates only the price figures below
+**And** price figures are computed by a pure core function from stored, split-adjusted Prices (AD-9), for every Security with Prices: 52-Wochen-Hoch and -Tief (closing prices, with dates), Abstand zum 52-Wochen-Hoch in %, Performance 52 Wochen; labelled "auf Schlusskursbasis"
+**And** a figure the provider does not deliver shows "–", never 0; amounts are EUR as quoted for the mapped (EUR) listing; ratios are shown as Yahoo delivers them; a snapshot older than 7 days is flagged like a stale Price; a hint states "Angaben ohne Gewähr, keine Anlageberatung"
+**And** analyst ratings and price targets are shown separately (Story 9.7)
+**And** the watchlist table (Story 9.1) gains optional columns KGV, Dividendenrendite and Abstand zum 52-Wochen-Hoch, chosen via a column menu and remembered per browser; on phones they appear in the expanded row
+**And** the MCP tool `get_watchlist` (Story 9.4) returns the key figures per entry, and `get_security` (Story 10.2) returns them when that tool exists
+**And** the Yahoo adapter is tested against recorded responses (a German stock, a foreign stock on a German listing, an ETF, a symbol without data); the 52-week function has unit tests incl. a split inside the window and fewer than 52 weeks of Prices
+
+### Story 9.7: Analyst Ratings
+
+As Tommy,
+I want to see what analysts recommend for a stock and how that changed recently,
+So that I can read the market's sentiment as one input next to my own judgement.
+
+**Acceptance Criteria:**
+
+**Given** a stock with a Yahoo provider mapping that is held or on a watchlist
+**When** the key-figures refresh of Story 9.6 runs (same schedule, same disposable cache, not exported)
+**Then** it also stores Yahoo's `recommendationTrend` (counts Starker Kauf, Kauf, Halten, Verkauf, Starker Verkauf for the current and the three previous months), the number of analysts, the consensus mean (1 = Starker Kauf … 5 = Starker Verkauf), the price targets (low, mean, median, high, with currency) and, when delivered, the latest up-/downgrades (date, firm, from → to, target change)
+**And** for a stock whose mapped listing carries no analyst data (e.g. a US stock on its Xetra/Frankfurt listing), the data is taken from its home listing: an "Analysten-Symbol" resolved once by ISIN via Yahoo search (the listing in the ISIN's home country, e.g. APC.DE → AAPL), stored per Security and editable on the Securities page; only symbols leave the server (AD-13)
+**And** the Security detail page shows a separate card "Analystenbewertungen" (not inside "Kennzahlen"), only when data exists:
+  - headline consensus "Optimistisch" (mean ≤ 2,0), "Neutral" (≤ 3,0) or "Pessimistisch" (> 3,0) and "<n> Analysten"
+  - a radial chart like Parqet Terminal: three sectors Kaufen · Halten · Verkaufen sized by their share, the strong part (Starker Kauf / Starker Verkauf) as the darker inner portion, labels "Kaufen 20+11", "Halten 14", "Verkaufen 3+1"; colours from the gain/neutral/loss tokens, never colour alone (labels and counts always visible); keyboard- and screen-reader-readable as a table
+  - trend: four small stacked columns (vor 3 Monaten … aktuell) with the same five categories, so a shift is visible at a glance
+  - Kursziel: mean with low–high range and the implied change in % to the current price of the same listing and currency (a USD target is compared with the USD price and labelled "USD")
+  - when delivered, a collapsible "Letzte Änderungen" list (last 10 up-/downgrades)
+  - source and date, and the hint "Einschätzungen von Analysten, keine Anlageberatung"
+**And** ETFs, funds, certificates and crypto show no card; a stock without analyst data shows nothing (no empty card)
+**And** the watchlist table gains an optional column "Analysten" (consensus label and n) in the column menu of Story 9.6
+**And** the MCP tools that return key figures (Story 9.6) also return the analyst data
+**And** the consensus mapping, the shares for the chart and the target change are pure core functions with unit tests; the adapter and the home-listing resolution are tested against recorded responses (SAP.DE with trend, APC.DE → AAPL, a symbol without data)
 
 ## Epic 10: Portfolio Access for Claude
 

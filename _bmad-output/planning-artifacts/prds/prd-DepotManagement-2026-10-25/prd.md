@@ -193,6 +193,8 @@ Tommy can open a detail page for each Security, across all Depots or for one Dep
 **Consequences (testable):**
 - It shows news, price history with his buys and sells marked, and the Transaction history with the Depot of each Transaction.
 - It shows the all-time result since the first buy: realized and unrealized Gain/Loss, dividends, fees, taxes paid (separately), total, return in % of the invested amount, and an annualised money-weighted return.
+- It shows key figures for orientation (valuation, size, dividend, quality, beta, next earnings date, ETF costs) from a free provider with source and date, and the 52-week range and performance computed from stored Prices.
+- For stocks it shows analyst ratings separately: consensus, buy/hold/sell counts with their trend over the last months, and price targets, labelled as analysts' opinions, not advice.
 
 #### FR-20: Depot reconciliation
 Tommy can reconcile a Depot against his broker statement position by position and correct real errors.

@@ -81,7 +81,7 @@ CAP-N corresponds to PRD FR-N (CAP-19 added 2026-10-26).
   - **success:** Deposits and Withdrawals are external cash flows in both return metrics and do not count as Gain/Loss.
 - **CAP-19** — Security detail
   - **intent:** Tommy can open a detail page per Security across all Depots or for one Depot, also when no longer held.
-  - **success:** It shows news, price history with buys and sells marked, the Transaction history with Depot, and the all-time result since the first buy (realized, unrealized, dividends, fees, taxes separately, total, % return and XIRR), all computed by core and consistent with the Depot figures.
+  - **success:** It shows news, price history with buys and sells marked, the Transaction history with Depot, and the all-time result since the first buy (realized, unrealized, dividends, fees, taxes separately, total, % return and XIRR), all computed by core and consistent with the Depot figures; key figures from the provider show source and date, missing ones show "–", and the 52-week range is computed from stored Prices; analyst ratings (consensus, counts with trend, price targets) appear in a separate card for stocks only, labelled as opinions.
 
 - **CAP-20** — Depot reconciliation
   - **intent:** Tommy can reconcile a Depot against his broker statement and correct real holding or cash errors.
