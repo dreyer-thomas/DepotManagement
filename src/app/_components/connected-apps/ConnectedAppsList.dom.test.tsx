@@ -3,19 +3,21 @@ import { render, screen, waitForElementToBeRemoved } from "@testing-library/reac
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { registerDomCleanup } from "../../../../test/helpers/dom";
-import { disconnectAllAppsAction, disconnectAppAction } from "@/app/_actions/connected-apps";
+import { disconnectAllAppsAction, disconnectAppAction, removePortfolioAccessAction } from "@/app/_actions/connected-apps";
 import type { ConnectedApp } from "@/modules/mcp";
 import { ConnectedAppsList } from "./ConnectedAppsList";
 
 vi.mock("@/app/_actions/connected-apps", () => ({
   disconnectAppAction: vi.fn(),
   disconnectAllAppsAction: vi.fn(),
+  removePortfolioAccessAction: vi.fn(),
 }));
 
 registerDomCleanup();
 
 const disconnect = vi.mocked(disconnectAppAction);
 const disconnectAll = vi.mocked(disconnectAllAppsAction);
+const removePortfolio = vi.mocked(removePortfolioAccessAction);
 
 const APPS: ConnectedApp[] = [
   {
@@ -39,6 +41,7 @@ const APPS: ConnectedApp[] = [
 beforeEach(() => {
   disconnect.mockReset();
   disconnectAll.mockReset();
+  removePortfolio.mockReset();
 });
 
 describe("ConnectedAppsList", () => {
@@ -122,6 +125,47 @@ describe("ConnectedAppsList", () => {
     await waitForElementToBeRemoved(dialog);
     expect(disconnectAll).toHaveBeenCalledTimes(1);
     expect((await screen.findByRole("status")).textContent).toContain("Alle Apps getrennt.");
+  });
+
+  it("offers Depotzugriff entfernen only on cards holding portfolio:read", () => {
+    render(<ConnectedAppsList apps={APPS} empty={null} />);
+    expect(screen.getByRole("button", { name: "Depotzugriff für „Claude Code“ entfernen" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Depotzugriff für „Claude“ entfernen" })).toBeNull();
+  });
+
+  it("confirms Depotzugriff entfernen, toasts, and the refreshed card keeps only Watchlists without the button (acceptance)", async () => {
+    removePortfolio.mockResolvedValue({ ok: true, clientName: "Claude Code" });
+    const user = userEvent.setup({ delay: null });
+    const { rerender } = render(<ConnectedAppsList apps={APPS} empty={null} />);
+    const button = screen.getByRole("button", { name: "Depotzugriff für „Claude Code“ entfernen" });
+    expect(button.textContent).toBe("Depotzugriff entfernen");
+    await user.click(button);
+    const dialog = await screen.findByRole("dialog", { name: "Depotzugriff für „Claude Code“ entfernen?" });
+    expect(dialog.textContent).toContain(
+      "„Claude Code“ kann danach keine Depots, Bestände, Umsätze und Kennzahlen mehr lesen. Die Verbindung und die Watchlists bleiben bestehen; zum erneuten Freigeben die App neu verbinden.",
+    );
+    await vi.waitFor(() => expect(document.activeElement?.textContent).toBe("Abbrechen"));
+    await user.click(screen.getByRole("button", { name: "Entfernen" }));
+    await waitForElementToBeRemoved(dialog);
+    expect(removePortfolio).toHaveBeenCalledWith("g2");
+    expect(disconnect).not.toHaveBeenCalled();
+    expect((await screen.findByRole("status")).textContent).toContain("Depotzugriff für „Claude Code“ entfernt.");
+
+    rerender(<ConnectedAppsList apps={[{ ...APPS[0], scopes: ["watchlist"] }, APPS[1]]} empty={null} />);
+    expect(screen.getByRole("button", { name: "„Claude Code“ trennen" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Depotzugriff für „Claude Code“ entfernen" })).toBeNull();
+    expect(screen.getAllByText("Watchlists lesen und ändern")).toHaveLength(2);
+  });
+
+  it("shows a stale connection's message when removing Depotzugriff fails", async () => {
+    removePortfolio.mockResolvedValue({ ok: false, reason: "not-found" });
+    const user = userEvent.setup({ delay: null });
+    render(<ConnectedAppsList apps={APPS} empty={null} />);
+    await user.click(screen.getByRole("button", { name: "Depotzugriff für „Claude Code“ entfernen" }));
+    await screen.findByRole("dialog", { name: "Depotzugriff für „Claude Code“ entfernen?" });
+    await user.click(screen.getByRole("button", { name: "Entfernen" }));
+    expect((await screen.findByRole("alert")).textContent).toBe("Diese Verbindung besteht nicht mehr.");
+    expect(screen.queryByRole("status")).toBeNull();
   });
 
   it("keeps the toast when the list re-renders empty after Alle trennen", async () => {

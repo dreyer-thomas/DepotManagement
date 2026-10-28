@@ -245,7 +245,7 @@ export type AuthorizedGrant = { grantId: string; clientName: string; scopes: str
 
 /**
  * Checks a bearer token: an unexpired ACCESS token for `config.resource` of a non-revoked grant. Writes the
- * grant's `lastUsedAt` at most once per minute.
+ * grant's `lastUsedAt` at most once per minute. `scopes` are the token's scopes still held by the grant.
  */
 export async function verifyAccessToken(
   token: string,
@@ -265,5 +265,9 @@ export async function verifyAccessToken(
   if (lastUsed === null || Number.isNaN(lastUsed) || at.getTime() - lastUsed >= LAST_USED_INTERVAL_MS) {
     await db.oAuthGrant.updateMany({ where: { id: row.grant.id, revokedAt: null }, data: { lastUsedAt: at.toISOString() } });
   }
-  return { grantId: row.grant.id, clientName: row.client.clientName, scopes: row.scope.split(" ").filter(Boolean) };
+  // Effective scopes = token scopes ∩ current grant scopes, so removing a scope from the grant takes effect
+  // on the next call, not when the access token expires.
+  const grantScopes = row.grant.scope.split(" ");
+  const scopes = row.scope.split(" ").filter((name) => name !== "" && grantScopes.includes(name));
+  return { grantId: row.grant.id, clientName: row.client.clientName, scopes };
 }

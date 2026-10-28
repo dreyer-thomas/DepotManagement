@@ -6,22 +6,23 @@ import type { McpConfig } from "./config";
 import { hashSecret, isValidCodeChallenge, randomToken } from "./crypto";
 import { deleteExpiredTokens } from "./tokens";
 
-/** The only scope granted in Epic 9; `portfolio:read` is accepted in requests but dropped until Epic 10. */
+/** Always granted on "Erlauben". */
 export const WATCHLIST_SCOPE = "watchlist";
+/** Opt-in (story 10.1): granted only when requested and the consent checkbox is checked. */
 export const PORTFOLIO_READ_SCOPE = "portfolio:read";
-export const SUPPORTED_SCOPES: readonly string[] = [WATCHLIST_SCOPE];
-const REQUESTABLE_SCOPES: readonly string[] = [WATCHLIST_SCOPE, PORTFOLIO_READ_SCOPE];
+export const SUPPORTED_SCOPES: readonly string[] = [WATCHLIST_SCOPE, PORTFOLIO_READ_SCOPE];
 
 export const CODE_TTL_MS = 10 * 60 * 1000;
 
 /**
  * The scope granted for a requested `scope` parameter, or null when it names anything other than
- * `watchlist` / `portfolio:read` (`invalid_scope`). Absent or empty → `watchlist`. Always `watchlist`
- * for now. Pure.
+ * `watchlist` / `portfolio:read` (`invalid_scope`). Absent or empty → `watchlist`. Always the base scope
+ * `watchlist`: `portfolio:read` is added only by `approveAuthorization` when the consent checkbox was checked.
+ * Pure.
  */
 export function grantedScope(requested: string | undefined): string | null {
   const names = (requested ?? "").split(" ").filter((name) => name !== "");
-  if (!names.every((name) => REQUESTABLE_SCOPES.includes(name))) return null;
+  if (!names.every((name) => SUPPORTED_SCOPES.includes(name))) return null;
   return WATCHLIST_SCOPE;
 }
 
@@ -36,7 +37,10 @@ export type AuthorizeRequest = {
   redirectHost: string;
   state: string | undefined;
   codeChallenge: string;
+  /** The base scope granted on "Erlauben" (`watchlist`). */
   scope: string;
+  /** The request named `portfolio:read`: the consent page offers the checkbox. */
+  portfolioReadRequested: boolean;
 };
 
 export type AuthorizeValidation =
@@ -102,7 +106,8 @@ export async function validateAuthorizeRequest(
   if (!isValidCodeChallenge(codeChallenge) || single(params.code_challenge_method) !== "S256") return fail("invalid_request");
   const resource = single(params.resource);
   if (resource !== undefined && resource !== config.resource) return fail("invalid_target");
-  const scope = grantedScope(single(params.scope) ?? undefined);
+  const requestedScope = single(params.scope) ?? undefined;
+  const scope = grantedScope(requestedScope);
   if (scope === null) return fail("invalid_scope");
 
   return {
@@ -115,16 +120,22 @@ export async function validateAuthorizeRequest(
       state: state ?? undefined,
       codeChallenge,
       scope,
+      portfolioReadRequested: (requestedScope ?? "").split(" ").includes(PORTFOLIO_READ_SCOPE),
     },
   };
 }
 
-/** "Erlauben": stores a new single-use code (10 min, hashed) and returns the redirect with code, state, iss. */
+/**
+ * "Erlauben": stores a new single-use code (10 min, hashed) and returns the redirect with code, state, iss.
+ * The code carries `watchlist portfolio:read` only when the request named `portfolio:read` and the consent
+ * checkbox was checked (`portfolioRead`); a forged checkbox value without the requested scope adds nothing.
+ */
 export async function approveAuthorization(
   request: AuthorizeRequest,
   config: McpConfig,
   db: McpDb = prisma,
   now: () => Date = () => new Date(),
+  portfolioRead = false,
 ): Promise<string> {
   const client = await findClient(request.clientId, db);
   if (!client) throw new Error("client vanished");
@@ -136,7 +147,7 @@ export async function approveAuthorization(
       kind: "CODE",
       hash: hashSecret(code),
       clientId: client.id,
-      scope: request.scope,
+      scope: portfolioRead && request.portfolioReadRequested ? `${request.scope} ${PORTFOLIO_READ_SCOPE}` : request.scope,
       resource: config.resource,
       codeChallenge: request.codeChallenge,
       redirectUri: request.redirectUri,

@@ -1,9 +1,12 @@
-// German texts of Settings › Verbundene Apps (story 9.5).
+// German texts of Settings › Verbundene Apps (story 9.5; "Depotzugriff entfernen" story 10.1).
 import { formatDateTime } from "@/core/format";
+
+/** The opt-in portfolio scope (mirrors the mcp module's `PORTFOLIO_READ_SCOPE`; this file runs on the client). */
+export const PORTFOLIO_READ_SCOPE = "portfolio:read";
 
 const SCOPE_LABELS: Readonly<Record<string, string>> = {
   watchlist: "Watchlists lesen und ändern",
-  "portfolio:read": "Depotdaten lesen (nur lesen)",
+  [PORTFOLIO_READ_SCOPE]: "Depotdaten lesen (nur lesen)",
 };
 
 /** Scopes in plain German, joined with ", "; an unknown scope is shown verbatim. */
@@ -41,6 +44,32 @@ export function disconnectedToast(clientName: string): string {
 }
 
 export const ALL_DISCONNECTED_TOAST = "Alle Apps getrennt.";
+
+/** The grant holds `portfolio:read`: its card offers "Depotzugriff entfernen". */
+export function hasPortfolioAccess(scopes: readonly string[]): boolean {
+  return scopes.includes(PORTFOLIO_READ_SCOPE);
+}
+
+export const REMOVE_PORTFOLIO_ACCESS_LABEL = "Depotzugriff entfernen";
+
+/** The dialog's confirm button. */
+export const REMOVE_PORTFOLIO_ACCESS_CONFIRM = "Entfernen";
+
+export function removePortfolioAccessAriaLabel(clientName: string): string {
+  return `Depotzugriff für „${clientName}“ entfernen`;
+}
+
+export function removePortfolioAccessTitle(clientName: string): string {
+  return `Depotzugriff für „${clientName}“ entfernen?`;
+}
+
+export function removePortfolioAccessText(clientName: string): string {
+  return `„${clientName}“ kann danach keine Depots, Bestände, Umsätze und Kennzahlen mehr lesen. Die Verbindung und die Watchlists bleiben bestehen; zum erneuten Freigeben die App neu verbinden.`;
+}
+
+export function portfolioAccessRemovedToast(clientName: string): string {
+  return `Depotzugriff für „${clientName}“ entfernt.`;
+}
 
 export type ConnectedAppsErrorReason = "not-found" | "unauthorized";
 

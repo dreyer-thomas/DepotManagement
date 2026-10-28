@@ -16,7 +16,7 @@ vi.mock("next/headers", () => ({
 vi.mock("next/cache", () => ({ revalidatePath }));
 
 import { prisma } from "@/db";
-import { disconnectAllAppsAction, disconnectAppAction } from "./connected-apps";
+import { disconnectAllAppsAction, disconnectAppAction, removePortfolioAccessAction } from "./connected-apps";
 
 const SECRET = "test-secret-with-at-least-32-characters";
 const HASH = "$2b$04$Raf6EM460q2HE2THwTzIR.5Uk58FNzZG7FhlOvTFD.sbuFp.We4pO";
@@ -43,7 +43,7 @@ afterAll(async () => {
 });
 
 /** A client with one active grant and an access token (only its hash matters here). */
-async function grant(name: string, suffix: string) {
+async function grant(name: string, suffix: string, scope = "watchlist") {
   const client = await prisma.oAuthClient.create({
     data: {
       clientId: `client-${suffix}`,
@@ -54,14 +54,14 @@ async function grant(name: string, suffix: string) {
       createdAt: T0,
     },
   });
-  const created = await prisma.oAuthGrant.create({ data: { clientId: client.id, scope: "watchlist", createdAt: T0 } });
+  const created = await prisma.oAuthGrant.create({ data: { clientId: client.id, scope, createdAt: T0 } });
   await prisma.oAuthToken.create({
     data: {
       kind: "ACCESS",
       hash: `hash-${suffix}`,
       clientId: client.id,
       grantId: created.id,
-      scope: "watchlist",
+      scope,
       resource: "https://depot.example.com/api/mcp",
       expiresAt: "2099-01-01T00:00:00.000Z",
       createdAt: T0,
@@ -72,11 +72,13 @@ async function grant(name: string, suffix: string) {
 
 describe("connected-apps actions without a session", () => {
   it("refuse and write nothing", async () => {
-    const id = await grant("Claude", "a");
+    const id = await grant("Claude", "a", "watchlist portfolio:read");
     fakes.current.state.incoming.clear();
     const unauthorized = { ok: false, reason: "unauthorized" };
     expect(await disconnectAppAction(id)).toEqual(unauthorized);
     expect(await disconnectAllAppsAction()).toEqual(unauthorized);
+    expect(await removePortfolioAccessAction(id)).toEqual(unauthorized);
+    expect((await prisma.oAuthGrant.findUniqueOrThrow({ where: { id } })).scope).toBe("watchlist portfolio:read");
     expect(await prisma.oAuthGrant.count({ where: { revokedAt: null } })).toBe(1);
     expect(await prisma.oAuthToken.count()).toBe(1);
     expect(revalidatePath).not.toHaveBeenCalled();
@@ -114,5 +116,26 @@ describe("disconnectAllAppsAction", () => {
     expect(await prisma.oAuthGrant.count({ where: { revokedAt: null } })).toBe(0);
     expect(await prisma.oAuthToken.count()).toBe(0);
     expect(revalidatePath).toHaveBeenCalledWith("/settings");
+  });
+});
+
+describe("removePortfolioAccessAction", () => {
+  it("strips portfolio:read from the grant and its tokens, keeps the connection and revalidates /settings", async () => {
+    const id = await grant("Claude", "a", "watchlist portfolio:read");
+    const other = await grant("Claude Code", "b", "watchlist portfolio:read");
+    expect(await removePortfolioAccessAction(id)).toEqual({ ok: true, clientName: "Claude" });
+    expect(await prisma.oAuthGrant.findUniqueOrThrow({ where: { id } })).toMatchObject({ scope: "watchlist", revokedAt: null });
+    expect((await prisma.oAuthToken.findFirstOrThrow({ where: { grantId: id } })).scope).toBe("watchlist");
+    expect((await prisma.oAuthGrant.findUniqueOrThrow({ where: { id: other } })).scope).toBe("watchlist portfolio:read");
+    expect(revalidatePath).toHaveBeenCalledWith("/settings");
+    expect(await removePortfolioAccessAction(id)).toEqual({ ok: true, clientName: "Claude" });
+  });
+
+  it("answers not-found for a revoked, unknown or non-string id", async () => {
+    const id = await grant("Claude", "a", "watchlist portfolio:read");
+    await disconnectAppAction(id);
+    for (const value of [id, "unknown", 7, undefined]) {
+      expect(await removePortfolioAccessAction(value)).toEqual({ ok: false, reason: "not-found" });
+    }
   });
 });

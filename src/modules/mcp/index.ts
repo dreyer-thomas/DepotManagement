@@ -9,6 +9,7 @@ export {
   AUTHORIZE_PARAM_NAMES,
   denyAuthorization,
   grantedScope,
+  PORTFOLIO_READ_SCOPE,
   validateAuthorizeRequest,
   WATCHLIST_SCOPE,
 } from "./authorize";
@@ -29,7 +30,8 @@ export {
 } from "./http";
 export type { McpHttpDeps } from "./http";
 export { WATCHLIST_TOOL_NAMES } from "./tools";
+export { PORTFOLIO_READ_DENIED_MESSAGE, PORTFOLIO_TOOL_NAMES } from "./portfolio-tools";
 export type { McpToolContext } from "./tools";
 export { clearOAuth } from "./backup";
-export { disconnectAllApps, disconnectApp, listConnectedApps } from "./grants";
-export type { ConnectedApp, DisconnectAllAppsResult, DisconnectAppResult } from "./grants";
+export { disconnectAllApps, disconnectApp, listConnectedApps, removePortfolioAccess } from "./grants";
+export type { ConnectedApp, DisconnectAllAppsResult, DisconnectAppResult, RemovePortfolioAccessResult } from "./grants";

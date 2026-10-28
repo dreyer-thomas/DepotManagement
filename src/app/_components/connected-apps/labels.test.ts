@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { PORTFOLIO_READ_SCOPE as MCP_PORTFOLIO_READ_SCOPE } from "@/modules/mcp";
 import {
   claudeCodeCommand,
   connectedAppsErrorMessage,
@@ -6,8 +7,14 @@ import {
   disconnectAllTitle,
   disconnectedToast,
   disconnectTitle,
+  hasPortfolioAccess,
+  PORTFOLIO_READ_SCOPE,
   lastUsedLine,
   mcpEndpointUrl,
+  portfolioAccessRemovedToast,
+  removePortfolioAccessAriaLabel,
+  removePortfolioAccessText,
+  removePortfolioAccessTitle,
   scopesText,
 } from "./labels";
 
@@ -32,6 +39,21 @@ describe("connected-apps labels", () => {
     expect(disconnectedToast("Claude")).toBe("„Claude“ getrennt.");
     expect(connectedAppsErrorMessage("not-found")).toBe("Diese Verbindung besteht nicht mehr.");
     expect(connectedAppsErrorMessage("unauthorized")).toBe("Sitzung abgelaufen. Bitte erneut anmelden.");
+  });
+
+  it("mirrors the mcp module's portfolio scope", () => {
+    expect(PORTFOLIO_READ_SCOPE).toBe(MCP_PORTFOLIO_READ_SCOPE);
+  });
+
+  it("words Depotzugriff entfernen and detects portfolio:read", () => {
+    expect(hasPortfolioAccess(["watchlist", "portfolio:read"])).toBe(true);
+    expect(hasPortfolioAccess(["watchlist"])).toBe(false);
+    expect(removePortfolioAccessAriaLabel("Claude")).toBe("Depotzugriff für „Claude“ entfernen");
+    expect(removePortfolioAccessTitle("Claude")).toBe("Depotzugriff für „Claude“ entfernen?");
+    expect(removePortfolioAccessText("Claude")).toBe(
+      "„Claude“ kann danach keine Depots, Bestände, Umsätze und Kennzahlen mehr lesen. Die Verbindung und die Watchlists bleiben bestehen; zum erneuten Freigeben die App neu verbinden.",
+    );
+    expect(portfolioAccessRemovedToast("Claude")).toBe("Depotzugriff für „Claude“ entfernt.");
   });
 
   it("builds the connector URL and the Claude Code command, with a placeholder without APP_URL", () => {

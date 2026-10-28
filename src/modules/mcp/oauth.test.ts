@@ -44,10 +44,10 @@ function authorizeParams(clientId: string, extra: Record<string, string | string
   };
 }
 
-async function code(clientId: string, now = () => T0) {
-  const validation = await validateAuthorizeRequest(authorizeParams(clientId), config, db());
+async function code(clientId: string, now = () => T0, scope = "watchlist", portfolioRead = false) {
+  const validation = await validateAuthorizeRequest(authorizeParams(clientId, { scope }), config, db());
   if (validation.kind !== "ok") throw new Error("setup failed");
-  const url = new URL(await approveAuthorization(validation.request, config, db(), now));
+  const url = new URL(await approveAuthorization(validation.request, config, db(), now, portfolioRead));
   return url.searchParams.get("code")!;
 }
 
@@ -199,6 +199,7 @@ describe("validateAuthorizeRequest", () => {
         state: "xyz",
         codeChallenge: CHALLENGE,
         scope: "watchlist",
+        portfolioReadRequested: false,
       },
     });
   });
@@ -236,7 +237,20 @@ describe("validateAuthorizeRequest", () => {
   it("accepts a request without resource and grants watchlist for portfolio:read", async () => {
     const { client_id } = await register();
     const validation = await validateAuthorizeRequest(authorizeParams(client_id, { resource: undefined, scope: "portfolio:read" }), config, db());
-    expect(validation).toMatchObject({ kind: "ok", request: { scope: "watchlist" } });
+    expect(validation).toMatchObject({ kind: "ok", request: { scope: "watchlist", portfolioReadRequested: true } });
+  });
+
+  it.each([
+    ["watchlist portfolio:read", true],
+    ["portfolio:read watchlist", true],
+    ["portfolio:read", true],
+    ["watchlist", false],
+    ["", false],
+    [undefined, false],
+  ])("marks scope %j as portfolioReadRequested=%s", async (scope, requested) => {
+    const { client_id } = await register();
+    const validation = await validateAuthorizeRequest(authorizeParams(client_id, { scope }), config, db());
+    expect(validation).toMatchObject({ kind: "ok", request: { scope: "watchlist", portfolioReadRequested: requested } });
   });
 });
 
@@ -269,6 +283,38 @@ describe("consent decision", () => {
     if (validation.kind !== "ok") throw new Error("setup failed");
     const url = new URL(denyAuthorization(validation.request, config));
     expect(Object.fromEntries(url.searchParams)).toEqual({ error: "access_denied", state: "xyz", iss: "https://depot.example.com" });
+  });
+});
+
+describe("consent with portfolio:read", () => {
+  async function codeScope(scope: string | undefined, portfolioRead: boolean) {
+    const { client_id } = await register();
+    const validation = await validateAuthorizeRequest(authorizeParams(client_id, { scope }), config, db());
+    if (validation.kind !== "ok") throw new Error("setup failed");
+    await approveAuthorization(validation.request, config, db(), () => T0, portfolioRead);
+    return (await db().oAuthToken.findFirstOrThrow({ where: { kind: "CODE" } })).scope;
+  }
+
+  it.each([
+    ["watchlist portfolio:read", true, "watchlist portfolio:read"],
+    ["watchlist portfolio:read", false, "watchlist"],
+    ["portfolio:read", true, "watchlist portfolio:read"],
+    ["portfolio:read", false, "watchlist"],
+    // A forged checkbox without the requested scope grants nothing extra.
+    ["watchlist", true, "watchlist"],
+    [undefined, true, "watchlist"],
+  ])("scope %j with checkbox=%s stores code scope %j", async (scope, portfolioRead, expected) => {
+    expect(await codeScope(scope, portfolioRead)).toBe(expected);
+  });
+
+  it("carries the granted scope to the grant, the tokens and the token response", async () => {
+    const { client_id } = await register();
+    const result = await exchange(client_id, await code(client_id, () => T0, "watchlist portfolio:read", true));
+    expect(result).toMatchObject({ ok: true, body: { scope: "watchlist portfolio:read" } });
+    expect(await db().oAuthGrant.findFirstOrThrow()).toMatchObject({ scope: "watchlist portfolio:read" });
+    for (const row of await db().oAuthToken.findMany({ where: { kind: { in: ["ACCESS", "REFRESH"] } } })) {
+      expect(row.scope).toBe("watchlist portfolio:read");
+    }
   });
 });
 
@@ -429,6 +475,17 @@ describe("verifyAccessToken", () => {
     const grant = await db().oAuthGrant.findFirstOrThrow();
     await revokeGrant(grant.id, db(), () => T0);
     expect(await verifyAccessToken(access_token, config, db(), () => T0)).toBeNull();
+  });
+
+  it("returns the token scopes still held by the grant", async () => {
+    const { client_id } = await register();
+    const result = await exchange(client_id, await code(client_id, () => T0, "watchlist portfolio:read", true));
+    if (!result.ok) throw new Error("setup failed");
+    const { access_token } = result.body as { access_token: string };
+    expect(await verifyAccessToken(access_token, config, db(), () => T0)).toMatchObject({ scopes: ["watchlist", "portfolio:read"] });
+    // Removing the scope from the grant alone (token rows unchanged) already takes effect.
+    await db().oAuthGrant.updateMany({ data: { scope: "watchlist" } });
+    expect(await verifyAccessToken(access_token, config, db(), () => T0)).toMatchObject({ scopes: ["watchlist"] });
   });
 
   it("refuses a refresh token or a code used as a bearer token", async () => {

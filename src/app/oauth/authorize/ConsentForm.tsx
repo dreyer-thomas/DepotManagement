@@ -2,12 +2,17 @@
 
 import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
+import Checkbox from "@mui/material/Checkbox";
+import FormControlLabel from "@mui/material/FormControlLabel";
 import Stack from "@mui/material/Stack";
 import { useActionState } from "react";
 import { type ConsentState, decideAuthorization } from "./actions";
 
-/** "Erlauben" / "Ablehnen": posts the authorization parameters back to the decision action. */
-export function ConsentForm({ params }: { params: Record<string, string> }) {
+/**
+ * "Erlauben" / "Ablehnen": posts the authorization parameters back to the decision action. When the client
+ * requested `portfolio:read` (`offerPortfolioRead`), an unchecked opt-in checkbox `portfolio_read` is shown.
+ */
+export function ConsentForm({ params, offerPortfolioRead = false }: { params: Record<string, string>; offerPortfolioRead?: boolean }) {
   const [state, formAction, pending] = useActionState<ConsentState, FormData>(decideAuthorization, null);
   return (
     <form action={formAction}>
@@ -20,6 +25,13 @@ export function ConsentForm({ params }: { params: Record<string, string> }) {
         {Object.entries(params).map(([name, value]) => (
           <input key={name} type="hidden" name={name} value={value} />
         ))}
+        {offerPortfolioRead ? (
+          <FormControlLabel
+            control={<Checkbox name="portfolio_read" defaultChecked={false} disabled={pending} />}
+            label="Darf auch Depots, Bestände, Umsätze und Kennzahlen lesen (nur lesen)"
+            sx={{ minHeight: 44, mr: 0 }}
+          />
+        ) : null}
         <Stack direction="row" spacing={1.5} sx={{ justifyContent: "flex-end" }}>
           <Button type="submit" name="decision" value="deny" variant="outlined" size="large" disabled={pending} sx={{ minHeight: 44 }}>
             Ablehnen

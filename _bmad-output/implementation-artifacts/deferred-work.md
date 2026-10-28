@@ -180,3 +180,11 @@ location: src/app/_components/back-navigation/history-tracker.ts
 source_spec: `spec-8-6-back-navigation.md`
 reason: Intent-alignment audit: tests exercise the pure resolver and a happy-dom render with a simulated Next-like history patch; no test drives the real App Router. Settled by the operator device check listed under operator_actions.
 status: open
+
+### DW-21: Re-authorizing a still-connected client creates a second active grant, so after "Depotzugriff entfernen" and reconnecting, Settings shows two cards for the same app.
+origin: spec-deferred ec3f417b2a49
+location: src/modules/mcp/tokens.ts exchangeCode
+source_spec: `spec-10-1-portfolio-read-permission.md`
+severity: low
+reason: exchangeCode (src/modules/mcp/tokens.ts) always creates a new OAuthGrant and never revokes the client's older active grants; pre-existing since story 9.4/9.5, now more likely because the removal dialog tells the user to reconnect. Harmless (old card can be disconnected) but cluttered.
+status: open

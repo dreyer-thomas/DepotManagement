@@ -2,7 +2,14 @@
 
 import { revalidatePath } from "next/cache";
 import { getSession } from "@/modules/auth";
-import { disconnectAllApps, disconnectApp, type DisconnectAllAppsResult, type DisconnectAppResult } from "@/modules/mcp";
+import {
+  disconnectAllApps,
+  disconnectApp,
+  type DisconnectAllAppsResult,
+  type DisconnectAppResult,
+  removePortfolioAccess,
+  type RemovePortfolioAccessResult,
+} from "@/modules/mcp";
 
 const UNAUTHORIZED = { ok: false, reason: "unauthorized" } as const;
 type Unauthorized = typeof UNAUTHORIZED;
@@ -12,6 +19,9 @@ export type DisconnectAppActionResult = DisconnectAppResult | Unauthorized;
 
 /** Result of "Alle trennen". */
 export type DisconnectAllAppsActionResult = DisconnectAllAppsResult | Unauthorized;
+
+/** Result of "Depotzugriff entfernen". */
+export type RemovePortfolioAccessActionResult = RemovePortfolioAccessResult | Unauthorized;
 
 const SETTINGS_PATH = "/settings";
 
@@ -28,6 +38,14 @@ export async function disconnectAppAction(grantId: unknown): Promise<DisconnectA
 export async function disconnectAllAppsAction(): Promise<DisconnectAllAppsActionResult> {
   if (!(await getSession())) return UNAUTHORIZED;
   const result = await disconnectAllApps();
+  revalidatePath(SETTINGS_PATH);
+  return result;
+}
+
+/** "Depotzugriff entfernen": strips `portfolio:read` from one connected app; the connection stays. */
+export async function removePortfolioAccessAction(grantId: unknown): Promise<RemovePortfolioAccessActionResult> {
+  if (!(await getSession())) return UNAUTHORIZED;
+  const result = await removePortfolioAccess(grantId);
   revalidatePath(SETTINGS_PATH);
   return result;
 }

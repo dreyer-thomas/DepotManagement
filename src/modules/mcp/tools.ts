@@ -81,7 +81,7 @@ const MESSAGES: Record<string, string> = {
   "internal-error": "Das hat nicht geklappt. Bitte später erneut versuchen.",
 };
 
-function result(payload: unknown): CallToolResult {
+export function result(payload: unknown): CallToolResult {
   return { content: [{ type: "text", text: JSON.stringify(payload) }] };
 }
 
@@ -278,10 +278,10 @@ export function matchSecurities<T extends { name: string; isin: string | null; c
     .slice(0, SEARCH_RESULT_LIMIT);
 }
 
-type Handler<A> = (args: A) => Promise<CallToolResult>;
+export type Handler<A> = (args: A) => Promise<CallToolResult>;
 
 /** Wraps a tool body: unexpected failures are logged by error name only and become `internal-error`. */
-function guarded<A>(tool: string, body: Handler<A>): Handler<A> {
+export function guarded<A>(tool: string, body: Handler<A>): Handler<A> {
   return async (args) => {
     try {
       return await body(args);

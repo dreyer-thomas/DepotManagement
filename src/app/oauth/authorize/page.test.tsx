@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createRequestFakes, expectRedirect, findElement, RedirectError } from "../../../../test/helpers/next-mocks";
-import { renderText } from "../../../../test/helpers/render-text";
+import { renderHtml, renderText } from "../../../../test/helpers/render-text";
 
 const fakes = vi.hoisted(() => ({}) as { current: ReturnType<typeof createRequestFakes> });
 const dbFile = await vi.hoisted(async () => {
@@ -106,8 +106,24 @@ describe("authorize page", () => {
     expect(text).toContain("Weiterleitung an claude.ai");
     expect(text).toContain("Erlauben");
     expect(text).toContain("Ablehnen");
-    expect(findElement(page, ConsentForm)?.props).toEqual({ params: params() });
+    expect(findElement(page, ConsentForm)?.props).toEqual({ params: params(), offerPortfolioRead: false });
+    expect(text).not.toContain("Darf auch Depots");
+    expect(renderHtml(page)).not.toContain('name="portfolio_read"');
   });
+
+  it.each(["watchlist portfolio:read", "portfolio:read"])(
+    "offers the unchecked portfolio checkbox when scope=%j is requested (acceptance)",
+    async (scope) => {
+      await signIn();
+      const page = await render(params({ scope }));
+      expect(renderText(page)).toContain("Darf auch Depots, Bestände, Umsätze und Kennzahlen lesen (nur lesen)");
+      expect(findElement(page, ConsentForm)?.props).toEqual({ params: params({ scope }), offerPortfolioRead: true });
+      const checkbox = renderHtml(page).match(/<input[^>]*name="portfolio_read"[^>]*>/)?.[0];
+      expect(checkbox).toBeDefined();
+      expect(checkbox).toContain('type="checkbox"');
+      expect(checkbox).not.toMatch(/\bchecked\b/);
+    },
+  );
 
   it("shows an error page and never redirects for an unknown client or an unregistered redirect URI", async () => {
     await signIn();
@@ -149,6 +165,19 @@ describe("consent decision action", () => {
     expect(url.searchParams.get("state")).toBe("xyz");
     expect(url.searchParams.get("iss")).toBe(APP_URL);
     expect(await prisma.oAuthToken.count({ where: { kind: "CODE" } })).toBe(1);
+  });
+
+  it.each([
+    ["watchlist portfolio:read", { portfolio_read: "on" }, "watchlist portfolio:read"],
+    ["watchlist portfolio:read", {}, "watchlist"],
+    ["portfolio:read", { portfolio_read: "on" }, "watchlist portfolio:read"],
+    ["portfolio:read", {}, "watchlist"],
+    // A forged checkbox without the requested scope grants nothing extra.
+    ["watchlist", { portfolio_read: "on" }, "watchlist"],
+  ])("Erlauben for scope %j with %j stores a code with scope %j", async (scope, box, expected) => {
+    await signIn();
+    await expectRedirect(() => decideAuthorization(null, formData({ ...params({ scope }), ...box, decision: "allow" })));
+    expect((await prisma.oAuthToken.findFirstOrThrow({ where: { kind: "CODE" } })).scope).toBe(expected);
   });
 
   it("Ablehnen redirects with error=access_denied and stores no code", async () => {

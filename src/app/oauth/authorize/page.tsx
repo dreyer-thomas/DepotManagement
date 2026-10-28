@@ -64,14 +64,14 @@ export default async function AuthorizePage({ searchParams }: { searchParams: Se
     const value = params[name];
     if (typeof value === "string") formParams[name] = value;
   }
-  const { clientName, redirectHost } = validation.request;
+  const { clientName, redirectHost, portfolioReadRequested } = validation.request;
   return (
     <Frame title="App verbinden">
       <Typography sx={{ mb: 1, overflowWrap: "anywhere" }}>„{clientName}“ möchte deine Watchlists lesen und ändern.</Typography>
       <Typography variant="body2" sx={{ color: "text.secondary", mb: 3, overflowWrap: "anywhere" }}>
         Weiterleitung an {redirectHost}
       </Typography>
-      <ConsentForm params={formParams} />
+      <ConsentForm params={formParams} offerPortfolioRead={portfolioReadRequested} />
     </Frame>
   );
 }

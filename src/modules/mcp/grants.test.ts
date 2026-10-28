@@ -4,7 +4,7 @@ import { approveAuthorization, validateAuthorizeRequest } from "./authorize";
 import { registerClient } from "./clients";
 import { readMcpConfig } from "./config";
 import { s256Challenge } from "./crypto";
-import { disconnectAllApps, disconnectApp, listConnectedApps, redirectHosts } from "./grants";
+import { disconnectAllApps, disconnectApp, listConnectedApps, redirectHosts, removePortfolioAccess } from "./grants";
 import { exchangeToken, revokeGrant, verifyAccessToken } from "./tokens";
 
 let testDb: TestDatabase;
@@ -30,7 +30,7 @@ async function register(name: string, redirectUris: string[] = [REDIRECT]) {
 }
 
 /** Consent "Erlauben" and code exchange for a registered client; returns the token pair. */
-async function connect(clientId: string, now = () => T0, redirectUri = REDIRECT) {
+async function connect(clientId: string, now = () => T0, redirectUri = REDIRECT, portfolioRead = false) {
   const validation = await validateAuthorizeRequest(
     {
       response_type: "code",
@@ -39,14 +39,14 @@ async function connect(clientId: string, now = () => T0, redirectUri = REDIRECT)
       state: "s",
       code_challenge: s256Challenge(VERIFIER),
       code_challenge_method: "S256",
-      scope: "watchlist",
+      scope: portfolioRead ? "watchlist portfolio:read" : "watchlist",
       resource: config.resource,
     },
     config,
     db(),
   );
   if (validation.kind !== "ok") throw new Error("setup failed");
-  const code = new URL(await approveAuthorization(validation.request, config, db(), now)).searchParams.get("code")!;
+  const code = new URL(await approveAuthorization(validation.request, config, db(), now, portfolioRead)).searchParams.get("code")!;
   const result = await exchangeToken(
     {
       form: new URLSearchParams({ grant_type: "authorization_code", client_id: clientId, code, redirect_uri: redirectUri, code_verifier: VERIFIER }),
@@ -60,9 +60,11 @@ async function connect(clientId: string, now = () => T0, redirectUri = REDIRECT)
   return result.body;
 }
 
-async function refresh(clientId: string, token: string) {
+async function refresh(clientId: string, token: string, scope?: string) {
+  const fields: Record<string, string> = { grant_type: "refresh_token", client_id: clientId, refresh_token: token };
+  if (scope !== undefined) fields.scope = scope;
   return exchangeToken(
-    { form: new URLSearchParams({ grant_type: "refresh_token", client_id: clientId, refresh_token: token }), authorization: null },
+    { form: new URLSearchParams(fields), authorization: null },
     config,
     db(),
     at(5),
@@ -177,5 +179,45 @@ describe("disconnectAllApps", () => {
     for (const { access_token } of tokens) expect(await verifyAccessToken(access_token, config, db(), at(2))).toBeNull();
     expect(await listConnectedApps(db())).toEqual([]);
     expect(await disconnectAllApps(db(), at(2))).toEqual({ ok: true, count: 0 });
+  });
+});
+
+describe("removePortfolioAccess", () => {
+  it("strips portfolio:read from the grant and its tokens; the connection and watchlist access stay", async () => {
+    const clientId = await register("Claude");
+    const { access_token, refresh_token } = await connect(clientId, () => T0, REDIRECT, true);
+    const [app] = await listConnectedApps(db());
+    expect(app.scopes).toEqual(["watchlist", "portfolio:read"]);
+    expect(await verifyAccessToken(access_token, config, db(), at(1))).toMatchObject({ scopes: ["watchlist", "portfolio:read"] });
+
+    expect(await removePortfolioAccess(app.grantId, db())).toEqual({ ok: true, clientName: "Claude" });
+    const grant = await db().oAuthGrant.findUniqueOrThrow({ where: { id: app.grantId } });
+    expect(grant).toMatchObject({ scope: "watchlist", revokedAt: null });
+    for (const row of await db().oAuthToken.findMany({ where: { grantId: app.grantId } })) expect(row.scope).toBe("watchlist");
+    expect(await listConnectedApps(db())).toEqual([expect.objectContaining({ grantId: app.grantId, scopes: ["watchlist"] })]);
+    expect(await verifyAccessToken(access_token, config, db(), at(2))).toMatchObject({ grantId: app.grantId, scopes: ["watchlist"] });
+
+    expect(await refresh(clientId, refresh_token, "portfolio:read")).toMatchObject({ ok: false, error: "invalid_scope" });
+    expect(await refresh(clientId, refresh_token)).toMatchObject({ ok: true, body: { scope: "watchlist" } });
+  });
+
+  it("is idempotent when the grant has no portfolio:read (no write)", async () => {
+    const clientId = await register("Claude");
+    await connect(clientId);
+    const [app] = await listConnectedApps(db());
+    const before = await db().oAuthGrant.findUniqueOrThrow({ where: { id: app.grantId } });
+    expect(await removePortfolioAccess(app.grantId, db())).toEqual({ ok: true, clientName: "Claude" });
+    expect(await db().oAuthGrant.findUniqueOrThrow({ where: { id: app.grantId } })).toEqual(before);
+  });
+
+  it("answers not-found for a revoked, unknown or malformed id without writing", async () => {
+    const clientId = await register("Claude");
+    await connect(clientId, () => T0, REDIRECT, true);
+    const [app] = await listConnectedApps(db());
+    await revokeGrant(app.grantId, db(), at(1));
+    for (const id of [app.grantId, "unknown", "", 42, null, "x".repeat(201)]) {
+      expect(await removePortfolioAccess(id, db())).toEqual({ ok: false, reason: "not-found" });
+    }
+    expect(await db().oAuthGrant.findUniqueOrThrow({ where: { id: app.grantId } })).toMatchObject({ scope: "watchlist portfolio:read" });
   });
 });

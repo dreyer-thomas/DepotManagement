@@ -2,13 +2,13 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestDatabase, type TestDatabase } from "../../../test/helpers/test-db";
-import { ensureSecurity } from "@/modules/ledger";
+import { archiveDepot, createDepot, ensureSecurity, listDepots, recordTransaction } from "@/modules/ledger";
 import type { IsinDetails, Lookup } from "@/modules/prices";
 import { addWatchlistEntry, createWatchlist, watchlistView } from "@/modules/watchlist";
 import { approveAuthorization, validateAuthorizeRequest } from "./authorize";
 import { readMcpConfig } from "./config";
 import { s256Challenge } from "./crypto";
-import { disconnectAllApps, disconnectApp, listConnectedApps } from "./grants";
+import { disconnectAllApps, disconnectApp, listConnectedApps, removePortfolioAccess } from "./grants";
 import {
   handleAuthorizationServerMetadata,
   handleMcp,
@@ -18,6 +18,7 @@ import {
   type McpHttpDeps,
   methodNotAllowed,
 } from "./http";
+import { PORTFOLIO_TOOL_NAMES } from "./portfolio-tools";
 import { WATCHLIST_TOOL_NAMES } from "./tools";
 
 const APP_URL = "https://depot.example.com";
@@ -73,8 +74,14 @@ async function registerViaHttp(metadata: Record<string, unknown> = { client_name
   return { status: response.status, body: (await response.json()) as Record<string, unknown> };
 }
 
-/** Registration → consent "Erlauben" → token exchange, as a real client would do it. */
-async function connect(existingClientId?: string): Promise<{ access_token: string; refresh_token: string; client_id: string }> {
+/**
+ * Registration → consent "Erlauben" → token exchange, as a real client would do it. `scope` is the requested
+ * scope; `portfolioRead` is the consent checkbox.
+ */
+async function connect(
+  existingClientId?: string,
+  { scope = "watchlist", portfolioRead = false }: { scope?: string; portfolioRead?: boolean } = {},
+): Promise<{ access_token: string; refresh_token: string; client_id: string; scope: string }> {
   const clientId = existingClientId ?? ((await registerViaHttp()).body.client_id as string);
   const validation = await validateAuthorizeRequest(
     {
@@ -84,14 +91,14 @@ async function connect(existingClientId?: string): Promise<{ access_token: strin
       state: "s",
       code_challenge: s256Challenge(VERIFIER),
       code_challenge_method: "S256",
-      scope: "watchlist",
+      scope,
       resource: config.resource,
     },
     config,
     testDb.client,
   );
   if (validation.kind !== "ok") throw new Error("setup failed");
-  const code = new URL(await approveAuthorization(validation.request, config, testDb.client, () => clock)).searchParams.get("code")!;
+  const code = new URL(await approveAuthorization(validation.request, config, testDb.client, () => clock, portfolioRead)).searchParams.get("code")!;
   const response = await handleToken(
     post(
       "/oauth/token",
@@ -102,7 +109,7 @@ async function connect(existingClientId?: string): Promise<{ access_token: strin
   );
   expect(response.status).toBe(200);
   expect(response.headers.get("cache-control")).toBe("no-store");
-  return { ...((await response.json()) as { access_token: string; refresh_token: string }), client_id: clientId };
+  return { ...((await response.json()) as { access_token: string; refresh_token: string; scope: string }), client_id: clientId };
 }
 
 /** An MCP SDK client talking to `handleMcp` through an in-process fetch (route semantics: POST only). */
@@ -144,7 +151,7 @@ describe("discovery", () => {
     expect(await resource.json()).toEqual({
       resource: `${APP_URL}/api/mcp`,
       authorization_servers: [APP_URL],
-      scopes_supported: ["watchlist"],
+      scopes_supported: ["watchlist", "portfolio:read"],
       bearer_methods_supported: ["header"],
     });
     const server = handleAuthorizationServerMetadata(deps());
@@ -158,7 +165,7 @@ describe("discovery", () => {
       grant_types_supported: ["authorization_code", "refresh_token"],
       code_challenge_methods_supported: ["S256"],
       token_endpoint_auth_methods_supported: ["none", "client_secret_post", "client_secret_basic"],
-      scopes_supported: ["watchlist"],
+      scopes_supported: ["watchlist", "portfolio:read"],
       authorization_response_iss_parameter_supported: true,
     });
   });
@@ -353,11 +360,14 @@ describe("MCP tools through a real MCP client", () => {
     return { ideas: ideas.watchlist.id, dividends: dividends.watchlist.id, sap: sap.security.id };
   }
 
-  it("lists exactly the nine tools", async () => {
-    const client = await mcpClient((await connect()).access_token);
-    const { tools } = await client.listTools();
-    expect(tools.map((tool) => tool.name).sort()).toEqual([...WATCHLIST_TOOL_NAMES].sort());
-    await client.close();
+  it("lists exactly the nine watchlist tools plus list_depots, with or without portfolio:read", async () => {
+    for (const options of [{}, { scope: "watchlist portfolio:read", portfolioRead: true }]) {
+      const client = await mcpClient((await connect(undefined, options)).access_token);
+      const { tools } = await client.listTools();
+      expect(tools.map((tool) => tool.name).sort()).toEqual([...WATCHLIST_TOOL_NAMES, ...PORTFOLIO_TOOL_NAMES].sort());
+      expect(tools.find((tool) => tool.name === "list_depots")?.annotations?.readOnlyHint).toBe(true);
+      await client.close();
+    }
   });
 
   it("adds an entry with source MCP and the client name, visible in watchlistView (acceptance)", async () => {
@@ -632,5 +642,103 @@ describe("MCP tools through a real MCP client", () => {
     expect(logged).not.toContain(access_token);
     expect(logged).not.toContain("geheime Notiz");
     await client.close();
+  });
+});
+
+describe("portfolio:read through a real MCP client (story 10.1)", () => {
+  const DENIED = { error: "portfolio-read-required", message: "Keine Berechtigung für Depotdaten" };
+
+  async function seedDepots() {
+    const main = await createDepot({ name: "Hauptdepot", broker: "COMDIRECT" }, testDb.client);
+    const old = await createDepot({ name: "Altdepot", broker: "FINANZEN_ZERO" }, testDb.client);
+    if (!main.ok || !old.ok) throw new Error("setup failed");
+    const deposit = await recordTransaction({ depotId: main.depot.id, type: "DEPOSIT", date: "2026-01-05", amount: "1234.56" }, testDb.client);
+    if (!deposit.ok) throw new Error("setup failed");
+    if (!(await archiveDepot(old.depot.id, testDb.client)).ok) throw new Error("setup failed");
+    return { main: main.depot.id, old: old.depot.id };
+  }
+
+  const refresh = (token: string, clientId: string, scope?: string) =>
+    handleToken(
+      post(
+        "/oauth/token",
+        new URLSearchParams({ grant_type: "refresh_token", refresh_token: token, client_id: clientId, ...(scope ? { scope } : {}) }).toString(),
+        "application/x-www-form-urlencoded",
+      ),
+      deps(),
+    );
+
+  it("list_depots returns every Depot (archived included) in listDepots order with decimal-string cash balances", async () => {
+    const { main, old } = await seedDepots();
+    const connection = await connect(undefined, { scope: "watchlist portfolio:read", portfolioRead: true });
+    expect(connection.scope).toBe("watchlist portfolio:read");
+    const client = await mcpClient(connection.access_token);
+    const { isError, payload } = await call(client, "list_depots");
+    expect(isError).toBe(false);
+    expect(payload).toEqual({
+      depots: [
+        { id: old, name: "Altdepot", broker: "FINANZEN_ZERO", archived: true, cash_balance: expect.any(String) },
+        { id: main, name: "Hauptdepot", broker: "COMDIRECT", archived: false, cash_balance: expect.any(String) },
+      ],
+    });
+    const expected = (await listDepots(testDb.client)).map((depot) => depot.cashBalance);
+    expect(payload.depots.map((depot: { cash_balance: string }) => depot.cash_balance)).toEqual(expected);
+    expect(payload.depots[1].cash_balance).toMatch(/^1234\.56/);
+    await client.close();
+  });
+
+  it.each([
+    ["not requested", { scope: "watchlist" }],
+    ["requested but unchecked", { scope: "watchlist portfolio:read", portfolioRead: false }],
+    ["forged checkbox without the requested scope", { scope: "watchlist", portfolioRead: true }],
+  ])("refuses list_depots without data when %s (acceptance)", async (_case, options) => {
+    await seedDepots();
+    const connection = await connect(undefined, options);
+    expect(connection.scope).toBe("watchlist");
+    const client = await mcpClient(connection.access_token);
+    const result = (await client.callTool({ name: "list_depots", arguments: {} })) as ToolResult;
+    expect(result.isError).toBe(true);
+    expect(result.content).toHaveLength(1);
+    expect(JSON.parse(result.content[0].text)).toEqual(DENIED);
+    expect(result.content[0].text).not.toContain("Hauptdepot");
+    expect((await call(client, "list_watchlists")).isError).toBe(false);
+    await client.close();
+  });
+
+  it("grants watchlist plus portfolio:read when only portfolio:read was requested and checked", async () => {
+    const connection = await connect(undefined, { scope: "portfolio:read", portfolioRead: true });
+    expect(connection.scope).toBe("watchlist portfolio:read");
+    const client = await mcpClient(connection.access_token);
+    expect((await call(client, "list_depots")).isError).toBe(false);
+    expect((await call(client, "list_watchlists")).isError).toBe(false);
+    await client.close();
+  });
+
+  it("after Depotzugriff entfernen the same access token is refused, watchlist tools still work and refresh cannot regain the scope (acceptance)", async () => {
+    await seedDepots();
+    const { access_token, refresh_token, client_id } = await connect(undefined, { scope: "watchlist portfolio:read", portfolioRead: true });
+    const before = await mcpClient(access_token);
+    expect((await call(before, "list_depots")).isError).toBe(false);
+    await before.close();
+
+    const [app] = await listConnectedApps(testDb.client);
+    expect(await removePortfolioAccess(app.grantId, testDb.client)).toEqual({ ok: true, clientName: "Claude" });
+    expect(await listConnectedApps(testDb.client)).toEqual([expect.objectContaining({ grantId: app.grantId, scopes: ["watchlist"] })]);
+
+    const after = await mcpClient(access_token);
+    expect(await call(after, "list_depots")).toEqual({ isError: true, payload: DENIED });
+    expect((await call(after, "list_watchlists")).isError).toBe(false);
+    await after.close();
+
+    const widened = await refresh(refresh_token, client_id, "portfolio:read");
+    expect(widened.status).toBe(400);
+    expect(await widened.json()).toMatchObject({ error: "invalid_scope" });
+    const renewed = await refresh(refresh_token, client_id);
+    expect(renewed.status).toBe(200);
+    const body = (await renewed.json()) as { access_token: string; scope: string };
+    expect(body.scope).toBe("watchlist");
+    const next = await mcpClient(body.access_token);
+    expect(await call(next, "list_depots")).toEqual({ isError: true, payload: DENIED });
+    await next.close();
   });
 });

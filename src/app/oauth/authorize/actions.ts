@@ -17,7 +17,8 @@ export type ConsentState = { error: string } | null;
 
 /**
  * "Erlauben" / "Ablehnen": re-checks the session and every parameter, then redirects to the client with a
- * new code or `error=access_denied` (both with `state` and `iss`).
+ * new code or `error=access_denied` (both with `state` and `iss`). The checked `portfolio_read` box adds
+ * `portfolio:read` only when the request named that scope.
  */
 export async function decideAuthorization(_previous: ConsentState, formData: FormData): Promise<ConsentState> {
   const config = readMcpConfig(process.env);
@@ -38,7 +39,7 @@ export async function decideAuthorization(_previous: ConsentState, formData: For
   if (validation.kind === "redirect") redirect(validation.url);
   const target =
     formData.get("decision") === "allow"
-      ? await approveAuthorization(validation.request, config)
+      ? await approveAuthorization(validation.request, config, undefined, undefined, formData.get("portfolio_read") === "on")
       : denyAuthorization(validation.request, config);
   redirect(target);
 }
