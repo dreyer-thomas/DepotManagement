@@ -9,6 +9,17 @@ export const PERIOD_PRESETS = ["1T", "1W", "1M", "YTD", "1J", "3J", "MAX"] as co
 
 export type PeriodPreset = (typeof PERIOD_PRESETS)[number];
 
+/**
+ * The presets the selector offers and the Period action stores. `MAX` left the selector (slow, crowds the
+ * phone row) but stays a Period for all-time figures, and a `MAX` cookie stored earlier is still read.
+ */
+export const SELECTABLE_PRESETS = PERIOD_PRESETS.filter((preset) => preset !== "MAX");
+
+/** True when the selector may store `selection`: a custom range or a selectable preset. */
+export function isSelectablePeriod(selection: PeriodSelection): boolean {
+  return selection.kind === "custom" || (SELECTABLE_PRESETS as readonly string[]).includes(selection.preset);
+}
+
 export type PeriodSelection = { kind: "preset"; preset: PeriodPreset } | { kind: "custom"; from: string; to: string };
 
 /** Default and fallback for a missing or invalid stored Period. */

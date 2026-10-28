@@ -19,7 +19,7 @@ import { useRouter } from "next/navigation";
 import { type FormEvent, useId, useState, useTransition } from "react";
 import { setPeriodAction } from "@/app/_actions/period";
 import { isBusinessDate } from "@/core/dates";
-import { PERIOD_PRESETS, type PeriodPreset, type PeriodSelection, periodLabel } from "@/core/period";
+import { SELECTABLE_PRESETS, type PeriodPreset, type PeriodSelection, periodLabel } from "@/core/period";
 
 const UNAUTHORIZED_MESSAGE = "Sitzung abgelaufen. Bitte erneut anmelden.";
 const ACTION_FAILED_MESSAGE = "Verbindung fehlgeschlagen. Bitte erneut versuchen.";
@@ -48,7 +48,7 @@ const PILL = {
 } as const;
 
 /**
- * Global Period selector (1T · 1W · 1M · YTD · 1J · 3J · Max · Benutzerdefiniert). A pill stores the choice via
+ * Global Period selector (1T · 1W · 1M · YTD · 1J · 3J · Benutzerdefiniert). A pill stores the choice via
  * the server action (cookie) and refreshes the page; "Benutzerdefiniert" opens a Von/Bis dialog whose
  * range must satisfy `from ≤ to ≤ today` before anything is saved. Below `sm` that pill shows a
  * calendar icon instead of the word, so the row fits a phone.
@@ -134,7 +134,7 @@ export function PeriodSelector({ period, today }: { period: PeriodSelection; tod
           boxShadow: 1,
         }}
       >
-        {PERIOD_PRESETS.map((preset) => (
+        {SELECTABLE_PRESETS.map((preset) => (
           <ToggleButton key={preset} value={preset} onClick={() => void choosePreset(preset)} sx={PILL}>
             {periodLabel({ kind: "preset", preset })}
           </ToggleButton>

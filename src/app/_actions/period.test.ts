@@ -38,7 +38,7 @@ describe("setPeriodAction", () => {
     ]);
   });
 
-  it.each(["custom:2026-13-01:x", "custom:2026-06-30:2026-01-01", "custom:2026-01-01:2999-01-01", "1Y", 7])(
+  it.each(["custom:2026-13-01:x", "custom:2026-06-30:2026-01-01", "custom:2026-01-01:2999-01-01", "1Y", "MAX", 7])(
     "refuses %j without saving",
     async (text) => {
       expect(await setPeriodAction(text)).toEqual({ ok: false, reason: "invalid" });

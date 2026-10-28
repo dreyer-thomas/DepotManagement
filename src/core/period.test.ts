@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_PERIOD, parsePeriod, periodLabel, type PeriodSelection, resolvePeriod, serializePeriod } from "./period";
+import {
+  DEFAULT_PERIOD,
+  isSelectablePeriod,
+  parsePeriod,
+  periodLabel,
+  type PeriodSelection,
+  resolvePeriod,
+  SELECTABLE_PRESETS,
+  serializePeriod,
+} from "./period";
 
 const TODAY = "2026-10-26";
 
@@ -35,6 +44,13 @@ describe("parsePeriod / serializePeriod", () => {
 
   it("defaults to 1J", () => {
     expect(DEFAULT_PERIOD).toEqual({ kind: "preset", preset: "1J" });
+  });
+
+  it("offers every preset but MAX for selection; custom ranges stay selectable", () => {
+    expect(SELECTABLE_PRESETS).toEqual(["1T", "1W", "1M", "YTD", "1J", "3J"]);
+    expect(isSelectablePeriod({ kind: "preset", preset: "3J" })).toBe(true);
+    expect(isSelectablePeriod({ kind: "preset", preset: "MAX" })).toBe(false);
+    expect(isSelectablePeriod({ kind: "custom", from: "2026-01-01", to: TODAY })).toBe(true);
   });
 });
 

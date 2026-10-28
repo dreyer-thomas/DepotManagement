@@ -79,7 +79,7 @@ describe("Depots page", () => {
     if (!deposit.ok) throw new Error("setup failed");
 
     const text = renderText(await DepotsPage());
-    expect(text).toContain("Depots 1T 1W 1M YTD 1J 3J Max");
+    expect(text).toContain("Depots 1T 1W 1M YTD 1J 3J");
     expect(text).toMatch(/Hauptdepot comdirect Wertpapiere 0,00\u00a0€ Cash-Konto 1\.000,00\u00a0€ Positionen 0 Dividenden · 1J 0,00\u00a0€ TTWROR · 1J .* XIRR · 1J .* 1\.000,00\u00a0€ 0,00\u00a0€/);
   });
 
