@@ -127,8 +127,11 @@ function GroupList({ group, id }: { group: Group; id: string }) {
   );
 }
 
-/** "Yahoo Finance, Stand TT.MM.JJJJ"; a stale snapshot shows the date as a warning-soft pill. */
-function SourceLine({ snapshot }: { snapshot: KeyFiguresSnapshot | null }) {
+/**
+ * "Yahoo Finance, Stand TT.MM.JJJJ"; a stale snapshot shows the date as a warning-soft pill. `suffix` is
+ * appended to the line (e.g. "· Daten von AAPL" in the analyst card).
+ */
+export function SourceLine({ snapshot, suffix }: { snapshot: KeyFiguresSnapshot | null; suffix?: string }) {
   if (snapshot === null) {
     return (
       <Typography variant="caption" color="text.secondary" component="p" sx={{ m: 0 }}>
@@ -141,6 +144,7 @@ function SourceLine({ snapshot }: { snapshot: KeyFiguresSnapshot | null }) {
     return (
       <Typography variant="caption" color="text.secondary" component="p" sx={{ m: 0 }}>
         {KEY_FIGURES_SOURCE}, {stand}
+        {suffix ? ` ${suffix}` : null}
       </Typography>
     );
   }
@@ -166,6 +170,7 @@ function SourceLine({ snapshot }: { snapshot: KeyFiguresSnapshot | null }) {
       >
         {stand} – veraltet
       </Box>
+      {suffix ? ` ${suffix}` : null}
     </Typography>
   );
 }

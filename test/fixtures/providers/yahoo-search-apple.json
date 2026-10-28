@@ -1,0 +1,54 @@
+{
+  "explains": [],
+  "count": 4,
+  "quotes": [
+    {
+      "exchange": "GER",
+      "shortname": "APPLE INC.",
+      "quoteType": "EQUITY",
+      "symbol": "APC.DE",
+      "index": "quotes",
+      "score": 20021,
+      "typeDisp": "Equity",
+      "longname": "Apple Inc.",
+      "exchDisp": "XETRA",
+      "isYahooFinance": true
+    },
+    {
+      "index": "quotes",
+      "name": "Apple Inc.",
+      "permalink": "apple",
+      "isYahooFinance": false
+    },
+    {
+      "exchange": "NMS",
+      "shortname": "Apple Inc.",
+      "quoteType": "EQUITY",
+      "symbol": "AAPL",
+      "index": "quotes",
+      "score": 20018,
+      "typeDisp": "Equity",
+      "longname": "Apple Inc.",
+      "exchDisp": "NASDAQ",
+      "isYahooFinance": true
+    },
+    {
+      "exchange": "FRA",
+      "shortname": "APPLE INC.",
+      "quoteType": "EQUITY",
+      "symbol": "APC.F",
+      "index": "quotes",
+      "score": 20005,
+      "typeDisp": "Equity",
+      "longname": "Apple Inc.",
+      "exchDisp": "Frankfurt",
+      "isYahooFinance": true
+    }
+  ],
+  "news": [],
+  "nav": [],
+  "lists": [],
+  "researchReports": [],
+  "screenerFieldResults": [],
+  "totalTime": 21
+}

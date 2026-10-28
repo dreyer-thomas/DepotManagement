@@ -112,7 +112,7 @@ describe("Watchlists page", () => {
     });
     cookieValues.set("dm_watchlist_columns", "distanceToHigh%2Cbogus%2Ckgv");
     const table = findElement(await page(), WatchlistTable);
-    expect(table?.props.keyFigures).toEqual({ [sap.security.id]: { trailingPE: "30.4321", dividendYield: "0.0118" } });
+    expect(table?.props.keyFigures).toEqual({ [sap.security.id]: { trailingPE: "30.4321", dividendYield: "0.0118", analysts: null } });
     expect(table?.props.initialColumns).toEqual(["kgv", "distanceToHigh"]);
     expect((table?.props.entries as { fiftyTwoWeek: unknown }[])[0].fiftyTwoWeek).toEqual({ high: null, low: null, distanceToHigh: null, performance: null });
   });
@@ -120,5 +120,28 @@ describe("Watchlists page", () => {
   it("shows no key-figure column without the cookie", async () => {
     await list("A");
     expect(findElement(await page(), WatchlistTable)?.props.initialColumns).toEqual([]);
+  });
+
+  it("passes the analyst consensus and count of a stock (story 9.7) and remembers the 'analysts' column", async () => {
+    const a = await list("A");
+    const sap = await ensureSecurity({ isin: "DE0007164600" }, { name: "SAP SE", assetType: "STOCK" });
+    if (!sap.ok) throw new Error("setup failed");
+    const today = businessDate(new Date());
+    expect((await addWatchlistEntry({ watchlistId: a, security: { id: sap.security.id } }, today)).ok).toBe(true);
+    await prisma.securityKeyFigures.create({
+      data: {
+        securityId: sap.security.id,
+        symbol: "SAP.DE",
+        kind: "stock",
+        figures: "{}",
+        analystSymbol: "SAP.DE",
+        analysts: JSON.stringify({ trend: [{ period: "0m", strongBuy: 11, buy: 20, hold: 0, sell: 0, strongSell: 0 }], consensusMean: "1.6" }),
+        fetchedAt: new Date().toISOString(),
+      },
+    });
+    cookieValues.set("dm_watchlist_columns", "analysts");
+    const table = findElement(await page(), WatchlistTable);
+    expect(table?.props.keyFigures).toMatchObject({ [sap.security.id]: { analysts: { consensus: "Optimistisch", count: 31 } } });
+    expect(table?.props.initialColumns).toEqual(["analysts"]);
   });
 });

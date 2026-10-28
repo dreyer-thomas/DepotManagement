@@ -22,7 +22,11 @@ vi.mock("@/app/_actions/prices", () => ({
 }));
 
 vi.mock("@/app/_actions/logos", () => ({ uploadLogoAction: vi.fn() }));
-vi.mock("@/app/_actions/classification", () => ({ setClassificationAction: vi.fn(), setRegionSplitAction: vi.fn() }));
+vi.mock("@/app/_actions/classification", () => ({
+  setClassificationAction: vi.fn(),
+  setRegionSplitAction: vi.fn(),
+  setAnalystSymbolAction: vi.fn(),
+}));
 vi.mock("@/app/_actions/tax", () => ({ setTeilfreistellungAction: vi.fn() }));
 
 registerDomCleanup();
@@ -48,6 +52,20 @@ describe("SecurityList", () => {
     render(<SecurityList securities={securities} today="2026-10-26" />);
     expect(screen.getByRole("link", { name: "Bitcoin" }).getAttribute("href")).toBe("/securities/s1");
     expect(screen.getByRole("link", { name: "SAP" }).getAttribute("href")).toBe("/securities/s2");
+  });
+
+  it("shows the Analysten-Symbol line and button for stocks only (story 9.7)", () => {
+    const list: SecurityWithMapping[] = [
+      { id: "a1", name: "Apple Inc.", isin: "US0378331005", cryptoSymbol: null, assetType: "STOCK", mapping: null },
+      { id: "a2", name: "SAP SE", isin: "DE0007164600", cryptoSymbol: null, assetType: "STOCK", mapping: null },
+      { id: "e1", name: "MSCI World", isin: "IE00B4L5Y983", cryptoSymbol: null, assetType: "ETF", mapping: null },
+    ];
+    render(<SecurityList securities={list} analystSymbols={{ a1: { symbol: "AAPL", manual: false } }} today="2026-10-26" />);
+    expect(screen.getByText("Analysten-Symbol: AAPL").closest("li")?.textContent).toContain("Apple Inc.");
+    expect(screen.getByText("Analysten-Symbol: automatisch").closest("li")?.textContent).toContain("SAP SE");
+    expect(screen.getByRole("button", { name: "Analysten-Symbol bearbeiten – Apple Inc." })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Analysten-Symbol bearbeiten – MSCI World" })).toBeNull();
+    expect(screen.getAllByText(/^Analysten-Symbol:/)).toHaveLength(2);
   });
 
   it("marks watchlist-only Securities with the Watchlist chip", () => {

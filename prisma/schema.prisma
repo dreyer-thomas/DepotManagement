@@ -389,6 +389,11 @@ model SecurityClassification {
   providerSymbol    String?
   /// UTC ISO timestamp of the last provider answer.
   providerFetchedAt String?
+  /// Analysten-Symbol (story 9.7): the Yahoo symbol (home listing) analyst data is fetched for; resolved
+  /// once by ISIN via Yahoo search or set by the user. A provider setting, never exported.
+  analystSymbol     String?
+  /// True when the user set `analystSymbol`; the resolution never overwrites a manual symbol.
+  analystSymbolManual Boolean @default(false)
   /// UTC ISO timestamp of the last write.
   updatedAt         String
 }
@@ -555,6 +560,10 @@ model SecurityKeyFigures {
   kind       String
   /// JSON object of decimal strings, business dates and texts (null = not delivered).
   figures    String
+  /// Yahoo symbol the analyst part was fetched for (story 9.7; STOCK only, null = not requested).
+  analystSymbol String?
+  /// JSON of `AnalystRatings` (core/analyst-ratings); null = no analyst data.
+  analysts   String?
   /// UTC ISO timestamp of the fetch.
   fetchedAt  String
 }

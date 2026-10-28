@@ -19,7 +19,7 @@ vi.mock("./classification-refresh", () => ({ scheduleClassificationRefresh, runC
 
 import { prisma } from "@/db";
 import { ensureSecurity } from "@/modules/ledger";
-import { setClassificationAction, setRegionSplitAction } from "./classification";
+import { setAnalystSymbolAction, setClassificationAction, setRegionSplitAction } from "./classification";
 
 const SECRET = "test-secret-with-at-least-32-characters";
 const HASH = "$2b$04$Raf6EM460q2HE2THwTzIR.5Uk58FNzZG7FhlOvTFD.sbuFp.We4pO";
@@ -131,6 +131,30 @@ describe("setRegionSplitAction", () => {
     const id = await fund();
     fakes.current.state.incoming.clear();
     expect(await setRegionSplitAction(null, fields(id, ["100", "", "", "", "", ""]))).toEqual({ ok: false, reason: "unauthorized" });
+    expect(await prisma.securityClassification.count()).toBe(0);
+  });
+});
+
+describe("setAnalystSymbolAction", () => {
+  it("stores a manual symbol, clears it with an empty input and revalidates Securities and the detail page", async () => {
+    expect(await setAnalystSymbolAction(securityId, "nvda")).toEqual({ ok: true });
+    expect(await prisma.securityClassification.findUnique({ where: { securityId } })).toMatchObject({ analystSymbol: "NVDA", analystSymbolManual: true });
+    expect(revalidatePath).toHaveBeenCalledWith("/securities");
+    expect(revalidatePath).toHaveBeenCalledWith(`/securities/${securityId}`);
+    expect(await setAnalystSymbolAction(securityId, "  ")).toEqual({ ok: true });
+    expect(await prisma.securityClassification.findUnique({ where: { securityId } })).toMatchObject({ analystSymbol: null, analystSymbolManual: false });
+  });
+
+  it("returns the reason without writing", async () => {
+    expect(await setAnalystSymbolAction(securityId, "bad symbol")).toEqual({ ok: false, reason: "symbol-invalid" });
+    expect(await setAnalystSymbolAction("missing", "AAPL")).toEqual({ ok: false, reason: "not-found" });
+    expect(await prisma.securityClassification.count()).toBe(0);
+    expect(revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("writes nothing without a session", async () => {
+    fakes.current.state.incoming.clear();
+    expect(await setAnalystSymbolAction(securityId, "AAPL")).toEqual({ ok: false, reason: "unauthorized" });
     expect(await prisma.securityClassification.count()).toBe(0);
   });
 });

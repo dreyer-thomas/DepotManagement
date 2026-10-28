@@ -1,18 +1,21 @@
-// The classification module owns SecurityClassification rows (AD-20) and the disposable key-figures
-// snapshots (SecurityKeyFigures, story 9.6; never exported). Every analysis reads
+// The classification module owns SecurityClassification rows (AD-20, incl. the Analysten-Symbol of story
+// 9.7) and the disposable key-figures and analyst snapshots (SecurityKeyFigures, stories 9.6/9.7; never exported). Every analysis reads
 // classifications only through this entry point; other modules never touch its table.
 export {
   CLASSIFICATION_TEXT_MAX_LENGTH,
+  listAnalystSymbols,
   listClassifications,
   listKeyFigures,
   listRegionSplits,
   MANUAL_VALUE_SCHEMAS,
   refreshClassifications,
   refreshKeyFigures,
+  setAnalystSymbol,
   setManualClassification,
   setManualRegionSplit,
 } from "./classification";
 export type {
+  AnalystSymbolInfo,
   Classification,
   ClassificationDb,
   ClassificationDeps,
@@ -27,6 +30,7 @@ export type {
   RefreshKeyFiguresResult,
   RegionSplitFailureReason,
   RegionSplitInfo,
+  SetAnalystSymbolResult,
   SetManualClassificationResult,
   SetManualRegionSplitResult,
 } from "./classification";

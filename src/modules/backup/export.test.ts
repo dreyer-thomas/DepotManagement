@@ -170,7 +170,7 @@ describe("createExport", () => {
     expect(file.prices.map((p) => p.id)).toContain("p-d");
   });
 
-  it("leaves out fetched logos, markers, news, key figures and import staging", async () => {
+  it("leaves out fetched logos, markers, news, key figures, analyst data, the Analysten-Symbol and import staging", async () => {
     await seedFullLedger();
     const c = db();
     writeLogo("sec-a-1.png");
@@ -191,7 +191,21 @@ describe("createExport", () => {
     });
     await c.newsFetch.create({ data: { securityId: "sec-a", fetchedAt: "2026-10-26T09:59:59.999Z" } });
     await c.securityKeyFigures.create({
-      data: { securityId: "sec-a", symbol: "MARKER_KEY_FIGURES_SYMBOL", kind: "stock", figures: JSON.stringify({ trailingPE: "MARKER_KGV" }), fetchedAt: TS },
+      data: {
+        securityId: "sec-a",
+        symbol: "MARKER_KEY_FIGURES_SYMBOL",
+        kind: "stock",
+        figures: JSON.stringify({ trailingPE: "MARKER_KGV" }),
+        analystSymbol: "MARKER_SNAPSHOT_ANALYST_SYMBOL",
+        analysts: JSON.stringify({ changes: [{ firm: "MARKER_ANALYST_FIRM" }] }),
+        fetchedAt: TS,
+      },
+    });
+    // A manual Analysten-Symbol next to a manual override: the row is exported, the symbol is not.
+    await c.securityClassification.upsert({
+      where: { securityId: "sec-a" },
+      create: { securityId: "sec-a", sectorManual: "Technologie", analystSymbol: "MARKER_MANUAL_ANALYST_SYMBOL", analystSymbolManual: true, updatedAt: TS },
+      update: { sectorManual: "Technologie", analystSymbol: "MARKER_MANUAL_ANALYST_SYMBOL", analystSymbolManual: true },
     });
     await c.importBatch.create({
       data: {
@@ -202,6 +216,7 @@ describe("createExport", () => {
     });
     const file = await createExport(deps(), db());
     expect(file.logos.map((logo) => logo.securityId)).toEqual(["sec-b"]);
+    expect(file.classifications.map((row) => row.securityId)).toContain("sec-a");
     const json = serializeExport(file);
     for (const marker of [
       "marker-news-url",
@@ -210,6 +225,10 @@ describe("createExport", () => {
       "2026-10-26T09:59:59.999Z",
       "MARKER_KEY_FIGURES_SYMBOL",
       "MARKER_KGV",
+      "MARKER_SNAPSHOT_ANALYST_SYMBOL",
+      "MARKER_ANALYST_FIRM",
+      "MARKER_MANUAL_ANALYST_SYMBOL",
+      "analystSymbol",
       "MARKER_IMPORT_FILE",
       "MARKER_IMPORT_HASH",
       "LOGO_DEV",

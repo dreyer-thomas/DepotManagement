@@ -81,7 +81,9 @@ const NEW = entry({ id: "e3", name: "Allianz", dateAdded: "2026-10-10" });
 
 const LISTS = [{ id: "w1", name: "Ideen" }];
 
-const KEY_FIGURES: Record<string, WatchlistKeyFigures> = { "s-e1": { trailingPE: "30.4321", dividendYield: "0.0118" } };
+const KEY_FIGURES: Record<string, WatchlistKeyFigures> = {
+  "s-e1": { trailingPE: "30.4321", dividendYield: "0.0118", analysts: { consensus: "Optimistisch", count: 31 } },
+};
 
 function renderTable(entries = [SAP, BTC, NEW], initialColumns: WatchlistColumnKey[] = []) {
   const result = render(
@@ -190,5 +192,27 @@ describe("WatchlistTable", () => {
       "KGV – · Dividendenrendite – · Abstand zum Hoch –",
       "KGV 30,43 · Dividendenrendite 1,18\u00a0% · Abstand zum Hoch -5,20\u00a0%",
     ]);
+  });
+
+  it("'Analysten' (story 9.7): menu entry, desktop cell 'Optimistisch (31)' or '–', phone caption; remembered", async () => {
+    document.cookie = "dm_watchlist_columns=; max-age=0; path=/";
+    const user = userEvent.setup({ delay: null });
+    const { table, container } = renderTable([SAP, BTC]);
+    await user.click(screen.getByRole("button", { name: "Spalten" }));
+    await user.click(await screen.findByRole("menuitemcheckbox", { name: "Analysten" }));
+    expect([...table.querySelectorAll("thead th")].map((cell) => cell.textContent)).toContain("Analysten");
+    expect(document.cookie).toContain("dm_watchlist_columns=analysts");
+    const cells = (name: string) =>
+      [...([...table.querySelectorAll("tbody tr")].find((row) => row.textContent?.includes(name))?.querySelectorAll("td") ?? [])].map(
+        (cell) => cell.textContent,
+      );
+    expect(cells("SAP SE")).toContain("Optimistisch (31)");
+    expect(cells("Bitcoin")).toContain("–");
+    expect([...container.querySelectorAll("[data-key-figures]")].map((line) => line.textContent)).toEqual([
+      "Analysten –",
+      "Analysten Optimistisch (31)",
+    ]);
+    // Not sortable: the header is plain text, no sort button.
+    expect(within(table).queryByRole("button", { name: "Analysten" })).toBeNull();
   });
 });

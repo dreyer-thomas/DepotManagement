@@ -50,7 +50,17 @@ const FIFTY_TWO: FiftyTwoWeekFigures = {
 };
 
 function snapshot(figures: ProviderKeyFigures, overrides: Partial<KeyFiguresSnapshot> = {}): KeyFiguresSnapshot {
-  return { symbol: "SAP.DE", figures, fetchedAt: "2026-10-28T09:00:00.000Z", asOf: TODAY, stale: false, fetchedToday: true, ...overrides };
+  return {
+    symbol: "SAP.DE",
+    figures,
+    fetchedAt: "2026-10-28T09:00:00.000Z",
+    asOf: TODAY,
+    stale: false,
+    fetchedToday: true,
+    analystSymbol: null,
+    analysts: null,
+    ...overrides,
+  };
 }
 
 function renderCard(props: Partial<Parameters<typeof KeyFiguresCard>[0]> = {}) {

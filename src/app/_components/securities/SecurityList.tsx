@@ -8,12 +8,13 @@ import { securityTypeLabel } from "@/app/_components/migration/labels";
 import { type Classification, type ClassifiedAssetType, effective } from "@/core/classification";
 import { taxSecurity } from "@/core/tax";
 import { allowedAssetTypes } from "@/modules/ledger";
-import type { RegionSplitInfo } from "@/modules/classification";
+import type { AnalystSymbolInfo, RegionSplitInfo } from "@/modules/classification";
 import type { ManualPriceRow, SecurityPriceInfo, SecurityWithMapping } from "@/modules/prices";
 import { fetchErrorText } from "../prices/price-labels";
 import { PriceDate } from "../prices/StaleBadge";
+import { AnalystSymbolButton } from "./AnalystSymbolDialog";
 import { ClassificationButton } from "./ClassificationDialog";
-import { classificationSummary, mappingLabel, regionSplitSummary } from "./labels";
+import { analystSymbolSummary, classificationSummary, mappingLabel, regionSplitSummary } from "./labels";
 import { LogoUploadButton } from "./LogoUploadDialog";
 import { ManualPriceButton } from "./ManualPriceDialog";
 import { ManualPriceList } from "./ManualPriceList";
@@ -31,7 +32,8 @@ import { TypeDialogButton } from "./TypeDialog";
  * plus "Kursquelle bearbeiten", "Typ ändern", "Klassifizierung", "Kurs manuell eintragen", (after a miss) "Automatisch
  * suchen", "Logo hochladen" / "Logo ersetzen" and, for funds (ETF/FUND), "Teilfreistellung" with its summary line
  * ("Teilfreistellung 30 % (automatisch|manuell)"), plus "Regionen" with the region split line when the fund has one
- * ("Regionen: USA 72 % · … (Regel MSCI World, Stand 30.09.2026)" / "(manuell)", story 8.4). A failed last fetch shows an error naming the provider; there "Kurs manuell eintragen" is
+ * ("Regionen: USA 72 % · … (Regel MSCI World, Stand 30.09.2026)" / "(manuell)", story 8.4), and for stocks the
+ * line "Analysten-Symbol: AAPL" / "… automatisch" with its button "Analysten-Symbol" (story 9.7). A failed last fetch shows an error naming the provider; there "Kurs manuell eintragen" is
  * the Alert's action instead (one per card).
  */
 export function SecurityList({
@@ -41,6 +43,7 @@ export function SecurityList({
   classifications = {},
   teilfreistellungOverrides = {},
   regionSplits = {},
+  analystSymbols = {},
   watchlistOnly = new Set(),
   today,
 }: {
@@ -55,6 +58,8 @@ export function SecurityList({
   teilfreistellungOverrides?: Record<string, string>;
   /** Region split per Security id (`listRegionSplits`); absent ids have none. */
   regionSplits?: Record<string, RegionSplitInfo>;
+  /** Analysten-Symbol per Security id (`listAnalystSymbols`); absent ids are automatic. */
+  analystSymbols?: Record<string, AnalystSymbolInfo>;
   /** Securities on ≥ 1 watchlist and not held (story 9.2): chip "Watchlist". */
   watchlistOnly?: ReadonlySet<string>;
   /** Today's business date (default date of a manual Price). */
@@ -69,6 +74,8 @@ export function SecurityList({
         const fetchFailed = Boolean(security.mapping?.provider && security.mapping.fetchError);
         const classification = classifications[security.id] ?? effective(null, security.assetType as ClassifiedAssetType);
         const fund = security.assetType === "ETF" || security.assetType === "FUND";
+        const stock = security.assetType === "STOCK";
+        const analystSymbol = analystSymbols[security.id]?.symbol ?? null;
         const override = teilfreistellungOverrides[security.id] ?? null;
         const regionSplit = fund ? (regionSplits[security.id]?.effective ?? null) : null;
         const regionSummary = regionSplitSummary(regionSplit);
@@ -98,6 +105,7 @@ export function SecurityList({
                     <Typography variant="body2">{classificationSummary(classification)}</Typography>
                     {fund ? <Typography variant="body2">{teilfreistellungSummary(override ?? automaticRate, override !== null)}</Typography> : null}
                     {regionSummary ? <Typography variant="body2">{regionSummary}</Typography> : null}
+                    {stock ? <Typography variant="body2">{analystSymbolSummary(analystSymbol)}</Typography> : null}
                     <Typography variant="body2" color={security.mapping?.provider ? "text.primary" : "text.secondary"}>
                       {mappingLabel(security.mapping)}
                     </Typography>
@@ -122,6 +130,7 @@ export function SecurityList({
                       <ClassificationButton security={security} classification={classification} />
                       {fund ? <TeilfreistellungButton security={security} automaticRate={automaticRate} override={override} /> : null}
                       {fund ? <RegionSplitButton security={security} weights={regionSplit?.weights ?? null} /> : null}
+                      {stock ? <AnalystSymbolButton security={security} symbol={analystSymbol} /> : null}
                       {fetchFailed ? null : <ManualPriceButton security={security} today={today} />}
                       {notFound ? <ResolveMappingButton security={security} /> : null}
                       <LogoUploadButton security={security} />

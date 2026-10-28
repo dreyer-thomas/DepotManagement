@@ -33,9 +33,9 @@ export function watchlistHref(watchlistId: string): string {
   return `/watchlists?list=${encodeURIComponent(watchlistId)}`;
 }
 
-/** The optional key-figure columns (story 9.6), remembered per browser; hidden by default. */
+/** The optional key-figure columns (story 9.6; "Analysten" story 9.7), remembered per browser; hidden by default. */
 export const WATCHLIST_COLUMNS_COOKIE = "dm_watchlist_columns";
-export const WATCHLIST_COLUMN_KEYS = ["kgv", "dividendYield", "distanceToHigh"] as const;
+export const WATCHLIST_COLUMN_KEYS = ["kgv", "dividendYield", "distanceToHigh", "analysts"] as const;
 export type WatchlistColumnKey = (typeof WATCHLIST_COLUMN_KEYS)[number];
 
 /** The stored column choice (comma list): unknown keys dropped, duplicates removed, in column order. */

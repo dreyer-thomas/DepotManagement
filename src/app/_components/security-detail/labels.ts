@@ -1,3 +1,4 @@
+import { type AnalystConsensus, analystConsensusOf, analystCountOf, type AnalystRatings } from "@/core/analyst-ratings";
 import { ExactDecimal } from "@/core/decimal";
 import { formatMoney, formatPercent, formatQuantity } from "@/core/format";
 import type { SecuritySummary } from "@/modules/ledger";
@@ -71,4 +72,22 @@ export function ratioTone(ratio: string | null): "gain" | "loss" | null {
   const shown = new ExactDecimal(ratio).times(100).toDecimalPlaces(2, ExactDecimal.ROUND_HALF_UP);
   if (shown.isZero()) return null;
   return shown.isNegative() ? "loss" : "gain";
+}
+
+/** German label of an analyst consensus (story 9.7). */
+export const CONSENSUS_LABELS: Record<AnalystConsensus, string> = {
+  optimistic: "Optimistisch",
+  neutral: "Neutral",
+  pessimistic: "Pessimistisch",
+};
+
+/**
+ * The watchlist's "Analysten" value of a stock's ratings (story 9.7): consensus label and number of
+ * analysts; `null` without ratings, without a consensus or without a count.
+ */
+export function analystsSummary(ratings: AnalystRatings | null): { consensus: string; count: number } | null {
+  if (ratings === null) return null;
+  const consensus = analystConsensusOf(ratings);
+  const count = analystCountOf(ratings);
+  return consensus === null || count === null ? null : { consensus: CONSENSUS_LABELS[consensus], count };
 }

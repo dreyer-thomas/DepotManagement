@@ -141,13 +141,19 @@ function EditButton({ entry, onEdit }: { entry: WatchlistEntryView; onEdit: (ent
 }
 
 /** The provider key figures a watchlist column shows (from the Security's snapshot; `null` = not delivered). */
-export type WatchlistKeyFigures = { trailingPE: string | null; dividendYield: string | null };
+export type WatchlistKeyFigures = {
+  trailingPE: string | null;
+  dividendYield: string | null;
+  /** Analyst consensus label ("Optimistisch") and number of analysts (story 9.7); `null` = no analyst data. */
+  analysts: { consensus: string; count: number } | null;
+};
 
 /** Column header / menu label of each optional column. */
 const COLUMN_LABELS: Record<WatchlistColumnKey, string> = {
   kgv: "KGV",
   dividendYield: "Dividendenrendite",
   distanceToHigh: "Abstand zum 52-Wochen-Hoch",
+  analysts: "Analysten",
 };
 
 /** Short label of each optional column in the phone row's caption line. */
@@ -155,6 +161,7 @@ const PHONE_LABELS: Record<WatchlistColumnKey, string> = {
   kgv: "KGV",
   dividendYield: "Dividendenrendite",
   distanceToHigh: "Abstand zum Hoch",
+  analysts: "Analysten",
 };
 
 /** The displayed value of an optional column; "–" when not delivered or not computable. */
@@ -166,6 +173,8 @@ function columnValue(key: WatchlistColumnKey, entry: WatchlistEntryView, figures
       return figures?.dividendYield ? formatRate(figures.dividendYield) : MISSING;
     case "distanceToHigh":
       return entry.fiftyTwoWeek.distanceToHigh === null ? MISSING : formatRate(entry.fiftyTwoWeek.distanceToHigh);
+    case "analysts":
+      return figures?.analysts ? `${figures.analysts.consensus} (${figures.analysts.count})` : MISSING;
   }
 }
 
@@ -388,7 +397,7 @@ function PhoneList({
  * Entries of one watchlist: sortable table from `md`, stacked rows below (one shared sort state, default
  * date added newest first, `sortWatchlistEntries`). A row opens the Security detail; the pencil opens
  * "Eintrag bearbeiten" (note, date, list, "Entfernen"). "Spalten" shows the optional key-figure columns
- * (KGV, Dividendenrendite, Abstand zum 52-Wochen-Hoch; not sortable), remembered per browser; on phones
+ * (KGV, Dividendenrendite, Abstand zum 52-Wochen-Hoch, Analysten "Optimistisch (31)"; not sortable), remembered per browser; on phones
  * the chosen figures form an extra caption line of each row.
  */
 export function WatchlistTable({

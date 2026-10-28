@@ -1,8 +1,10 @@
-// Yahoo Finance `quoteSummary` (AD-20): sector, industry, country, market cap and currency of a stock, and
-// the key figures of a stock, ETF or fund (story 9.6) — one request can carry both. Only the Yahoo symbol
-// (ticker) leaves the server (AD-13). The classification module keeps its own lazily loaded client
-// (modules do not share internals).
+// Yahoo Finance `quoteSummary` (AD-20): sector, industry, country, market cap and currency of a stock, the
+// key figures of a stock, ETF or fund (story 9.6) and the analyst ratings of a stock (story 9.7) — one
+// request can carry all of them. Yahoo `search` by ISIN finds a stock's home listing (the Analysten-Symbol).
+// Only the Yahoo symbol (ticker) or the ISIN leaves the server (AD-13). The classification module keeps its
+// own lazily loaded client (modules do not share internals).
 import { z } from "zod";
+import { type AnalystChange, type AnalystRatings, hasAnalystData, MAX_ANALYST_CHANGES, TREND_PERIODS } from "@/core/analyst-ratings";
 import type { ProviderProfile } from "@/core/classification";
 import { businessDate, isBusinessDate } from "@/core/dates";
 import { emptyKeyFigures, type ProviderKeyFigures } from "@/core/key-figures";
@@ -21,7 +23,9 @@ export type QuoteSummaryModule =
   | "defaultKeyStatistics"
   | "financialData"
   | "calendarEvents"
-  | "fundProfile";
+  | "fundProfile"
+  | "recommendationTrend"
+  | "upgradeDowngradeHistory";
 
 /** Modules of the classification profile (kept exactly as before story 9.6). */
 export const PROFILE_MODULES = ["assetProfile", "price"] as const satisfies readonly QuoteSummaryModule[];
@@ -32,6 +36,15 @@ export const KEY_FIGURE_MODULES = [
   "financialData",
   "calendarEvents",
   "fundProfile",
+] as const satisfies readonly QuoteSummaryModule[];
+
+/** Modules of the analyst ratings (story 9.7); `price`/`summaryDetail` carry the listing's quote currency. */
+export const ANALYST_MODULES = [
+  "financialData",
+  "summaryDetail",
+  "price",
+  "recommendationTrend",
+  "upgradeDowngradeHistory",
 ] as const satisfies readonly QuoteSummaryModule[];
 
 export type QuoteSummaryQuery = { modules: QuoteSummaryModule[] };
@@ -260,4 +273,197 @@ export function keyFiguresOf(raw: unknown, kind: "stock" | "fund", today: string
     nextEarningsDate: earnings.find((date) => date >= today) ?? earnings.at(-1) ?? null,
   } satisfies Partial<ProviderKeyFigures>);
   return { status: "found", value: figures };
+}
+
+// ---- Analyst ratings (story 9.7) ----
+
+/** A count of analysts: a non-negative integer, else 0. */
+const count = z.number().int().nonnegative().catch(0).optional().default(0);
+
+const analystSchema = z
+  .object({
+    price: section({ currency: text }),
+    summaryDetail: section({ currency: text }),
+    financialData: section({
+      currentPrice: num,
+      targetHighPrice: num,
+      targetLowPrice: num,
+      targetMeanPrice: num,
+      targetMedianPrice: num,
+      recommendationMean: num,
+      numberOfAnalystOpinions: num,
+    }),
+    recommendationTrend: section({
+      trend: z
+        .array(z.object({ period: text, strongBuy: count, buy: count, hold: count, sell: count, strongSell: count }).loose().catch(null as never))
+        .nullable()
+        .optional()
+        .catch(null),
+    }),
+    upgradeDowngradeHistory: section({
+      history: z
+        .array(
+          z
+            .object({
+              epochGradeDate: dateValue,
+              firm: text,
+              toGrade: text,
+              fromGrade: text,
+              action: text,
+              currentPriceTarget: num,
+              priorPriceTarget: num,
+            })
+            .loose()
+            .catch(null as never),
+        )
+        .nullable()
+        .optional()
+        .catch(null),
+    }),
+  })
+  .loose();
+
+/** A price target: a positive amount (Yahoo sends 0 for "none"), else `null`. */
+function targetOf(value: number | null | undefined): string | null {
+  return value !== null && value !== undefined && value > 0 ? decimalOf(value) : null;
+}
+
+/** A non-negative integer count, else `null`. */
+function integerOf(value: number | null | undefined): number | null {
+  return value !== null && value !== undefined && Number.isInteger(value) && value >= 0 ? value : null;
+}
+
+/**
+ * The analyst ratings in a raw `quoteSummary` result (`ANALYST_MODULES`): the recommendation trend (oldest
+ * → current month), analyst count, consensus mean, price targets with the SAME listing's current price
+ * and quote currency (`price.currency ?? summaryDetail.currency`), and the last 10 up-/downgrades (newest
+ * first). `null` when nothing is worth showing (`hasAnalystData`); a malformed response is `error`.
+ */
+export function analystRatingsOf(raw: unknown): Lookup<AnalystRatings | null> {
+  const parsed = analystSchema.safeParse(raw);
+  if (!parsed.success) {
+    console.warn("Classification: Yahoo analyst schema mismatch");
+    return { status: "error" };
+  }
+  const { price, summaryDetail, financialData: financial, recommendationTrend, upgradeDowngradeHistory } = parsed.data;
+  const trend: AnalystRatings["trend"] = [];
+  for (const period of TREND_PERIODS) {
+    const month = (recommendationTrend?.trend ?? []).find((candidate) => candidate?.period === period);
+    if (month) {
+      trend.push({ period, strongBuy: month.strongBuy, buy: month.buy, hold: month.hold, sell: month.sell, strongSell: month.strongSell });
+    }
+  }
+  const changes: AnalystChange[] = [];
+  for (const entry of upgradeDowngradeHistory?.history ?? []) {
+    if (!entry) continue;
+    const date = dateOf(entry.epochGradeDate);
+    const firm = textOf(entry.firm);
+    const toGrade = textOf(entry.toGrade);
+    if (date === null || firm === null || toGrade === null) continue;
+    changes.push({
+      date,
+      firm,
+      fromGrade: textOf(entry.fromGrade),
+      toGrade,
+      action: textOf(entry.action),
+      priceTargetFrom: targetOf(entry.priorPriceTarget),
+      priceTargetTo: targetOf(entry.currentPriceTarget),
+    });
+  }
+  // Newest first; the sort is stable, so same-day entries keep Yahoo's order.
+  changes.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+  const mean = financial?.recommendationMean;
+  const ratings: AnalystRatings = {
+    trend,
+    analystCount: integerOf(financial?.numberOfAnalystOpinions),
+    consensusMean: mean !== null && mean !== undefined && mean > 0 ? decimalOf(mean) : null,
+    target: {
+      low: targetOf(financial?.targetLowPrice),
+      mean: targetOf(financial?.targetMeanPrice),
+      median: targetOf(financial?.targetMedianPrice),
+      high: targetOf(financial?.targetHighPrice),
+      currentPrice: targetOf(financial?.currentPrice),
+      currency: textOf(price?.currency) ?? textOf(summaryDetail?.currency),
+    },
+    changes: changes.slice(0, MAX_ANALYST_CHANGES),
+  };
+  return { status: "found", value: hasAnalystData(ratings) ? ratings : null };
+}
+
+// ---- Home listing by ISIN (story 9.7) ----
+
+/** Runs a Yahoo search for the query and returns the raw (unvalidated) response. */
+export type YahooSearch = (query: string) => Promise<unknown>;
+
+/** The real search: `yahoo-finance2` (loaded on first use); the result is validated by our own schema. */
+export const yahooSearch: YahooSearch = async (query) => {
+  const yahoo = await yahooClient();
+  return yahoo.search(
+    query,
+    { quotesCount: 10, newsCount: 0 },
+    { validateResult: false, fetchOptions: { signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS) } },
+  );
+};
+
+/** A Yahoo symbol as accepted for the Analysten-Symbol. */
+export const YAHOO_SYMBOL = /^[A-Za-z0-9.^=_-]{1,40}$/;
+
+const searchSchema = z
+  .object({ quotes: z.array(z.object({ symbol: z.string().optional(), isYahooFinance: z.boolean().optional() }).loose()) })
+  .loose();
+
+/** Yahoo suffix of a stock's home exchange by ISIN country ("" = US listing without suffix). */
+const HOME_SUFFIX: Readonly<Record<string, string>> = {
+  US: "",
+  DE: ".DE",
+  GB: ".L",
+  FR: ".PA",
+  NL: ".AS",
+  CH: ".SW",
+  IT: ".MI",
+  ES: ".MC",
+  SE: ".ST",
+  DK: ".CO",
+  NO: ".OL",
+  FI: ".HE",
+  BE: ".BR",
+  AT: ".VI",
+  PT: ".LS",
+  IE: ".IR",
+  JP: ".T",
+  HK: ".HK",
+  CA: ".TO",
+  AU: ".AX",
+};
+
+/**
+ * The home listing of a stock by ISIN (Yahoo search; only the ISIN is sent): the first quote with the
+ * suffix of the ISIN country (US: no suffix), else the first suffix-less (US) quote, else `mappingSymbol`.
+ * Quotes flagged `isYahooFinance: false` are ignored. A thrown or malformed response is `error`.
+ */
+export async function findHomeListing(
+  isin: string,
+  mappingSymbol: string,
+  { search = yahooSearch }: { search?: YahooSearch } = {},
+): Promise<Lookup<string>> {
+  let raw: unknown;
+  try {
+    raw = await search(isin);
+  } catch (error) {
+    console.warn(`Classification: Yahoo search failed (${error instanceof Error ? error.name : "unknown"})`);
+    return { status: "error" };
+  }
+  const parsed = searchSchema.safeParse(raw);
+  if (!parsed.success) {
+    console.warn("Classification: Yahoo search schema mismatch");
+    return { status: "error" };
+  }
+  const symbols = parsed.data.quotes
+    .filter((quote) => quote.isYahooFinance !== false)
+    .map((quote) => quote.symbol?.trim().toUpperCase())
+    .filter((symbol): symbol is string => Boolean(symbol && YAHOO_SYMBOL.test(symbol)));
+  const suffix = HOME_SUFFIX[isin.slice(0, 2).toUpperCase()];
+  const home = suffix === undefined || suffix === "" ? undefined : symbols.find((symbol) => symbol.endsWith(suffix));
+  const us = symbols.find((symbol) => !symbol.includes("."));
+  return { status: "found", value: home ?? us ?? mappingSymbol.toUpperCase() };
 }

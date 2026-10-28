@@ -6,6 +6,8 @@ import { SPLIT_REGIONS, type SplitRegion } from "@/core/region-split";
 import { getSession } from "@/modules/auth";
 import {
   type ManualClassificationInput,
+  setAnalystSymbol,
+  type SetAnalystSymbolResult,
   setManualClassification,
   type SetManualClassificationResult,
   setManualRegionSplit,
@@ -64,6 +66,25 @@ export async function setRegionSplitAction(_previous: SetRegionSplitActionState,
   if (result.ok) {
     revalidatePath("/securities");
     revalidatePath("/analyses");
+  }
+  return result;
+}
+
+/** Result of "Analysten-Symbol" (story 9.7). */
+export type SetAnalystSymbolActionResult = SetAnalystSymbolResult | Unauthorized;
+
+/**
+ * "Analysten-Symbol" (story 9.7): sets the Yahoo symbol the analyst ratings of stock `securityId` come
+ * from (`""` = automatic, resolved again by ISIN). Revalidates the Securities page and the Security's
+ * detail page; the next refresh (or "Kennzahlen aktualisieren") refetches.
+ */
+export async function setAnalystSymbolAction(securityId: string, symbol: string): Promise<SetAnalystSymbolActionResult> {
+  if (!(await getSession())) return UNAUTHORIZED;
+  const id = typeof securityId === "string" ? securityId.trim() : "";
+  const result = await setAnalystSymbol(id, symbol);
+  if (result.ok) {
+    revalidatePath("/securities");
+    revalidatePath(`/securities/${id}`);
   }
   return result;
 }

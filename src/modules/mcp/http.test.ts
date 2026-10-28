@@ -430,6 +430,61 @@ describe("MCP tools through a real MCP client", () => {
     await client.close();
   });
 
+  it("get_watchlist returns each entry's analyst ratings (story 9.7) or null", async () => {
+    const { ideas, sap } = await seed();
+    await addWatchlistEntry({ watchlistId: ideas, security: { id: sap } }, TODAY, testDb.client);
+    const client = await mcpClient((await connect()).access_token);
+    let got = await call(client, "get_watchlist", { watchlist_id: ideas });
+    expect(got.payload.entries[0].key_figures.analysts).toBeNull();
+
+    await testDb.client.securityKeyFigures.create({
+      data: {
+        securityId: sap,
+        symbol: "SAP.DE",
+        kind: "stock",
+        figures: "{}",
+        analystSymbol: "SAP.DE",
+        analysts: JSON.stringify({
+          trend: [
+            { period: "-1m", strongBuy: 10, buy: 21, hold: 14, sell: 2, strongSell: 1 },
+            { period: "0m", strongBuy: 11, buy: 20, hold: 14, sell: 3, strongSell: 1 },
+          ],
+          analystCount: 51,
+          consensusMean: "1.85",
+          target: { low: "200", mean: "270", median: "272.5", high: "310", currentPrice: "240", currency: "EUR" },
+          changes: [
+            { date: "2026-10-21", firm: "Synthetic Securities", fromGrade: "Hold", toGrade: "Buy", action: "up", priceTargetFrom: "250", priceTargetTo: "270" },
+          ],
+        }),
+        fetchedAt: "2026-10-27T09:00:00.000Z",
+      },
+    });
+    got = await call(client, "get_watchlist", { watchlist_id: ideas });
+    expect(got.payload.entries[0].key_figures.analysts).toEqual({
+      symbol: "SAP.DE",
+      consensus: "optimistic",
+      consensus_mean: "1.85",
+      analyst_count: 51,
+      trend: [
+        { period: "-1m", strong_buy: 10, buy: 21, hold: 14, sell: 2, strong_sell: 1 },
+        { period: "0m", strong_buy: 11, buy: 20, hold: 14, sell: 3, strong_sell: 1 },
+      ],
+      price_target: { low: "200", mean: "270", median: "272.5", high: "310", currency: "EUR", current_price: "240", implied_change: "0.125" },
+      recent_changes: [
+        {
+          date: "2026-10-21",
+          firm: "Synthetic Securities",
+          from_grade: "Hold",
+          to_grade: "Buy",
+          action: "up",
+          price_target_from: "250",
+          price_target_to: "270",
+        },
+      ],
+    });
+    await client.close();
+  });
+
   it("lists, gets, creates, renames and deletes watchlists", async () => {
     const { ideas, sap } = await seed();
     await addWatchlistEntry({ watchlistId: ideas, security: { id: sap } }, TODAY, testDb.client);

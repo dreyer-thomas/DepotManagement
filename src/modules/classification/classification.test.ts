@@ -6,16 +6,18 @@ import { setMapping } from "@/modules/prices";
 import {
   type ClassificationDeps,
   exportClassifications,
+  listAnalystSymbols,
   listClassifications,
   listKeyFigures,
   listRegionSplits,
   refreshClassifications,
   refreshKeyFigures,
   replaceAllClassifications,
+  setAnalystSymbol,
   setManualClassification,
   setManualRegionSplit,
 } from "./index";
-import type { YahooQuoteSummary } from "./providers/yahoo";
+import type { YahooQuoteSummary, YahooSearch } from "./providers/yahoo";
 
 let testDb: TestDatabase;
 
@@ -476,8 +478,12 @@ describe("key figures (story 9.6)", () => {
   const SAP_FIGURES = recorded("yahoo-quotesummary-keyfigures-sap-de") as Record<string, unknown>;
   const EUNL_FIGURES = recorded("yahoo-quotesummary-keyfigures-eunl-de");
   const SAP_FULL = { ...(SAP_PROFILE as Record<string, unknown>), ...SAP_FIGURES };
-  const ALL_MODULES = ["assetProfile", "price", "summaryDetail", "defaultKeyStatistics", "financialData", "calendarEvents", "fundProfile"];
   const KEY_FIGURE_MODULES = ["summaryDetail", "defaultKeyStatistics", "financialData", "calendarEvents", "fundProfile"];
+  const ANALYST_EXTRA = ["recommendationTrend", "upgradeDowngradeHistory"];
+  /** Profile + key figures + analyst modules of a stock whose Analysten-Symbol is its mapping symbol. */
+  const ALL_MODULES = ["assetProfile", "price", ...KEY_FIGURE_MODULES, ...ANALYST_EXTRA];
+  /** Key figures + analyst modules in one request. */
+  const STOCK_MODULES = [...KEY_FIGURE_MODULES, "price", ...ANALYST_EXTRA];
 
   /** A fake quoteSummary recording symbol and modules per call. */
   function recording(replies: Record<string, unknown>) {
@@ -504,8 +510,17 @@ describe("key figures (story 9.6)", () => {
     if (!trade.ok) throw new Error("setup failed");
   }
 
-  const at = (iso: string, watched: readonly string[] = [], quoteSummary?: YahooQuoteSummary): ClassificationDeps => ({
+  /** Yahoo search without any home listing: the Analysten-Symbol falls back to the mapping symbol. */
+  const NO_HOME_LISTING: YahooSearch = async () => ({ quotes: [] });
+
+  const at = (
+    iso: string,
+    watched: readonly string[] = [],
+    quoteSummary?: YahooQuoteSummary,
+    search: YahooSearch = NO_HOME_LISTING,
+  ): ClassificationDeps => ({
     quoteSummary,
+    search,
     now: () => new Date(iso),
     watched: async () => watched,
   });
@@ -535,7 +550,7 @@ describe("key figures (story 9.6)", () => {
     // The next Berlin day: key figures only (the profile is answered already).
     const nextDay = recording({ "SAP.DE": SAP_FIGURES });
     await refreshClassifications(at("2026-10-28T23:30:00.000Z", [], nextDay.quoteSummary), db());
-    expect(nextDay.calls).toEqual([{ symbol: "SAP.DE", modules: KEY_FIGURE_MODULES }]);
+    expect(nextDay.calls).toEqual([{ symbol: "SAP.DE", modules: STOCK_MODULES }]);
     expect((await listKeyFigures([sap], "2026-10-29", db()))[sap].snapshot).toMatchObject({ asOf: "2026-10-29" });
   });
 
@@ -608,7 +623,11 @@ describe("key figures (story 9.6)", () => {
     expect((await listKeyFigures([sap], "2026-10-28", db()))[sap].snapshot).toMatchObject({ symbol: "SAP.DE", fetchedToday: false });
     const { quoteSummary, calls } = recording({ "SAP.F": SAP_FULL });
     expect(await refreshKeyFigures(sap, at("2026-10-28T11:00:00.000Z", [], quoteSummary), db())).toEqual({ status: "updated" });
-    expect(calls).toEqual([{ symbol: "SAP.F", modules: KEY_FIGURE_MODULES }]);
+    // The Analysten-Symbol stays the resolved SAP.DE: a second request for the analyst modules.
+    expect(calls).toEqual([
+      { symbol: "SAP.F", modules: KEY_FIGURE_MODULES },
+      { symbol: "SAP.DE", modules: ["financialData", "summaryDetail", "price", ...ANALYST_EXTRA] },
+    ]);
     expect((await listKeyFigures([sap], "2026-10-28", db()))[sap].snapshot).toMatchObject({ symbol: "SAP.F", fetchedToday: true });
   });
 
@@ -663,5 +682,250 @@ describe("key figures (story 9.6)", () => {
 
   it("refreshKeyFigures: not-found for an unknown id", async () => {
     expect(await refreshKeyFigures("nope", at("2026-10-28T10:00:00.000Z"), db())).toEqual({ status: "not-found" });
+  });
+
+  describe("analyst ratings (story 9.7)", () => {
+    const ANALYST_MODULES = ["financialData", "summaryDetail", "price", ...ANALYST_EXTRA];
+    const SAP_ANALYSTS = recorded("yahoo-quotesummary-analysts-sap-de") as Record<string, unknown>;
+    const APC_FIGURES = recorded("yahoo-quotesummary-keyfigures-apc-de");
+    const AAPL_ANALYSTS = recorded("yahoo-quotesummary-analysts-aapl");
+    const APPLE_ISIN = "US0378331005";
+
+    /** A fake Yahoo search recording the queries. */
+    function searching(reply: unknown | Error) {
+      const queries: string[] = [];
+      const search: YahooSearch = async (query) => {
+        queries.push(query);
+        if (reply instanceof Error) throw reply;
+        return reply;
+      };
+      return { search, queries };
+    }
+
+    async function watchedApple() {
+      const apple = await security({ isin: APPLE_ISIN }, "Apple Inc.", "STOCK");
+      await mapYahoo(apple, "APC.DE");
+      return apple;
+    }
+
+    it("German stock: ONE request carries profile, key figures and analyst modules; the card data is stored", async () => {
+      const sap = await security({ isin: "DE0007164600" }, "SAP SE", "STOCK");
+      await mapYahoo(sap, "SAP.DE");
+      await hold(sap);
+      const { search, queries } = searching({ quotes: [{ symbol: "SAP" }, { symbol: "SAP.DE" }] });
+      const { quoteSummary, calls } = recording({ "SAP.DE": { ...(SAP_PROFILE as Record<string, unknown>), ...SAP_ANALYSTS } });
+
+      expect(await refreshClassifications(at("2026-10-28T10:00:00.000Z", [], quoteSummary, search), db())).toMatchObject({ failed: 0 });
+      expect(queries).toEqual(["DE0007164600"]);
+      expect(calls).toEqual([{ symbol: "SAP.DE", modules: ALL_MODULES }]);
+      const snapshot = (await listKeyFigures([sap], "2026-10-28", db()))[sap].snapshot;
+      expect(snapshot).toMatchObject({ symbol: "SAP.DE", analystSymbol: "SAP.DE", fetchedToday: true });
+      expect(snapshot?.analysts?.trend.map((month) => month.period)).toEqual(["-3m", "-2m", "-1m", "0m"]);
+      expect(snapshot?.analysts).toMatchObject({ analystCount: 51, consensusMean: "1.85", target: { mean: "270", currentPrice: "240", currency: "EUR" } });
+      expect(snapshot?.analysts?.changes).toHaveLength(10);
+      expect(await listAnalystSymbols(db())).toMatchObject({ [sap]: { symbol: "SAP.DE", manual: false } });
+    });
+
+    it("foreign stock on a DE listing: key figures from APC.DE, analyst data from AAPL; fresh for the rest of the day", async () => {
+      const apple = await watchedApple();
+      const { search, queries } = searching(recorded("yahoo-search-apple"));
+      const { quoteSummary, calls } = recording({ "APC.DE": APC_FIGURES, AAPL: AAPL_ANALYSTS });
+
+      expect(await refreshClassifications(at("2026-10-28T10:00:00.000Z", [apple], quoteSummary, search), db())).toMatchObject({ failed: 0 });
+      expect(queries).toEqual([APPLE_ISIN]);
+      expect(calls).toEqual([
+        { symbol: "APC.DE", modules: ["assetProfile", "price", ...KEY_FIGURE_MODULES] },
+        { symbol: "AAPL", modules: ANALYST_MODULES },
+      ]);
+      const snapshot = (await listKeyFigures([apple], "2026-10-28", db()))[apple].snapshot;
+      expect(snapshot).toMatchObject({ symbol: "APC.DE", analystSymbol: "AAPL", fetchedToday: true, figures: { trailingPE: "35.12" } });
+      expect(snapshot?.analysts?.target).toMatchObject({ mean: "245", currentPrice: "217.5", currency: "USD" });
+      expect(await listAnalystSymbols(db())).toEqual({ [apple]: { symbol: "AAPL", manual: false } });
+
+      const again = recording({ "APC.DE": APC_FIGURES, AAPL: AAPL_ANALYSTS });
+      const againSearch = searching(recorded("yahoo-search-apple"));
+      await refreshClassifications(at("2026-10-28T20:00:00.000Z", [apple], again.quoteSummary, againSearch.search), db());
+      expect(await refreshKeyFigures(apple, at("2026-10-28T20:30:00.000Z", [apple], again.quoteSummary, againSearch.search), db())).toEqual({
+        status: "fresh",
+      });
+      expect(again.calls).toEqual([]);
+      expect(againSearch.queries).toEqual([]);
+    });
+
+    it("a manual symbol is never overwritten, refetches today and is cleared back to automatic; never exported", async () => {
+      const apple = await watchedApple();
+      const replies = { "APC.DE": APC_FIGURES, AAPL: AAPL_ANALYSTS, NVDA: AAPL_ANALYSTS };
+      await refreshClassifications(at("2026-10-28T10:00:00.000Z", [apple], recording(replies).quoteSummary, searching(recorded("yahoo-search-apple")).search), db());
+
+      expect(await setAnalystSymbol(apple, " nvda ", db())).toEqual({ ok: true });
+      expect(await listAnalystSymbols(db())).toEqual({ [apple]: { symbol: "NVDA", manual: true } });
+      expect((await listKeyFigures([apple], "2026-10-28", db()))[apple].snapshot).toMatchObject({ analystSymbol: "AAPL", fetchedToday: false });
+      const { search, queries } = searching(recorded("yahoo-search-apple"));
+      const { quoteSummary, calls } = recording(replies);
+      expect(await refreshKeyFigures(apple, at("2026-10-28T11:00:00.000Z", [apple], quoteSummary, search), db())).toEqual({ status: "updated" });
+      expect(calls).toEqual([
+        { symbol: "APC.DE", modules: KEY_FIGURE_MODULES },
+        { symbol: "NVDA", modules: ANALYST_MODULES },
+      ]);
+      await refreshClassifications(at("2026-10-29T10:00:00.000Z", [apple], recording(replies).quoteSummary, search), db());
+      expect(queries).toEqual([]);
+      expect(await listAnalystSymbols(db())).toEqual({ [apple]: { symbol: "NVDA", manual: true } });
+      expect(await exportClassifications(db())).toEqual([]);
+      expect(JSON.stringify(await exportClassifications(db()))).not.toMatch(/NVDA|analyst/i);
+
+      expect(await setAnalystSymbol(apple, "", db())).toEqual({ ok: true });
+      expect(await listAnalystSymbols(db())).toEqual({ [apple]: { symbol: null, manual: false } });
+      await refreshClassifications(at("2026-10-29T11:00:00.000Z", [apple], recording(replies).quoteSummary, search), db());
+      expect(queries).toEqual([APPLE_ISIN]);
+      expect(await listAnalystSymbols(db())).toEqual({ [apple]: { symbol: "AAPL", manual: false } });
+      expect((await listKeyFigures([apple], "2026-10-29", db()))[apple].snapshot).toMatchObject({ analystSymbol: "AAPL", fetchedToday: true });
+    });
+
+    it("a transient analyst error writes nothing; 'no data' stores analysts null", async () => {
+      const apple = await watchedApple();
+      const search = searching(recorded("yahoo-search-apple")).search;
+      const failing = recording({ "APC.DE": APC_FIGURES, AAPL: new TypeError("fetch failed") });
+      expect(await refreshClassifications(at("2026-10-28T10:00:00.000Z", [apple], failing.quoteSummary, search), db())).toMatchObject({ failed: 1 });
+      expect(await db().securityKeyFigures.count()).toBe(0);
+      expect(await refreshKeyFigures(apple, at("2026-10-28T11:00:00.000Z", [apple], failing.quoteSummary, search), db())).toEqual({ status: "failed" });
+      expect(await db().securityKeyFigures.count()).toBe(0);
+
+      const noData = recording({ "APC.DE": APC_FIGURES });
+      expect(await refreshKeyFigures(apple, at("2026-10-28T12:00:00.000Z", [apple], noData.quoteSummary, search), db())).toEqual({ status: "updated" });
+      expect((await listKeyFigures([apple], "2026-10-28", db()))[apple].snapshot).toMatchObject({
+        analystSymbol: "AAPL",
+        analysts: null,
+        figures: { trailingPE: "35.12" },
+      });
+    });
+
+    it("a search error still stores the key figures (without analyst data), counts as failed and retries next run", async () => {
+      const apple = await watchedApple();
+      const replies = { "APC.DE": APC_FIGURES, AAPL: AAPL_ANALYSTS };
+      const failing = searching(new TypeError("fetch failed"));
+      const first = recording(replies);
+      expect(await refreshClassifications(at("2026-10-28T10:00:00.000Z", [apple], first.quoteSummary, failing.search), db())).toMatchObject({
+        failed: 1,
+      });
+      expect(first.calls).toEqual([{ symbol: "APC.DE", modules: ["assetProfile", "price", ...KEY_FIGURE_MODULES] }]);
+      expect((await listKeyFigures([apple], "2026-10-28", db()))[apple].snapshot).toMatchObject({ analystSymbol: null, analysts: null, fetchedToday: true });
+      expect(await listAnalystSymbols(db())).toEqual({ [apple]: { symbol: null, manual: false } });
+
+      const working = searching(recorded("yahoo-search-apple"));
+      const second = recording(replies);
+      expect(await refreshClassifications(at("2026-10-28T11:00:00.000Z", [apple], second.quoteSummary, working.search), db())).toMatchObject({
+        failed: 0,
+      });
+      expect(working.queries).toEqual([APPLE_ISIN]);
+      expect(second.calls).toEqual([
+        { symbol: "APC.DE", modules: KEY_FIGURE_MODULES },
+        { symbol: "AAPL", modules: ANALYST_MODULES },
+      ]);
+      expect((await listKeyFigures([apple], "2026-10-28", db()))[apple].snapshot?.analysts?.target.currency).toBe("USD");
+    });
+
+    it("never searches or asks analyst modules for ETFs or untracked stocks; an ETF snapshot has no analyst data", async () => {
+      const msci = await security({ isin: "IE00B4L5Y983" }, "iShares Core MSCI World UCITS ETF USD (Acc)", "ETF");
+      const apple = await watchedApple();
+      await mapYahoo(msci, "EUNL.DE");
+      const { search, queries } = searching(recorded("yahoo-search-apple"));
+      const { quoteSummary, calls } = recording({ "EUNL.DE": EUNL_FIGURES, "APC.DE": APC_FIGURES });
+      await refreshClassifications(at("2026-10-28T10:00:00.000Z", [msci], quoteSummary, search), db());
+      expect(queries).toEqual([]);
+      expect(calls).toEqual(
+        expect.arrayContaining([
+          { symbol: "EUNL.DE", modules: KEY_FIGURE_MODULES },
+          { symbol: "APC.DE", modules: ["assetProfile", "price"] },
+        ]),
+      );
+      expect(calls).toHaveLength(2);
+      expect((await listKeyFigures([msci], "2026-10-28", db()))[msci].snapshot).toMatchObject({ analystSymbol: null, analysts: null });
+      expect((await listAnalystSymbols(db()))[apple]).toEqual({ symbol: null, manual: false });
+    });
+
+    it("a manual symbol saved while the search runs is kept (the resolution writes only an unresolved automatic symbol)", async () => {
+      const apple = await watchedApple();
+      const racing: YahooSearch = async () => {
+        expect(await setAnalystSymbol(apple, "NVDA", db())).toEqual({ ok: true });
+        return recorded("yahoo-search-apple");
+      };
+      const { quoteSummary, calls } = recording({ "APC.DE": APC_FIGURES, NVDA: AAPL_ANALYSTS });
+      await refreshClassifications(at("2026-10-28T10:00:00.000Z", [apple], quoteSummary, racing), db());
+      expect(await listAnalystSymbols(db())).toEqual({ [apple]: { symbol: "NVDA", manual: true } });
+      expect(calls.map((call) => call.symbol)).toEqual(["APC.DE", "NVDA"]);
+    });
+
+    it("a lowercase mapping symbol equal to the analyst symbol shares one request", async () => {
+      const sap = await security({ isin: "DE0007164600" }, "SAP SE", "STOCK");
+      await mapYahoo(sap, "sap.de");
+      await hold(sap);
+      const { quoteSummary, calls } = recording({ "sap.de": SAP_ANALYSTS });
+      await refreshClassifications(at("2026-10-28T10:00:00.000Z", [], quoteSummary, searching({ quotes: [{ symbol: "SAP.DE" }] }).search), db());
+      expect(calls).toEqual([{ symbol: "sap.de", modules: ALL_MODULES }]);
+      expect((await listKeyFigures([sap], "2026-10-28", db()))[sap].snapshot?.analysts?.analystCount).toBe(51);
+    });
+
+    it("refreshKeyFigures with a failing search: key figures stored without analyst data, no analyst request", async () => {
+      const apple = await watchedApple();
+      const { quoteSummary, calls } = recording({ "APC.DE": APC_FIGURES, AAPL: AAPL_ANALYSTS });
+      const failing = searching(new TypeError("fetch failed"));
+      expect(await refreshKeyFigures(apple, at("2026-10-28T10:00:00.000Z", [apple], quoteSummary, failing.search), db())).toEqual({
+        status: "updated",
+      });
+      expect(failing.queries).toEqual([APPLE_ISIN]);
+      expect(calls).toEqual([{ symbol: "APC.DE", modules: KEY_FIGURE_MODULES }]);
+      expect((await listKeyFigures([apple], "2026-10-28", db()))[apple].snapshot).toMatchObject({
+        analystSymbol: null,
+        analysts: null,
+        figures: { trailingPE: "35.12" },
+      });
+    });
+
+    it("an ETF's stored snapshot never exposes analyst data", async () => {
+      const msci = await security({ isin: "IE00B4L5Y983" }, "iShares Core MSCI World UCITS ETF USD (Acc)", "ETF");
+      await mapYahoo(msci, "EUNL.DE");
+      await db().securityKeyFigures.create({
+        data: {
+          securityId: msci,
+          symbol: "EUNL.DE",
+          kind: "fund",
+          figures: "{}",
+          analystSymbol: "EUNL.DE",
+          analysts: JSON.stringify({ trend: [{ period: "0m", strongBuy: 1, buy: 2, hold: 0, sell: 0, strongSell: 0 }], consensusMean: "1.5" }),
+          fetchedAt: "2026-10-28T10:00:00.000Z",
+        },
+      });
+      expect((await listKeyFigures([msci], "2026-10-28", db()))[msci].snapshot).toMatchObject({ analystSymbol: null, analysts: null });
+    });
+
+    it("setAnalystSymbol validates before writing", async () => {
+      const apple = await watchedApple();
+      const msci = await security({ isin: "IE00B4L5Y983" }, "iShares Core MSCI World UCITS ETF USD (Acc)", "ETF");
+      expect(await setAnalystSymbol("missing", "AAPL", db())).toEqual({ ok: false, reason: "not-found" });
+      expect(await setAnalystSymbol(msci, "EUNL.DE", db())).toEqual({ ok: false, reason: "not-a-stock" });
+      expect(await setAnalystSymbol(apple, "bad symbol", db())).toEqual({ ok: false, reason: "symbol-invalid" });
+      expect(await setAnalystSymbol(apple, "X".repeat(41), db())).toEqual({ ok: false, reason: "symbol-invalid" });
+      expect(await setAnalystSymbol(apple, 42, db())).toEqual({ ok: false, reason: "symbol-invalid" });
+      expect(await db().securityClassification.count()).toBe(0);
+    });
+
+    it("reads a stored analyst JSON defensively", async () => {
+      const apple = await watchedApple();
+      await db().securityKeyFigures.create({
+        data: {
+          securityId: apple,
+          symbol: "APC.DE",
+          kind: "stock",
+          figures: "{}",
+          analystSymbol: "AAPL",
+          analysts: JSON.stringify({ trend: [{ period: "0m", strongBuy: 1, buy: "2" }, { period: "-1m", strongBuy: 1, buy: 2, hold: 0, sell: 0, strongSell: 0 }], target: { mean: 270 } }),
+          fetchedAt: "2026-10-28T10:00:00.000Z",
+        },
+      });
+      // The current month is unreadable and the mean is not a string: nothing worth showing.
+      expect((await listKeyFigures([apple], "2026-10-28", db()))[apple].snapshot?.analysts).toBeNull();
+      await db().securityKeyFigures.update({ where: { securityId: apple }, data: { analysts: "not json" } });
+      expect((await listKeyFigures([apple], "2026-10-28", db()))[apple].snapshot?.analysts).toBeNull();
+    });
   });
 });

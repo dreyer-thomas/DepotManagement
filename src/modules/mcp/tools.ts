@@ -2,10 +2,12 @@
 // services and the `prices` OpenFIGI lookup: arguments go to the services unvalidated (so the app and Claude
 // refuse the same inputs), reasons become `{ error, message }`. No figures are computed here; `held` is never
 // part of a payload. Payload values are never logged. `get_watchlist` adds each entry's key figures (story
-// 9.6: the classification module's snapshot plus the 52-week figures computed by core).
+// 9.6: the classification module's snapshot plus the 52-week figures computed by core) and, for stocks,
+// the analyst ratings (story 9.7).
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
+import { analystConsensusOf, analystCountOf, type AnalystRatings, consensusMean, targetChange } from "@/core/analyst-ratings";
 import { emptyKeyFigures } from "@/core/key-figures";
 import { WATCHLIST_NAME_MAX_LENGTH, WATCHLIST_NOTE_MAX_LENGTH } from "@/core/watchlist";
 import { type KeyFiguresInfo, listKeyFigures } from "@/modules/classification";
@@ -112,6 +114,43 @@ function summaryPayload(list: WatchlistSummary) {
   return { id: list.id, name: list.name, entry_count: list.entryCount };
 }
 
+/** The analyst ratings of a stock's snapshot (story 9.7, snake_case); `null` without analyst data. */
+export function analystsPayload(symbol: string | null, ratings: AnalystRatings | null) {
+  if (ratings === null) return null;
+  return {
+    symbol,
+    consensus: analystConsensusOf(ratings),
+    consensus_mean: consensusMean(ratings),
+    analyst_count: analystCountOf(ratings),
+    trend: ratings.trend.map((month) => ({
+      period: month.period,
+      strong_buy: month.strongBuy,
+      buy: month.buy,
+      hold: month.hold,
+      sell: month.sell,
+      strong_sell: month.strongSell,
+    })),
+    price_target: {
+      low: ratings.target.low,
+      mean: ratings.target.mean,
+      median: ratings.target.median,
+      high: ratings.target.high,
+      currency: ratings.target.currency,
+      current_price: ratings.target.currentPrice,
+      implied_change: targetChange(ratings.target),
+    },
+    recent_changes: ratings.changes.map((change) => ({
+      date: change.date,
+      firm: change.firm,
+      from_grade: change.fromGrade,
+      to_grade: change.toGrade,
+      action: change.action,
+      price_target_from: change.priceTargetFrom,
+      price_target_to: change.priceTargetTo,
+    })),
+  };
+}
+
 /**
  * The key figures of an entry (snake_case, decimals as strings or null, dates `YYYY-MM-DD`): the provider
  * snapshot with `as_of` / `stale` (all null without one) and the 52-week figures from the stored closes.
@@ -154,6 +193,7 @@ export function keyFiguresPayload(entry: WatchlistEntryView, info: KeyFiguresInf
       distance_to_high: week.distanceToHigh,
       performance: week.performance,
     },
+    analysts: analystsPayload(snapshot?.analystSymbol ?? null, snapshot?.analysts ?? null),
   };
 }
 
@@ -270,7 +310,7 @@ export function registerWatchlistTools(server: McpServer, ctx: McpToolContext): 
     "get_watchlist",
     {
       description:
-        "Returns one watchlist with its entries: Security, note, date added, latest price (EUR, decimal string), price date, stale flag, change today and change since added (ratios), and key_figures: Yahoo Finance figures as of `as_of` (null when not delivered; `stale` when older than 7 days; ratios as plain decimals, e.g. dividend_yield 0.0118 = 1.18 %, debt_to_equity_percent in percent units; amounts with their currency) plus fifty_two_week high/low (with dates), distance to high and 52-week performance computed from stored closing prices. Not investment advice.",
+        "Returns one watchlist with its entries: Security, note, date added, latest price (EUR, decimal string), price date, stale flag, change today and change since added (ratios), and key_figures: Yahoo Finance figures as of `as_of` (null when not delivered; `stale` when older than 7 days; ratios as plain decimals, e.g. dividend_yield 0.0118 = 1.18 %, debt_to_equity_percent in percent units; amounts with their currency) plus fifty_two_week high/low (with dates), distance to high and 52-week performance computed from stored closing prices, and for stocks `analysts` (null without analyst data): the Yahoo listing `symbol` it comes from, consensus (optimistic ≤ 2.0 < neutral ≤ 3.0 < pessimistic on the 1 = strong buy … 5 = strong sell mean), consensus_mean, analyst_count, the monthly recommendation trend (oldest first, period \"0m\" = current month), price_target in that listing's currency (never converted) with implied_change versus its current price (ratio), and recent_changes (up to 10 up-/downgrades, newest first). Not investment advice.",
       inputSchema: { watchlist_id: id("watchlist") },
       annotations: { readOnlyHint: true },
     },

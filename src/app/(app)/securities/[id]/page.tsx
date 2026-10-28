@@ -15,6 +15,7 @@ import { CardHeading } from "@/app/_components/overview/CardHeading";
 import { PeriodSelector } from "@/app/_components/period/PeriodSelector";
 import { toChartPoints } from "@/app/_components/charts/value-chart";
 import { DepotSwitcher } from "@/app/_components/security-detail/DepotSwitcher";
+import { AnalystRatingsCard } from "@/app/_components/security-detail/AnalystRatingsCard";
 import { FifoLots } from "@/app/_components/security-detail/FifoLots";
 import { KeyFiguresCard } from "@/app/_components/security-detail/KeyFiguresCard";
 import { securityCaption } from "@/app/_components/security-detail/labels";
@@ -31,6 +32,7 @@ import { WatchlistCard } from "@/app/_components/security-detail/WatchlistCard";
 import { WatchlistChips } from "@/app/_components/security-detail/WatchlistChips";
 import { AddToWatchlistButton } from "@/app/_components/watchlists/WatchlistEntryDialog";
 import { SecurityLogo } from "@/app/_components/securities/SecurityLogo";
+import { hasAnalystData } from "@/core/analyst-ratings";
 import { type ClassifiedAssetType, effective } from "@/core/classification";
 import { businessDate } from "@/core/dates";
 import { ExactDecimal } from "@/core/decimal";
@@ -55,10 +57,11 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
  * One Security across all Depots or one Depot (story 4-6), also when no longer held: header with the
  * watchlist chips, Period selector, "Zur Watchlist" and the actions menu, Depot switcher, hero (value,
  * Period gain/loss, TTWROR, XIRR, price line, Kurs/Wert/Performance/Drawdown chart with the optional
- * moving average, breakdown), KPIs, "Gesamt seit Erstkauf" (story 4-7), "Kennzahlen" (story 9.6), "Performance-Heatmap" (story
+ * moving average, breakdown), KPIs, "Gesamt seit Erstkauf" (story 4-7), "Kennzahlen" (story 9.6), "Analystenbewertungen"
+ * (story 9.7, stocks with analyst data), "Performance-Heatmap" (story
  * 7-8), open FIFO lots, Transaction history and 14-day news. A never-booked Security (story 9.2) gets
  * the watch layout instead: Price header with the Period change and the Kurs chart, "Auf Watchlists",
- * "Kennzahlen", news and classification — no holding or Transaction blocks. Every figure comes from `core` via
+ * "Kennzahlen", "Analystenbewertungen", news and classification — no holding or Transaction blocks. Every figure comes from `core` via
  * `securityDetail` (AD-10); no provider call during render.
  */
 export default async function SecurityDetailPage({ params, searchParams }: Props) {
@@ -108,6 +111,12 @@ export default async function SecurityDetailPage({ params, searchParams }: Props
       today={today}
     />
   );
+  // Analyst ratings (story 9.7): stocks with analyst data only; otherwise no card at all.
+  const analystSnapshot = keyFigureInfo?.snapshot ?? null;
+  const analystRatingsCard =
+    security.assetType === "STOCK" && analystSnapshot !== null && hasAnalystData(analystSnapshot.analysts) ? (
+      <AnalystRatingsCard snapshot={analystSnapshot} />
+    ) : null;
   const news = (
     <Box component="section" aria-labelledby="security-news">
       <CardHeading id="security-news">Nachrichten · 14 Tage</CardHeading>
@@ -179,6 +188,7 @@ export default async function SecurityDetailPage({ params, searchParams }: Props
           <SecurityKpis snapshot={detail.snapshot} dividends={detail.performance.dividends} periodLabel={periodLabel(period)} />
           <SecurityTotal total={detail.total} />
           {keyFiguresCard}
+          {analystRatingsCard}
           <SecurityHeatmap scope={detail.selected ?? "all"} years={detail.heatmap} />
           <FifoLots groups={detail.lots} />
           <SecurityTransactions
@@ -215,6 +225,7 @@ export default async function SecurityDetailPage({ params, searchParams }: Props
           />
           <WatchlistCard entries={entries} lists={watchlistOptions} security={security} today={today} />
           {keyFiguresCard}
+          {analystRatingsCard}
           <Box sx={{ mb: 1.5 }}>{news}</Box>
           <Box component="section" aria-labelledby="security-classification">
             <Card>

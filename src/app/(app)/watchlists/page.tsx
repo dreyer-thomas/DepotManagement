@@ -8,6 +8,7 @@ import { PageLabel } from "@/app/_components/back-navigation/BackLink";
 import { PageTitle } from "@/app/_components/Placeholder";
 import { CreateWatchlistButton, DeleteWatchlistButton, RenameWatchlistButton } from "@/app/_components/watchlists/WatchlistDialogs";
 import { AddWatchlistEntryButton } from "@/app/_components/watchlists/WatchlistEntryDialog";
+import { analystsSummary } from "@/app/_components/security-detail/labels";
 import { type WatchlistKeyFigures, WatchlistTable } from "@/app/_components/watchlists/WatchlistTable";
 import { WatchlistTabs } from "@/app/_components/watchlists/WatchlistTabs";
 import {
@@ -59,7 +60,13 @@ export default async function WatchlistsPage({ searchParams }: Props) {
   );
   const keyFigures: Record<string, WatchlistKeyFigures> = {};
   for (const [securityId, info] of Object.entries(figures)) {
-    if (info.snapshot) keyFigures[securityId] = { trailingPE: info.snapshot.figures.trailingPE, dividendYield: info.snapshot.figures.dividendYield };
+    if (info.snapshot) {
+      keyFigures[securityId] = {
+        trailingPE: info.snapshot.figures.trailingPE,
+        dividendYield: info.snapshot.figures.dividendYield,
+        analysts: analystsSummary(info.snapshot.analysts),
+      };
+    }
   }
   return (
     <>

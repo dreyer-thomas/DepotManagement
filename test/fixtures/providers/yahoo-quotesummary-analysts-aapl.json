@@ -1,0 +1,38 @@
+{
+  "price": {
+    "maxAge": 1,
+    "currency": "USD",
+    "regularMarketPrice": 217.5
+  },
+  "summaryDetail": {
+    "maxAge": 1,
+    "currency": "USD"
+  },
+  "financialData": {
+    "maxAge": 86400,
+    "currentPrice": 217.5,
+    "targetHighPrice": 300,
+    "targetLowPrice": 180,
+    "targetMeanPrice": 245,
+    "targetMedianPrice": 250,
+    "recommendationMean": 2.1,
+    "recommendationKey": "buy",
+    "numberOfAnalystOpinions": 40,
+    "financialCurrency": "USD"
+  },
+  "recommendationTrend": {
+    "maxAge": 86400,
+    "trend": [
+      { "period": "0m", "strongBuy": 6, "buy": 22, "hold": 14, "sell": 1, "strongSell": 1 },
+      { "period": "-1m", "strongBuy": 6, "buy": 21, "hold": 15, "sell": 1, "strongSell": 1 },
+      { "period": "-2m", "strongBuy": 7, "buy": 21, "hold": 14, "sell": 1, "strongSell": 1 },
+      { "period": "-3m", "strongBuy": 7, "buy": 20, "hold": 15, "sell": 1, "strongSell": 1 }
+    ]
+  },
+  "upgradeDowngradeHistory": {
+    "maxAge": 86400,
+    "history": [
+      { "epochGradeDate": 1792540800, "firm": "Synthetic Securities", "toGrade": "Overweight", "fromGrade": "Neutral", "action": "up", "currentPriceTarget": 260, "priorPriceTarget": 230 }
+    ]
+  }
+}

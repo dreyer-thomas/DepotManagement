@@ -1,6 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { recorded } from "../../../../test/helpers/providers";
-import { fetchProfile, fetchQuoteSummary, KEY_FIGURE_MODULES, keyFiguresOf, type YahooQuoteSummary } from "./yahoo";
+import {
+  ANALYST_MODULES,
+  analystRatingsOf,
+  fetchProfile,
+  fetchQuoteSummary,
+  findHomeListing,
+  KEY_FIGURE_MODULES,
+  keyFiguresOf,
+  type YahooQuoteSummary,
+  type YahooSearch,
+} from "./yahoo";
 
 beforeEach(() => {
   vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -186,5 +196,116 @@ describe("keyFiguresOf", () => {
     expect(empty.status).toBe("found");
     if (empty.status === "found") expect(Object.values(empty.value).every((value) => value === null)).toBe(true);
     expect(keyFiguresOf("<html>", "stock", "2026-10-28")).toEqual({ status: "error" });
+  });
+});
+
+describe("analystRatingsOf", () => {
+  it("German stock: trend oldest → current, targets in the listing's currency, last 10 changes newest first", () => {
+    const result = analystRatingsOf(recorded("yahoo-quotesummary-analysts-sap-de"));
+    expect(result.status).toBe("found");
+    if (result.status !== "found" || result.value === null) throw new Error("expected ratings");
+    const ratings = result.value;
+    expect(ratings.trend.map((month) => month.period)).toEqual(["-3m", "-2m", "-1m", "0m"]);
+    expect(ratings.trend[3]).toEqual({ period: "0m", strongBuy: 11, buy: 20, hold: 14, sell: 3, strongSell: 1 });
+    expect(ratings.analystCount).toBe(51);
+    expect(ratings.consensusMean).toBe("1.85");
+    expect(ratings.target).toEqual({ low: "200", mean: "270", median: "272.5", high: "310", currentPrice: "240", currency: "EUR" });
+    expect(ratings.changes).toHaveLength(10);
+    expect(ratings.changes[0]).toEqual({
+      date: "2026-10-21",
+      firm: "Synthetic Securities",
+      fromGrade: "Hold",
+      toGrade: "Buy",
+      action: "up",
+      priceTargetFrom: "250",
+      priceTargetTo: "270",
+    });
+    // An empty fromGrade and a prior target of 0 are "not delivered".
+    expect(ratings.changes[1]).toMatchObject({ date: "2026-10-02", fromGrade: null, priceTargetFrom: null, priceTargetTo: "290" });
+    expect(ratings.changes.map((change) => change.date)).toEqual([...ratings.changes.map((change) => change.date)].sort().reverse());
+    expect(ratings.changes.at(-1)?.firm).toBe("Firm 10");
+  });
+
+  it("home listing in USD: currency from price, epoch-second dates", () => {
+    const result = analystRatingsOf(recorded("yahoo-quotesummary-analysts-aapl"));
+    if (result.status !== "found" || result.value === null) throw new Error("expected ratings");
+    expect(result.value.target).toMatchObject({ mean: "245", currentPrice: "217.5", currency: "USD" });
+    expect(result.value.changes[0]).toMatchObject({ date: "2026-10-21", toGrade: "Overweight" });
+  });
+
+  it("falls back to summaryDetail's currency and tolerates odd entries", () => {
+    const result = analystRatingsOf({
+      summaryDetail: { currency: "CHF" },
+      financialData: { targetMeanPrice: 90, numberOfAnalystOpinions: 2.5 },
+      recommendationTrend: { trend: [{ period: "0m", strongBuy: -1, buy: "x", hold: 2 }, "junk"] },
+      upgradeDowngradeHistory: { history: [{ firm: "No date", toGrade: "Buy" }, null] },
+    });
+    if (result.status !== "found" || result.value === null) throw new Error("expected ratings");
+    expect(result.value).toMatchObject({
+      trend: [{ period: "0m", strongBuy: 0, buy: 0, hold: 2, sell: 0, strongSell: 0 }],
+      analystCount: null,
+      consensusMean: null,
+      target: { mean: "90", currency: "CHF" },
+      changes: [],
+    });
+  });
+
+  it("null without data worth showing; a malformed response is an error", () => {
+    expect(analystRatingsOf({})).toEqual({ status: "found", value: null });
+    expect(analystRatingsOf({ recommendationTrend: { trend: [{ period: "0m", strongBuy: 0, buy: 0, hold: 0, sell: 0, strongSell: 0 }] } })).toEqual({
+      status: "found",
+      value: null,
+    });
+    expect(analystRatingsOf("<html>")).toEqual({ status: "error" });
+  });
+
+  it("the analyst request sends only the symbol with the analyst modules", async () => {
+    const quoteSummary = serving(recorded("yahoo-quotesummary-analysts-aapl"));
+    expect(await fetchQuoteSummary("AAPL", ANALYST_MODULES, { quoteSummary })).toMatchObject({ status: "found" });
+    const [symbol, query, options] = quoteSummary.mock.calls[0];
+    expect(symbol).toBe("AAPL");
+    expect(query).toEqual({ modules: ["financialData", "summaryDetail", "price", "recommendationTrend", "upgradeDowngradeHistory"] });
+    expect(JSON.stringify([query, { ...options, fetchOptions: {} }])).not.toMatch(/AAPL|US037/);
+    expect(await fetchQuoteSummary("XXX", ANALYST_MODULES, { quoteSummary: serving(new Error("Quote not found for symbol: XXX")) })).toEqual({
+      status: "not-found",
+    });
+  });
+});
+
+describe("findHomeListing", () => {
+  function searching(reply: unknown | Error) {
+    return vi.fn<YahooSearch>(async () => {
+      if (reply instanceof Error) throw reply;
+      return reply;
+    });
+  }
+
+  it("US ISIN on a DE listing: the suffix-less US quote; only the ISIN is sent", async () => {
+    const search = searching(recorded("yahoo-search-apple"));
+    expect(await findHomeListing("US0378331005", "APC.DE", { search })).toEqual({ status: "found", value: "AAPL" });
+    expect(search.mock.calls).toEqual([["US0378331005"]]);
+  });
+
+  it("picks the quote with the ISIN country's suffix", async () => {
+    const reply = { quotes: [{ symbol: "SAP" }, { symbol: "SAP.F" }, { symbol: "sap.de" }] };
+    expect(await findHomeListing("DE0007164600", "SAP.F", { search: searching(reply) })).toEqual({ status: "found", value: "SAP.DE" });
+    const nestle = { quotes: [{ symbol: "NSRGY" }, { symbol: "NESN.SW" }] };
+    expect(await findHomeListing("CH0038863350", "NESR.DE", { search: searching(nestle) })).toEqual({ status: "found", value: "NESN.SW" });
+  });
+
+  it("else the first suffix-less quote, else the mapping symbol; ignores non-Yahoo and invalid symbols", async () => {
+    const adrOnly = { quotes: [{ symbol: "XYZ.F" }, { symbol: "XYZY" }] };
+    expect(await findHomeListing("NL0000000001", "XYZ.F", { search: searching(adrOnly) })).toEqual({ status: "found", value: "XYZY" });
+    const nothing = { quotes: [{ symbol: "APPLE", isYahooFinance: false }, { symbol: "bad symbol" }, { name: "no symbol" }] };
+    expect(await findHomeListing("US0378331005", "apc.de", { search: searching(nothing) })).toEqual({ status: "found", value: "APC.DE" });
+    expect(await findHomeListing("US0378331005", "APC.DE", { search: searching(recorded("yahoo-search-not-found")) })).toEqual({
+      status: "found",
+      value: "APC.DE",
+    });
+  });
+
+  it("is an error for a thrown or malformed response", async () => {
+    expect(await findHomeListing("US0378331005", "APC.DE", { search: searching(new TypeError("fetch failed")) })).toEqual({ status: "error" });
+    expect(await findHomeListing("US0378331005", "APC.DE", { search: searching("<html>") })).toEqual({ status: "error" });
   });
 });

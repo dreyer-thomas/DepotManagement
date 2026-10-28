@@ -177,3 +177,23 @@ const REGION_SPLIT_ERROR_MESSAGES: Record<RegionSplitErrorReason, string> = {
 export function regionSplitErrorMessage(reason: string): string {
   return REGION_SPLIT_ERROR_MESSAGES[reason as RegionSplitErrorReason] ?? ACTION_FAILED_MESSAGE;
 }
+
+export type AnalystSymbolErrorReason = "not-found" | "not-a-stock" | "symbol-invalid" | "unauthorized" | "action-failed";
+
+const ANALYST_SYMBOL_ERROR_MESSAGES: Record<AnalystSymbolErrorReason, string> = {
+  "not-found": "Wertpapier nicht gefunden.",
+  "not-a-stock": "Ein Analysten-Symbol gibt es nur für Aktien.",
+  "symbol-invalid": "Ungültiges Symbol",
+  unauthorized: "Sitzung abgelaufen. Bitte erneut anmelden.",
+  "action-failed": ACTION_FAILED_MESSAGE,
+};
+
+/** German message for a failed Analysten-Symbol save (story 9.7). */
+export function analystSymbolErrorMessage(reason: string): string {
+  return ANALYST_SYMBOL_ERROR_MESSAGES[reason as AnalystSymbolErrorReason] ?? ACTION_FAILED_MESSAGE;
+}
+
+/** Card line of a stock's Analysten-Symbol: "Analysten-Symbol: AAPL" or "Analysten-Symbol: automatisch". */
+export function analystSymbolSummary(symbol: string | null): string {
+  return `Analysten-Symbol: ${symbol ?? "automatisch"}`;
+}

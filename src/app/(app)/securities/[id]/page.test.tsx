@@ -35,6 +35,7 @@ import { setManualClassification } from "@/modules/classification";
 import { WatchHeader } from "../../../_components/security-detail/WatchHeader";
 import { WatchlistCard } from "../../../_components/security-detail/WatchlistCard";
 import { KeyFiguresCard } from "../../../_components/security-detail/KeyFiguresCard";
+import { AnalystRatingsCard } from "../../../_components/security-detail/AnalystRatingsCard";
 import { AddToWatchlistButton } from "../../../_components/watchlists/WatchlistEntryDialog";
 import SecurityDetailPage, { generateMetadata } from "./page";
 
@@ -245,6 +246,59 @@ describe("Security detail page", () => {
     html = renderHtml(tree);
     expect(html.indexOf('id="security-total"')).toBeLessThan(html.indexOf('id="security-key-figures"'));
     expect(text(section(html, 'id="security-key-figures"'))).toContain("Kennzahlen aktualisieren");
+  });
+
+  it("Analystenbewertungen in both layouts for a stock with data; absent for an ETF and a stock without data", async () => {
+    const analysts = JSON.stringify({
+      trend: [{ period: "0m", strongBuy: 11, buy: 20, hold: 14, sell: 3, strongSell: 1 }],
+      analystCount: 51,
+      consensusMean: "1.85",
+      target: { low: "200", mean: "270", median: null, high: "310", currentPrice: "240", currency: "EUR" },
+      changes: [],
+    });
+    const result = await ensureSecurity({ isin: "DE0007164600" }, { name: "SAP SE", assetType: "STOCK" });
+    if (!result.ok) throw new Error("setup failed");
+    const id = result.security.id;
+    expect((await setMapping(id, { provider: "YAHOO", symbol: "SAP.DE" })).ok).toBe(true);
+    await prisma.securityKeyFigures.create({
+      data: { securityId: id, symbol: "SAP.DE", kind: "stock", figures: "{}", analystSymbol: "SAP.DE", analysts, fetchedAt: "2026-10-27T09:00:00.000Z" },
+    });
+
+    // Watch layout: right after "Kennzahlen".
+    let tree = await SecurityDetailPage(props(id));
+    expect(findElement(tree, AnalystRatingsCard)!.props.snapshot).toMatchObject({ analystSymbol: "SAP.DE", analysts: { analystCount: 51 } });
+    let html = renderHtml(tree);
+    expect(html.indexOf('id="security-key-figures"')).toBeLessThan(html.indexOf('id="security-analyst-ratings"'));
+    expect(html.indexOf('id="security-analyst-ratings"')).toBeLessThan(html.indexOf('id="security-news"'));
+    const card = text(section(html, 'id="security-analyst-ratings"', 'id="security-news"'));
+    expect(card).toContain("Analystenbewertungen");
+    expect(card).toContain("Optimistisch · 51 Analysten");
+    expect(card).toContain("Einschätzungen von Analysten, keine Anlageberatung");
+
+    // Booked layout: also right after "Kennzahlen".
+    const a = await depot("Alpha");
+    await book({ depotId: a, type: "BUY", date: "2026-02-02", quantity: "1", price: "100", security: { id } });
+    tree = await SecurityDetailPage(props(id));
+    expect(findElement(tree, AnalystRatingsCard)).toBeDefined();
+    html = renderHtml(tree);
+    expect(html.indexOf('id="security-key-figures"')).toBeLessThan(html.indexOf('id="security-analyst-ratings"'));
+
+    // A stock without analyst data: no card at all.
+    await prisma.securityKeyFigures.update({ where: { securityId: id }, data: { analysts: null } });
+    tree = await SecurityDetailPage(props(id));
+    expect(findElement(tree, AnalystRatingsCard)).toBeUndefined();
+    expect(renderHtml(tree)).not.toContain("Analystenbewertungen");
+
+    // An ETF never shows the card, even with a (stale) analyst snapshot.
+    const etf = await ensureSecurity({ isin: "IE00B4L5Y983" }, { name: "MSCI World", assetType: "ETF" });
+    if (!etf.ok) throw new Error("setup failed");
+    expect((await setMapping(etf.security.id, { provider: "YAHOO", symbol: "EUNL.DE" })).ok).toBe(true);
+    await prisma.securityKeyFigures.create({
+      data: { securityId: etf.security.id, symbol: "EUNL.DE", kind: "fund", figures: "{}", analystSymbol: "EUNL.DE", analysts, fetchedAt: "2026-10-27T09:00:00.000Z" },
+    });
+    tree = await SecurityDetailPage(props(etf.security.id));
+    expect(findElement(tree, AnalystRatingsCard)).toBeUndefined();
+    expect(renderHtml(tree)).not.toContain("Analystenbewertungen");
   });
 
   it("sums the non-archived Depots under Alle Depots", async () => {

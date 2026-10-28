@@ -1,0 +1,65 @@
+{
+  "price": {
+    "maxAge": 1,
+    "currency": "EUR",
+    "marketCap": 243770000000,
+    "regularMarketPrice": 240
+  },
+  "summaryDetail": {
+    "maxAge": 1,
+    "trailingPE": 30.4321,
+    "forwardPE": 24.1,
+    "dividendYield": 0.0118,
+    "marketCap": 243770000000,
+    "currency": "EUR"
+  },
+  "defaultKeyStatistics": {
+    "maxAge": 1,
+    "forwardPE": 24.1,
+    "priceToBook": 6.5432
+  },
+  "financialData": {
+    "maxAge": 86400,
+    "currentPrice": 240,
+    "targetHighPrice": 310,
+    "targetLowPrice": 200,
+    "targetMeanPrice": 270,
+    "targetMedianPrice": 272.5,
+    "recommendationMean": 1.85,
+    "recommendationKey": "buy",
+    "numberOfAnalystOpinions": 51,
+    "totalRevenue": 35900000000,
+    "financialCurrency": "EUR",
+    "profitMargins": 0.1987
+  },
+  "calendarEvents": {
+    "maxAge": 1,
+    "earnings": { "earningsDate": ["2027-01-28T06:00:00.000Z"] }
+  },
+  "recommendationTrend": {
+    "maxAge": 86400,
+    "trend": [
+      { "period": "0m", "strongBuy": 11, "buy": 20, "hold": 14, "sell": 3, "strongSell": 1 },
+      { "period": "-1m", "strongBuy": 10, "buy": 21, "hold": 14, "sell": 2, "strongSell": 1 },
+      { "period": "-2m", "strongBuy": 10, "buy": 19, "hold": 15, "sell": 2, "strongSell": 1 },
+      { "period": "-3m", "strongBuy": 9, "buy": 18, "hold": 16, "sell": 3, "strongSell": 1 }
+    ]
+  },
+  "upgradeDowngradeHistory": {
+    "maxAge": 86400,
+    "history": [
+      { "epochGradeDate": "2026-09-12T00:00:00.000Z", "firm": "Example Research", "toGrade": "Hold", "fromGrade": "Buy", "action": "down", "priceTargetAction": "Lowers", "currentPriceTarget": 250, "priorPriceTarget": 280 },
+      { "epochGradeDate": "2026-10-21T00:00:00.000Z", "firm": "Synthetic Securities", "toGrade": "Buy", "fromGrade": "Hold", "action": "up", "priceTargetAction": "Raises", "currentPriceTarget": 270, "priorPriceTarget": 250 },
+      { "epochGradeDate": "2026-10-02T00:00:00.000Z", "firm": "Demo Capital", "toGrade": "Overweight", "fromGrade": "", "action": "main", "currentPriceTarget": 290, "priorPriceTarget": 0 },
+      { "epochGradeDate": "2026-08-30T00:00:00.000Z", "firm": "Firm 4", "toGrade": "Buy", "fromGrade": "Buy", "action": "main" },
+      { "epochGradeDate": "2026-08-20T00:00:00.000Z", "firm": "Firm 5", "toGrade": "Buy", "fromGrade": "Buy", "action": "main" },
+      { "epochGradeDate": "2026-08-10T00:00:00.000Z", "firm": "Firm 6", "toGrade": "Buy", "fromGrade": "Buy", "action": "main" },
+      { "epochGradeDate": "2026-07-30T00:00:00.000Z", "firm": "Firm 7", "toGrade": "Buy", "fromGrade": "Buy", "action": "main" },
+      { "epochGradeDate": "2026-07-20T00:00:00.000Z", "firm": "Firm 8", "toGrade": "Buy", "fromGrade": "Buy", "action": "main" },
+      { "epochGradeDate": "2026-07-10T00:00:00.000Z", "firm": "Firm 9", "toGrade": "Buy", "fromGrade": "Buy", "action": "main" },
+      { "epochGradeDate": "2026-06-30T00:00:00.000Z", "firm": "Firm 10", "toGrade": "Buy", "fromGrade": "Buy", "action": "main" },
+      { "epochGradeDate": "2026-06-20T00:00:00.000Z", "firm": "Firm 11", "toGrade": "Sell", "fromGrade": "Buy", "action": "down" },
+      { "epochGradeDate": "2026-06-10T00:00:00.000Z", "firm": "Firm 12", "toGrade": "Buy", "fromGrade": "Sell", "action": "up" }
+    ]
+  }
+}
