@@ -2,7 +2,7 @@
 title: 'Connected Apps in Settings (story 9-5)'
 type: 'feature'
 created: '2026-10-28'
-status: awaiting-operator
+status: done
 baseline_revision: '8a5dfdc1e8a5e4c8fdea59d21035a8d044e62168'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -142,3 +142,14 @@ Status: awaiting-operator
 **Verification:** `npm run lint` ✓, `npm run typecheck` ✓, `npm test` ✓ (251 files, 3397 tests), `npm run build` ✓ — run after the patches. Matrix audit: every I/O row is covered by a passing test (`grants.test.ts`, `connected-apps.test.ts`, `ConnectedAppsList.dom.test.tsx`, `labels.test.ts`, `page.test.tsx`, `http.test.ts`).
 
 **Residual risks:** Not exercised in a browser or with real Claude clients (operator actions). How a real client behaves after its refresh token is refused (re-running authorization vs. needing a manual reconnect) is not observable in-repo. Pending authorization codes are not cancelled by "Alle trennen". `sprint-status.yaml` untouched (orchestrator-owned).
+
+## Operator Confirmation
+
+Confirmed 2026-10-28: the external actions this story owed were carried out.
+
+- Deploy the build to the production server (no new migration) and open Einstellungen › Verbundene Apps; confirm the existing Claude connection(s) are listed with client name, redirect host, "Watchlists lesen und ändern", connected-since and last-used times.
+- Click Trennen on the Claude connection, confirm the dialog, check the toast „Claude“ getrennt. and that the row disappears; then make Claude call a watchlist tool and confirm the call fails with an authorization error (401).
+- Reconnect the same Claude client (claude.ai/Desktop connector or /mcp in Claude Code) through login and Erlauben, confirm a tool call works again and the connection reappears in Verbundene Apps.
+- Connect a second client (e.g. Claude Code), use Alle trennen, and confirm both clients lose access and the list shows the empty state with the connector URL.
+
+_Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._
