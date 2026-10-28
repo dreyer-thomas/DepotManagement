@@ -51,6 +51,11 @@ export function checkConsistency(file: ExportFile): ConsistencyResult {
     idsOf(file.taxAllowances, "taxAllowances");
     idsOf(file.teilfreistellungOverrides, "teilfreistellungOverrides");
     idsOf(file.targetAllocations, "targetAllocations");
+    idsOf(file.watchlists, "watchlists");
+    const entryIds = new Set<string>();
+    file.watchlists.forEach((list, l) =>
+      list.entries.forEach((entry, i) => unique(entryIds, entry.id, `watchlists.${l}.entries.${i}.id`)),
+    );
 
     const names = new Set<string>();
     file.depots.forEach((depot, i) => unique(names, depot.name, `depots.${i}.name`));
@@ -128,6 +133,20 @@ export function checkConsistency(file: ExportFile): ConsistencyResult {
       if (allocation.scope !== PORTFOLIO_SCOPE) resolves(depotIds, allocation.scope, `targetAllocations.${i}.scope`);
       if (targetsFromRecord(allocation.weights) === null) throw new Inconsistent(`targetAllocations.${i}.weights`);
       if (!isThreshold(allocation.threshold)) throw new Inconsistent(`targetAllocations.${i}.threshold`);
+    });
+
+    // Unique positions and names (case-insensitive like the app); one entry per Security and list.
+    const listPositions = new Set<string>();
+    const listNames = new Set<string>();
+    file.watchlists.forEach((list, l) => {
+      unique(listPositions, key(list.position), `watchlists.${l}.position`);
+      unique(listNames, list.name.normalize("NFC").toLocaleLowerCase("de-DE"), `watchlists.${l}.name`);
+      const watched = new Set<string>();
+      list.entries.forEach((entry, i) => {
+        const path = `watchlists.${l}.entries.${i}`;
+        resolves(securityIds, entry.securityId, `${path}.securityId`);
+        unique(watched, entry.securityId, `${path}.securityId`);
+      });
     });
   } catch (error) {
     if (error instanceof Inconsistent) return { ok: false, path: error.path };

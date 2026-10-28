@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { PNG, seedFullLedger as seed, TS, writeLogo as writeLogoIn } from "../../../test/helpers/backup-seed";
+import { PNG, seedFullLedger as seed, seedWatchlists, TS, writeLogo as writeLogoIn } from "../../../test/helpers/backup-seed";
 import { createTestDatabase, type TestDatabase } from "../../../test/helpers/test-db";
 import { createExport, EXPORT_SCHEMA_VERSION, exportFileName, exportFileSchema, serializeExport } from "./index";
 
@@ -44,8 +44,10 @@ describe("createExport", () => {
       "taxAllowances",
       "teilfreistellungOverrides",
       "targetAllocations",
+      "watchlists",
     ]);
-    expect(file.schemaVersion).toBe(5);
+    expect(file.schemaVersion).toBe(6);
+    expect(file.watchlists).toEqual([]);
     // Target allocations of the Portfolio and existing Depots only (sorted by scope).
     expect(file.targetAllocations).toEqual([
       { id: "ta-a", scope: "depot-a", weights: { cash: "100" }, threshold: "0.5" },
@@ -139,6 +141,35 @@ describe("createExport", () => {
     expect(exportFileSchema.parse(file)).toEqual(file);
   });
 
+  it("exports watchlists sorted by position with entries by position, all fields verbatim", async () => {
+    await seedFullLedger();
+    await seedWatchlists(db());
+    const file = await createExport(deps(), db());
+    expect(Object.keys(file).at(-1)).toBe("watchlists");
+    expect(file.watchlists).toEqual([
+      {
+        id: "wl-1",
+        name: "Ideen",
+        position: 1,
+        createdAt: TS,
+        entries: [
+          { id: "we-2", securityId: "sec-a", note: "", dateAdded: "2026-09-15", position: 1, source: "APP", clientName: null, createdAt: TS },
+          { id: "we-3", securityId: "sec-d", note: "Idee aus der Recherche", dateAdded: "2026-10-01", position: 2, source: "MCP", clientName: "Claude", createdAt: TS },
+        ],
+      },
+      {
+        id: "wl-2",
+        name: "Dividenden",
+        position: 3,
+        createdAt: "2026-10-02T08:00:00.000Z",
+        entries: [{ id: "we-1", securityId: "sec-d", note: "Dividende prüfen", dateAdded: "2026-10-05", position: 1, source: "APP", clientName: null, createdAt: TS }],
+      },
+    ]);
+    // The watchlist-only Security and its Price are ordinary records.
+    expect(file.securities.map((s) => s.id)).toEqual(["sec-a", "sec-b", "sec-c", "sec-d"]);
+    expect(file.prices.map((p) => p.id)).toContain("p-d");
+  });
+
   it("leaves out fetched logos, markers, news and import staging", async () => {
     await seedFullLedger();
     const c = db();
@@ -200,6 +231,7 @@ describe("createExport", () => {
       taxAllowances: [],
       teilfreistellungOverrides: [],
       targetAllocations: [],
+      watchlists: [],
     });
   });
 
@@ -300,8 +332,11 @@ describe("exportFileSchema", () => {
     await seedFullLedger();
     const file = await createExport(deps(), db());
     expect(exportFileSchema.safeParse({ ...file, schemaVersion: 1 }).success).toBe(false);
-    expect(exportFileSchema.safeParse({ ...file, schemaVersion: 4 }).success).toBe(false);
-    expect(exportFileSchema.safeParse({ ...file, schemaVersion: 6 }).success).toBe(false);
+    expect(exportFileSchema.safeParse({ ...file, schemaVersion: 5 }).success).toBe(false);
+    expect(exportFileSchema.safeParse({ ...file, schemaVersion: 7 }).success).toBe(false);
+    const withoutWatchlists: Partial<typeof file> = { ...file };
+    delete withoutWatchlists.watchlists;
+    expect(exportFileSchema.safeParse(withoutWatchlists).success).toBe(false);
     // Target weights only for known segments, as decimal strings.
     expect(exportFileSchema.safeParse({ ...file, targetAllocations: [{ ...file.targetAllocations[0], weights: { gold: "100" } }] }).success).toBe(false);
     expect(exportFileSchema.safeParse({ ...file, targetAllocations: [{ ...file.targetAllocations[0], weights: { cash: 100 } }] }).success).toBe(false);
@@ -318,6 +353,35 @@ describe("exportFileSchema", () => {
     expect(exportFileSchema.safeParse({ ...file, exportedAt: TS }).success).toBe(false);
     const transactions = [{ ...file.transactions[0], amount: 1000 }];
     expect(exportFileSchema.safeParse({ ...file, transactions }).success).toBe(false);
+  });
+});
+
+describe("exportFileSchema watchlists", () => {
+  it("enforces name and note limits, business dates, positions, sources, client names and strict keys", async () => {
+    await seedFullLedger();
+    await seedWatchlists(db());
+    const file = await createExport(deps(), db());
+    const list = file.watchlists[0];
+    const entry = list.entries[0];
+    const withList = (patch: object) => ({ ...file, watchlists: [{ ...list, ...patch }] });
+    const withEntry = (patch: object) => withList({ entries: [{ ...entry, ...patch }] });
+    expect(exportFileSchema.safeParse(withList({ name: "x".repeat(60) })).success).toBe(true);
+    expect(exportFileSchema.safeParse(withEntry({ note: "x".repeat(2000) })).success).toBe(true);
+    for (const invalid of [withList({ name: "x".repeat(61) }), withList({ name: "" }), withList({ position: 1.5 }), withList({ extra: 1 })]) {
+      expect(exportFileSchema.safeParse(invalid).success).toBe(false);
+    }
+    for (const patch of [
+      { note: "x".repeat(2001) },
+      { dateAdded: "2026-13-01" },
+      { dateAdded: "01.10.2026" },
+      { position: "1" },
+      { source: "CLAUDE" },
+      { clientName: "" },
+      { createdAt: "" },
+      { watchlistId: "wl-1" },
+    ]) {
+      expect(exportFileSchema.safeParse(withEntry(patch)).success).toBe(false);
+    }
   });
 });
 

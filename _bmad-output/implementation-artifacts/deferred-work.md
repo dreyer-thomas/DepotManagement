@@ -165,3 +165,11 @@ source_spec: `spec-6-2-restore-from-export.md`
 severity: low
 reason: restore.test.ts fixes `now` and pre-creates sec-b-1.png, sec-b-7.png and other-sec-5.png; none collides with <securityId>-<NOW epoch>, so the while(existsSync) loop body never runs. A collision needs the same millisecond epoch, which is unlikely in practice.
 status: open
+
+### DW-19: Story 9.4 must clear its OAuth clients, grants and tokens inside the restore transaction and keep them out of the export.
+origin: spec-deferred 23d9f53556bf
+location: src/modules/backup/restore.ts
+source_spec: `spec-9-3-watchlists-in-export-and-restore.md`
+severity: low
+reason: The restore dialog and README already say connected apps must reconnect after a restore, but no OAuth tables exist yet, so nothing in code or tests enforces it; once 9.4 adds the tables, restore must delete them (backup/restore.ts) or the text becomes untrue.
+status: open

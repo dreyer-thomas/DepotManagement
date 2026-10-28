@@ -97,3 +97,23 @@ export async function seedFullLedger(c: PrismaClient, dataDir: string): Promise<
   await c.targetAllocation.create({ data: { id: "ta-a", scope: "depot-a", weights: '{"cash":"100"}', threshold: "0.5", updatedAt: TS } });
   await c.targetAllocation.create({ data: { id: "ta-x", scope: "gone-depot", weights: '{"cash":"100"}', threshold: "2", updatedAt: TS } });
 }
+
+/**
+ * Watchlists (story 9.3) on top of `seedFullLedger`: two lists inserted out of position order, a watchlist-only
+ * Security `sec-d` with its Price, an MCP entry with a client name and entries out of position order.
+ */
+export async function seedWatchlists(c: PrismaClient): Promise<void> {
+  await c.security.create({ data: { id: "sec-d", isin: "DE000SYNCD06", name: "Synthetic Delta AG", assetType: "STOCK" } });
+  await c.price.create({ data: { id: "p-d", securityId: "sec-d", date: "2026-10-20", source: "PROVIDER", price: "42.10", fetchedAt: TS } });
+  await c.watchlist.create({ data: { id: "wl-2", name: "Dividenden", position: 3, createdAt: "2026-10-02T08:00:00.000Z" } });
+  await c.watchlist.create({ data: { id: "wl-1", name: "Ideen", position: 1, createdAt: TS } });
+  await c.watchlistEntry.create({
+    data: { id: "we-3", watchlistId: "wl-1", securityId: "sec-d", note: "Idee aus der Recherche", dateAdded: "2026-10-01", position: 2, source: "MCP", clientName: "Claude", createdAt: TS },
+  });
+  await c.watchlistEntry.create({
+    data: { id: "we-2", watchlistId: "wl-1", securityId: "sec-a", note: "", dateAdded: "2026-09-15", position: 1, createdAt: TS },
+  });
+  await c.watchlistEntry.create({
+    data: { id: "we-1", watchlistId: "wl-2", securityId: "sec-d", note: "Dividende prüfen", dateAdded: "2026-10-05", position: 1, createdAt: TS },
+  });
+}

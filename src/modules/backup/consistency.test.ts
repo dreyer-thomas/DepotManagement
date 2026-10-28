@@ -7,7 +7,7 @@ const TS = "2026-10-26T10:00:00.000Z";
 /** A small, consistent synthetic export file. */
 function base(): ExportFile {
   return {
-    schemaVersion: 5,
+    schemaVersion: 6,
     depots: [
       { id: "d1", name: "Hauptdepot", broker: "COMDIRECT", archived: false },
       { id: "d2", name: "Zweitdepot", broker: "FINANZEN_ZERO", archived: false },
@@ -70,6 +70,25 @@ function base(): ExportFile {
       { id: "t1", scope: "portfolio", weights: { equityUsa: "60", bonds: "40" }, threshold: "2" },
       { id: "t2", scope: "d1", weights: { cash: "100" }, threshold: "0.5" },
     ],
+    watchlists: [
+      {
+        id: "w1",
+        name: "Ideen",
+        position: 1,
+        createdAt: TS,
+        entries: [
+          { id: "e1", securityId: "s4", note: "", dateAdded: "2026-10-01", position: 1, source: "APP", clientName: null, createdAt: TS },
+          { id: "e2", securityId: "s1", note: "Notiz", dateAdded: "2026-10-02", position: 2, source: "MCP", clientName: "Claude", createdAt: TS },
+        ],
+      },
+      {
+        id: "w2",
+        name: "Dividenden",
+        position: 2,
+        createdAt: TS,
+        entries: [{ id: "e3", securityId: "s4", note: "", dateAdded: "2026-10-03", position: 1, source: "APP", clientName: null, createdAt: TS }],
+      },
+    ],
   };
 }
 
@@ -79,7 +98,7 @@ describe("checkConsistency", () => {
   it("accepts a consistent file and an empty one", () => {
     expect(checkConsistency(base())).toEqual({ ok: true });
     const empty = base();
-    for (const key of ["depots", "securities", "providerMappings", "transactions", "corporateActions", "reconciliationRuns", "prices", "logos", "classifications", "taxAllowances", "teilfreistellungOverrides", "targetAllocations"] as const) {
+    for (const key of ["depots", "securities", "providerMappings", "transactions", "corporateActions", "reconciliationRuns", "prices", "logos", "classifications", "taxAllowances", "teilfreistellungOverrides", "targetAllocations", "watchlists"] as const) {
       empty[key] = [];
     }
     expect(checkConsistency(empty)).toEqual({ ok: true });
@@ -139,10 +158,24 @@ describe("checkConsistency", () => {
     ["non-canonical target weight", (f) => (f.targetAllocations[0].weights = { equityUsa: "60.0", bonds: "40" }), "targetAllocations.0.weights"],
     ["zero target weight", (f) => (f.targetAllocations[1].weights = { cash: "100", bonds: "0" }), "targetAllocations.1.weights"],
     ["invalid threshold", (f) => (f.targetAllocations[0].threshold = "100.5"), "targetAllocations.0.threshold"],
+    ["duplicate watchlist id", (f) => (f.watchlists[1].id = "w1"), "watchlists.1.id"],
+    ["duplicate watchlist entry id across lists", (f) => (f.watchlists[1].entries[0].id = "e1"), "watchlists.1.entries.0.id"],
+    ["duplicate watchlist position", (f) => (f.watchlists[1].position = 1), "watchlists.1.position"],
+    ["watchlist names equal ignoring case", (f) => (f.watchlists[1].name = "IDEEN"), "watchlists.1.name"],
+    ["watchlist names equal after NFC", (f) => ((f.watchlists[0].name = "Caf\u00e9"), (f.watchlists[1].name = "CAFE\u0301")), "watchlists.1.name"],
+    ["dangling watchlist entry", (f) => (f.watchlists[0].entries[1].securityId = "nope"), "watchlists.0.entries.1.securityId"],
+    ["Security twice on one list", (f) => (f.watchlists[0].entries[1].securityId = "s4"), "watchlists.0.entries.1.securityId"],
   ])("rejects a %s with its path", (_label, mutate, path) => {
     const file = base();
     mutate(file);
     expect(checkConsistency(file)).toEqual({ ok: false, path });
+  });
+
+  it("allows one Security on several watchlists and the same entry position on different lists", () => {
+    const file = base();
+    expect(file.watchlists[0].entries[0]).toMatchObject({ securityId: "s4", position: 1 });
+    expect(file.watchlists[1].entries[0]).toMatchObject({ securityId: "s4", position: 1 });
+    expect(checkConsistency(file)).toEqual({ ok: true });
   });
 
   it("allows the same cash row shape in different runs and the same slot in different Depots", () => {

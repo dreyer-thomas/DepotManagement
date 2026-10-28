@@ -1,7 +1,8 @@
 // The export file contract (story 6.1, AD-12): one versioned JSON document with every stored ledger,
 // price and manual-logo row, the manual classification overrides (version 2, story 7.1) and the tax settings
-// (version 3, story 8.3), the manual region splits (version 4, story 8.4) and the target allocations
-// (version 5, story 8.5). Decimals and dates are the stored strings; nothing derived is included.
+// (version 3, story 8.3), the manual region splits (version 4, story 8.4), the target allocations
+// (version 5, story 8.5) and the watchlists with their entries (version 6, story 9.3; OAuth data is never
+// exported). Decimals and dates are the stored strings; nothing derived is included.
 // Restore (story 6.2) parses files with this schema; older versions are upgraded before parsing.
 import { z } from "zod";
 import { ASSET_CLASSES, COMPANY_SIZES, CURRENCY_PATTERN, REGIONS } from "@/core/classification";
@@ -9,8 +10,9 @@ import { isBusinessDate } from "@/core/dates";
 import { isDecimalString } from "@/core/decimal";
 import { SEGMENTS, type Segment } from "@/core/rebalancing";
 import { regionSplitFromRecord, SPLIT_REGIONS, type SplitRegion } from "@/core/region-split";
+import { WATCHLIST_NAME_MAX_LENGTH, WATCHLIST_NOTE_MAX_LENGTH } from "@/core/watchlist";
 
-export const EXPORT_SCHEMA_VERSION = 5;
+export const EXPORT_SCHEMA_VERSION = 6;
 
 const id = z.string().min(1);
 const decimal = z.string().refine(isDecimalString, "decimal string expected");
@@ -155,6 +157,27 @@ export const targetAllocationRecordSchema = z.strictObject({
   threshold: decimal,
 });
 
+/** One Security on a watchlist (watchlist module); the parent list is implied by nesting. */
+export const watchlistEntryRecordSchema = z.strictObject({
+  id,
+  securityId: id,
+  note: z.string().max(WATCHLIST_NOTE_MAX_LENGTH),
+  dateAdded: businessDate,
+  position: z.number().int(),
+  source: z.enum(["APP", "MCP"]),
+  clientName: z.string().min(1).nullable(),
+  createdAt: timestamp,
+});
+
+/** One named watchlist with its entries; the consistency check enforces unique names, positions and entries. */
+export const watchlistRecordSchema = z.strictObject({
+  id,
+  name: z.string().min(1).max(WATCHLIST_NAME_MAX_LENGTH),
+  position: z.number().int(),
+  createdAt: timestamp,
+  entries: z.array(watchlistEntryRecordSchema),
+});
+
 /** The whole export file; keys appear in this order in the serialized JSON. */
 export const exportFileSchema = z.strictObject({
   schemaVersion: z.literal(EXPORT_SCHEMA_VERSION),
@@ -170,6 +193,7 @@ export const exportFileSchema = z.strictObject({
   taxAllowances: z.array(taxAllowanceRecordSchema),
   teilfreistellungOverrides: z.array(teilfreistellungOverrideRecordSchema),
   targetAllocations: z.array(targetAllocationRecordSchema),
+  watchlists: z.array(watchlistRecordSchema),
 });
 
 export type ExportFile = z.infer<typeof exportFileSchema>;

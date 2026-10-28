@@ -121,7 +121,7 @@ Top-level keys, in this order (the zod schema in [src/modules/backup/schema.ts](
 
 | Key | Records | Sorted by |
 | --- | --- | --- |
-| `schemaVersion` | The number `1` | — |
+| `schemaVersion` | The current format version (`EXPORT_SCHEMA_VERSION` in [src/modules/backup/schema.ts](src/modules/backup/schema.ts)) | — |
 | `depots` | `id`, `name`, `broker` (`COMDIRECT`/`DEUTSCHE_BANK`/`FINANZEN_ZERO`), `archived` | `id` |
 | `securities` | `id`, `isin`, `cryptoSymbol`, `name`, `assetType` | `id` |
 | `providerMappings` | `id`, `securityId`, `provider` (`YAHOO`/`ONVISTA`/`COINGECKO`), `symbol`, `origin` (`AUTO`/`MANUAL`), `updatedAt`, `historyFrom`, `fetchedAt`, `fetchError`; provider and symbol `null` = "not found" marker | `securityId` |
@@ -130,8 +130,9 @@ Top-level keys, in this order (the zod schema in [src/modules/backup/schema.ts](
 | `reconciliationRuns` | `id`, `depotId`, `statementDate`, `status` (`OPEN`/`FINISHED`), `createdAt`, `finishedAt`, `rows`: [`id`, `runId`, `securityId` (`null` = Cash Account), `statementValue`, `checked`] | `id`; rows by `id` |
 | `prices` | `id`, `securityId`, `date`, `source` (`MANUAL`/`PROVIDER`), `price`, `fetchedAt` | `securityId`, `date`, `source` |
 | `logos` | Manually uploaded logos only: `id`, `securityId`, `contentType` (`image/png`/`image/jpeg`/`image/webp`), `fetchedAt`, `data` (file bytes as base64) | `securityId` |
+| `watchlists` (last key) | `id`, `name`, `position`, `createdAt`, `entries`: [`id`, `securityId`, `note`, `dateAdded`, `position`, `source` (`APP`/`MCP`), `clientName`, `createdAt`] | `position`; entries by `position`, `id` |
 
-Not exported: caches and anything that can be fetched again or is temporary: fetched logos and their "nothing found" markers, news headlines, PDF import staging (batches, items, stored PDFs). A manual logo whose file is missing, empty or otherwise unusable on disk is skipped with a warning in the log.
+Not exported: caches and anything that can be fetched again or is temporary: fetched logos and their "nothing found" markers, news headlines, PDF import staging (batches, items, stored PDFs). OAuth data of connected apps (clients, grants, tokens) is never exported. A manual logo whose file is missing, empty or otherwise unusable on disk is skipped with a warning in the log.
 
 `schemaVersion` changes only when the format changes incompatibly. Restore reads older versions by upgrading them step by step to the current one.
 
@@ -139,8 +140,9 @@ Not exported: caches and anything that can be fetched again or is temporary: fet
 
 Settings → "Datensicherung" → "Wiederherstellen" replaces **all** data with the content of an export file. Choose the file and type `WIEDERHERSTELLEN` to enable the button. Restore never merges: afterwards the database holds exactly the rows of the file.
 
-- Replaced: Depots, Securities, Transactions, corporate actions, reconciliation runs, provider mappings, Prices and manual logos, with their IDs, sequences, decimals and dates exactly as in the file.
+- Replaced: Depots, Securities, Transactions, corporate actions, reconciliation runs, provider mappings, Prices, manual logos and watchlists with their entries (a file older than version 6 has none, so the instance afterwards has no watchlists), with their IDs, sequences, decimals and dates exactly as in the file.
 - Cleared: PDF import staging (batches and their stored PDFs), news headlines and fetched logos. They are fetched or uploaded again as needed.
+- Connected apps (e.g. Claude) must be connected again after a restore; their OAuth data is not part of the export.
 - Before anything is replaced, an automatic export of the current data is written to `BACKUP_DIR` (empty = `~/.depotmanagement/backups`; the directory is created if missing) as `depotmanagement-export-<YYYYMMDD-HHMMSS>.json`. The success message names this file. To undo a restore, restore that file.
 - The file is checked completely before anything is written: at most 50 MB, valid JSON, a supported `schemaVersion` (older versions are upgraded step by step, newer ones are rejected), the schema above, consistent references and unique keys, and valid logo images. A rejected file shows the reason (and, for schema or consistency errors, the field path) and leaves every row and file unchanged.
 - The replacement runs in one database transaction; if it fails, the old data stays as it was.

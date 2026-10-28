@@ -5,9 +5,11 @@ import {
   addWatchlistEntry,
   createWatchlist,
   deleteWatchlist,
+  exportWatchlists,
   listWatchlists,
   removeWatchlistEntry,
   renameWatchlist,
+  replaceAllWatchlists,
   securityWatchlistEntries,
   updateWatchlistEntry,
   watchedSecurityIds,
@@ -306,5 +308,80 @@ describe("watchlistPriceTargets", () => {
 
   it("is empty without entries", async () => {
     expect((await watchlistPriceTargets(TODAY, db())).size).toBe(0);
+  });
+});
+
+describe("exportWatchlists / replaceAllWatchlists", () => {
+  it("exports lists by position with entries by position, all stored fields verbatim", async () => {
+    const ideas = await list("Ideen");
+    const dividends = await list("Dividenden");
+    const sap = await security(SAP, "SAP SE");
+    const apple = await security(APPLE, "Apple Inc.");
+    const first = await add(ideas, sap, "2026-10-01", "Notiz");
+    const second = await add(ideas, apple, "2026-10-02");
+    await db().watchlistEntry.update({ where: { id: second }, data: { source: "MCP", clientName: "Claude" } });
+    const third = await add(dividends, sap);
+
+    expect(await exportWatchlists(db())).toEqual([
+      {
+        id: ideas,
+        name: "Ideen",
+        position: 1,
+        createdAt: "2026-10-28T10:00:00.000Z",
+        entries: [
+          { id: first, securityId: sap, note: "Notiz", dateAdded: "2026-10-01", position: 1, source: "APP", clientName: null, createdAt: "2026-10-28T10:00:00.000Z" },
+          { id: second, securityId: apple, note: "", dateAdded: "2026-10-02", position: 2, source: "MCP", clientName: "Claude", createdAt: "2026-10-28T10:00:00.000Z" },
+        ],
+      },
+      {
+        id: dividends,
+        name: "Dividenden",
+        position: 2,
+        createdAt: "2026-10-28T10:00:00.000Z",
+        entries: [{ id: third, securityId: sap, note: "", dateAdded: TODAY, position: 1, source: "APP", clientName: null, createdAt: "2026-10-28T10:00:00.000Z" }],
+      },
+    ]);
+  });
+
+  it("orders entries of equal position by id", async () => {
+    const ideas = await list("Ideen");
+    const sap = await security(SAP, "SAP SE");
+    const apple = await security(APPLE, "Apple Inc.");
+    // The higher id is inserted first, so insertion order cannot pass by accident.
+    const entry = (id: string, securityId: string) => ({ id, watchlistId: ideas, securityId, dateAdded: TODAY, position: 7, createdAt: "2026-10-28T10:00:00.000Z" });
+    await db().watchlistEntry.create({ data: entry("we-b", sap) });
+    await db().watchlistEntry.create({ data: entry("we-a", apple) });
+    const [exported] = await exportWatchlists(db());
+    expect(exported.entries.map((row) => [row.id, row.position])).toEqual([
+      ["we-a", 7],
+      ["we-b", 7],
+    ]);
+  });
+
+  it("exports nothing without lists", async () => {
+    expect(await exportWatchlists(db())).toEqual([]);
+  });
+
+  it("replaces every list and entry with the given records, keeping ids, and empties with []", async () => {
+    const old = await list("Alt");
+    const sap = await security(SAP, "SAP SE");
+    await add(old, sap);
+    const records = [
+      {
+        id: "wl-x",
+        name: "Neu",
+        position: 5,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        entries: [{ id: "we-x", securityId: sap, note: "n", dateAdded: "2026-01-02", position: 3, source: "MCP" as const, clientName: "Claude", createdAt: "2026-01-02T00:00:00.000Z" }],
+      },
+      { id: "wl-y", name: "Leer", position: 6, createdAt: "2026-01-03T00:00:00.000Z", entries: [] },
+    ];
+    await replaceAllWatchlists(records, db());
+    expect(await exportWatchlists(db())).toEqual(records);
+    // The Security stays when its entries go.
+    await replaceAllWatchlists([], db());
+    expect(await exportWatchlists(db())).toEqual([]);
+    expect(await db().watchlistEntry.count()).toBe(0);
+    expect(await db().security.count({ where: { id: sap } })).toBe(1);
   });
 });

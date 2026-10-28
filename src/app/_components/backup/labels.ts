@@ -9,7 +9,7 @@ export { ACTION_FAILED_MESSAGE };
 export const RESTORE_CONFIRM_TEXT = "WIEDERHERSTELLEN";
 
 export const RESTORE_WARNING =
-  "Alle Daten werden durch den Inhalt der Datei ersetzt. Vorher wird automatisch ein Export der aktuellen Daten im Sicherungsordner abgelegt.";
+  "Alle Daten werden durch den Inhalt der Datei ersetzt. Vorher wird automatisch ein Export der aktuellen Daten im Sicherungsordner abgelegt. Verbundene Apps (z. B. Claude) müssen danach neu verbunden werden.";
 
 type RestoreFailure = Extract<NonNullable<RestoreActionState>, { ok: false }>;
 export type RestoreErrorReason = RestoreFailure["reason"] | "action-failed";

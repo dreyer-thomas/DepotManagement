@@ -2,11 +2,12 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, wr
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { PNG, seedFullLedger, TS, writeLogo } from "../../../test/helpers/backup-seed";
+import { PNG, seedFullLedger, seedWatchlists, TS, writeLogo } from "../../../test/helpers/backup-seed";
 import { createTestDatabase, type TestDatabase } from "../../../test/helpers/test-db";
 import type { PrismaClient } from "@/db/generated/prisma/client";
 import { depotValuation, listDepots, listPositions, portfolioValuation } from "@/modules/ledger";
 import { storedPriceHistory } from "@/modules/prices";
+import { watchlistView } from "@/modules/watchlist";
 import { backupDir, createExport, exportFileName, RESTORE_MAX_FILE_BYTES, restoreExport, serializeExport } from "./index";
 
 const NOW = new Date("2026-10-26T12:00:00Z");
@@ -89,6 +90,12 @@ async function seedOtherData(i: Instance): Promise<void> {
   await c.taxAllowance.create({ data: { id: "other-fsa", broker: "DEUTSCHE_BANK", year: 2025, amount: "500", updatedAt: TS } });
   await c.teilfreistellungOverride.create({ data: { id: "other-tfs", securityId: "other-sec", rate: "0.6", updatedAt: TS } });
   await c.targetAllocation.create({ data: { id: "other-ta", scope: "other-depot", weights: '{"bonds":"100"}', threshold: "2", updatedAt: TS } });
+  // A watchlist named like one of the file's lists and a list on its own position, with an entry.
+  await c.watchlist.create({ data: { id: "other-wl", name: "Ideen", position: 1, createdAt: TS } });
+  await c.watchlist.create({ data: { id: "other-wl-2", name: "Alt", position: 2, createdAt: TS } });
+  await c.watchlistEntry.create({
+    data: { id: "other-we", watchlistId: "other-wl", securityId: "other-sec", note: "alt", dateAdded: "2025-05-06", position: 1, createdAt: TS },
+  });
   const batch = await c.importBatch.create({
     data: {
       id: "batch1",
@@ -148,24 +155,43 @@ function onlyOverrides(records: ClassificationRecord[]): ClassificationRecord[] 
 }
 
 describe("restoreExport", () => {
-  it("restores over a watchlist entry: the entry goes with its Security (until story 9.3), the list stays", async () => {
+  it("replaces the target's watchlists with exactly the file's lists and entries", async () => {
     await seedFullLedger(source.testDb.client, source.dataDir);
+    await seedWatchlists(source.testDb.client);
     const text = await exportOf(source);
     await seedOtherData(target);
     const c = target.testDb.client;
-    await c.watchlist.create({ data: { id: "wl-1", name: "Ideen", position: 1, createdAt: TS } });
-    await c.watchlistEntry.create({
-      data: { watchlistId: "wl-1", securityId: "other-sec", dateAdded: "2025-05-06", position: 1, createdAt: TS },
-    });
 
     expect(await restoreInto(target, text)).toEqual({ ok: true, backupFileName: BACKUP_NAME });
-    expect(await c.watchlistEntry.count()).toBe(0);
-    expect(await c.watchlist.count()).toBe(1);
+    expect(await exportOf(target)).toBe(text);
+    expect(await c.watchlist.findMany({ orderBy: { position: "asc" }, select: { id: true, name: true, position: true } })).toEqual([
+      { id: "wl-1", name: "Ideen", position: 1 },
+      { id: "wl-2", name: "Dividenden", position: 3 },
+    ]);
+    expect((await c.watchlistEntry.findMany({ orderBy: { id: "asc" } })).map((entry) => [entry.id, entry.watchlistId, entry.securityId])).toEqual([
+      ["we-1", "wl-2", "sec-d"],
+      ["we-2", "wl-1", "sec-a"],
+      ["we-3", "wl-1", "sec-d"],
+    ]);
+  });
+
+  it("restores a version-5 file with no watchlists, removing the target's lists", async () => {
+    await seedFullLedger(source.testDb.client, source.dataDir);
+    const current = JSON.parse(await exportOf(source));
+    const version5 = { ...current, schemaVersion: 5 };
+    delete version5.watchlists;
+    await seedOtherData(target);
+
+    expect(await restoreInto(target, JSON.stringify(version5))).toEqual({ ok: true, backupFileName: BACKUP_NAME });
+    expect(await target.testDb.client.watchlist.count()).toBe(0);
+    expect(await target.testDb.client.watchlistEntry.count()).toBe(0);
+    expect(JSON.parse(await exportOf(target))).toEqual({ ...current, watchlists: [] });
   });
 
   it("round-trips: restoring into an empty instance yields a byte-identical export and equal evaluations", async () => {
     await seedFullLedger(source.testDb.client, source.dataDir);
     await seedMorePrices(source.testDb.client);
+    await seedWatchlists(source.testDb.client);
     // A second Security held in the other Depot, so the Portfolio sums more than one Position.
     await source.testDb.client.depot.update({ where: { id: "depot-b" }, data: { archived: false } });
     await source.testDb.client.transaction.create({
@@ -176,6 +202,7 @@ describe("restoreExport", () => {
     });
     const text = await exportOf(source);
     const before = await evaluations(source.testDb.client);
+    const watchlistsBefore = await watchlistView(TODAY, source.testDb.client);
     expect(before.positions.flat()).toHaveLength(2);
     expect(before.portfolio.series.length).toBeGreaterThan(200);
     expect(before.portfolio.performance).toBeDefined();
@@ -184,6 +211,18 @@ describe("restoreExport", () => {
     expect(result).toEqual({ ok: true, backupFileName: BACKUP_NAME });
     expect(await exportOf(target)).toBe(text);
     expect(await evaluations(target.testDb.client)).toEqual(before);
+    // The watchlists are back, including the watchlist-only Security with its Price, note, source and client name.
+    const watchlistsAfter = await watchlistView(TODAY, target.testDb.client);
+    expect(watchlistsAfter).toEqual(watchlistsBefore);
+    expect(watchlistsAfter[0].entries[1]).toMatchObject({
+      security: { id: "sec-d", name: "Synthetic Delta AG" },
+      note: "Idee aus der Recherche",
+      dateAdded: "2026-10-01",
+      source: "MCP",
+      clientName: "Claude",
+      price: "42.10",
+      held: false,
+    });
     // The restored logo is the same image under a new file name.
     const logo = await target.testDb.client.securityLogo.findUniqueOrThrow({ where: { securityId: "sec-b" } });
     expect(logo).toMatchObject({ id: "logo-b", source: "MANUAL", provider: null, contentType: "image/png", fetchedAt: TS });
@@ -217,12 +256,13 @@ describe("restoreExport", () => {
     // The automatic export of the (empty) target was written first.
     expect(readdirSync(target.backupDir)).toEqual([BACKUP_NAME]);
     expect(JSON.parse(readFileSync(join(target.backupDir, BACKUP_NAME), "utf8"))).toMatchObject({
-      schemaVersion: 5,
+      schemaVersion: 6,
       depots: [],
       classifications: [],
       taxAllowances: [],
       teilfreistellungOverrides: [],
       targetAllocations: [],
+      watchlists: [],
     });
   });
 
@@ -250,6 +290,8 @@ describe("restoreExport", () => {
     expect(await c.depot.findUnique({ where: { id: "other-depot" } })).toBeNull();
     expect(await c.taxAllowance.findUnique({ where: { id: "other-fsa" } })).toBeNull();
     expect(await c.targetAllocation.findUnique({ where: { id: "other-ta" } })).toBeNull();
+    expect(await c.watchlist.count()).toBe(0);
+    expect(await c.watchlistEntry.count()).toBe(0);
     expect(await c.teilfreistellungOverride.count()).toBe(1);
     const logo = await c.securityLogo.findUniqueOrThrow({ where: { securityId: "sec-b" } });
     expect(readdirSync(join(target.dataDir, "logos"))).toEqual([logo.fileName]);
@@ -265,6 +307,7 @@ describe("restoreExport", () => {
     delete version2.taxAllowances;
     delete version2.teilfreistellungOverrides;
     delete version2.targetAllocations;
+    delete version2.watchlists;
     await target.testDb.client.taxAllowance.create({ data: { broker: "COMDIRECT", year: 2024, amount: "100", updatedAt: TS } });
 
     expect(await restoreInto(target, JSON.stringify(version2))).toEqual({ ok: true, backupFileName: BACKUP_NAME });
@@ -284,6 +327,7 @@ describe("restoreExport", () => {
     const current = JSON.parse(await exportOf(source));
     const version3 = { ...current, schemaVersion: 3, classifications: withoutRegionSplits(current.classifications) };
     delete version3.targetAllocations;
+    delete version3.watchlists;
     await seedFullLedger(target.testDb.client, target.dataDir);
 
     expect(await restoreInto(target, JSON.stringify(version3))).toEqual({ ok: true, backupFileName: expect.any(String) });
@@ -296,6 +340,7 @@ describe("restoreExport", () => {
     const current = JSON.parse(await exportOf(source));
     const version4 = { ...current, schemaVersion: 4 };
     delete version4.targetAllocations;
+    delete version4.watchlists;
     await seedFullLedger(target.testDb.client, target.dataDir);
 
     expect(await restoreInto(target, JSON.stringify(version4))).toEqual({ ok: true, backupFileName: expect.any(String) });
@@ -321,6 +366,7 @@ describe("restoreExport", () => {
 
     beforeEach(async () => {
       await seedFullLedger(source.testDb.client, source.dataDir);
+      await seedWatchlists(source.testDb.client);
       file = JSON.parse(await exportOf(source));
       await seedOtherData(target);
     });
@@ -356,7 +402,7 @@ describe("restoreExport", () => {
     });
 
     it("a newer schema version", async () => {
-      await expectRejected(JSON.stringify({ ...file, schemaVersion: 6 }), { ok: false, reason: "version-unsupported" });
+      await expectRejected(JSON.stringify({ ...file, schemaVersion: 7 }), { ok: false, reason: "version-unsupported" });
     });
 
     it("a dangling reference", async () => {
@@ -367,6 +413,36 @@ describe("restoreExport", () => {
     it("a duplicate unique key", async () => {
       file.depots[1].name = file.depots[0].name;
       await expectRejected(JSON.stringify(file), { ok: false, reason: "inconsistent", detail: "depots.1.name" });
+    });
+
+    it("a watchlist entry whose Security is not in the file", async () => {
+      file.watchlists[0].entries[1].securityId = "unknown";
+      await expectRejected(JSON.stringify(file), { ok: false, reason: "inconsistent", detail: "watchlists.0.entries.1.securityId" });
+    });
+
+    it("the same Security twice on a watchlist", async () => {
+      file.watchlists[0].entries[1].securityId = file.watchlists[0].entries[0].securityId;
+      await expectRejected(JSON.stringify(file), { ok: false, reason: "inconsistent", detail: "watchlists.0.entries.1.securityId" });
+    });
+
+    it("watchlist names equal ignoring case", async () => {
+      file.watchlists[1].name = file.watchlists[0].name.toUpperCase();
+      await expectRejected(JSON.stringify(file), { ok: false, reason: "inconsistent", detail: "watchlists.1.name" });
+    });
+
+    it("two watchlists on the same position", async () => {
+      file.watchlists[1].position = file.watchlists[0].position;
+      await expectRejected(JSON.stringify(file), { ok: false, reason: "inconsistent", detail: "watchlists.1.position" });
+    });
+
+    it.each([
+      ["a watchlist name over 60 characters", (f: typeof file) => (f.watchlists[0].name = "x".repeat(61)), "watchlists.0.name"],
+      ["a note over 2000 characters", (f: typeof file) => (f.watchlists[0].entries[0].note = "x".repeat(2001)), "watchlists.0.entries.0.note"],
+      ["an invalid date added", (f: typeof file) => (f.watchlists[0].entries[0].dateAdded = "2026-02-30"), "watchlists.0.entries.0.dateAdded"],
+      ["an unknown watchlist entry key", (f: typeof file) => (f.watchlists[0].entries[0].watchlistId = "wl-1"), "watchlists.0.entries.0.watchlistId"],
+    ])("%s", async (_label, mutate, detail) => {
+      mutate(file);
+      await expectRejected(JSON.stringify(file), { ok: false, reason: "schema-invalid", detail });
     });
 
     it("a logo whose bytes do not match its content type", async () => {
@@ -425,6 +501,14 @@ describe("restoreExport", () => {
       expect(String(error.mock.calls[0]?.[0])).toMatch(/^Restore: replacing the data failed \(\w+\)$/);
       // The automatic export was written before the transaction and stays.
       expect(readdirSync(target.backupDir)).toEqual([BACKUP_NAME]);
+    });
+
+    it("a database failure in the watchlist step (rolled back)", async () => {
+      await target.testDb.client.$executeRawUnsafe(
+        `CREATE TRIGGER fail_entry BEFORE INSERT ON "WatchlistEntry" BEGIN SELECT RAISE(ABORT, 'injected'); END;`,
+      );
+      vi.spyOn(console, "error").mockImplementation(() => undefined);
+      await expectRejected(JSON.stringify(file), { ok: false, reason: "restore-failed" }, { backup: true });
     });
 
     it("a database failure in the logos step removes the new logo files", async () => {

@@ -32,7 +32,7 @@ describe("RestoreButton", () => {
   it("states what happens and accepts JSON files", async () => {
     const { dialog, input } = await openDialog();
     expect(dialog.textContent).toContain(
-      "Alle Daten werden durch den Inhalt der Datei ersetzt. Vorher wird automatisch ein Export der aktuellen Daten im Sicherungsordner abgelegt.",
+      "Alle Daten werden durch den Inhalt der Datei ersetzt. Vorher wird automatisch ein Export der aktuellen Daten im Sicherungsordner abgelegt. Verbundene Apps (z. B. Claude) müssen danach neu verbunden werden.",
     );
     expect(input.getAttribute("accept")).toBe(".json,application/json");
     expect(within(dialog).getByText("Exportdatei wählen")).toBeTruthy();
