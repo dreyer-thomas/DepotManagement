@@ -11,7 +11,7 @@ const UNAUTHORIZED = { ok: false, reason: "unauthorized" } as const;
 export type SetPeriodActionResult = { ok: true } | typeof UNAUTHORIZED | { ok: false; reason: "invalid" };
 
 /**
- * Stores the global Period choice (`1M|YTD|1J|3J|MAX` or `custom:YYYY-MM-DD:YYYY-MM-DD`, validated by
+ * Stores the global Period choice (`1T|1W|1M|YTD|1J|3J|MAX` or `custom:YYYY-MM-DD:YYYY-MM-DD`, validated by
  * `core/period` against today) in the Period cookie. The caller refreshes the page.
  */
 export async function setPeriodAction(text: unknown): Promise<SetPeriodActionResult> {

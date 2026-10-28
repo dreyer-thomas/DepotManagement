@@ -4,7 +4,7 @@ import { DEFAULT_PERIOD, parsePeriod, periodLabel, type PeriodSelection, resolve
 const TODAY = "2026-10-26";
 
 describe("parsePeriod / serializePeriod", () => {
-  it.each(["1M", "YTD", "1J", "3J", "MAX"])("reads the preset %s and writes it back", (text) => {
+  it.each(["1T", "1W", "1M", "YTD", "1J", "3J", "MAX"])("reads the preset %s and writes it back", (text) => {
     const selection = parsePeriod(text, TODAY);
     expect(selection).toEqual({ kind: "preset", preset: text });
     expect(serializePeriod(selection!)).toBe(text);
@@ -42,6 +42,8 @@ describe("resolvePeriod", () => {
   const preset = (value: string) => parsePeriod(value, TODAY) as PeriodSelection;
 
   it("ends presets today and starts them by calendar arithmetic", () => {
+    expect(resolvePeriod(preset("1T"), TODAY, null)).toEqual({ from: "2026-10-25", to: TODAY });
+    expect(resolvePeriod(preset("1W"), TODAY, null)).toEqual({ from: "2026-10-19", to: TODAY });
     expect(resolvePeriod(preset("1M"), TODAY, null)).toEqual({ from: "2026-09-26", to: TODAY });
     expect(resolvePeriod(preset("YTD"), TODAY, null)).toEqual({ from: "2026-01-01", to: TODAY });
     expect(resolvePeriod(preset("1J"), TODAY, null)).toEqual({ from: "2025-10-26", to: TODAY });

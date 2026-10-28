@@ -1,11 +1,11 @@
 /**
  * The Period: the date range every Period figure, chart and return covers. Pure; "today" is passed in.
- * Serialized form (cookie): `1M | YTD | 1J | 3J | MAX` or `custom:YYYY-MM-DD:YYYY-MM-DD`.
+ * Serialized form (cookie): `1T | 1W | 1M | YTD | 1J | 3J | MAX` or `custom:YYYY-MM-DD:YYYY-MM-DD`.
  */
-import { addMonths, isBusinessDate } from "./dates";
+import { addDays, addMonths, isBusinessDate } from "./dates";
 import { formatDate } from "./format";
 
-export const PERIOD_PRESETS = ["1M", "YTD", "1J", "3J", "MAX"] as const;
+export const PERIOD_PRESETS = ["1T", "1W", "1M", "YTD", "1J", "3J", "MAX"] as const;
 
 export type PeriodPreset = (typeof PERIOD_PRESETS)[number];
 
@@ -14,7 +14,7 @@ export type PeriodSelection = { kind: "preset"; preset: PeriodPreset } | { kind:
 /** Default and fallback for a missing or invalid stored Period. */
 export const DEFAULT_PERIOD: PeriodSelection = { kind: "preset", preset: "1J" };
 
-const PRESET_LABELS: Record<PeriodPreset, string> = { "1M": "1M", YTD: "YTD", "1J": "1J", "3J": "3J", MAX: "Max" };
+const PRESET_LABELS: Record<PeriodPreset, string> = { "1T": "1T", "1W": "1W", "1M": "1M", YTD: "YTD", "1J": "1J", "3J": "3J", MAX: "Max" };
 
 const CUSTOM = /^custom:([^:]*):([^:]*)$/;
 
@@ -42,14 +42,18 @@ export function serializePeriod(selection: PeriodSelection): string {
 }
 
 /**
- * The inclusive date range of a Period. Presets end today: `1M`/`1J`/`3J` start 1 month / 1 year /
- * 3 years earlier (day clamped to month end), `YTD` on Jan 1 of today's year, `MAX` on `firstDate`
+ * The inclusive date range of a Period. Presets end today: `1T`/`1W` start 1 / 7 days earlier,
+ * `1M`/`1J`/`3J` 1 month / 1 year / 3 years earlier (day clamped to month end), `YTD` on Jan 1 of today's year, `MAX` on `firstDate`
  * (the Depot's first ledger date; today without one). A custom range is returned as is.
  */
 export function resolvePeriod(selection: PeriodSelection, today: string, firstDate: string | null): { from: string; to: string } {
   if (selection.kind === "custom") return { from: selection.from, to: selection.to };
   const to = today;
   switch (selection.preset) {
+    case "1T":
+      return { from: addDays(to, -1), to };
+    case "1W":
+      return { from: addDays(to, -7), to };
     case "1M":
       return { from: addMonths(to, -1), to };
     case "YTD":

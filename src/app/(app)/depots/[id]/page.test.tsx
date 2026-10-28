@@ -455,7 +455,7 @@ describe("Depot detail page", () => {
       const tree = await DepotDetailPage(props(id, tab));
       const text = renderText(tree);
       const html = renderHtml(tree);
-      expect(text).toMatch(/Hauptdepot 1M YTD 1J 3J Max Benutzerdefiniert comdirect Archiviert Cash-Konto/);
+      expect(text).toMatch(/Hauptdepot 1T 1W 1M YTD 1J 3J Max Benutzerdefiniert comdirect Archiviert Cash-Konto/);
       expect(text).toMatch(/Archiviertes Depot – nur lesbar\. Reaktivieren unter Einstellungen ?\./);
       expect(html).toMatch(/<a[^>]*href="\/settings"[^>]*>Einstellungen<\/a>/);
       expect(html).not.toMatch(/<button[^>]*aria-label="Neue Buchung"[^>]*>(?:<style[^>]*>[^<]*<\/style>)?<span[^>]*>Neu<\/span>/);
@@ -572,7 +572,7 @@ describe("Depot detail page", () => {
     expect(html).toContain('aria-label="Zeitraum"');
     expect(html).toMatch(pressedPill("Benutzerdefiniert"));
     expect((html.match(/aria-pressed="true"/g) ?? []).length).toBe(1);
-    expect(text).toMatch(/Hauptdepot 1M YTD 1J 3J Max Benutzerdefiniert comdirect/);
+    expect(text).toMatch(/Hauptdepot 1T 1W 1M YTD 1J 3J Max Benutzerdefiniert comdirect/);
     expect(text).toContain(
       [
         "Gesamtwert 1.731,10\u00a0€ Stand 30.06.2026",

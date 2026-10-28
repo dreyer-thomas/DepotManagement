@@ -48,7 +48,7 @@ const PILL = {
 } as const;
 
 /**
- * Global Period selector (1M · YTD · 1J · 3J · Max · Benutzerdefiniert). A pill stores the choice via
+ * Global Period selector (1T · 1W · 1M · YTD · 1J · 3J · Max · Benutzerdefiniert). A pill stores the choice via
  * the server action (cookie) and refreshes the page; "Benutzerdefiniert" opens a Von/Bis dialog whose
  * range must satisfy `from ≤ to ≤ today` before anything is saved. Below `sm` that pill shows a
  * calendar icon instead of the word, so the row fits a phone.
