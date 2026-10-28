@@ -8,8 +8,8 @@ scope: 'DepotManagement v1 — the whole product as defined by the PRD (FR-1..FR
 status: final
 created: '2026-10-25'
 updated: '2026-10-25'
-change_log: ['2026-10-25 sprint change: AD-7, AD-16 amended (hands-off Parqet migration, FUND type)', '2026-10-25 sprint change: AD-6 amended (funding for cash-less exports)', '2026-10-25 sprint change: AD-6 amended (group cash pairing, TAX differences, rounding clamp)', '2026-10-25 sprint change: AD-6 amended (inflow differences as DEPOSIT, funding for every export)', '2026-10-26 sprint change: AD-10 amended (Security-level figures, FR-19)', '2026-10-26 sprint change: AD-14 amended (ADJUSTMENT type, FR-20)', '2026-10-27 sprint change: AD-20 added (classification, FR-21/22)']
-binds: [FR-22, FR-21, FR-20, FR-19, FR-1, FR-2, FR-3, FR-4, FR-5, FR-6, FR-7, FR-8, FR-9, FR-10, FR-11, FR-12, FR-13, FR-14, FR-15, FR-16, FR-17, FR-18]
+change_log: ['2026-10-25 sprint change: AD-7, AD-16 amended (hands-off Parqet migration, FUND type)', '2026-10-25 sprint change: AD-6 amended (funding for cash-less exports)', '2026-10-25 sprint change: AD-6 amended (group cash pairing, TAX differences, rounding clamp)', '2026-10-25 sprint change: AD-6 amended (inflow differences as DEPOSIT, funding for every export)', '2026-10-26 sprint change: AD-10 amended (Security-level figures, FR-19)', '2026-10-26 sprint change: AD-14 amended (ADJUSTMENT type, FR-20)', '2026-10-27 sprint change: AD-20 added (classification, FR-21/22)', '2026-10-28 sprint change: AD-22 added, AD-2/12/13/17/18 amended (watchlists, MCP connector, FR-27..29)']
+binds: [FR-29, FR-28, FR-27, FR-22, FR-21, FR-20, FR-19, FR-1, FR-2, FR-3, FR-4, FR-5, FR-6, FR-7, FR-8, FR-9, FR-10, FR-11, FR-12, FR-13, FR-14, FR-15, FR-16, FR-17, FR-18]
 sources:
   - _bmad-output/planning-artifacts/prds/prd-DepotManagement-2026-10-25/prd.md
   - _bmad-output/planning-artifacts/prds/prd-DepotManagement-2026-10-25/addendum.md
@@ -42,6 +42,8 @@ graph TD
     classification["classification — providers, rules, manual overrides"]
     backup["backup — export / restore / DB backup"]
     auth["auth — single-user session"]
+    watchlist["watchlist — watchlists and entries"]
+    mcp["mcp — MCP endpoint, OAuth server"]
   end
   import --> ledger
   migration --> ledger
@@ -51,6 +53,13 @@ graph TD
   news --> ledger
   logos --> ledger
   classification --> ledger
+  watchlist --> ledger
+  watchlist --> prices
+  mcp --> watchlist
+  mcp --> ledger
+  mcp --> prices
+  mcp --> classification
+  mcp --> auth
   modules --> core["src/core — pure functions"]
   modules --> db[("src/db — Prisma client / SQLite")]
 ```
@@ -67,7 +76,7 @@ graph TD
 
 - **Binds:** all
 - **Prevents:** financial logic leaking into routes or modules; modules coupling via each other's tables.
-- **Rule:** `app → modules → core`, `modules → db`. `src/core` imports nothing from the project except its own files and `decimal.js`. A module reads or writes only the Prisma models it owns and reaches another module only through that module's exported service functions (`src/modules/<name>/index.ts`). Every writing service accepts an optional Prisma transaction client so callers can compose one DB transaction across modules. Ownership: `ledger` — Depot, Security, Transaction, CorporateAction; `prices` — ProviderMapping, Price; `import` — ImportBatch, ImportItem; `news` — news cache; `logos` — SecurityLogo and logo files; `auth` — session.
+- **Rule:** `app → modules → core`, `modules → db`. `src/core` imports nothing from the project except its own files and `decimal.js`. A module reads or writes only the Prisma models it owns and reaches another module only through that module's exported service functions (`src/modules/<name>/index.ts`). Every writing service accepts an optional Prisma transaction client so callers can compose one DB transaction across modules. Ownership: `ledger` — Depot, Security, Transaction, CorporateAction; `prices` — ProviderMapping, Price; `import` — ImportBatch, ImportItem; `news` — news cache; `logos` — SecurityLogo and logo files; `auth` — session; `watchlist` — Watchlist, WatchlistEntry; `mcp` — OAuthClient, OAuthGrant, OAuthToken.
 
 ### AD-3 — One write path into the ledger `[ADOPTED]`
 
@@ -127,13 +136,13 @@ graph TD
 
 - **Binds:** FR-16
 - **Prevents:** a restore that depends on vanished price sources; partial or merged restores; old exports becoming unreadable.
-- **Rule:** Export is one JSON file with a `schemaVersion`, containing Depots, Securities, ProviderMappings, Transactions (including ADJUSTMENT rows), CorporateActions, ReconciliationRuns with their rows, all stored Prices and manually uploaded logos (base64). Caches, staging, news and fetched logos are excluded. Restore validates the file, upgrades older `schemaVersion`s through pure upgrade functions, takes an automatic export of the current data, then in one DB transaction clears staging and caches and calls `ledger.replaceAll` and `prices.replaceAll`. It never merges.
+- **Rule:** Export is one JSON file with a `schemaVersion`, containing Depots, Securities, ProviderMappings, Transactions (including ADJUSTMENT rows), CorporateActions, ReconciliationRuns with their rows, all stored Prices, manually uploaded logos (base64) and Watchlists with their entries. Caches, staging, news, fetched logos and OAuth data are excluded (connected apps reconnect after a restore). Restore validates the file, upgrades older `schemaVersion`s through pure upgrade functions, takes an automatic export of the current data, then in one DB transaction clears staging and caches and calls `ledger.replaceAll` and `prices.replaceAll`. It never merges.
 
 ### AD-13 — Single instance, single user, nothing leaves except symbols `[ADOPTED]`
 
 - **Binds:** NFR deployment, privacy, public repository
 - **Prevents:** duplicate scheduler runs; unprotected network exposure; secrets or financial data leaving the server.
-- **Rule:** The app runs as exactly one Node process. The scheduler lives in that process (Next.js `instrumentation.ts`, guarded against double start): price fetch on start and daily, plus on demand; daily DB backup (AD-18). Access requires the in-app single-user login (password hash + signed session cookie) on every page and route except login. Next.js telemetry is disabled and no analytics are embedded. Outbound requests carry only provider symbols, ISINs or company names — never quantities, values or Depot data.
+- **Rule:** The app runs as exactly one Node process. The scheduler lives in that process (Next.js `instrumentation.ts`, guarded against double start): price fetch on start and daily, plus on demand; daily DB backup (AD-18). Access requires the in-app single-user login (password hash + signed session cookie) on every page and route except login, the OAuth endpoints and `/api/mcp`, which accepts only an OAuth access token issued after that login (AD-22). Next.js telemetry is disabled and no analytics are embedded. Outbound requests to providers carry only provider symbols, ISINs or company names — never quantities, values or Depot data. Financial data leaves the server only as responses to a connected MCP client holding `portfolio:read` (AD-22).
 
 ### AD-14 — Canonical Transaction shape
 
@@ -157,13 +166,13 @@ graph TD
 
 - **Binds:** FR-1, FR-7, FR-10, FR-13, FR-14
 - **Prevents:** Transactions booked into an archived Depot silently vanishing from totals; prices, news and composition disagreeing on what is held.
-- **Rule:** Archiving is refused while the Depot has open Positions or a non-zero Cash Account balance. An archived Depot is read-only — the ledger rejects writes until it is unarchived — and is excluded from every aggregate but stays viewable. One core function `heldSecurities(ledger)` (open Positions in non-archived Depots) is the only definition of "held" for prices, news and overviews. Benchmark Securities (Story 8.2, one reference table) are priced like held ones but are never held: they appear in no Position, total, news or analysis.
+- **Rule:** Archiving is refused while the Depot has open Positions or a non-zero Cash Account balance. An archived Depot is read-only — the ledger rejects writes until it is unarchived — and is excluded from every aggregate but stays viewable. One core function `heldSecurities(ledger)` (open Positions in non-archived Depots) is the only definition of "held" for prices, news and overviews. Benchmark Securities (Story 8.2, one reference table) are priced like held ones but are never held: they appear in no Position, total, news or analysis. Watchlist Securities (Story 9.1) are priced like benchmarks and are in the news set, but are never held: they appear in no Position, total or analysis.
 
 ### AD-18 — Operational envelope `[ADOPTED]`
 
 - **Binds:** NFR deployment, public repository, FR-16
 - **Prevents:** config drift between modules; schema changes applied at random times; corrupt DB copies.
-- **Rule:** All configuration comes from environment variables / an untracked `.env` with fixed names: `DATABASE_URL`, `SESSION_SECRET`, `AUTH_USERNAME`, `AUTH_PASSWORD_HASH`, `BACKUP_DIR`, `BACKUP_KEEP`, `COINGECKO_API_KEY`, `OPENFIGI_API_KEY`, `LOGO_DEV_API_KEY`, `DATA_DIR` (logo files), `DEV_ALLOWED_ORIGINS` (development only); `.env.example` lists them without values. The SQLite file and backups live outside the source tree. SQLite runs in WAL mode with a busy timeout. `prisma migrate deploy` runs in the deploy/start script before the app starts; the app never migrates itself; committed migrations are immutable. The daily DB backup uses better-sqlite3 `backup()` to dated files in `BACKUP_DIR`, keeping `BACKUP_KEEP`. Moving data between local and production uses JSON export/restore (AD-12).
+- **Rule:** All configuration comes from environment variables / an untracked `.env` with fixed names: `DATABASE_URL`, `SESSION_SECRET`, `AUTH_USERNAME`, `AUTH_PASSWORD_HASH`, `BACKUP_DIR`, `BACKUP_KEEP`, `COINGECKO_API_KEY`, `OPENFIGI_API_KEY`, `LOGO_DEV_API_KEY`, `DATA_DIR` (logo files), `APP_URL` (public base URL, OAuth issuer and resource), `DEV_ALLOWED_ORIGINS` (development only); `.env.example` lists them without values. The SQLite file and backups live outside the source tree. SQLite runs in WAL mode with a busy timeout. `prisma migrate deploy` runs in the deploy/start script before the app starts; the app never migrates itself; committed migrations are immutable. The daily DB backup uses better-sqlite3 `backup()` to dated files in `BACKUP_DIR`, keeping `BACKUP_KEEP`. Moving data between local and production uses JSON export/restore (AD-12).
 
 ### AD-19 — Security logos are fetched once, served locally
 
@@ -182,6 +191,12 @@ graph TD
 - **Binds:** FR-25, FR-26
 - **Prevents:** the tax preview and the rebalancing proposal computing taxes differently; estimates being mistaken for bookings.
 - **Rule:** One pure core function computes taxable income, loss pots, Teilfreistellung, allowance usage and estimated tax per broker and year from ledger rows (FIFO results, AD-10), classifications (AD-20) and the Freistellungsauftrag settings; the tax preview and every sale estimate use it. Brokers are the tax unit: Depots of one broker share allowance and loss pots. Results are never booked and are always labelled as estimates; withheld tax comes only from the ledger. Out of scope until decided: church tax, loss carry-forwards, Vorabpauschale, foreign withholding tax credit.
+
+### AD-22 — Claude connects through one MCP endpoint with OAuth and scoped access
+
+- **Binds:** FR-28, FR-29
+- **Prevents:** a second, unaudited API; long-lived secrets in Claude configs; MCP computing figures differently from the UI; Claude writing the ledger.
+- **Rule:** The `mcp` module serves one Streamable-HTTP MCP endpoint `/api/mcp` and an OAuth 2.1 authorization server per the MCP authorization spec (RFC 8414 and RFC 9728 metadata, RFC 7591 dynamic client registration, PKCE S256 only, exact redirect URI match). Authorization reuses the single-user login and shows a consent page; access tokens are opaque and short-lived, refresh tokens rotate (reuse revokes the grant), codes and tokens are stored only as hashes and are revocable per grant from Settings. Scopes: `watchlist` (read and write watchlists through the `watchlist` service) and `portfolio:read` (read-only, opt-in per grant, off by default). Tools are thin adapters over module services and core; they never compute financial figures themselves, and no tool writes ledger, prices, classification, tax or target data. Tokens, codes and amounts in tool payloads are never logged.
 
 ## Consistency Conventions
 
@@ -213,6 +228,7 @@ graph TD
 | unpdf (PDF text extraction) | 1.9.1 |
 | yahoo-finance2 | 4.0.5 |
 | jose / bcrypt | 6.2.13 / 6.0.0 |
+| `@modelcontextprotocol/sdk` | exact pin chosen in Story 9.4 |
 | vitest | 5.0.5 |
 
 ## Structural Seed
@@ -231,6 +247,8 @@ src/
     classification/ # providers/<name>.ts, rules, manual overrides
     backup/       # JSON export/restore, schema upgrades, DB file backup
     auth/         # login, session
+    watchlist/    # watchlists and entries
+    mcp/          # /api/mcp tools, OAuth server, grants and tokens
   db/             # Prisma client singleton (WAL, busy timeout)
   instrumentation.ts  # starts the in-process scheduler
 prisma/           # schema.prisma, migrations/
@@ -283,6 +301,8 @@ graph LR
 | FR-22 Returns, gains, cash flow, dividends analysis | `core/returns`, `core/valuation`, `app` | AD-1, AD-10 |
 | FR-15 Parqet migration | `modules/migration` | AD-3, AD-6, AD-7, AD-8, AD-14, AD-15, AD-16 |
 | FR-16 Export / restore | `modules/backup` | AD-3, AD-12 |
+| FR-27 Watchlists | `modules/watchlist`, `core`, `app` | AD-1, AD-9, AD-12, AD-16, AD-17 |
+| FR-28, FR-29 Claude connector, portfolio access | `modules/mcp` | AD-2, AD-13, AD-22 |
 | FR-17, FR-18 Cash Account | `core/cash`, `modules/ledger` | AD-6, AD-10, AD-14 |
 | NFR deployment, privacy, public repo | `modules/auth`, `modules/backup`, config | AD-13, AD-18 |
 

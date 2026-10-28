@@ -228,3 +228,199 @@ NEW: ... by asset type (ETF, Fonds, Aktie, Zertifikat, Krypto, Guthaben, Unklass
 **Trigger.** Tommy picked further features: home-screen app, benchmark comparison (indices and Depot vs Depot), tax preview with Freistellungsauftrag per broker, and robo-advisor-style target allocation with rebalancing (buys and sells). His holdings include 7 global funds, so a region split for global ETFs is needed for regional targets.
 
 **Change.** New Epic 8 "Planning & Taxes" with Stories 8.1 (home-screen app), 8.2 (benchmark comparison), 8.3 (tax preview with Freistellungsauftrag), 8.4 (region weights for global funds), 8.5 (target allocation and rebalancing). New FR-23..FR-26, CAP-23..CAP-26, AD-21 (advisory tax estimates from one core function); AD-17 (benchmark Securities priced, never held) and AD-20 (region split for global funds) amended. Out of scope: church tax, loss carry-forwards, Vorabpauschale, foreign withholding tax credit. Sprint status gains epic-8 and its stories; 8.5 depends on 8.3 and 8.4.
+
+## Addendum N — Watchlists and Claude Connector (approved 2026-10-28)
+
+### N.1 Issue summary
+
+**Trigger.** New requirement from Tommy (no story involved). He wants to park investment ideas on several watchlists, watch their prices without buying, and drop an idea when he no longer believes in it. Ideas often come out of research with Claude, so Claude (Desktop and Code on the Mac, the Claude app on iOS) shall manage the watchlists directly. In a second step Claude shall read Depots, holdings and Transactions for risk and strategy analyses, as Tommy does today with Parqet's MCP.
+
+**Category.** New requirement emerged from stakeholder. Named personal use (SM-C1): idea tracking from Claude research; portfolio analyses with Claude replacing the Parqet MCP.
+
+**Decisions taken with Tommy (2026-10-28).**
+- Several named watchlists; full create/edit/delete of lists and entries, in the app and from Claude.
+- An entry is a Security (ISIN or crypto symbol) with a note and the date added; the list looks like the Depot positions list; a click opens the Security detail page with what makes sense without a holding.
+- Same Security on several lists, at most once per list; entries of held Securities show "im Bestand"; watchlist Securities get Prices and news.
+- Watchlists are part of export/restore and backup. No buy action from the watchlist.
+- Claude connects via an MCP server inside the app with OAuth: Tommy adds the URL in Claude, our login page appears, he signs in with his normal credentials and confirms; Claude stores the issued token. Connected apps are listed in Settings and can be removed. No separate static API token and no separate REST API — MCP is the API.
+- **Policy change (deliberate):** Tommy may grant a connected app read-only access to all portfolio data. He accepts the disclosure risk ("only information; worst case someone knows what is in my Depot"). Writes to the ledger via MCP stay excluded.
+
+### N.2 Impact analysis
+
+- **Epics 1–8:** done, no rework. New **Epic 9** (Watchlists & Claude Connector, Stories 9.1–9.5) and **Epic 10** (Portfolio Access for Claude, Stories 10.1–10.2). Epic 10 depends on 9.4/9.5.
+- **PRD / Spec:** new FR-27..FR-29 / CAP-27..CAP-29; privacy constraint and NFR2/NFR3 amended; non-goal "Multi-user, sharing" unchanged (the MCP client acts for Tommy only).
+- **Architecture:** AD-2 (new modules `watchlist`, `mcp`), AD-12 (watchlists in export), AD-13 (OAuth bearer tokens for MCP; outbound policy amended), AD-17 (watchlist Securities priced and in news, never held), AD-18 (`APP_URL`); new **AD-22** (MCP server and OAuth); Stack gains `@modelcontextprotocol/sdk` (exact pin chosen in 9.4); module graph and capability map extended.
+- **UX:** EXPERIENCE.md Information Architecture (Watchlists surface, Security detail without holding, Settings › Verbundene Apps, OAuth consent page), navigation (drawer and "Mehr"); DESIGN.md unchanged (existing components).
+- **Technical:** Prisma migrations for watchlist and OAuth tables; auth proxy (`src/proxy.ts`) lets `/.well-known/oauth-*`, `/oauth/*` and `/api/mcp` through (the routes check their own credentials); export `schemaVersion` bump; README section "Claude verbinden". Nginx needs no change (HTTPS already terminates there).
+
+### N.3 Recommended approach
+
+**Direct Adjustment** — add Epics 9 and 10, amend artifacts in place. No rollback, MVP unchanged.
+- Effort: Medium–High (seven stories; 9.4 is the largest).
+- Risk: Medium, concentrated in 9.4 (OAuth). Mitigation: follow the MCP authorization spec (OAuth 2.1, PKCE S256, RFC 8414/9728/7591), opaque hashed tokens, tests for every flow step and rejection path, dedicated review of 9.4.
+- Sequence: 9.1 → 9.2 → 9.3 → 9.4 → 9.5 → 10.1 → 10.2. After 9.5 Tommy can use the watchlists from Claude on Mac and iOS.
+
+### N.4 Stories (`epics.md`, new Epics 9 and 10)
+
+```
+## Epic 9: Watchlists & Claude Connector
+
+Tommy parks investment ideas on watchlists, follows their prices and news without holding them, and lets Claude manage the watchlists through an MCP connector secured with his own login.
+
+### Story 9.1: Watchlists and Entries
+
+As Tommy,
+I want several watchlists with the Securities I am considering,
+So that I can park ideas, watch them and drop them when I no longer believe in them.
+
+**Acceptance Criteria:**
+
+**Given** the new surface "Watchlists" (drawer between Wertpapiere and Einstellungen; under "Mehr" on phones)
+**When** I create, rename or delete a watchlist (name required, unique, ≤ 60 characters; deleting a non-empty list asks for confirmation naming the list and its entry count)
+**Then** the lists appear as tabs (a select on phones) in the order created, the last opened list is remembered per browser, and an empty state offers "Watchlist anlegen"
+**And** "Wertpapier hinzufügen" opens a form with the Security Autocomplete of the Transaction form (ISIN, crypto symbol or name; "Neue Security anlegen" for an unknown ISIN creates it through `ledger.ensureSecurity`, AD-16), a note (plain text, ≤ 2000 characters) and the date added (default today, editable)
+**And** a Security already on that list is refused with "Steht schon auf dieser Liste"; it may stand on other lists
+**And** an entry can be edited (note, date added, move to another list) and removed; removing never deletes the Security or its Prices
+**And** the list shows per entry: logo, name, ISIN/symbol, current Price with stale badge, change today (% and €/unit), change since added (% from the resolved Price on the date added, AD-9 carry-forward; "–" without a Price), date added, the first line of the note, and a chip "im Bestand" when `heldSecurities` contains it; sortable by name, change today, change since added and date added (default date added, newest first); stacked rows on phones
+**And** watchlist Securities join the price targets like benchmarks (AD-17 amended): history back to the earlier of the `3J` preset start and the earliest date added; a Security that leaves every list and is not held stops being fetched, its stored Prices stay
+**And** the `watchlist` module owns Watchlist and WatchlistEntry (AD-2); "since added" and the sorting are pure core functions with unit tests (incl. a split after the date added, which uses split-adjusted Prices)
+
+### Story 9.2: Security Detail without a Holding
+
+As Tommy,
+I want to open a watchlist Security like a Position,
+So that I can judge the idea with chart, news and classification.
+
+**Acceptance Criteria:**
+
+**Given** a click on a watchlist entry, or any Security never held
+**When** the Security detail page (Story 4.6) opens
+**Then** it shows the header with Price, stale badge and change over the global Period, the price chart over the Period with the moving-average overlay of Story 7.8, news of the last 14 days (watchlist Securities are added to the news set, AD-17 amended), the classification (AD-20), and a card "Auf Watchlists" listing each list with date added, change since added and the full note (editable inline through the 9.1 form)
+**And** blocks that need a holding or Transactions (Position, all-time result, Transaction history, dividends, per-Security heatmap and performance) are omitted, not shown empty; a Security that was held keeps them
+**And** every Security detail page gets "Zur Watchlist" (choose list, note, date) and, when on lists, the list chips
+**And** the Securities page marks Securities that are only on watchlists ("Watchlist") so they are not mistaken for holdings
+
+### Story 9.3: Watchlists in Export and Restore
+
+As Tommy,
+I want my watchlists in the export and backup,
+So that my ideas survive a restore or a move to the server.
+
+**Acceptance Criteria:**
+
+**Given** the export of Story 6.1
+**When** I export
+**Then** the file contains all Watchlists with their entries (Security reference, note, date added, position) and its `schemaVersion` is increased
+**And** restore replaces watchlists together with the ledger in the same DB transaction (AD-12); an older file without watchlists upgrades to empty watchlists through a pure upgrade function
+**And** OAuth clients and tokens are not exported; after a restore every connected app must reconnect (stated in the restore confirmation text)
+**And** an export → restore round-trip test covers watchlists, including a Security that is only on a watchlist
+
+### Story 9.4: Claude Connector with Login (MCP + OAuth)
+
+As Tommy,
+I want to add DepotManagement as a connector in Claude and sign in with my own login,
+So that Claude can manage my watchlists from the Mac and from my iPhone.
+
+**Acceptance Criteria:**
+
+**Given** the app reachable over HTTPS at `APP_URL`
+**When** I add `APP_URL/api/mcp` as a custom connector in Claude (Desktop, claude.ai, iOS) or via `claude mcp add --transport http`
+**Then** an unauthenticated request to `/api/mcp` gets 401 with `WWW-Authenticate: Bearer resource_metadata=…`; `/.well-known/oauth-protected-resource` (RFC 9728) and `/.well-known/oauth-authorization-server` (RFC 8414) describe the server; Claude registers itself through dynamic client registration (RFC 7591, `/oauth/register`)
+**And** `/oauth/authorize` requires PKCE S256 and an exactly registered redirect URI (HTTPS, or `http://localhost`/`127.0.0.1` for Claude Code); without a session it shows the existing login and returns; then a consent page "„<Client-Name>“ möchte deine Watchlists lesen und ändern" with the redirect host and buttons Erlauben / Ablehnen
+**And** `/oauth/token` exchanges the code (single use, 10 minutes) for an opaque access token (1 hour) and a rotating refresh token (90 days); a reused refresh token revokes the whole grant; tokens and codes are stored only as SHA-256 hashes and never logged
+**And** `/api/mcp` (Streamable HTTP, stateless) offers the tools `list_watchlists`, `get_watchlist`, `create_watchlist`, `rename_watchlist`, `delete_watchlist` (non-empty only with `confirm_name` equal to the list name), `add_watchlist_entry` (ISIN or crypto symbol, optional name, note, date; an unknown ISIN is resolved through OpenFIGI, else refused with a reason), `update_watchlist_entry`, `remove_watchlist_entry`, `search_securities`; entries carry name, ISIN/symbol, note, date added, current Price, change since added and stale flag; decimals as strings, dates `YYYY-MM-DD`
+**And** every tool goes through the `watchlist` service (validation identical to the app); entries created via MCP record source `mcp` and the client name, shown as a small "via Claude" in the list
+**And** the auth proxy lets exactly these OAuth and MCP paths through; every other route still requires the session cookie; the `mcp` module owns OAuthClient, OAuthGrant and OAuthToken (AD-2, AD-22)
+**And** tests cover discovery, registration, authorize with and without session, PKCE failure, wrong redirect URI, code reuse, expiry, refresh rotation and reuse, revoked token, and each tool; the README gains "Claude verbinden" (Desktop/claude.ai/iOS connector, Claude Code command)
+
+### Story 9.5: Connected Apps in Settings
+
+As Tommy,
+I want to see which Claude clients are connected and remove them,
+So that I keep control over access to my data.
+
+**Acceptance Criteria:**
+
+**Given** Settings › "Verbundene Apps"
+**When** I open it
+**Then** each grant shows client name, redirect host, granted scopes in plain German, connected since and last used (updated at most once per minute); an empty state explains how to connect Claude
+**And** "Trennen" (confirm naming the client) revokes the grant and all its tokens immediately — the next MCP call gets 401; "Alle trennen" does the same for all grants
+**And** a revoked client can reconnect through the normal login and consent
+
+## Epic 10: Portfolio Access for Claude
+
+Tommy lets a connected Claude read his Depots, holdings, Transactions and figures for risk and strategy analyses. Read-only; the figures are the same the app shows.
+
+### Story 10.1: Portfolio Read Permission
+
+As Tommy,
+I want to decide per connection whether Claude may read my portfolio,
+So that I share my financial data only where I choose to.
+
+**Acceptance Criteria:**
+
+**Given** the consent page of Story 9.4
+**When** Claude requests the scope `portfolio:read` in addition to `watchlist`
+**Then** the consent page shows a checkbox "Darf auch Depots, Bestände, Umsätze und Kennzahlen lesen (nur lesen)", off by default; only a checked box grants `portfolio:read`
+**And** Settings › Verbundene Apps shows the scope per grant and lets me remove `portfolio:read` from a grant without disconnecting; adding it again requires a new consent
+**And** a tool needing `portfolio:read` called without it returns an MCP error "Keine Berechtigung für Depotdaten" and no data
+
+### Story 10.2: Portfolio Read Tools
+
+As Tommy,
+I want Claude to read my Portfolio, Depots, Positions, Transactions and figures,
+So that I can run risk and strategy analyses with Claude instead of Parqet.
+
+**Acceptance Criteria:**
+
+**Given** a grant with `portfolio:read`
+**When** Claude calls the read tools
+**Then** these tools exist: `get_portfolio_summary` (value, invested capital, cash, Gain/Loss realized/unrealized, dividends, taxes, TTWROR, XIRR for a Period preset or from/to), `list_depots` (incl. archived flag and broker), `get_depot`, `list_positions` (Portfolio or Depot: quantity, Price, stale, value, Cost Basis, Gain/Loss, share, asset type), `list_transactions` (filters Depot, date range, type, Security; paginated by cursor, at most 500 rows per call), `get_performance` (daily or monthly value and invested-capital series, TTWROR series, optional benchmark), `get_allocation` (dimension as in Story 7.2), `get_income` (dividends and realized gains per month/year), `get_security` (Security detail incl. all-time result and classification)
+**And** every figure comes from the same module and core functions as the UI (AD-1); a test compares each tool's result with the corresponding page loader on a fixture ledger
+**And** no MCP tool writes ledger, prices, classification, tax or target data; the tool list contains no such tool (test)
+**And** with `portfolio:read`, watchlist entries additionally carry `held: true|false`
+**And** amounts are decimal strings in EUR, dates `YYYY-MM-DD`; responses never include credentials, session data or other connections' data
+```
+
+**Requirements inventory (`epics.md`):** FR27–FR29 added (see N.5); NFR2 → "financial data stays on Tommy's machine/server except read-only access Tommy grants to a connected MCP client; no third-party analytics"; NFR3 → "… every page and route; the MCP endpoint requires an OAuth access token issued after the same login"; coverage map: FR27 Epic 9 (9.1–9.3), FR28 Epic 9 (9.4, 9.5), FR29 Epic 10 (10.1, 10.2).
+
+### N.5 PRD (`prd.md`) and Spec (`SPEC.md` + memlog)
+
+New PRD §4.10 "Watchlists & Claude":
+- **FR-27 Watchlists** — Tommy can keep several named watchlists of Securities he does not need to hold, each entry with a note and the date added, see Price, change today and since added, open the Security detail, and has them in export/restore.
+- **FR-28 Claude connector** — Tommy can connect Claude (Desktop, Code, iOS) to the app via MCP with OAuth using his login, let it create, edit and delete watchlists and entries, and see and revoke connections in Settings.
+- **FR-29 Portfolio access for Claude** — per connection, Tommy can grant read-only access to Depots, Positions, Transactions and figures; nothing is written via MCP.
+
+Spec: CAP-27..CAP-29 with these intents; success: CAP-27 "since added uses the resolved Price on the date added; a Security appears at most once per list; watchlists survive export → restore"; CAP-28 "Claude on Mac and iOS connects with Tommy's login only; a removed connection's next call is rejected"; CAP-29 "figures returned equal the app's; no tool writes". Constraint "Financial data stays on Tommy's machine/server; …" → "Financial data stays on Tommy's machine/server, except read-only access Tommy explicitly grants to a connected MCP client; …". PRD §5 Privacy & security amended alike. Glossary: **Watchlist**, **Watchlist entry**, **Connected app** (an OAuth-authorised MCP client acting for Tommy).
+
+### N.6 Architecture spine (IDs stable, amended in place)
+
+- **AD-2** ownership adds `watchlist` — Watchlist, WatchlistEntry; `mcp` — OAuthClient, OAuthGrant, OAuthToken. Module graph: `watchlist --> ledger`, `watchlist --> prices`, `mcp --> watchlist`, `mcp --> ledger`, `mcp --> prices`, `mcp --> classification`, `mcp --> auth`.
+- **AD-12** export adds Watchlists with entries; OAuth data excluded (connections must be re-established after restore).
+- **AD-13** Rule: "Access requires the in-app single-user login … on every page and route except login." → "… except login, the OAuth endpoints and `/api/mcp`, which accepts only an OAuth access token issued after that login (AD-22)." and "Outbound requests carry only provider symbols, ISINs or company names — never quantities, values or Depot data." → "Outbound requests to providers carry only provider symbols, ISINs or company names. Financial data leaves the server only as responses to a connected MCP client holding `portfolio:read` (AD-22)."
+- **AD-17** append: "Watchlist Securities are priced like benchmarks and are in the news set, but are never held: they appear in no Position, total or analysis."
+- **AD-18** env list adds `APP_URL` (public base URL, OAuth issuer and resource).
+- **AD-22 (new) — Claude connects through one MCP endpoint with OAuth and scoped, read-mostly access.** Binds FR-28, FR-29. Prevents: a second, unaudited API; long-lived secrets in Claude configs; MCP computing figures differently from the UI; Claude writing the ledger. Rule: The `mcp` module serves one Streamable-HTTP MCP endpoint `/api/mcp` and an OAuth 2.1 authorization server per the MCP authorization spec (RFC 8414 and 9728 metadata, RFC 7591 dynamic registration, PKCE S256 only, exact redirect URI match). Authorization reuses the single-user login and shows a consent page; access tokens are opaque, short-lived, refresh tokens rotate, all stored as hashes, revocable per grant from Settings. Scopes: `watchlist` (read/write watchlists through the `watchlist` service) and `portfolio:read` (read-only, opt-in per grant). Tools are thin adapters over module services and core; they never compute financial figures themselves and no tool writes ledger, prices, classification, tax or target data. Tokens, codes and tool payload amounts are never logged.
+- **Stack:** `@modelcontextprotocol/sdk` (exact pin, chosen in Story 9.4). **Capability map:** FR-27 → `modules/watchlist`, `core` (AD-1, AD-9, AD-17); FR-28/29 → `modules/mcp` (AD-2, AD-13, AD-22).
+
+### N.7 UX (`EXPERIENCE.md`)
+
+- Information Architecture: new row **Watchlists** (Nav drawer; "Mehr" on phones; tabs per list, entries table as in 9.1, "Wertpapier hinzufügen", empty state) — CAP-27; Security detail row notes the reduced layout without holding and the "Auf Watchlists" card; Settings row adds "Verbundene Apps" — CAP-28/29; new row **OAuth consent** (outside the app shell, like login: client name, redirect host, scopes, portfolio checkbox off by default, Erlauben/Ablehnen).
+- Responsive: drawer list adds "Watchlists"; "Mehr" adds "Watchlists".
+- Voice examples: "Steht schon auf dieser Liste", "„Claude“ getrennt."
+
+### N.8 Sprint tracking
+
+Add `epic-9` (9-1-watchlists-and-entries, 9-2-security-detail-without-a-holding, 9-3-watchlists-in-export-and-restore, 9-4-claude-connector-with-login-mcp-oauth, 9-5-connected-apps-in-settings, epic-9-retrospective) and `epic-10` (10-1-portfolio-read-permission, 10-2-portfolio-read-tools, epic-10-retrospective), all `backlog`.
+
+### N.9 Handoff
+
+**Scope: Moderate** — backlog addition plus artifact amendments, one deliberate policy change.
+
+| Who | Does |
+| --- | --- |
+| Claude (correct-course) | Apply N.4–N.8 to `epics.md`, PRD, spec (+ memlog, glossary), spine, EXPERIENCE.md, `sprint-status.yaml`; commit |
+| bmad-loop | Implement 9.1–9.5, then 10.1–10.2 |
+| Tommy | Set `APP_URL` in the server env file before deploying 9.4; connect Claude Desktop/iOS and Claude Code; confirm stories needing operator checks (9.4, 9.5, 10.2) |
+
+**Success criteria.** Claude on Mac and iPhone connects with Tommy's login only and adds an idea that appears in the app with price and "since added"; removing the connection blocks the next call; with `portfolio:read` Claude's figures equal the app's; nothing is written to the ledger via MCP.

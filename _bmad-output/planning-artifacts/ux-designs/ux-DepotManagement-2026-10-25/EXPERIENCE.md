@@ -19,18 +19,20 @@ Single-surface responsive web app, MUI 9 on Next.js (App Router), one user (Tomm
 | Surface | Reached from | Purpose | Capabilities |
 | --- | --- | --- | --- |
 | Login | Any URL without session | Single-user sign-in | NFR auth |
+| OAuth consent | Claude connector setup (after Login) | Outside the app shell like Login: "„<Client-Name>“ möchte deine Watchlists lesen und ändern", redirect host, checkbox "Darf auch Depots, Bestände, Umsätze und Kennzahlen lesen (nur lesen)" (off by default, only when requested), Erlauben / Ablehnen | CAP-28, 29 |
 | Overview | App open, nav | Portfolio KPIs, value chart, per-Depot list, composition, top news | CAP-10..13, 18, 14 |
 | Depots | Nav "Depots" | Period selector; one card per active Depot: name, broker, value with Period Gain/Loss, compact value sparkline (≈ 20 % width, scaled to the Period range), Wertpapiere, Cash-Konto, Positionen, Dividenden, TTWROR, XIRR (Period); archived Depots plain in a collapsed "Archiviert" group | CAP-1, 10, 12 |
 | Depot detail | Overview Depot row, Depots card | Depot KPIs and chart (chart tabs Wertentwicklung · Drawdown); tabs: Positions · Cash Account · Transactions · Composition | CAP-1, 10..13, 17, 18 |
-| Security detail | Positions row, top Positions, Securities row, Transaction row | One page per Security across Depots (switcher "Alle Depots" / single Depot), also for Securities no longer held: header, hero with chart toggle "Kurs" (buy/sell markers) / "Wert" / "Performance" (Position TTWROR %) / "Drawdown" (price drawdown, split-neutral), optional moving average on "Kurs", KPIs, card "Performance-Heatmap" (Q | M, link to Analysen › Rendite), card "Gesamt seit Erstkauf", FIFO lots per Depot, Transactions with Depot, news | CAP-7, 8, 12, 14, 19 |
+| Security detail | Positions row, top Positions, Securities row, Transaction row | One page per Security across Depots (switcher "Alle Depots" / single Depot), also for Securities no longer held or only on a watchlist (then without Position, all-time result, lots, Transactions, dividends, heatmap and performance; card "Auf Watchlists" with date added, change since added and note; "Zur Watchlist" on every Security): header, hero with chart toggle "Kurs" (buy/sell markers) / "Wert" / "Performance" (Position TTWROR %) / "Drawdown" (price drawdown, split-neutral), optional moving average on "Kurs", KPIs, card "Performance-Heatmap" (Q | M, link to Analysen › Rendite), card "Gesamt seit Erstkauf", FIFO lots per Depot, Transactions with Depot, news | CAP-7, 8, 12, 14, 19 |
 | Transaction form | FAB / "Neue Buchung" on any Depot surface; row click to edit | Add, edit, delete a Transaction of any type | CAP-2, 17 |
 | Corporate action form | Security detail menu | Record split or ISIN change | CAP-3 |
 | Depot reconciliation | Depot detail ⋮ "Depot abgleichen" | Statement date; rows per Position + Cash Account with app value, statement input, "stimmt" check, ✅ when matched; differing rows: difference, "Buchungen ansehen", "Korrektur buchen" (Bestandskorrektur); progress "x von y abgeglichen"; open run persists until "Abgleich abschließen"; Depot detail shows "Zuletzt abgeglichen am …" | CAP-20 |
 | Import | Depot detail action "Dokumente importieren", nav | Upload PDFs → review batch → confirm | CAP-4..6 |
 | News | Nav | Headlines last 14 days, filter by Security; items with a teaser expand in place (teaser, source, date, "Zum Artikel"), others open the article | CAP-14 |
 | Analysen | Nav (drawer; "Mehr" on phones) | Tabs Aufteilung (donut per dimension, tap segment → Positions), Rendite (heatmap years × months, tap cell → details), Gewinne (realized gains bars, best/worst sales, Kapitalfluss), Dividenden (Monatlich pro Jahr as bars stacked by Security with segment hover and a year switcher ‹ Jahr › in the card header, Jahre, Akkumuliert, Akkumuliert pro Jahr with Prognose switch, Wertpapiere, Erwartet; gross/net, 12-month income), Steuern (per broker and year: income by pot, loss offsetting, Freistellungsauftrag used/left, estimated vs withheld tax), Zielallokation (targets by equity region and asset class, actual vs target, Neue Einzahlung, Rebalancing-Vorschlag with tax per sale); scope Portfolio or Depot | CAP-21, CAP-22, CAP-25, CAP-26 |
+| Watchlists | Nav (drawer; "Mehr" on phones) | Tabs per list (select on phones), create/rename/delete list, "Wertpapier hinzufügen" (Security Autocomplete, note, date added); entries: logo, name, Price + stale badge, change today, change since added, date added, note preview, chip "im Bestand", "via Claude"; row opens Security detail; empty state "Watchlist anlegen" | CAP-27 |
 | Securities | Nav "Mehr" | All Securities: classify `UNCLASSIFIED`, edit provider mapping, enter manual Prices, trigger price refresh, replace or upload a logo | CAP-7, 9 |
-| Settings | Nav "Mehr" | Depots (create, rename, archive, delete with typed name confirmation), Parqet migration, export/restore, appearance, Steuern (Freistellungsauftrag per broker and year) | CAP-1, 15, 16, 25 |
+| Settings | Nav "Mehr" | Depots (create, rename, archive, delete with typed name confirmation), Parqet migration, export/restore, appearance, Steuern (Freistellungsauftrag per broker and year), Verbundene Apps (client, scopes, connected since, last used; Trennen, Alle trennen, remove portfolio access) | CAP-1, 15, 16, 25, 28, 29 |
 | Parqet migration | Settings | One-time wizard per Depot: file → target Depot → preview/review → confirm | CAP-15 |
 
 One global **Period selector** (1T · 1W · 1M · YTD · 1J · 3J · Max · Benutzerdefiniert) lives in the page header of Overview, Depots, Depot detail and Security detail; the choice persists across those surfaces and sessions. On Overview and Depot detail the value chart has tabs **Wertentwicklung · Performance · Drawdown** (Performance: cumulative TTWROR with an optional dashed comparison line, "Vergleich mit" index or Depot): Drawdown is a red area below 0 % (decline of the time-weighted index from its running peak in the Period) with KPIs Aktueller Drawdown, Maximaler Drawdown, Dauer (days) and Periode (dates of the maximum phase). `[ASSUMPTION: 3J added between 1J and Max]` Archived Depots appear only in a collapsed "Archiviert" group on the Depots list and are read-only.
@@ -50,6 +52,7 @@ Microcopy is German, short, factual, numbers first.
 | "Layout nicht erkannt. Buchung bitte manuell erfassen." | "Ein unerwarteter Fehler ist aufgetreten." |
 | "12 Buchungen gebucht." | "Vorgang erfolgreich abgeschlossen." |
 | Name the Depot and Security in confirmations | Generic "Element", "Eintrag" |
+| "Steht schon auf dieser Liste" · "„Claude“ getrennt." | "Fehler beim Speichern des Eintrags" |
 
 ## Component Patterns
 
@@ -106,8 +109,8 @@ Behavioral; visual specs in `DESIGN.md.Components`.
 
 | Breakpoint | Behavior |
 | --- | --- |
-| `≥ md` (900px+, MUI) | Permanent left drawer: Übersicht, Depots, Analysen, Import, Nachrichten, Wertpapiere, Einstellungen. KPI row in one line; chart and composition side by side on `lg`. Transaction form as dialog. |
-| `< md` | Bottom navigation: Übersicht · Depots · Analysen · Nachrichten · Mehr (Import, Wertpapiere, Einstellungen). Action buttons use short labels on phones ("Neu", "Dokument"), the Period selector shows a calendar icon for "Benutzerdefiniert", and Position rows put the name on its own line. FAB "+" for a new Transaction on Overview and Depot detail. KPI cards in a 2×2 grid; tables become stacked rows; forms full-screen. Import and migration work but are optimized for desktop. |
+| `≥ md` (900px+, MUI) | Permanent left drawer: Übersicht, Depots, Analysen, Import, Nachrichten, Wertpapiere, Watchlists, Einstellungen. KPI row in one line; chart and composition side by side on `lg`. Transaction form as dialog. |
+| `< md` | Bottom navigation: Übersicht · Depots · Analysen · Nachrichten · Mehr (Import, Wertpapiere, Watchlists, Einstellungen). Action buttons use short labels on phones ("Neu", "Dokument"), the Period selector shows a calendar icon for "Benutzerdefiniert", and Position rows put the name on its own line. FAB "+" for a new Transaction on Overview and Depot detail. KPI cards in a 2×2 grid; tables become stacked rows; forms full-screen. Import and migration work but are optimized for desktop. |
 
 ## Inspiration & Anti-patterns
 

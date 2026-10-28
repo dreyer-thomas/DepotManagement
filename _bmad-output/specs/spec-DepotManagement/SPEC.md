@@ -105,12 +105,21 @@ CAP-N corresponds to PRD FR-N (CAP-19 added 2026-10-26).
 - **CAP-26** — Target allocation and rebalancing
   - **intent:** Tommy can set robo-advisor-style targets and get rebalancing trades.
   - **success:** Segment values sum to the scope value; global funds are split by region weights; proposed trades reach the targets within the threshold; each sale shows its estimated tax.
+- **CAP-27** — Watchlists
+  - **intent:** Tommy can keep several named watchlists of Securities he does not need to hold, with a note and the date added per entry, and open each like a Position.
+  - **success:** Change since added uses the resolved Price on the date added; a Security appears at most once per list; held entries are marked; watchlists survive export → restore.
+- **CAP-28** — Claude connector
+  - **intent:** Tommy can connect Claude (Desktop, Code, iOS) via MCP with OAuth and let it create, edit and delete watchlists and entries.
+  - **success:** Claude on Mac and iOS connects with Tommy's login only; connections are listed in Settings; a removed connection's next call is rejected.
+- **CAP-29** — Portfolio access for Claude
+  - **intent:** Per connection, Tommy can grant Claude read-only access to Depots, Positions, Transactions and figures.
+  - **success:** Figures returned equal the app's; no MCP tool writes; without the grant no portfolio data is returned.
 
 ## Constraints
 
 - EUR only; all Depots are EUR Depots.
 - Single user; runs locally first, later on Tommy's Linux server behind Nginx with TLS; installable from the repository with a documented, simple setup.
-- Financial data stays on Tommy's machine/server; no third-party analytics; authentication required once reachable over the network.
+- Financial data stays on Tommy's machine/server, except read-only access Tommy explicitly grants to a connected MCP client; no third-party analytics; authentication required once reachable over the network.
 - Public repository: no personal data, credentials or API keys; configuration via environment/config files.
 - No paid services required for core function; manual Prices keep the system usable if free sources fail (`data-sources.md`).
 - Correctness over features: numbers must reconcile with broker statements; a wrong value is worse than a missing feature.

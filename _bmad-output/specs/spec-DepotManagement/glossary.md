@@ -17,3 +17,6 @@ Domain terms are code names (spine Consistency Conventions).
 - **Invested capital** — Cost Basis of open Positions.
 - **Gain/Loss** — Value change from price movement and income (dividends) minus fees, against Cost Basis; realized (sales) or unrealized (open Positions). Shown gross; taxes paid shown separately.
 - **Period** — Selectable time range for charts and evaluations (1M, YTD, 1Y, Max, custom).
+- **Watchlist** — Named list of Securities Tommy is considering; not a Depot, holds no Positions or Transactions.
+- **Watchlist entry** — One Security on one Watchlist with a note and the date added; at most once per list.
+- **Connected app** — An MCP client (e.g. Claude) authorised by Tommy through OAuth; acts for Tommy with the scopes he granted (`watchlist`, optionally `portfolio:read`).

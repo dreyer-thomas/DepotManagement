@@ -229,9 +229,20 @@ Tommy can record a Freistellungsauftrag per broker and see per broker and year h
 #### FR-26: Target allocation and rebalancing
 Tommy can set target weights by equity region and asset class (global funds split by index weights), compare with his actual mix and get buy and sell suggestions with the estimated tax of each sale.
 
+### 4.10 Watchlists & Claude
+
+#### FR-27: Watchlists
+Tommy can keep several named watchlists of Securities he does not need to hold, each entry with a note and the date added, see Price, change today and since added, open the Security detail, and has them in export/restore.
+
+#### FR-28: Claude connector
+Tommy can connect Claude (Desktop, Code, iOS) to the app via MCP with OAuth using his login, let it create, edit and delete watchlists and entries, and see and revoke connections in Settings.
+
+#### FR-29: Portfolio access for Claude
+Per connection, Tommy can grant read-only access to Depots, Positions, Transactions and figures; nothing is written via MCP.
+
 ## 5. Cross-Cutting NFRs and Constraints
 - **Deployment:** Runs locally first; later as a web app on Tommy's Linux production server behind Nginx with TLS. Must be installable from the repository with a documented, simple setup.
-- **Privacy & security:** Financial data stays on Tommy's own machine/server; no third-party analytics. Once reachable over the network, access requires authentication (single user).
+- **Privacy & security:** Financial data stays on Tommy's own machine/server, except read-only access Tommy explicitly grants to a connected MCP client (FR-29); no third-party analytics. Once reachable over the network, access requires authentication (single user).
 - **Public repository:** No personal data, credentials, or API keys in the repo; configuration via environment/config files.
 - **Correctness over features:** Numbers must reconcile with broker statements; a wrong value is worse than a missing feature.
 - **Cost:** No paid services required for core function. `[ASSUMPTION: a free Price Source with adequate coverage of German-listed ETFs exists]` Fallback if none exists: manual Prices keep the system usable, and architecture assesses a low-cost paid source for Tommy to decide on.
