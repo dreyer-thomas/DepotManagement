@@ -5,6 +5,8 @@ import CardContent from "@mui/material/CardContent";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import type { Metadata } from "next";
+import { ConnectedAppsEmpty } from "@/app/_components/connected-apps/ConnectedAppsEmpty";
+import { ConnectedAppsList } from "@/app/_components/connected-apps/ConnectedAppsList";
 import { ExportButton } from "@/app/_components/backup/ExportButton";
 import { RestoreButton } from "@/app/_components/backup/RestoreButton";
 import { backupFailedWarning, lastBackupLine } from "@/app/_components/backup/labels";
@@ -17,12 +19,19 @@ import { formatDateTime } from "@/core/format";
 import { businessDate } from "@/core/dates";
 import { backupStatus } from "@/modules/backup";
 import { firstLedgerDate, listDepots } from "@/modules/ledger";
+import { listConnectedApps, readMcpConfig } from "@/modules/mcp";
 import { listTaxAllowances } from "@/modules/tax";
 
 export const metadata: Metadata = { title: "Einstellungen" };
 
 export default async function SettingsPage() {
-  const [depots, allowances, firstDate] = await Promise.all([listDepots(), listTaxAllowances(), firstLedgerDate()]);
+  const [depots, allowances, firstDate, connectedApps] = await Promise.all([
+    listDepots(),
+    listTaxAllowances(),
+    firstLedgerDate(),
+    listConnectedApps(),
+  ]);
+  const mcpConfig = readMcpConfig(process.env);
   const todayYear = Number(businessDate(new Date()).slice(0, 4));
   const backup = backupStatus();
   const lastBackup = backup.lastSuccessAt ? formatDateTime(backup.lastSuccessAt) : null;
@@ -98,6 +107,16 @@ export default async function SettingsPage() {
             {lastBackupLine(lastBackup)}
           </Typography>
         ) : null}
+      </Box>
+      <Box component="section" aria-labelledby="settings-connected-apps" sx={{ mt: 4 }}>
+        <Typography id="settings-connected-apps" component="h2" variant="h6" sx={{ fontWeight: 600, mb: 1 }}>
+          Verbundene Apps
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Apps wie Claude, denen du den Zugriff auf deine Watchlists erlaubt hast. Nach dem Trennen verliert die App sofort
+          den Zugriff; verbinden kann sie sich nur mit einer neuen Anmeldung.
+        </Typography>
+        <ConnectedAppsList apps={connectedApps} empty={<ConnectedAppsEmpty issuer={mcpConfig?.issuer ?? null} />} />
       </Box>
     </>
   );

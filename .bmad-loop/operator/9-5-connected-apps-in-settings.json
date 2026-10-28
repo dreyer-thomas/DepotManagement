@@ -1,0 +1,12 @@
+{
+  "actions": [
+    "Deploy the build to the production server (no new migration) and open Einstellungen \u203a Verbundene Apps; confirm the existing Claude connection(s) are listed with client name, redirect host, \"Watchlists lesen und \u00e4ndern\", connected-since and last-used times.",
+    "Click Trennen on the Claude connection, confirm the dialog, check the toast \u201eClaude\u201c getrennt. and that the row disappears; then make Claude call a watchlist tool and confirm the call fails with an authorization error (401).",
+    "Reconnect the same Claude client (claude.ai/Desktop connector or /mcp in Claude Code) through login and Erlauben, confirm a tool call works again and the connection reappears in Verbundene Apps.",
+    "Connect a second client (e.g. Claude Code), use Alle trennen, and confirm both clients lose access and the list shows the empty state with the connector URL."
+  ],
+  "parked_at": "2026-10-28",
+  "run_id": "20261028-205902-8b1e",
+  "spec_file": "_bmad-output/implementation-artifacts/spec-9-5-connected-apps-in-settings.md",
+  "story_key": "9-5-connected-apps-in-settings"
+}

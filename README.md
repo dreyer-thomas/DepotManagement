@@ -177,6 +177,8 @@ Requirements: `APP_URL` is set to the public HTTPS address (see [Configuration](
 - **Claude Desktop, claude.ai, iOS:** Settings → Connectors → "Add custom connector", URL `https://depot.example.com/api/mcp`. Claude opens the app's login and then the consent page "„Claude“ möchte deine Watchlists lesen und ändern"; choose "Erlauben". A connector added on claude.ai is also available in the iOS app.
 - **Claude Code:** `claude mcp add --transport http depotmanagement https://depot.example.com/api/mcp`, then `/mcp` in Claude Code to log in.
 
+Settings › Verbundene Apps lists every connected app with its redirect host, scopes, when it connected and when it was last used. "Trennen" (or "Alle trennen") revokes the connection at once: the next MCP call of that app gets 401 and its refresh token is refused. To reconnect, add or re-authenticate the connector in Claude; it goes through login and "Erlauben" again and appears as a new connection.
+
 Tools (scope `watchlist`; decimals are strings, dates `YYYY-MM-DD`):
 
 | Tool | Does |

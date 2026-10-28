@@ -31,3 +31,5 @@ export type { McpHttpDeps } from "./http";
 export { WATCHLIST_TOOL_NAMES } from "./tools";
 export type { McpToolContext } from "./tools";
 export { clearOAuth } from "./backup";
+export { disconnectAllApps, disconnectApp, listConnectedApps } from "./grants";
+export type { ConnectedApp, DisconnectAllAppsResult, DisconnectAppResult } from "./grants";

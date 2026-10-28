@@ -8,6 +8,7 @@ import { addWatchlistEntry, createWatchlist, watchlistView } from "@/modules/wat
 import { approveAuthorization, validateAuthorizeRequest } from "./authorize";
 import { readMcpConfig } from "./config";
 import { s256Challenge } from "./crypto";
+import { disconnectAllApps, disconnectApp, listConnectedApps } from "./grants";
 import {
   handleAuthorizationServerMetadata,
   handleMcp,
@@ -73,9 +74,8 @@ async function registerViaHttp(metadata: Record<string, unknown> = { client_name
 }
 
 /** Registration → consent "Erlauben" → token exchange, as a real client would do it. */
-async function connect(): Promise<{ access_token: string; refresh_token: string; client_id: string }> {
-  const { body } = await registerViaHttp();
-  const clientId = body.client_id as string;
+async function connect(existingClientId?: string): Promise<{ access_token: string; refresh_token: string; client_id: string }> {
+  const clientId = existingClientId ?? ((await registerViaHttp()).body.client_id as string);
   const validation = await validateAuthorizeRequest(
     {
       response_type: "code",
@@ -301,6 +301,42 @@ describe("/api/mcp authentication", () => {
     const after = await mcpRequest({ authorization: `Bearer ${second}` });
     expect(after.status).toBe(401);
     expect(after.headers.get("www-authenticate")).toBe(`${challenge}, error="invalid_token"`);
+  });
+});
+
+describe("/api/mcp after disconnecting in Settings (story 9.5)", () => {
+  const refresh = (token: string, clientId: string) =>
+    handleToken(
+      post("/oauth/token", new URLSearchParams({ grant_type: "refresh_token", refresh_token: token, client_id: clientId }).toString(), "application/x-www-form-urlencoded"),
+      deps(),
+    );
+
+  it("answers 401 with the old access token and invalid_grant for the refresh token; the same client can reconnect", async () => {
+    const { access_token, refresh_token, client_id } = await connect();
+    expect((await mcpRequest({ authorization: `Bearer ${access_token}` })).status).toBe(200);
+    const [app] = await listConnectedApps(testDb.client);
+    expect(app.lastUsedAt).toBe(NOW.toISOString());
+
+    expect(await disconnectApp(app.grantId, testDb.client, () => clock)).toEqual({ ok: true, clientName: "Claude" });
+    expect((await mcpRequest({ authorization: `Bearer ${access_token}` })).status).toBe(401);
+    const refused = await refresh(refresh_token, client_id);
+    expect(refused.status).toBe(400);
+    expect(await refused.json()).toMatchObject({ error: "invalid_grant" });
+
+    const again = await connect(client_id);
+    expect((await mcpRequest({ authorization: `Bearer ${again.access_token}` })).status).toBe(200);
+    const apps = await listConnectedApps(testDb.client);
+    expect(apps.map((listed) => listed.clientName)).toEqual(["Claude"]);
+    expect(apps[0].grantId).not.toBe(app.grantId);
+  });
+
+  it("answers 401 for every connection after Alle trennen", async () => {
+    const first = await connect();
+    const second = await connect();
+    expect(await disconnectAllApps(testDb.client, () => clock)).toEqual({ ok: true, count: 2 });
+    for (const { access_token } of [first, second]) {
+      expect((await mcpRequest({ authorization: `Bearer ${access_token}` })).status).toBe(401);
+    }
   });
 });
 

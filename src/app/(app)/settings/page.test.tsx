@@ -19,6 +19,8 @@ import { ExportButton } from "../../_components/backup/ExportButton";
 import { RestoreButton } from "../../_components/backup/RestoreButton";
 import { CreateDepotButton } from "../../_components/depots/DepotDialogs";
 import { DepotGroups } from "../../_components/depots/DepotList";
+import { ConnectedAppsEmpty } from "../../_components/connected-apps/ConnectedAppsEmpty";
+import { ConnectedAppsList } from "../../_components/connected-apps/ConnectedAppsList";
 import { AllowanceForm } from "../../_components/tax/AllowanceForm";
 import SettingsPage from "./page";
 
@@ -53,6 +55,8 @@ beforeEach(async () => {
   await prisma.security.deleteMany();
   await prisma.depot.deleteMany();
   await prisma.taxAllowance.deleteMany();
+  await prisma.oAuthClient.deleteMany();
+  delete process.env.APP_URL;
 });
 
 afterEach(() => {
@@ -77,6 +81,25 @@ async function failBackup(): Promise<void> {
     now: () => new Date("2026-10-26T08:00:00Z"),
   });
   expect(result.ok).toBe(false);
+}
+
+/** A registered client with a grant; `revokedAt` set means it was disconnected. */
+async function seedGrant(
+  name: string,
+  createdAt: string,
+  { lastUsedAt = null, revokedAt = null }: { lastUsedAt?: string | null; revokedAt?: string | null } = {},
+) {
+  const client = await prisma.oAuthClient.create({
+    data: {
+      clientId: `client-${name}`,
+      clientName: name,
+      redirectUris: JSON.stringify(["https://claude.ai/api/mcp/auth_callback", "http://localhost:33418/cb"]),
+      grantTypes: JSON.stringify(["authorization_code", "refresh_token"]),
+      tokenEndpointAuthMethod: "none",
+      createdAt,
+    },
+  });
+  return prisma.oAuthGrant.create({ data: { clientId: client.id, scope: "watchlist", createdAt, lastUsedAt, revokedAt } });
 }
 
 afterAll(async () => {
@@ -249,5 +272,52 @@ describe("Settings page", () => {
     const html = renderHtml(await SettingsPage());
     expect(html).toMatch(/<button[^>]*aria-label="„Aktiv“ löschen"/);
     expect(html).toMatch(/<button[^>]*aria-label="„Alt“ löschen"/);
+  });
+  it("lists active connected apps newest first after Datensicherung, without revoked ones", async () => {
+    await seedGrant("Claude", "2026-10-20T08:00:00.000Z", { lastUsedAt: "2026-10-28T09:30:00.000Z" });
+    await seedGrant("Claude Code", "2026-10-25T08:00:00.000Z");
+    await seedGrant("Alt", "2026-10-26T08:00:00.000Z", { revokedAt: "2026-10-27T08:00:00.000Z" });
+    const tree = await SettingsPage();
+    const section = findSection(tree, "settings-connected-apps");
+    const list = findElement(section, ConnectedAppsList);
+    expect((list?.props.apps as { clientName: string }[]).map((app) => app.clientName)).toEqual(["Claude Code", "Claude"]);
+    const text = renderText(section as never);
+    expect(text).toContain("Verbundene Apps");
+    expect(text).toContain("Claude Code");
+    expect(text).toContain("claude.ai, localhost:33418");
+    expect(text).toContain("Watchlists lesen und ändern");
+    expect(text).toContain("Verbunden seit 20.10.2026, 10:00");
+    expect(text).toContain("Zuletzt verwendet 28.10.2026, 10:30");
+    expect(text).toContain("Zuletzt verwendet: noch nie");
+    expect(text).toContain("Alle trennen");
+    expect(text).not.toContain("Alt");
+    const all = renderText(tree);
+    expect(all.indexOf("Datensicherung")).toBeLessThan(all.indexOf("Verbundene Apps"));
+  });
+
+  it("explains how to connect Claude with APP_URL when no app is connected", async () => {
+    process.env.APP_URL = "https://depot.example.com/";
+    await seedGrant("Alt", "2026-10-26T08:00:00.000Z", { revokedAt: "2026-10-27T08:00:00.000Z" });
+    const section = findSection(await SettingsPage(), "settings-connected-apps");
+    const empty = findElement(section, ConnectedAppsList)?.props.empty as { type: unknown; props: { issuer: string | null } };
+    expect(empty.type).toBe(ConnectedAppsEmpty);
+    expect(empty.props.issuer).toBe("https://depot.example.com");
+    const text = renderText(section as never);
+    expect(text).toContain("Noch keine App verbunden.");
+    expect(text).toContain("https://depot.example.com/api/mcp");
+    expect(text).toContain("claude mcp add --transport http depotmanagement https://depot.example.com/api/mcp");
+    expect(text).toContain("„Erlauben“");
+    expect(text).not.toContain("APP_URL");
+    expect(text).not.toContain("Alle trennen");
+  });
+
+  it("asks to set APP_URL first in the empty state when it is unset or invalid", async () => {
+    for (const value of [undefined, "not a url"]) {
+      if (value === undefined) delete process.env.APP_URL;
+      else process.env.APP_URL = value;
+      const text = renderText(findSection(await SettingsPage(), "settings-connected-apps") as never);
+      expect(text).toContain("Setze zuerst die Umgebungsvariable APP_URL");
+      expect(text).toContain("claude mcp add --transport http depotmanagement <APP_URL>/api/mcp");
+    }
   });
 });

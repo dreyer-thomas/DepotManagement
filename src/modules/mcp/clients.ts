@@ -174,7 +174,8 @@ export async function registerClient(body: unknown, db: McpDb = prisma, now: () 
   };
 }
 
-function parseJsonArray(value: string): string[] {
+/** A JSON array of strings stored as text; anything else is an empty array. */
+export function parseJsonArray(value: string): string[] {
   try {
     const parsed: unknown = JSON.parse(value);
     return isStringArray(parsed) ? parsed : [];
