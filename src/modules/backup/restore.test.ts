@@ -266,7 +266,7 @@ describe("restoreExport", () => {
     });
   });
 
-  it("replaces everything instead of merging and clears staging, news and fetched logos", async () => {
+  it("replaces everything instead of merging and clears staging, news, fetched logos and OAuth data", async () => {
     await seedFullLedger(source.testDb.client, source.dataDir);
     const text = await exportOf(source);
     await seedOtherData(target);
@@ -276,9 +276,24 @@ describe("restoreExport", () => {
     await target.testDb.client.securityLogo.create({
       data: { securityId: "sec-b", source: "MANUAL", fileName: "sec-b-7.png", contentType: "image/png", fetchedAt: TS },
     });
+    // A connected app: client, grant, consumed code, access and refresh token (never exported, story 9.4).
+    const oauth = target.testDb.client;
+    await oauth.oAuthClient.create({
+      data: { id: "oc", clientId: "client-1", clientName: "Claude", redirectUris: "[]", grantTypes: "[]", tokenEndpointAuthMethod: "none", createdAt: TS },
+    });
+    await oauth.oAuthGrant.create({ data: { id: "og", clientId: "oc", scope: "watchlist", createdAt: TS } });
+    for (const kind of ["CODE", "ACCESS", "REFRESH"] as const) {
+      await oauth.oAuthToken.create({
+        data: { kind, hash: `hash-${kind}`, clientId: "oc", grantId: "og", scope: "watchlist", resource: "https://x/api/mcp", expiresAt: "2099-01-01T00:00:00.000Z", createdAt: TS },
+      });
+    }
     const previousExport = await exportOf(target);
+    expect(previousExport).not.toContain("client-1");
 
     expect(await restoreInto(target, text)).toEqual({ ok: true, backupFileName: BACKUP_NAME });
+    expect(await oauth.oAuthClient.count()).toBe(0);
+    expect(await oauth.oAuthGrant.count()).toBe(0);
+    expect(await oauth.oAuthToken.count()).toBe(0);
 
     expect(await exportOf(target)).toBe(text);
     const c = target.testDb.client;

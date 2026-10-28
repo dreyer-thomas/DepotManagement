@@ -30,4 +30,15 @@ describe("next.config.ts", () => {
     expect(bytes(nextConfig.experimental?.serverActions?.bodySizeLimit)).toBeGreaterThan(RESTORE_MAX_FILE_BYTES);
     expect(bytes(nextConfig.experimental?.proxyClientMaxBodySize)).toBeGreaterThan(RESTORE_MAX_FILE_BYTES);
   });
+
+  it("forbids framing every /oauth page (consent clickjacking)", async () => {
+    const rules = (await nextConfig.headers?.()) ?? [];
+    const oauth = rules.find((rule) => rule.source === "/oauth/:path*");
+    expect(oauth?.headers).toEqual(
+      expect.arrayContaining([
+        { key: "X-Frame-Options", value: "DENY" },
+        { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
+      ]),
+    );
+  });
 });

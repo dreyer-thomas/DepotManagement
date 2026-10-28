@@ -85,6 +85,12 @@ describe("login action", () => {
     expect(result).toEqual({ failed: true, username: "u".repeat(256), attempt: 1 });
   });
 
+  it("returns to a long OAuth authorize URL (up to 4096 characters)", async () => {
+    const next = `/oauth/authorize?client_id=x&state=${"s".repeat(3000)}`;
+    expect(await expectRedirect(() => login(initial, form("tester", "test-pass", next)))).toBe(next);
+    expect((await login(initial, form("tester", "test-pass", `/?x=${"s".repeat(4100)}`))).failed).toBe(true);
+  });
+
   it("redirects to / without next", async () => {
     expect(await expectRedirect(() => login(initial, form("tester", "test-pass")))).toBe("/");
   });

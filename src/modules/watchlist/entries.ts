@@ -44,7 +44,12 @@ export type AddWatchlistEntryInput = {
   note?: unknown;
   /** Business date `YYYY-MM-DD`, ≤ today; absent or empty = today. */
   dateAdded?: unknown;
+  /** Who adds the entry: absent = the app (source APP, no client name); MCP records the client's name. */
+  origin?: WatchlistEntryOrigin;
 };
+
+/** An entry created through the MCP connector (story 9.4) records the source and the client's name. */
+export type WatchlistEntryOrigin = { source: "MCP"; clientName: string };
 
 export type AddWatchlistEntryResult =
   | { ok: true; entry: WatchlistEntryRecord; security: SecuritySummary }
@@ -139,7 +144,8 @@ export async function addWatchlistEntry(
           note: note.value,
           dateAdded: dateAdded.value,
           position: await nextPosition(tx, list.id),
-          source: "APP",
+          source: input.origin?.source === "MCP" ? "MCP" : "APP",
+          clientName: input.origin?.source === "MCP" ? input.origin.clientName : null,
           createdAt: now().toISOString(),
         },
         select: ENTRY_SELECT,

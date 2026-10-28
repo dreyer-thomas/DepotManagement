@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { fakeFetch, json, recorded } from "../../../../test/helpers/providers";
-import { lookupXetraTickers, OPENFIGI_MAPPING_URL } from "./openfigi";
+import { lookupIsinDetails, lookupXetraTickers, OPENFIGI_MAPPING_URL } from "./openfigi";
 
 const SAP = "DE0007164600";
 const MSCI_WORLD = "IE00B4L5Y983";
@@ -84,5 +84,51 @@ describe("lookupXetraTickers", () => {
       B: { status: "not-found" },
       C: { status: "found", value: "SAP" },
     });
+  });
+});
+
+// Recorded OpenFIGI answer for an ETF ISIN without exchange filter (trimmed to three listings).
+const MSCI_WORLD_ANY_EXCHANGE = [
+  {
+    data: [
+      { figi: "BBG005XXXXX1", name: null, ticker: "EUNL", exchCode: "GR", securityType: "ETP", marketSector: "Equity", securityType2: "Mutual Fund" },
+      { figi: "BBG005XXXXX2", name: "ISHARES CORE MSCI WORLD", ticker: "EUNL", exchCode: "GY", securityType: "ETP", marketSector: "Equity", securityType2: "Mutual Fund" },
+      { figi: "BBG005XXXXX3", name: "ISHARES CORE MSCI WRLD-ACC", ticker: "SWDA", exchCode: "LN", securityType: "ETP", marketSector: "Equity", securityType2: "Mutual Fund" },
+    ],
+  },
+];
+
+describe("lookupIsinDetails", () => {
+  it("returns name and types of the first listing with a name, sending only the ISIN", async () => {
+    const { fetch, calls } = fakeFetch(json(MSCI_WORLD_ANY_EXCHANGE));
+    expect(await lookupIsinDetails(MSCI_WORLD, { fetch })).toEqual({
+      status: "found",
+      value: { name: "ISHARES CORE MSCI WORLD", securityType: "ETP", securityType2: "Mutual Fund", marketSector: "Equity" },
+    });
+    expect(calls[0].url).toBe(OPENFIGI_MAPPING_URL);
+    expect(JSON.parse(calls[0].body!)).toEqual([{ idType: "ID_ISIN", idValue: MSCI_WORLD }]);
+    expect(calls[0].headers).not.toHaveProperty("x-openfigi-apikey");
+  });
+
+  it("sends the API key when set", async () => {
+    const { fetch, calls } = fakeFetch(json(recorded("openfigi-mapping-not-found")));
+    await lookupIsinDetails(SAP, { fetch, apiKey: "secret-key" });
+    expect(calls[0].headers["x-openfigi-apikey"]).toBe("secret-key");
+  });
+
+  it("is not-found for a warning or listings without a name", async () => {
+    expect(await lookupIsinDetails(SAP, fakeFetch(json(recorded("openfigi-mapping-not-found"))))).toEqual({ status: "not-found" });
+    expect(await lookupIsinDetails(SAP, fakeFetch(json([{ data: [{ name: " " }] }])))).toEqual({ status: "not-found" });
+  });
+
+  it.each([
+    ["HTTP 500", () => json({}, 500)],
+    ["HTTP 429", () => json({}, 429)],
+    ["a network error", () => new TypeError("fetch failed")],
+    ["an unexpected body", () => json({ nope: true })],
+    ["a job error", () => json([{ error: "Invalid idType" }])],
+    ["a wrong job count", () => json([])],
+  ])("is error on %s", async (_label, reply) => {
+    expect(await lookupIsinDetails(SAP, fakeFetch(reply()))).toEqual({ status: "error" });
   });
 });

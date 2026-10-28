@@ -100,3 +100,89 @@ async function requestChunk(
     return "failed";
   }
 }
+
+/** What OpenFIGI states about an ISIN's instrument (first listing with a name, any exchange). */
+export type IsinDetails = {
+  name: string;
+  securityType: string | null;
+  securityType2: string | null;
+  marketSector: string | null;
+};
+
+const detailsResultSchema = z
+  .object({
+    data: z
+      .array(
+        z
+          .object({
+            name: z.string().nullish(),
+            securityType: z.string().nullish(),
+            securityType2: z.string().nullish(),
+            marketSector: z.string().nullish(),
+          })
+          .loose(),
+      )
+      .optional(),
+    warning: z.string().optional(),
+    error: z.string().optional(),
+  })
+  .loose()
+  .refine((job) => job.data !== undefined || job.warning !== undefined || job.error !== undefined);
+const detailsResponseSchema = z.array(detailsResultSchema).length(1);
+
+function text(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+/**
+ * Looks up name and security type of one ISIN (no exchange filter; the first listing with a name).
+ * Only the ISIN leaves the server (AD-13). A miss is `not-found`; network, timeout, HTTP ≥ 400 (incl. 429),
+ * an unexpected body or a job error are `error`.
+ */
+export async function lookupIsinDetails(
+  isin: string,
+  { fetch, apiKey }: { fetch: FetchLike; apiKey?: string },
+): Promise<Lookup<IsinDetails>> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (apiKey) headers["X-OPENFIGI-APIKEY"] = apiKey;
+  try {
+    const response = await fetch(OPENFIGI_MAPPING_URL, {
+      method: "POST",
+      headers,
+      body: JSON.stringify([{ idType: "ID_ISIN", idValue: isin }]),
+      signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
+    });
+    if (!response.ok) {
+      console.warn(`OpenFIGI: HTTP ${response.status}`);
+      return ERROR;
+    }
+    const parsed = detailsResponseSchema.safeParse(await readJson(response));
+    if (!parsed.success) {
+      console.warn("OpenFIGI: schema mismatch");
+      return ERROR;
+    }
+    const [job] = parsed.data;
+    if (job.data) {
+      const item = job.data.find((candidate) => text(candidate.name) !== null);
+      if (!item) return NOT_FOUND;
+      return {
+        status: "found",
+        value: {
+          name: text(item.name)!,
+          securityType: text(item.securityType),
+          securityType2: text(item.securityType2),
+          marketSector: text(item.marketSector),
+        },
+      };
+    }
+    if (job.error !== undefined) {
+      console.warn(`OpenFIGI: job error (${job.error})`);
+      return ERROR;
+    }
+    return NOT_FOUND;
+  } catch (error) {
+    console.warn(`OpenFIGI: network (${error instanceof Error ? error.name : "unknown"})`);
+    return ERROR;
+  }
+}

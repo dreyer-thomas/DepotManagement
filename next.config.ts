@@ -13,6 +13,18 @@ const nextConfig: NextConfig = {
   ...(devAllowedOrigins.length > 0 ? { allowedDevOrigins: devAllowedOrigins } : {}),
   // Native modules (SQLite driver, bcrypt), Prisma and pdf.js (unpdf) stay external to the server bundle.
   serverExternalPackages: ["better-sqlite3", "@prisma/adapter-better-sqlite3", "bcrypt", "unpdf"],
+  // The OAuth consent page must never be framed (clickjacking of "Erlauben", story 9.4).
+  async headers() {
+    return [
+      {
+        source: "/oauth/:path*",
+        headers: [
+          { key: "X-Frame-Options", value: "DENY" },
+          { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
+        ],
+      },
+    ];
+  },
   experimental: {
     // Uploads go through server actions: Parqet CSVs (up to 5 MB), broker PDF batches (up to 20 MB in
     // total) and export files for a restore (up to 50 MB), plus form overhead.

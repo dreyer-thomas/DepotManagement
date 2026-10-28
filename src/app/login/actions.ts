@@ -20,7 +20,8 @@ const MAX_USERNAME = 256;
 const loginInput = z.object({
   username: z.string().max(MAX_USERNAME),
   password: z.string().max(1024),
-  next: z.string().max(2048).optional(),
+  // Long enough for an OAuth authorize URL (story 9.4).
+  next: z.string().max(4096).optional(),
 });
 
 /** Checks the credentials, sets the session cookie and redirects to the sanitized return URL. */

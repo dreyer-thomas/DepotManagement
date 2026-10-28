@@ -70,13 +70,13 @@ test/
 
 ## Configuration
 
-All configuration comes from environment variables or an untracked `.env`. [.env.example](.env.example) lists every name without values: `DATABASE_URL`, `SESSION_SECRET`, `AUTH_USERNAME`, `AUTH_PASSWORD_HASH`, `BACKUP_DIR`, `BACKUP_KEEP`, `COINGECKO_API_KEY`, `OPENFIGI_API_KEY`, `LOGO_DEV_API_KEY`, `DATA_DIR`, `DEV_ALLOWED_ORIGINS`.
+All configuration comes from environment variables or an untracked `.env`. [.env.example](.env.example) lists every name without values: `DATABASE_URL`, `SESSION_SECRET`, `AUTH_USERNAME`, `AUTH_PASSWORD_HASH`, `BACKUP_DIR`, `BACKUP_KEEP`, `COINGECKO_API_KEY`, `OPENFIGI_API_KEY`, `LOGO_DEV_API_KEY`, `DATA_DIR`, `APP_URL`, `DEV_ALLOWED_ORIGINS`.
 
 To open `npm run dev` from a phone or tablet in your network, set `DEV_ALLOWED_ORIGINS` to the host names or a wildcard such as `192.168.178.*` and restart the dev server; otherwise Next.js blocks its scripts for other devices and pages load without charts or working controls. `npm start` does not need it.
 
 ## Login
 
-The app has a single user. Every page and route needs a login: pages redirect to `/login` and return to the original URL afterwards; route handlers under `/api/` answer `401`.
+The app has a single user. Every page and route needs a login: pages redirect to `/login` and return to the original URL afterwards; route handlers under `/api/` answer `401`. The only exceptions are the OAuth endpoints and the MCP endpoint `/api/mcp` for Claude (see [Claude verbinden](#claude-verbinden)), which check their own credentials: an OAuth access token that is issued only after this same login.
 
 Set three variables in `.env`:
 
@@ -168,6 +168,29 @@ The default `BACKUP_DIR` is on the same disk as the database and does not protec
 
 Everything written after that backup is lost.
 
+## Claude verbinden
+
+Claude (Desktop, claude.ai, the iOS app and Claude Code) can read and change the watchlists through the MCP endpoint `<APP_URL>/api/mcp`. Connecting needs only the app's login; there are no API keys to copy.
+
+Requirements: `APP_URL` is set to the public HTTPS address (see [Configuration](#configuration-1)), and the app is reachable from the internet over HTTPS (claude.ai and the iOS app connect from Anthropic's servers). Nginx needs no change.
+
+- **Claude Desktop, claude.ai, iOS:** Settings → Connectors → "Add custom connector", URL `https://depot.example.com/api/mcp`. Claude opens the app's login and then the consent page "„Claude“ möchte deine Watchlists lesen und ändern"; choose "Erlauben". A connector added on claude.ai is also available in the iOS app.
+- **Claude Code:** `claude mcp add --transport http depotmanagement https://depot.example.com/api/mcp`, then `/mcp` in Claude Code to log in.
+
+Tools (scope `watchlist`; decimals are strings, dates `YYYY-MM-DD`):
+
+| Tool | Does |
+| --- | --- |
+| `list_watchlists` | All lists with their entry counts |
+| `get_watchlist` | One list with its entries: Price, price date, stale flag, change today, change since added, note, "via Claude" |
+| `create_watchlist`, `rename_watchlist` | Create or rename a list (same rules as the app) |
+| `delete_watchlist` | Delete a list; a list with entries only with `confirm_name` equal to its name |
+| `add_watchlist_entry` | Add a Security by ISIN or crypto symbol; an unknown ISIN is looked up at OpenFIGI, entries are marked "via Claude" |
+| `update_watchlist_entry`, `remove_watchlist_entry` | Change note or date added, move to another list, remove |
+| `search_securities` | Search the known Securities by name, ISIN or symbol (at most 20) |
+
+Claude never writes Transactions, Prices or other data; it can only create a Security for a new watchlist entry. Authorization follows OAuth 2.1 with PKCE (S256) and dynamic client registration: access tokens are valid for 1 hour, refresh tokens rotate and are valid for 90 days; reusing an old refresh token disconnects the app. Codes and tokens are stored only as hashes and never logged. Connected apps are not part of the export; after a restore, connect Claude again.
+
 ## Production deployment
 
 DepotManagement runs on a Linux server as one systemd service: a single Node process (`next start`) bound to `127.0.0.1`, behind Nginx, which terminates TLS. Example files: [deploy/systemd/depotmanagement.service](deploy/systemd/depotmanagement.service) and [deploy/nginx/depotmanagement.conf](deploy/nginx/depotmanagement.conf). The names below are placeholders: host `depot.example.com`, service user `depot`, checkout `/home/depot/apps/DepotManagement`, port `3000`.
@@ -216,6 +239,7 @@ SESSION_SECRET=...
 - Paths must be absolute: relative paths resolve against the checkout, and `~` is not expanded.
 - `AUTH_PASSWORD_HASH` holds the **plain** hash. Create it on a machine with a full install (`npm run -s hash-password`); it prints every `$` written as `\$` for `.env`, so remove those backslashes here. systemd reads the file without shell expansion. Never `source` the file in a shell, because the hash contains `$`.
 - `SESSION_SECRET`: a new value for production, `openssl rand -base64 48`.
+- `APP_URL`: the public HTTPS address, e.g. `APP_URL=https://depot.example.com`. Claude needs it (see [Claude verbinden](#claude-verbinden)); without it the OAuth and MCP routes answer `503`.
 - `PORT` (default 3000) changes the port, e.g. when other apps on the server use 3000; the Nginx `proxy_pass` and `DEPOT_URL` for the deploy script must match.
 - Do not create a `.env` in the checkout; the service gets its whole configuration from this file.
 

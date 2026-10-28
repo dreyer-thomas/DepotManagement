@@ -22,6 +22,7 @@ export type {
   UpdateWatchlistEntryInput,
   UpdateWatchlistEntryResult,
   WatchlistEntryFailureReason,
+  WatchlistEntryOrigin,
   WatchlistEntryRecord,
   WatchlistEntrySource,
   WatchlistEntryView,

@@ -124,6 +124,23 @@ export async function findSecurityByKey(
   return db.security.findUnique({ where: key, select: SECURITY_SELECT });
 }
 
+export type FindSecurityResult =
+  | { ok: true; security: SecuritySummary | null }
+  | { ok: false; reason: "isin-invalid" | "crypto-symbol-invalid" };
+
+/**
+ * Looks up a Security by `{ isin }` or `{ cryptoSymbol }`, validated and normalised exactly as
+ * `ensureSecurity` does (trimmed, upper-cased, ISIN check digit). `security` is null when none exists.
+ */
+export async function findSecurity(identifier: SecurityIdentifierInput, db: LedgerDb = prisma): Promise<FindSecurityResult> {
+  const byIsin = identifier !== null && typeof identifier === "object" && "isin" in identifier;
+  const key = byIsin
+    ? parse(isinSchema, (identifier as { isin: unknown }).isin)
+    : parse(cryptoSymbolSchema, (identifier as { cryptoSymbol?: unknown } | null)?.cryptoSymbol);
+  if (!key.ok) return { ok: false, reason: byIsin ? "isin-invalid" : "crypto-symbol-invalid" };
+  return { ok: true, security: await findSecurityByKey(byIsin ? { isin: key.value } : { cryptoSymbol: key.value }, db) };
+}
+
 function isUniqueViolation(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
 }

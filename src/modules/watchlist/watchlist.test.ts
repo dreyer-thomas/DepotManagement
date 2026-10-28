@@ -114,6 +114,19 @@ describe("entries", () => {
     });
   });
 
+  it("records source MCP and the client name for an entry added through the connector", async () => {
+    const ideas = await list("Ideen");
+    const result = await addWatchlistEntry(
+      { watchlistId: ideas, security: { new: { cryptoSymbol: "eth", name: "Ethereum", assetType: "CRYPTO" } }, origin: { source: "MCP", clientName: "Claude" } },
+      TODAY,
+      db(),
+      NOW,
+    );
+    expect(result).toMatchObject({ ok: true, entry: { source: "MCP", clientName: "Claude" }, security: { cryptoSymbol: "ETH" } });
+    const [view] = await watchlistView(TODAY, db());
+    expect(view.entries[0]).toMatchObject({ source: "MCP", clientName: "Claude" });
+  });
+
   it("refuses a Security already on the list, but allows it on another list", async () => {
     const a = await list("A");
     const b = await list("B");

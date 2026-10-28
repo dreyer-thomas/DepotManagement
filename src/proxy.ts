@@ -42,10 +42,12 @@ export async function proxy(request: NextRequest) {
   return response;
 }
 
-// Public without a session: the login page, Next's static assets, the web app manifest and exactly the
-// four home-screen icons of `src/app/app-icons.ts` (story 8-1; `manifest.test.ts` cross-checks the list).
+// Public without a session: the login page, Next's static assets, the web app manifest, exactly the
+// four home-screen icons of `src/app/app-icons.ts` (story 8-1; `manifest.test.ts` cross-checks the list) and
+// exactly the seven OAuth/MCP paths (story 9.4), which check their own credentials: the OAuth metadata, the
+// authorize page (it requires the session itself), token and registration endpoints, and `/api/mcp` (bearer token).
 export const config = {
   matcher: [
-    "/((?!login(?:/|$)|_next/static|_next/image|favicon\\.ico$|manifest\\.webmanifest$|icons/(?:icon-192|icon-512|icon-maskable-512|apple-touch-icon)\\.png$).*)",
+    "/((?!login(?:/|$)|_next/static|_next/image|favicon\\.ico$|manifest\\.webmanifest$|icons/(?:icon-192|icon-512|icon-maskable-512|apple-touch-icon)\\.png$|\\.well-known/oauth-protected-resource(?:/api/mcp)?$|\\.well-known/oauth-authorization-server$|oauth/(?:authorize|token|register)$|api/mcp$).*)",
   ],
 };

@@ -60,6 +60,7 @@ export {
   cryptoSymbolSchema,
   ensureBenchmarkSecurities,
   ensureSecurity,
+  findSecurity,
   firstActivityDates,
   firstLedgerDate,
   getSecurity,
@@ -71,6 +72,7 @@ export {
 export type {
   AssetType,
   ChangeSecurityTypeResult,
+  FindSecurityResult,
   SecurityDetailsInput,
   SecurityFailureReason,
   SecurityIdentifierInput,

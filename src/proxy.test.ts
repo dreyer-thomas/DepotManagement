@@ -115,7 +115,9 @@ describe("proxy for server actions", () => {
 describe("proxy matcher", () => {
   it.each(["/login", "/login?next=%2Fdepots", "/_next/static/chunks/main.js", "/_next/image?url=x", "/favicon.ico",
     "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png", "/icons/icon-maskable-512.png",
-    "/icons/apple-touch-icon.png"])(
+    "/icons/apple-touch-icon.png", "/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/api/mcp",
+    "/.well-known/oauth-authorization-server", "/oauth/authorize", "/oauth/authorize?client_id=x&state=y", "/oauth/token",
+    "/oauth/register", "/api/mcp"])(
     "does not guard the public path %s",
     (url) => {
       expect(unstable_doesMiddlewareMatch({ config, url })).toBe(false);
@@ -124,7 +126,10 @@ describe("proxy matcher", () => {
 
   it.each(["/", "/depots", "/depots?x=1", "/api/anything", "/settings", "/loginx", "/favicon.ico.bak",
     "/icons/other.png", "/icons/", "/icons", "/manifest.json", "/manifest.webmanifest.bak", "/icons/icon-192.png.bak",
-    "/x/icons/icon-192.png", "/x/manifest.webmanifest"])(
+    "/x/icons/icon-192.png", "/x/manifest.webmanifest", "/oauth/other", "/oauth", "/oauth/", "/oauth/authorize/x",
+    "/oauth/tokenx", "/api/mcp/x", "/api/mcpx", "/api/export", "/api/logos/x", "/.well-known/other",
+    "/.well-known/oauth-protected-resource/x", "/.well-known/oauth-protected-resource/api/mcp/x",
+    "/.well-known/oauth-authorization-serverx", "/x/oauth/token", "/x/api/mcp"])(
     "guards %s",
     (url) => {
       expect(unstable_doesMiddlewareMatch({ config, url })).toBe(true);

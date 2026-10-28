@@ -11,6 +11,7 @@ import { replaceAllClassifications } from "@/modules/classification";
 import { clearImportStaging } from "@/modules/import";
 import { replaceAllLedger } from "@/modules/ledger";
 import { checkManualLogos, type LogoRestoreFiles, replaceAllLogos } from "@/modules/logos";
+import { clearOAuth } from "@/modules/mcp";
 import { clearNews } from "@/modules/news";
 import { replaceAllPrices } from "@/modules/prices";
 import { replaceAllTargetAllocations } from "@/modules/rebalancing";
@@ -132,6 +133,8 @@ export async function restoreExport(input: string, deps: RestoreDeps = {}, db: B
       await replaceAllClassifications(file.classifications, tx, () => now);
       await replaceAllTaxSettings({ taxAllowances: file.taxAllowances, teilfreistellungOverrides: file.teilfreistellungOverrides }, tx, () => now);
       await replaceAllTargetAllocations(file.targetAllocations, tx, () => now);
+      // OAuth data is never exported: connected apps reconnect after a restore (AD-12).
+      await clearOAuth(tx);
       return staging;
     });
   } catch (error) {

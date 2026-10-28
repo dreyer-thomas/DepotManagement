@@ -5,6 +5,7 @@ import {
   changeSecurityType,
   createDepot,
   ensureSecurity,
+  findSecurity,
   firstActivityDates,
   listSecurities,
   recordIsinChange,
@@ -98,6 +99,23 @@ describe("ensureSecurity", () => {
       get: (target, prop, receiver) => (prop === "security" ? security : Reflect.get(target, prop, receiver)),
     });
     expect(await ensureSecurity({ isin: "US0378331005" }, { name: "Apple", assetType: "STOCK" }, raceDb)).toEqual(existing);
+  });
+});
+
+describe("findSecurity", () => {
+  it("finds a Security by a normalised ISIN or crypto symbol and returns null for an unknown one", async () => {
+    const apple = await ensureSecurity({ isin: "US0378331005" }, { name: "Apple", assetType: "STOCK" }, db());
+    const btc = await ensureSecurity({ cryptoSymbol: "BTC" }, { name: "Bitcoin", assetType: "CRYPTO" }, db());
+    expect(await findSecurity({ isin: " us0378331005 " }, db())).toEqual({ ok: true, security: apple.ok && apple.security });
+    expect(await findSecurity({ cryptoSymbol: " btc" }, db())).toEqual({ ok: true, security: btc.ok && btc.security });
+    expect(await findSecurity({ isin: "IE00B4L5Y983" }, db())).toEqual({ ok: true, security: null });
+    expect(await findSecurity({ cryptoSymbol: "ETH" }, db())).toEqual({ ok: true, security: null });
+  });
+
+  it("refuses an invalid ISIN or crypto symbol without a lookup", async () => {
+    expect(await findSecurity({ isin: "US0378331006" }, db())).toEqual({ ok: false, reason: "isin-invalid" });
+    expect(await findSecurity({ isin: 42 }, db())).toEqual({ ok: false, reason: "isin-invalid" });
+    expect(await findSecurity({ cryptoSymbol: "BTC-USD" }, db())).toEqual({ ok: false, reason: "crypto-symbol-invalid" });
   });
 });
 
