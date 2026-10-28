@@ -2,12 +2,17 @@ import ExpandMore from "@mui/icons-material/ExpandMore";
 import Accordion from "@mui/material/Accordion";
 import AccordionDetails from "@mui/material/AccordionDetails";
 import AccordionSummary from "@mui/material/AccordionSummary";
+import Box from "@mui/material/Box";
 import Card from "@mui/material/Card";
 import CardContent from "@mui/material/CardContent";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
+import type { ReactNode } from "react";
 import { formatMoney } from "@/core/format";
 import type { DepotSummary } from "@/modules/ledger";
+import { SparklineChart } from "../charts/SparklineChart";
+import { ReturnValue } from "../overview/DepotPerformance";
+import { GainLossPill } from "../positions/GainLossPill";
 import { ArchiveDepotButton, DeleteDepotButton, RenameDepotButton, UnarchiveDepotButton } from "./DepotDialogs";
 import { DepotLink } from "./DepotLink";
 import { brokerLabel } from "./labels";
@@ -31,14 +36,106 @@ function SettingsActions({ depot, reasonId }: { depot: DepotSummary; reasonId: s
   );
 }
 
+/** A Depot's Period figures for its card on the Depots page (decimal strings; ratios `null` when unknown). */
+export type DepotFigures = {
+  value: string;
+  positionsValue: string;
+  cash: string;
+  positionCount: number;
+  gain: string;
+  dividends: string;
+  ttwror: string | null;
+  xirr: string | null;
+  /** Daily total values over the Period, for the sparkline. */
+  values: string[];
+};
+
+function Stat({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <Box sx={{ minWidth: 0 }}>
+      <Typography variant="caption" color="text.secondary" component="p" noWrap>
+        {label}
+      </Typography>
+      <Typography variant="figure" component="p" noWrap>
+        {children}
+      </Typography>
+    </Box>
+  );
+}
+
+/** The figures block of an active Depot card: total value with Period Gain/Loss, sparkline and a stat grid. */
+function FiguresCard({ depot, figures, periodLabel }: { depot: DepotSummary; figures: DepotFigures; periodLabel: string }) {
+  return (
+    <Card>
+      <CardContent sx={{ "&:last-child": { pb: 2 } }}>
+        <Stack direction="row" sx={{ alignItems: "flex-start", gap: 2 }}>
+          <Stack sx={{ flexGrow: 1, minWidth: 0 }}>
+            <Typography component="p" variant="subtitle1" sx={{ fontWeight: 600, overflowWrap: "anywhere" }}>
+              <DepotLink id={depot.id}>{depot.name}</DepotLink>
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              {brokerLabel(depot.broker)}
+            </Typography>
+          </Stack>
+          <Stack sx={{ alignItems: "flex-end", flexShrink: 0, gap: 0.5 }}>
+            <Typography variant="figureKpi">{formatMoney(figures.value)}</Typography>
+            <GainLossPill gain={figures.gain} ratio={null} />
+          </Stack>
+        </Stack>
+        <Box sx={{ my: 1.5 }}>
+          <SparklineChart values={figures.values} />
+        </Box>
+        <Box
+          sx={{
+            display: "grid",
+            gridTemplateColumns: { xs: "repeat(2, minmax(0, 1fr))", sm: "repeat(3, minmax(0, 1fr))", md: "repeat(6, minmax(0, 1fr))" },
+            columnGap: 2,
+            rowGap: 1.5,
+          }}
+        >
+          <Stat label="Wertpapiere">{formatMoney(figures.positionsValue)}</Stat>
+          <Stat label="Cash-Konto">{formatMoney(figures.cash)}</Stat>
+          <Stat label="Positionen">{figures.positionCount}</Stat>
+          <Stat label={`Dividenden · ${periodLabel}`}>{formatMoney(figures.dividends)}</Stat>
+          <Stat label={`TTWROR · ${periodLabel}`}>
+            <ReturnValue ratio={figures.ttwror} />
+          </Stat>
+          <Stat label={`XIRR · ${periodLabel}`}>
+            <ReturnValue ratio={figures.xirr} />
+          </Stat>
+        </Box>
+      </CardContent>
+    </Card>
+  );
+}
+
 /**
  * Depot cards: name (link to the detail page), Broker and Cash Account balance. In Settings mode
  * each card also gets its write actions (rename/archive/delete, or reactivate/delete when archived).
+ * A Depot with `figures` (Depots page, active Depots) gets the taller figures card instead.
  */
-export function DepotList({ depots, settings = false }: { depots: DepotSummary[]; settings?: boolean }) {
+export function DepotList({
+  depots,
+  settings = false,
+  figures,
+  periodLabel = "",
+}: {
+  depots: DepotSummary[];
+  settings?: boolean;
+  figures?: Record<string, DepotFigures>;
+  periodLabel?: string;
+}) {
   return (
     <Stack component="ul" spacing={1.5} sx={{ listStyle: "none", p: 0, m: 0 }}>
       {depots.map((depot) => {
+        const own = settings ? undefined : figures?.[depot.id];
+        if (own) {
+          return (
+            <li key={depot.id}>
+              <FiguresCard depot={depot} figures={own} periodLabel={periodLabel} />
+            </li>
+          );
+        }
         const reasonId = `depot-archive-blocked-${depot.id}`;
         const blocked = settings && !depot.archived && !depot.archivable;
         // The wider "Reaktivieren" button wraps below name and balance on narrow screens.
@@ -80,14 +177,25 @@ export function DepotList({ depots, settings = false }: { depots: DepotSummary[]
 
 /**
  * Active Depots, then (when any exist) a collapsed "Archiviert (n)" group with the archived ones.
- * Expects at least one Depot; the caller shows the empty state.
+ * Expects at least one Depot; the caller shows the empty state. `figures` (keyed by Depot id) turn the
+ * matching cards into figures cards.
  */
-export function DepotGroups({ depots, settings = false }: { depots: DepotSummary[]; settings?: boolean }) {
+export function DepotGroups({
+  depots,
+  settings = false,
+  figures,
+  periodLabel,
+}: {
+  depots: DepotSummary[];
+  settings?: boolean;
+  figures?: Record<string, DepotFigures>;
+  periodLabel?: string;
+}) {
   const active = depots.filter((depot) => !depot.archived);
   const archived = depots.filter((depot) => depot.archived);
   return (
     <Stack spacing={2}>
-      {active.length > 0 ? <DepotList depots={active} settings={settings} /> : null}
+      {active.length > 0 ? <DepotList depots={active} settings={settings} figures={figures} periodLabel={periodLabel} /> : null}
       {archived.length > 0 ? (
         <Accordion disableGutters sx={{ "&::before": { display: "none" } }}>
           <AccordionSummary id="archived-depots-header" aria-controls="archived-depots-content" expandIcon={<ExpandMore />} sx={{ minHeight: 48 }}>

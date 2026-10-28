@@ -7,13 +7,19 @@ const dbFile = await vi.hoisted(async () => {
   return useMigratedDatabaseForSingleton();
 });
 
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }) }));
+
+vi.mock("next/headers", () => ({ cookies: async () => ({ get: () => undefined }) }));
+
 import { prisma } from "@/db";
-import { archiveDepot, createDepot, renameDepot } from "@/modules/ledger";
+import { businessDate } from "@/core/dates";
+import { archiveDepot, createDepot, recordTransaction, renameDepot } from "@/modules/ledger";
 import { CreateDepotButton } from "../../_components/depots/DepotDialogs";
 import { DepotGroups } from "../../_components/depots/DepotList";
 import DepotsPage from "./page";
 
 beforeEach(async () => {
+  await prisma.transaction.deleteMany();
   await prisma.depot.deleteMany();
 });
 
@@ -43,8 +49,8 @@ describe("Depots page", () => {
       expect.objectContaining({ name: "Hauptdepot" }),
     ]);
     const text = renderText(tree);
-    expect(text).toContain("Bank Deutsche Bank Cash-Konto 0,00 €");
-    expect(text).toContain("Hauptdepot comdirect Cash-Konto 0,00 €");
+    expect(text).toContain("Bank Deutsche Bank 0,00 € 0,00 € Wertpapiere 0,00 € Cash-Konto 0,00 € Positionen 0");
+    expect(text).toContain("Hauptdepot comdirect 0,00 €");
     expect(text).not.toContain("Comdirect Depot");
     expect(text).not.toContain("Noch kein Depot.");
     expect(renderHtml(tree)).toContain(`href="/depots/${created.depot.id}"`);
@@ -59,10 +65,22 @@ describe("Depots page", () => {
     const tree = await DepotsPage();
     const text = renderText(tree);
     const html = renderHtml(tree);
-    expect(text).toMatch(/Aktiv comdirect Cash-Konto 0,00\u00a0€ .*Archiviert \(1\) Alt Deutsche Bank Cash-Konto 0,00\u00a0€/);
+    expect(text).toMatch(/Aktiv comdirect 0,00\u00a0€ .*Archiviert \(1\) Alt Deutsche Bank Cash-Konto 0,00\u00a0€/);
     expect(html).toMatch(/aria-expanded="false"[^>]*>(?:(?!<\/button>).)*Archiviert \(1\)/);
     expect(html).toContain(`href="/depots/${old.depot.id}"`);
     expect(html).not.toContain("umbenennen");
+  });
+
+  it("shows each active Depot's value, Period Gain/Loss, holdings split and returns for the stored Period", async () => {
+    const created = await createDepot({ name: "Hauptdepot", broker: "COMDIRECT" });
+    if (!created.ok) throw new Error("setup failed");
+    const date = businessDate(new Date());
+    const deposit = await recordTransaction({ depotId: created.depot.id, type: "DEPOSIT", date, amount: "1000" });
+    if (!deposit.ok) throw new Error("setup failed");
+
+    const text = renderText(await DepotsPage());
+    expect(text).toContain("Depots 1T 1W 1M YTD 1J 3J Max");
+    expect(text).toMatch(/Hauptdepot comdirect 1\.000,00\u00a0€ 0,00\u00a0€ Wertpapiere 0,00\u00a0€ Cash-Konto 1\.000,00\u00a0€ Positionen 0 Dividenden · 1J 0,00\u00a0€ TTWROR · 1J/);
   });
 
   it("shows no 'Archiviert' group without archived Depots", async () => {
