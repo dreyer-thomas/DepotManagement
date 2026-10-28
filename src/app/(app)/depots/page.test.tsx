@@ -49,8 +49,8 @@ describe("Depots page", () => {
       expect.objectContaining({ name: "Hauptdepot" }),
     ]);
     const text = renderText(tree);
-    expect(text).toContain("Bank Deutsche Bank 0,00 € 0,00 € Wertpapiere 0,00 € Cash-Konto 0,00 € Positionen 0");
-    expect(text).toContain("Hauptdepot comdirect 0,00 €");
+    expect(text).toContain("Bank Deutsche Bank Wertpapiere 0,00 € Cash-Konto 0,00 € Positionen 0");
+    expect(text).toContain("Hauptdepot comdirect Wertpapiere");
     expect(text).not.toContain("Comdirect Depot");
     expect(text).not.toContain("Noch kein Depot.");
     expect(renderHtml(tree)).toContain(`href="/depots/${created.depot.id}"`);
@@ -65,7 +65,7 @@ describe("Depots page", () => {
     const tree = await DepotsPage();
     const text = renderText(tree);
     const html = renderHtml(tree);
-    expect(text).toMatch(/Aktiv comdirect 0,00\u00a0€ .*Archiviert \(1\) Alt Deutsche Bank Cash-Konto 0,00\u00a0€/);
+    expect(text).toMatch(/Aktiv comdirect Wertpapiere .*Archiviert \(1\) Alt Deutsche Bank Cash-Konto 0,00\u00a0€/);
     expect(html).toMatch(/aria-expanded="false"[^>]*>(?:(?!<\/button>).)*Archiviert \(1\)/);
     expect(html).toContain(`href="/depots/${old.depot.id}"`);
     expect(html).not.toContain("umbenennen");
@@ -80,7 +80,7 @@ describe("Depots page", () => {
 
     const text = renderText(await DepotsPage());
     expect(text).toContain("Depots 1T 1W 1M YTD 1J 3J Max");
-    expect(text).toMatch(/Hauptdepot comdirect 1\.000,00\u00a0€ 0,00\u00a0€ Wertpapiere 0,00\u00a0€ Cash-Konto 1\.000,00\u00a0€ Positionen 0 Dividenden · 1J 0,00\u00a0€ TTWROR · 1J/);
+    expect(text).toMatch(/Hauptdepot comdirect Wertpapiere 0,00\u00a0€ Cash-Konto 1\.000,00\u00a0€ Positionen 0 Dividenden · 1J 0,00\u00a0€ TTWROR · 1J .* XIRR · 1J .* 1\.000,00\u00a0€ 0,00\u00a0€/);
   });
 
   it("shows no 'Archiviert' group without archived Depots", async () => {

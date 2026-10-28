@@ -63,13 +63,26 @@ function Stat({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-/** The figures block of an active Depot card: total value with Period Gain/Loss, sparkline and a stat grid. */
+/**
+ * The figures card of an active Depot. md+: one row — name and Broker, sparkline (≈ 20 %), a 3 × 2
+ * stat grid, value with Period Gain/Loss. Below md: name and value on top, then a slim sparkline and
+ * the stat grid.
+ */
 function FiguresCard({ depot, figures, periodLabel }: { depot: DepotSummary; figures: DepotFigures; periodLabel: string }) {
   return (
     <Card>
       <CardContent sx={{ "&:last-child": { pb: 2 } }}>
-        <Stack direction="row" sx={{ alignItems: "flex-start", gap: 2 }}>
-          <Stack sx={{ flexGrow: 1, minWidth: 0 }}>
+        <Box
+          sx={{
+            display: "grid",
+            alignItems: "center",
+            columnGap: 3,
+            rowGap: 1.5,
+            gridTemplateColumns: { xs: "minmax(0, 1fr) auto", md: "minmax(0, 1fr) 20% minmax(0, 2.2fr) auto" },
+            gridTemplateAreas: { xs: '"name value" "spark spark" "stats stats"', md: '"name spark stats value"' },
+          }}
+        >
+          <Stack sx={{ gridArea: "name", minWidth: 0 }}>
             <Typography component="p" variant="subtitle1" sx={{ fontWeight: 600, overflowWrap: "anywhere" }}>
               <DepotLink id={depot.id}>{depot.name}</DepotLink>
             </Typography>
@@ -77,32 +90,35 @@ function FiguresCard({ depot, figures, periodLabel }: { depot: DepotSummary; fig
               {brokerLabel(depot.broker)}
             </Typography>
           </Stack>
-          <Stack sx={{ alignItems: "flex-end", flexShrink: 0, gap: 0.5 }}>
-            <Typography variant="figureKpi">{formatMoney(figures.value)}</Typography>
+          <Box sx={{ gridArea: "spark", minWidth: 0 }}>
+            <SparklineChart values={figures.values} height={48} />
+          </Box>
+          <Box
+            sx={{
+              gridArea: "stats",
+              display: "grid",
+              gridTemplateColumns: { xs: "repeat(2, minmax(0, 1fr))", sm: "repeat(3, minmax(0, 1fr))" },
+              columnGap: 2,
+              rowGap: 1,
+            }}
+          >
+            <Stat label="Wertpapiere">{formatMoney(figures.positionsValue)}</Stat>
+            <Stat label="Cash-Konto">{formatMoney(figures.cash)}</Stat>
+            <Stat label="Positionen">{figures.positionCount}</Stat>
+            <Stat label={`Dividenden · ${periodLabel}`}>{formatMoney(figures.dividends)}</Stat>
+            <Stat label={`TTWROR · ${periodLabel}`}>
+              <ReturnValue ratio={figures.ttwror} />
+            </Stat>
+            <Stat label={`XIRR · ${periodLabel}`}>
+              <ReturnValue ratio={figures.xirr} />
+            </Stat>
+          </Box>
+          <Stack sx={{ gridArea: "value", alignItems: "flex-end", gap: 0.5 }}>
+            <Typography variant="figureKpi" sx={{ whiteSpace: "nowrap" }}>
+              {formatMoney(figures.value)}
+            </Typography>
             <GainLossPill gain={figures.gain} ratio={null} />
           </Stack>
-        </Stack>
-        <Box sx={{ my: 1.5 }}>
-          <SparklineChart values={figures.values} />
-        </Box>
-        <Box
-          sx={{
-            display: "grid",
-            gridTemplateColumns: { xs: "repeat(2, minmax(0, 1fr))", sm: "repeat(3, minmax(0, 1fr))", md: "repeat(6, minmax(0, 1fr))" },
-            columnGap: 2,
-            rowGap: 1.5,
-          }}
-        >
-          <Stat label="Wertpapiere">{formatMoney(figures.positionsValue)}</Stat>
-          <Stat label="Cash-Konto">{formatMoney(figures.cash)}</Stat>
-          <Stat label="Positionen">{figures.positionCount}</Stat>
-          <Stat label={`Dividenden · ${periodLabel}`}>{formatMoney(figures.dividends)}</Stat>
-          <Stat label={`TTWROR · ${periodLabel}`}>
-            <ReturnValue ratio={figures.ttwror} />
-          </Stat>
-          <Stat label={`XIRR · ${periodLabel}`}>
-            <ReturnValue ratio={figures.xirr} />
-          </Stat>
         </Box>
       </CardContent>
     </Card>
