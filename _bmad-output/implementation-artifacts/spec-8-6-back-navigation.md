@@ -2,7 +2,7 @@
 title: 'Story 8.6: Back Navigation'
 type: 'feature'
 created: '2026-10-28'
-status: 'awaiting-operator'
+status: done
 baseline_revision: '52bf70207dfc7e2a30950d89aaf5f4b82bb84cf3'
 review_loop_iteration: 0
 followup_review_recommended: true
@@ -160,3 +160,13 @@ Status: awaiting-operator
 **Residual risks.** Real-runtime behavior unverified (see deferred item); login/OAuth soft-redirect origins and dev-only HMR listener loss accepted as rare.
 
 **Operator actions owed.** See `operator_actions` in frontmatter: device check on the installed iPhone app (back link, swipe gesture) and a desktop reload/new-tab check.
+
+## Operator Confirmation
+
+Confirmed 2026-10-28: the external actions this story owed were carried out.
+
+- On the iPhone home-screen app, open a Depot, then a Security, switch the Depot switcher and Period, tap '‹ <Depot>' and confirm it returns to the Depot with its tab and scroll position kept.
+- On the iPhone, open a Security from a watchlist, use the iOS swipe-back and swipe-forward gestures, and confirm the back link still reads '‹ <watchlist name>'.
+- In a desktop browser, reload a Security detail page reached from a Depot and confirm the label still names the Depot; open the same Security URL in a new tab and confirm it shows '‹ Wertpapiere' linking to the Securities page.
+
+_Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._
