@@ -424,3 +424,9 @@ Add `epic-9` (9-1-watchlists-and-entries, 9-2-security-detail-without-a-holding,
 | Tommy | Set `APP_URL` in the server env file before deploying 9.4; connect Claude Desktop/iOS and Claude Code; confirm stories needing operator checks (9.4, 9.5, 10.2) |
 
 **Success criteria.** Claude on Mac and iPhone connects with Tommy's login only and adds an idea that appears in the app with price and "since added"; removing the connection blocks the next call; with `portfolio:read` Claude's figures equal the app's; nothing is written to the ledger via MCP.
+
+## Addendum O — Back Navigation (approved 2026-10-28)
+
+**Trigger.** Tommy noticed that sub-pages are dead ends: from a Security opened in a Depot or a watchlist there is no way back to that view, which hurts most in the installed home-screen app (no browser back button). The app has no back link or breadcrumb anywhere.
+
+**Change.** New Story 8.6 "Back Navigation" in Epic 8 (relates to FR-23 home-screen app): sub-pages (Security detail, Depot detail, reconciliation, import batch, Parqet migration) get a back link "‹ <origin>" naming where Tommy came from and returning there as left (history back); in-page changes are never the target; without an in-app origin it falls back to the logical parent. Decisions with Tommy: label names the origin (accepted extra effort); the "Mehr" pages on phones get no back arrow. EXPERIENCE.md Component Patterns gains "Back link"; epics.md FR23 coverage and Epic 8 summary updated; sprint status gains `8-6-back-navigation: backlog`. No spec, PRD or architecture change. Run later, at Tommy's call.

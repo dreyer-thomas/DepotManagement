@@ -142,7 +142,7 @@ FR19: Epic 4 - Security detail page and all-time performance (Stories 4.6, 4.7)
 FR21: Epic 7 - Security classification and allocation analysis (Stories 7.1, 7.2)
 FR22: Epic 7 - Return heatmap, realized gains, cash flow, dividends, drawdown, dividend charts, Security analyses (Stories 7.3–7.8)
 FR20: Epic 2 - Depot reconciliation and holding corrections (Story 2.9)
-FR23: Epic 8 - Home-screen app (Story 8.1)
+FR23: Epic 8 - Home-screen app, back navigation (Stories 8.1, 8.6)
 FR24: Epic 8 - Benchmark comparison (Story 8.2)
 FR25: Epic 8 - Tax preview with Freistellungsauftrag (Story 8.3)
 FR26: Epic 8 - Region weights for global funds, target allocation and rebalancing (Stories 8.4, 8.5)
@@ -205,7 +205,7 @@ Tommy analyses his holdings like in Parqet: allocation by asset class, type, sec
 **FRs covered:** FR21, FR22 · **Also:** AR9, AR13, UX-DR8 (donut pattern)
 
 ### Epic 8: Planning & Taxes
-Tommy installs the app on his phone, compares his returns with benchmarks and between Depots, sees his German capital-gains tax position per broker with the Freistellungsauftrag, and rebalances towards target weights by region and asset class.
+Tommy installs the app on his phone and finds his way back from every sub-page, compares his returns with benchmarks and between Depots, sees his German capital-gains tax position per broker with the Freistellungsauftrag, and rebalances towards target weights by region and asset class.
 **FRs covered:** FR23, FR24, FR25, FR26
 
 ### Epic 9: Watchlists & Claude Connector
@@ -1174,6 +1174,25 @@ So that my Portfolio stays on the mix I chose.
 **And** "Rebalancing-Vorschlag" lists buys per underweight segment (amount; the largest existing holding of that segment as the suggested instrument) and sells per overweight segment, choosing the holdings and FIFO lots with the lowest estimated tax first (losses before small gains); each sale shows the estimated realized gain and tax using Story 8.3 (allowance left, loss pots), and the total tax of the proposal
 **And** targets are stored per scope, editable any time; deviations under a threshold (default 2 points, editable) are marked as "im Rahmen" and produce no trade
 **And** suggestions are advisory: nothing is booked; the segment mapping, distribution of a deposit and the trade selection are pure core functions with unit tests against hand-calculated references
+
+### Story 8.6: Back Navigation
+
+As Tommy,
+I want a back arrow on every sub-page that says where it leads,
+So that I return to where I came from, also in the installed app without a browser back button.
+
+**Acceptance Criteria:**
+
+**Given** a sub-page: Security detail, Depot detail, Depot reconciliation, import batch, Parqet migration
+**When** I open it from another page of the app
+**Then** the page header shows, left of the title, a back link "‹ <label>" naming the page I came from: the Depot name, the watchlist name, "Übersicht", "Depots", "Wertpapiere", "Nachrichten", "Analysen", "Import", "Einstellungen" or the Security name (long labels truncated with an ellipsis, full label in `aria-label` "Zurück zu <label>")
+**And** activating it returns to that page as I left it: the same URL including its query (selected watchlist, Depot switcher, tab), with scroll position, Period and chart choices kept, as the browser back button would
+**And** in-page changes of the sub-page itself (Depot switcher, chart mode, Period, tabs) never become the back target: the arrow always leaves the sub-page to the previous different page
+**And** without an in-app origin (opened directly, from a bookmark, a new tab, or after the origin left the history) the arrow leads to the logical parent with its name: Security detail → "Wertpapiere", Depot detail → "Depots", reconciliation → the Depot, import batch → "Import", Parqet migration → "Einstellungen"
+**And** the label always matches the target, also after a reload of the sub-page and after browser back/forward or the iOS swipe gesture; the origin is kept per browser tab only (no server state, nothing in the URL that changes what the page shows)
+**And** the top-level pages (Übersicht, Depots, Analysen, Nachrichten, Import, Wertpapiere, Watchlists, Einstellungen, Mehr) get no back arrow
+**And** the link is keyboard-operable, has a touch target ≥ 44 px, and works at phone and desktop width
+**And** one shared component and one pure function resolving the target and label (origin entry, parent fallback) implement it on every sub-page; unit tests cover origin vs fallback, in-page changes, reload and back/forward
 
 ## Epic 9: Watchlists & Claude Connector
 
