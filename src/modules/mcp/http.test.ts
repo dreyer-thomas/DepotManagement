@@ -360,14 +360,49 @@ describe("MCP tools through a real MCP client", () => {
     return { ideas: ideas.watchlist.id, dividends: dividends.watchlist.id, sap: sap.security.id };
   }
 
-  it("lists exactly the nine watchlist tools plus list_depots, with or without portfolio:read", async () => {
+  it("lists exactly the nine watchlist tools plus the nine portfolio read tools, with or without portfolio:read (acceptance)", async () => {
+    const writeTools = ["create_watchlist", "rename_watchlist", "delete_watchlist", "add_watchlist_entry", "update_watchlist_entry", "remove_watchlist_entry"];
     for (const options of [{}, { scope: "watchlist portfolio:read", portfolioRead: true }]) {
       const client = await mcpClient((await connect(undefined, options)).access_token);
       const { tools } = await client.listTools();
+      expect(tools).toHaveLength(18);
       expect(tools.map((tool) => tool.name).sort()).toEqual([...WATCHLIST_TOOL_NAMES, ...PORTFOLIO_TOOL_NAMES].sort());
-      expect(tools.find((tool) => tool.name === "list_depots")?.annotations?.readOnlyHint).toBe(true);
+      for (const name of PORTFOLIO_TOOL_NAMES) expect(tools.find((tool) => tool.name === name)?.annotations?.readOnlyHint).toBe(true);
+      // No tool outside the watchlist write tools may write: everything else is read-only.
+      const writable = tools.filter((tool) => tool.annotations?.readOnlyHint !== true).map((tool) => tool.name);
+      expect(writable.sort()).toEqual([...writeTools].sort());
       await client.close();
     }
+  });
+
+  it("adds held to watchlist entries only with portfolio:read (acceptance)", async () => {
+    const { ideas, sap } = await seed();
+    const apple = await ensureSecurity({ isin: APPLE }, { name: "Apple Inc.", assetType: "STOCK" }, testDb.client);
+    const depot = await createDepot({ name: "Hauptdepot", broker: "COMDIRECT" }, testDb.client);
+    if (!apple.ok || !depot.ok) throw new Error("setup failed");
+    await recordTransaction({ depotId: depot.depot.id, type: "DEPOSIT", date: "2026-01-02", amount: "1000" }, testDb.client);
+    const buy = await recordTransaction(
+      { depotId: depot.depot.id, type: "BUY", date: "2026-01-05", quantity: "1", price: "100", security: { id: sap } },
+      testDb.client,
+    );
+    if (!buy.ok) throw new Error("setup failed");
+    await addWatchlistEntry({ watchlistId: ideas, security: { id: sap } }, TODAY, testDb.client);
+
+    const withScope = await mcpClient((await connect(undefined, { scope: "watchlist portfolio:read", portfolioRead: true })).access_token);
+    const got = await call(withScope, "get_watchlist", { watchlist_id: ideas });
+    expect(got.payload.entries.map((entry: { held: boolean }) => entry.held)).toEqual([true]);
+    const added = await call(withScope, "add_watchlist_entry", { watchlist_id: ideas, isin: APPLE });
+    expect(added.payload.held).toBe(false);
+    const updated = await call(withScope, "update_watchlist_entry", { entry_id: added.payload.id, note: "x" });
+    expect(updated.payload.held).toBe(false);
+    await withScope.close();
+
+    const without = await mcpClient((await connect()).access_token);
+    const plain = await call(without, "get_watchlist", { watchlist_id: ideas });
+    for (const entry of plain.payload.entries) expect(entry).not.toHaveProperty("held");
+    const updatedPlain = await call(without, "update_watchlist_entry", { entry_id: added.payload.id, note: "y" });
+    expect(updatedPlain.payload).not.toHaveProperty("held");
+    await without.close();
   });
 
   it("adds an entry with source MCP and the client name, visible in watchlistView (acceptance)", async () => {
@@ -703,6 +738,19 @@ describe("portfolio:read through a real MCP client (story 10.1)", () => {
     expect(result.content[0].text).not.toContain("Hauptdepot");
     expect((await call(client, "list_watchlists")).isError).toBe(false);
     await client.close();
+  });
+
+  it("get_portfolio_summary end-to-end: figures with portfolio:read, the refusal without it", async () => {
+    await seedDepots();
+    const granted = await mcpClient((await connect(undefined, { scope: "watchlist portfolio:read", portfolioRead: true })).access_token);
+    const { isError, payload } = await call(granted, "get_portfolio_summary", { period: "YTD" });
+    expect(isError).toBe(false);
+    expect(payload).toMatchObject({ period: "YTD", from: "2026-01-01", to: TODAY, value: "1234.56", cash: "1234.56", has_transactions: true });
+    expect(payload.depots.map((depot: { name: string }) => depot.name)).toEqual(["Hauptdepot"]);
+    await granted.close();
+    const plain = await mcpClient((await connect()).access_token);
+    expect(await call(plain, "get_portfolio_summary")).toEqual({ isError: true, payload: DENIED });
+    await plain.close();
   });
 
   it("grants watchlist plus portfolio:read when only portfolio:read was requested and checked", async () => {

@@ -35,5 +35,14 @@ export type {
   SetManualRegionSplitResult,
 } from "./classification";
 export type { EffectiveRegionSplit, RegionWeight, RegionWeights, RuleRegionSplit, SplitRegion } from "@/core/region-split";
+export {
+  ALLOCATION_DIMENSIONS,
+  ALLOCATION_LABELS,
+  allocationAnalysis,
+  allocationHoldings,
+  groupOf,
+  NOT_APPLICABLE_LABEL,
+} from "./allocation";
+export type { AllocationDimension, AllocationScope, RegionSplits } from "./allocation";
 export { exportClassifications, replaceAllClassifications } from "./backup";
 export type { ClassificationExport } from "./backup";

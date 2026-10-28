@@ -15,27 +15,23 @@ import { TaxView } from "@/app/_components/tax/TaxView";
 import {
   type AllocationDimension,
   ALLOCATION_DIMENSIONS,
-  ALLOCATION_LABELS,
   PORTFOLIO_SCOPE,
   allocationDimension,
-  allocationHoldings,
   analysisScope,
   analysisTab,
   analysisTabId,
   analysisTabPanelId,
 } from "@/app/_components/analyses/labels";
-import { compositionHoldings } from "@/app/_components/composition/labels";
 import { AppLink } from "@/app/_components/depots/DepotLink";
 import { PageTitle } from "@/app/_components/Placeholder";
-import { allocation } from "@/core/allocation";
 import { businessDate } from "@/core/dates";
 import { dividendAnalysis } from "@/core/dividend-analysis";
 import { gainsAnalysis } from "@/core/gains-analysis";
 import { type RebalancingHolding, rebalancing } from "@/core/rebalancing";
 import { returnHeatmap } from "@/core/return-heatmap";
 import { taxPreview } from "@/core/tax";
-import { listClassifications, listRegionSplits } from "@/modules/classification";
-import { gainsInput, listDepots, listPositions, returnSeries } from "@/modules/ledger";
+import { allocationAnalysis, listClassifications, listRegionSplits } from "@/modules/classification";
+import { dividendAnalysisInput, gainsInput, listDepots, listPositions, returnSeries } from "@/modules/ledger";
 import { latestStoredPrices, storedPriceHistory } from "@/modules/prices";
 import { getTargetAllocation } from "@/modules/rebalancing";
 import { taxPreviewInput } from "@/modules/tax";
@@ -53,21 +49,11 @@ type Depot = Awaited<ReturnType<typeof listDepots>>[number];
  * a classification dimension read through the classification module (AD-20); the same Position values
  * and cash as the composition card. By "Region", a fund's value is distributed by its region split.
  */
-async function allocationPanel({ depots, scope, dimension, today }: { depots: Depot[]; scope: string; dimension: AllocationDimension; today: string }) {
-  const inScope = scope === PORTFOLIO_SCOPE ? depots : depots.filter((depot) => depot.id === scope);
-  const [positionsByDepot, classifications, regionSplits] = await Promise.all([
-    // Stored manual / provider Prices win over Transaction prices (resolver), as on the Positions tab.
-    Promise.all(inScope.map((depot) => listPositions(depot.id, today, undefined, { storedPrices: latestStoredPrices }))),
-    listClassifications(),
-    // Funds with a region split are distributed over the split regions (story 8.4; "Region" only).
-    dimension === "region" ? listRegionSplits() : Promise.resolve({}),
-  ]);
-  const holdings = inScope.flatMap((depot, index) => compositionHoldings(depot, positionsByDepot[index]));
-  const result = allocation(
-    allocationHoldings(holdings, classifications, dimension, regionSplits),
-    inScope.map((depot) => depot.cashBalance),
-    ALLOCATION_LABELS,
-  );
+async function allocationPanel({ scope, dimension, today }: { scope: string; dimension: AllocationDimension; today: string }) {
+  // Stored manual / provider Prices win over Transaction prices (resolver), as on the Positions tab.
+  const result = await allocationAnalysis(scope === PORTFOLIO_SCOPE ? "portfolio" : { depotId: scope }, dimension, today, undefined, {
+    storedPrices: latestStoredPrices,
+  });
   return (
     <AllocationView
       scope={scope}
@@ -105,22 +91,12 @@ async function gainsPanel({ scope, today }: { scope: string; today: string }) {
  * plus the per-Security monthly split, year lines and forecast, from one core function.
  */
 async function dividendsPanel({ scope, today }: { scope: string; today: string }) {
-  const { depots, actions, securityNames } = await gainsInput(scope === PORTFOLIO_SCOPE ? "portfolio" : { depotId: scope });
-  const positionsByDepot = await Promise.all(
-    depots.map((depot) => listPositions(depot.depotId, today, undefined, { storedPrices: latestStoredPrices })),
-  );
-  const inputs = depots.map((depot, index) => ({
-    ...depot,
-    positions: positionsByDepot[index].map((position) => ({
-      securityId: position.security.id,
-      quantity: position.quantity,
-      value: position.value,
-      costBasis: position.costBasis,
-    })),
-  }));
+  const { depots, actions, securityNames } = await dividendAnalysisInput(scope === PORTFOLIO_SCOPE ? "portfolio" : { depotId: scope }, today, undefined, {
+    storedPrices: latestStoredPrices,
+  });
   return (
     <DividendsView
-      analysis={dividendAnalysis(inputs, actions, today)}
+      analysis={dividendAnalysis(depots, actions, today)}
       securityNames={securityNames}
       today={today}
       depotId={scope === PORTFOLIO_SCOPE ? null : scope}
@@ -245,7 +221,7 @@ export default async function AnalysesPage({ searchParams }: Props) {
         ) : tab === "targets" ? (
           await targetsPanel({ depots, all, scope, today, depositParam: params.deposit })
         ) : (
-          await allocationPanel({ depots, scope, dimension, today })
+          await allocationPanel({ scope, dimension, today })
         )}
       </Box>
     </>

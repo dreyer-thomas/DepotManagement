@@ -54,3 +54,4 @@ export async function taxLedgerInput(db: LedgerDb = prisma): Promise<TaxLedgerIn
     actions,
   };
 }
+

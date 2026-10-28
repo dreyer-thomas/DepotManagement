@@ -4,7 +4,7 @@ import type { PriceObservation } from "@/core/prices";
 import { ExactDecimal } from "@/core/decimal";
 import { returnHeatmap } from "@/core/return-heatmap";
 import { chainReturns } from "@/core/returns";
-import { archiveDepot, benchmarkLines, createDepot, depotValuation, ensureBenchmarkSecurities, ensureSecurity, portfolioValuation, recordIsinChange, returnSeries, recordTransaction, type RecordTransactionInput } from "./index";
+import { archiveDepot, benchmarkLines, createDepot, depotValuation, ensureBenchmarkSecurities, ensureSecurity, portfolioValuation, recordIsinChange, returnSeries, recordTransaction, type RecordTransactionInput, valuationSummary } from "./index";
 
 let testDb: TestDatabase;
 let depotId: string;
@@ -497,5 +497,33 @@ describe("valuation with a holding correction", () => {
     const portfolio = await portfolioValuation(period, TODAY, db());
     expect(portfolio.series.find((point) => point.date === "2026-01-12")).toMatchObject({ adjustmentValue: "200", adjustmentCost: "160" });
     expect(portfolio.performance).toMatchObject({ gain: "0", ttwror: "0" });
+  });
+});
+
+describe("valuationSummary", () => {
+  it("takes value, invested capital and cash from the last series point, plus the Period figures", async () => {
+    await book({ type: "DEPOSIT", date: "2026-01-05", amount: "2000" });
+    await book({ type: "BUY", date: "2026-01-10", quantity: "10", price: "100", fee: "5", security: { id: appleId } });
+    await book({ type: "DIVIDEND", date: "2026-03-01", amount: "50", tax: "15", security: { id: appleId } });
+    const valuation = await depotValuation(depotId, { kind: "custom", from: "2026-01-01", to: "2026-06-30" }, TODAY, db());
+    const end = valuation.series.at(-1)!;
+    expect(valuationSummary(valuation)).toEqual({
+      from: "2026-01-01",
+      to: "2026-06-30",
+      value: end.value,
+      investedCapital: end.investedCapital,
+      cash: end.cash,
+      performance: valuation.performance,
+      dividends: "50",
+      taxesPaid: "15",
+    });
+    const portfolio = await portfolioValuation({ kind: "preset", preset: "1J" }, TODAY, db());
+    expect(valuationSummary(portfolio).value).toBe(portfolio.series.at(-1)!.value);
+  });
+
+  it("falls back to the start point without series days", () => {
+    const start = { date: "2026-01-01", value: "10", positionsValue: "0", cash: "10", investedCapital: "0" };
+    const summary = valuationSummary({ from: "2026-01-02", to: "2026-01-01", start, series: [], performance: {} as never, dividends: "0", taxesPaid: "0" });
+    expect(summary).toMatchObject({ value: "10", cash: "10", investedCapital: "0" });
   });
 });

@@ -1,14 +1,14 @@
 // The nine watchlist tools (story 9.4, scope `watchlist`). Thin adapters over the `watchlist` and `ledger`
 // services and the `prices` OpenFIGI lookup: arguments go to the services unvalidated (so the app and Claude
-// refuse the same inputs), reasons become `{ error, message }`. No figures are computed here; `held` is never
-// part of a payload. Payload values are never logged. `get_watchlist` adds each entry's key figures (story
-// 9.6: the classification module's snapshot plus the 52-week figures computed by core) and, for stocks,
-// the analyst ratings (story 9.7).
+// refuse the same inputs), reasons become `{ error, message }`. No figures are computed here; `held` is part
+// of an entry only when the grant also holds `portfolio:read` (story 10.2). Payload values are never logged.
+// `get_watchlist` adds each entry's key figures (story 9.6: the classification module's snapshot plus the
+// 52-week figures computed by core) and, for stocks, the analyst ratings (story 9.7).
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { analystConsensusOf, analystCountOf, type AnalystRatings, consensusMean, targetChange } from "@/core/analyst-ratings";
-import { emptyKeyFigures } from "@/core/key-figures";
+import { emptyKeyFigures, type FiftyTwoWeekFigures } from "@/core/key-figures";
 import { WATCHLIST_NAME_MAX_LENGTH, WATCHLIST_NOTE_MAX_LENGTH } from "@/core/watchlist";
 import { type KeyFiguresInfo, listKeyFigures } from "@/modules/classification";
 import { type AssetType, findSecurity, listSecurities, SECURITY_NAME_MAX_LENGTH } from "@/modules/ledger";
@@ -26,7 +26,7 @@ import {
   type WatchlistSummary,
   watchlistView,
 } from "@/modules/watchlist";
-import { WATCHLIST_SCOPE } from "./authorize";
+import { PORTFOLIO_READ_SCOPE, WATCHLIST_SCOPE } from "./authorize";
 import type { McpDb } from "./clients";
 import { inTransaction } from "./tokens";
 
@@ -78,6 +78,10 @@ const MESSAGES: Record<string, string> = {
   "asset-type-unknown": "Die Wertpapierart zu dieser ISIN ist unbekannt; lege das Wertpapier in der App an.",
   "confirm-name-mismatch": "Die Watchlist enthält Einträge. Zum Löschen confirm_name mit dem genauen Namen der Liste angeben.",
   "query-empty": "Der Suchbegriff darf nicht leer sein.",
+  "depot-not-found": "Dieses Depot gibt es nicht.",
+  "period-invalid": "Der Zeitraum ist ungültig. Erlaubt: 1T, 1W, 1M, YTD, 1J, 3J, MAX oder custom:JJJJ-MM-TT:JJJJ-MM-TT.",
+  "cursor-invalid": "Der Cursor ist ungültig.",
+  "security-not-in-depot": "Dieses Wertpapier wurde in diesem Depot nicht gebucht.",
   "internal-error": "Das hat nicht geklappt. Bitte später erneut versuchen.",
 };
 
@@ -85,7 +89,8 @@ export function result(payload: unknown): CallToolResult {
   return { content: [{ type: "text", text: JSON.stringify(payload) }] };
 }
 
-function refusal(reason: string): CallToolResult {
+/** An expected failure as `{ error, message }` (German message; unknown reasons fall back to `internal-error`). */
+export function refusal(reason: string): CallToolResult {
   return { isError: true, content: [{ type: "text", text: JSON.stringify({ error: reason, message: MESSAGES[reason] ?? MESSAGES["internal-error"] }) }] };
 }
 
@@ -155,10 +160,9 @@ export function analystsPayload(symbol: string | null, ratings: AnalystRatings |
  * The key figures of an entry (snake_case, decimals as strings or null, dates `YYYY-MM-DD`): the provider
  * snapshot with `as_of` / `stale` (all null without one) and the 52-week figures from the stored closes.
  */
-export function keyFiguresPayload(entry: WatchlistEntryView, info: KeyFiguresInfo | undefined) {
+export function keyFiguresPayload(week: FiftyTwoWeekFigures, info: KeyFiguresInfo | undefined) {
   const snapshot = info?.snapshot ?? null;
   const figures = snapshot?.figures ?? emptyKeyFigures();
-  const week = entry.fiftyTwoWeek;
   return {
     source: "Yahoo Finance",
     as_of: snapshot?.asOf ?? null,
@@ -198,10 +202,10 @@ export function keyFiguresPayload(entry: WatchlistEntryView, info: KeyFiguresInf
 }
 
 /**
- * An entry as the tools return it (snake_case, decimals as strings, never `held`); with `keyFigures`
- * (from `listKeyFigures`) it also carries `key_figures`.
+ * An entry as the tools return it (snake_case, decimals as strings); with `keyFigures` (from
+ * `listKeyFigures`) it also carries `key_figures`, with `withHeld` (the grant holds `portfolio:read`) `held`.
  */
-export function entryPayload(entry: WatchlistEntryView, keyFigures?: Readonly<Record<string, KeyFiguresInfo>>) {
+export function entryPayload(entry: WatchlistEntryView, keyFigures?: Readonly<Record<string, KeyFiguresInfo>>, withHeld = false) {
   return {
     id: entry.id,
     security_id: entry.securityId,
@@ -218,15 +222,21 @@ export function entryPayload(entry: WatchlistEntryView, keyFigures?: Readonly<Re
     change_since_added: entry.sinceAdded,
     source: entry.source,
     client_name: entry.clientName,
-    ...(keyFigures ? { key_figures: keyFiguresPayload(entry, keyFigures[entry.securityId]) } : {}),
+    ...(withHeld ? { held: entry.held } : {}),
+    ...(keyFigures ? { key_figures: keyFiguresPayload(entry.fiftyTwoWeek, keyFigures[entry.securityId]) } : {}),
   };
+}
+
+/** True when the grant may see holdings (`portfolio:read`): watchlist entries then carry `held`. */
+function withHeld(ctx: McpToolContext): boolean {
+  return ctx.scopes.includes(PORTFOLIO_READ_SCOPE);
 }
 
 async function entryById(ctx: McpToolContext, entryId: string) {
   const lists = await watchlistView(ctx.today, ctx.db);
   for (const list of lists) {
     const entry = list.entries.find((candidate) => candidate.id === entryId);
-    if (entry) return entryPayload(entry);
+    if (entry) return entryPayload(entry, undefined, withHeld(ctx));
   }
   return null;
 }
@@ -322,7 +332,7 @@ export function registerWatchlistTools(server: McpServer, ctx: McpToolContext): 
         ctx.today,
         ctx.db,
       );
-      return result({ id: list.id, name: list.name, entries: list.entries.map((entry) => entryPayload(entry, keyFigures)) });
+      return result({ id: list.id, name: list.name, entries: list.entries.map((entry) => entryPayload(entry, keyFigures, withHeld(ctx))) });
     }),
   );
 

@@ -1,6 +1,6 @@
-import type { CompositionHolding, CompositionLabels, CompositionSegment } from "@/core/composition";
+import type { CompositionLabels, CompositionSegment } from "@/core/composition";
 import { formatMoney, formatShare } from "@/core/format";
-import type { AssetType, PositionRecord } from "@/modules/ledger";
+import type { AssetType } from "@/modules/ledger";
 import { ASSET_TYPE_LABELS } from "../transactions/labels";
 
 /** German labels handed to the core composition builders. */
@@ -23,23 +23,7 @@ export const COMPOSITION_DEFAULT_VIEW: CompositionView = "type";
 
 export const COMPOSITION_EMPTY_TEXT = "Keine Werte vorhanden.";
 
-/** The Depot's priced Positions as composition holdings; Positions without a price (`value` null) are left out. */
-export function compositionHoldings(depot: { id: string; name: string }, positions: readonly PositionRecord[]): CompositionHolding[] {
-  return positions.flatMap((position) =>
-    position.value === null
-      ? []
-      : [
-          {
-            securityId: position.security.id,
-            securityName: position.security.name,
-            assetType: position.security.assetType,
-            depotId: depot.id,
-            depotName: depot.name,
-            value: position.value,
-          },
-        ],
-  );
-}
+export { compositionHoldings } from "@/modules/ledger/composition";
 
 /** Text alternative of the donut: `Zusammensetzung nach Typ: ETF 60,0 % (600,00 €), …`. */
 export function compositionAriaLabel(viewLabel: string, segments: readonly CompositionSegment[]): string {

@@ -14,8 +14,28 @@ const taxPreviewInput = vi.hoisted(() => vi.fn());
 const getTargetAllocation = vi.hoisted(() => vi.fn());
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn(), push: vi.fn(), refresh: vi.fn() }) }));
-vi.mock("@/modules/ledger", () => ({ gainsInput, listDepots, listPositions, returnSeries }));
-vi.mock("@/modules/classification", () => ({ listClassifications, listRegionSplits }));
+// `dividendAnalysisInput` and `allocationAnalysis` (story 10.2: the page glue moved into the modules) are the
+// real implementations, running over the mocked reads (their internal imports are mocked by path).
+vi.mock("@/modules/ledger/gains", () => ({ gainsInput }));
+vi.mock("@/modules/ledger/positions", () => ({ listPositions }));
+vi.mock("@/modules/classification/classification", () => ({ listClassifications, listRegionSplits }));
+vi.mock("@/modules/ledger", async () => {
+  const { compositionHoldings } = await vi.importActual<typeof import("@/modules/ledger/composition")>("@/modules/ledger/composition");
+  const { dividendAnalysisInput } = await vi.importActual<typeof import("@/modules/ledger/dividends")>("@/modules/ledger/dividends");
+  return {
+    compositionHoldings,
+    dividendAnalysisInput,
+    gainsInput,
+    getDepot: async (id: string) => ((await listDepots()) as { id: string }[]).find((depot) => depot.id === id) ?? null,
+    listDepots,
+    listPositions,
+    returnSeries,
+  };
+});
+vi.mock("@/modules/classification", async () => {
+  const { allocationAnalysis } = await vi.importActual<typeof import("@/modules/classification/allocation")>("@/modules/classification/allocation");
+  return { allocationAnalysis, listClassifications, listRegionSplits };
+});
 vi.mock("@/modules/prices", () => ({ latestStoredPrices, storedPriceHistory }));
 vi.mock("@/modules/tax", () => ({ taxPreviewInput }));
 vi.mock("@/modules/rebalancing", () => ({ getTargetAllocation }));

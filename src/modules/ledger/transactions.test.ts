@@ -7,6 +7,7 @@ import {
   listPositions,
   listSecurities,
   listTransactions,
+  queryTransactions,
   recordTrade,
   type RecordTradeInput,
   recordTransaction,
@@ -671,4 +672,96 @@ describe("Transaction note", () => {
     const cleared = await updateTransaction(noted.transaction.id, { depotId, type: "DEPOSIT", date: "2026-10-01", amount: "12", note: "" }, db());
     expect(cleared).toMatchObject({ ok: true, transaction: { note: null } });
   });
+});
+
+describe("queryTransactions", () => {
+  async function seedLedger() {
+    const other = await createDepot({ name: "Zweitdepot", broker: "FINANZEN_ZERO" }, db());
+    if (!other.ok) throw new Error("setup failed");
+    const book = async (input: RecordTransactionInput) => {
+      const result = await recordTransaction(input, db());
+      if (!result.ok) throw new Error(`setup failed: ${result.reason}`);
+      return result.transaction;
+    };
+    await book({ depotId, type: "DEPOSIT", date: "2026-01-02", amount: "5000" });
+    await book({ depotId, type: "BUY", date: "2026-01-05", quantity: "10", price: "100", security: { id: appleId } });
+    await book({ depotId, type: "DIVIDEND", date: "2026-03-01", amount: "20", tax: "5", security: { id: appleId } });
+    await book({ depotId: other.depot.id, type: "DEPOSIT", date: "2026-01-05", amount: "100" });
+    await book({ depotId: other.depot.id, type: "FEE", date: "2026-02-01", fee: "2" });
+    return other.depot.id;
+  }
+
+  it("filters by Depot, Security, types and date range, newest first", async () => {
+    const otherId = await seedLedger();
+    const all = await queryTransactions({ limit: 100 }, db());
+    if (!all.ok) throw new Error("expected ok");
+    expect(all.rows.map((row) => [row.date, row.type])).toEqual([
+      ["2026-03-01", "DIVIDEND"],
+      ["2026-02-01", "FEE"],
+      ["2026-01-05", all.rows[2].type],
+      ["2026-01-05", all.rows[3].type],
+      ["2026-01-02", "DEPOSIT"],
+    ]);
+    expect(all.nextCursor).toBeNull();
+    // Same (date, sequence) in two Depots: ordered by id descending.
+    expect([all.rows[2].id, all.rows[3].id]).toEqual([all.rows[2].id, all.rows[3].id].sort().reverse());
+
+    const own = [...(await listTransactions(depotId, db())), ...(await listTransactions(otherId, db()))];
+    expect([...all.rows].sort((a, b) => a.id.localeCompare(b.id))).toEqual([...own].sort((a, b) => a.id.localeCompare(b.id)));
+
+    const filtered = await queryTransactions({ depotId, types: ["BUY", "DIVIDEND"], securityId: appleId, from: "2026-01-05", to: "2026-02-28", limit: 10 }, db());
+    expect(filtered.ok && filtered.rows.map((row) => row.type)).toEqual(["BUY"]);
+    const other = await queryTransactions({ depotId: otherId, limit: 10 }, db());
+    expect(other.ok && other.rows.map((row) => row.depotId)).toEqual([otherId, otherId]);
+  });
+
+  it("pages with a keyset cursor without repeating rows; the last page has no cursor", async () => {
+    await db().transaction.createMany({
+      data: Array.from({ length: 1203 }, (_, index) => ({
+        depotId,
+        type: "DEPOSIT" as const,
+        date: `2026-0${1 + (index % 9)}-${String(1 + (index % 28)).padStart(2, "0")}`,
+        sequence: index,
+        amount: "1",
+        fee: "0",
+        tax: "0",
+      })),
+    });
+    const seen: string[] = [];
+    const sizes: number[] = [];
+    let cursor: string | undefined;
+    for (;;) {
+      const page = await queryTransactions({ limit: 500, cursor }, db());
+      if (!page.ok) throw new Error("expected ok");
+      sizes.push(page.rows.length);
+      seen.push(...page.rows.map((row) => row.id));
+      if (page.nextCursor === null) break;
+      cursor = page.nextCursor;
+    }
+    expect(sizes).toEqual([500, 500, 203]);
+    const capped = await queryTransactions({ limit: 10_000 }, db());
+    expect(capped.ok && capped.rows).toHaveLength(500);
+    expect(new Set(seen).size).toBe(1203);
+    const ordered = await db().transaction.findMany({ orderBy: [{ date: "desc" }, { sequence: "desc" }, { id: "desc" }], select: { id: true } });
+    expect(seen).toEqual(ordered.map((row) => row.id));
+  });
+
+  it("returns no cursor when the page ends exactly on the last row, and clamps the limit to 1..500", async () => {
+    await seedLedger();
+    const one = await queryTransactions({ limit: 0 }, db());
+    expect(one.ok && one.rows).toHaveLength(1);
+    const page = await queryTransactions({ limit: 5 }, db());
+    expect(page.ok && page.nextCursor).toBeNull();
+    const first = await queryTransactions({ limit: 2 }, db());
+    if (!first.ok || first.nextCursor === null) throw new Error("expected a cursor");
+    const second = await queryTransactions({ limit: 2, cursor: first.nextCursor }, db());
+    expect(second.ok && second.rows.map((row) => row.date)).toEqual(["2026-01-05", "2026-01-05"]);
+  });
+
+  it.each(["", "not-a-cursor", Buffer.from("[1,2]").toString("base64url"), Buffer.from('["2026-13-01",1,"x"]').toString("base64url"), Buffer.from('["2026-01-01",1.5,"x"]').toString("base64url")])(
+    "refuses the bad cursor %j",
+    async (cursor) => {
+      expect(await queryTransactions({ limit: 10, cursor }, db())).toEqual({ ok: false, reason: "cursor-invalid" });
+    },
+  );
 });

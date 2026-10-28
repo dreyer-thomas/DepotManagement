@@ -87,10 +87,22 @@ export type {
   SecurityPriceObservationsOptions,
   StoredPriceLoader,
 } from "./positions";
-export { benchmarkLines, depotValuation, portfolioValuation, returnSeries } from "./valuation";
-export type { BenchmarkLines, DepotValuation, DepotValuationOptions, PortfolioValuation, ReturnScope, ReturnSeries } from "./valuation";
+export { benchmarkLines, depotValuation, portfolioValuation, returnSeries, valuationSummary } from "./valuation";
+export type {
+  BenchmarkLines,
+  DepotValuation,
+  DepotValuationOptions,
+  PortfolioValuation,
+  ReturnScope,
+  ReturnSeries,
+  ValuationSummary,
+} from "./valuation";
 export { gainsInput, taxLedgerInput } from "./gains";
 export type { GainsInput, TaxLedgerInput } from "./gains";
+export { dividendAnalysisInput } from "./dividends";
+export type { DividendAnalysisInput } from "./dividends";
+export { ASSET_TYPE_LABELS } from "./labels";
+export { compositionHoldings } from "./composition";
 export { securityDetail } from "./security-detail";
 export type { SecurityDetail, SecurityDetailDepot, SecurityDetailOptions, SecurityTransactionRecord } from "./security-detail";
 export type { PeriodPerformance } from "@/core/returns";
@@ -132,10 +144,12 @@ export {
   deleteTransaction,
   listTransactions,
   NOTE_MAX_LENGTH,
+  queryTransactions,
   QUANTITY_MAX_DECIMALS,
   recordTrade,
   recordTransaction,
   TRADE_TYPES,
+  TRANSACTION_QUERY_MAX_LIMIT,
   TRANSACTION_TYPES,
   updateTransaction,
 } from "./transactions";
@@ -144,6 +158,7 @@ export type {
   LaterSellExceedsHoldingFailure,
   NewSecurityInput,
   PossibleDuplicateFailure,
+  QueryTransactionsResult,
   RecordTradeInput,
   RecordTradeResult,
   RecordTransactionInput,
@@ -152,6 +167,7 @@ export type {
   SellExceedsHoldingFailure,
   TradeFailureReason,
   TransactionFailureReason,
+  TransactionQuery,
   TradeType,
   TransactionRecord,
   TransactionType,

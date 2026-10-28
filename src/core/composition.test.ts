@@ -5,6 +5,8 @@ import {
   compositionByAssetType,
   compositionByDepot,
   compositionByPosition,
+  holdingShares,
+  holdingTotals,
 } from "./composition";
 import { ExactDecimal } from "./decimal";
 
@@ -134,5 +136,28 @@ describe("compositionByDepot", () => {
       ["Guthaben", "100", "0.100"],
     ]);
     expect(segments.map((s) => s.kind)).toEqual(["item", "item", "cash"]);
+  });
+});
+
+describe("holdingShares", () => {
+  it("divides each value by the values plus cash, keeping null for unpriced holdings", () => {
+    expect(holdingShares(["300", null, "100"], ["50", "50"])).toEqual(["0.6", null, "0.2"]);
+  });
+
+  it("rounds to 30 decimal places", () => {
+    expect(holdingShares(["1", "2"], "0")).toEqual(["0.333333333333333333333333333333", "0.666666666666666666666666666667"]);
+  });
+
+  it("gives null everywhere when the total is not positive", () => {
+    expect(holdingShares(["0", null], "0")).toEqual([null, null]);
+    expect(holdingShares(["10"], "-20")).toEqual([null]);
+    expect(holdingShares([], "100")).toEqual([]);
+  });
+});
+
+describe("holdingTotals", () => {
+  it("sums the priced values and the cash balances", () => {
+    expect(holdingTotals(["300.5", null, "100"], ["50", "-0.5"])).toEqual({ positionsValue: "400.5", cash: "49.5" });
+    expect(holdingTotals([], "0")).toEqual({ positionsValue: "0", cash: "0" });
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addDays, addMonths, businessDate, daysBetween, isBusinessDate } from "./dates";
+import { addDays, addMonths, businessDate, daysBetween, isBusinessDate, lastPerMonth } from "./dates";
 
 describe("isBusinessDate", () => {
   it.each(["2026-10-25", "2024-02-29", "2000-02-29", "2026-12-31"])("accepts %s", (value) => {
@@ -77,5 +77,22 @@ describe("addMonths", () => {
 
   it("rejects an invalid date", () => {
     expect(() => addMonths("2026-02-30", 1)).toThrow(RangeError);
+  });
+});
+
+describe("lastPerMonth", () => {
+  it("keeps the last point of every month in order", () => {
+    const points = ["2025-12-31", "2026-01-01", "2026-01-15", "2026-01-31", "2026-02-01", "2026-03-10", "2026-03-11"].map((date, index) => ({ date, index }));
+    expect(lastPerMonth(points)).toEqual([
+      { date: "2025-12-31", index: 0 },
+      { date: "2026-01-31", index: 3 },
+      { date: "2026-02-01", index: 4 },
+      { date: "2026-03-11", index: 6 },
+    ]);
+  });
+
+  it("handles empty and single-point series", () => {
+    expect(lastPerMonth([])).toEqual([]);
+    expect(lastPerMonth([{ date: "2026-05-05" }])).toEqual([{ date: "2026-05-05" }]);
   });
 });

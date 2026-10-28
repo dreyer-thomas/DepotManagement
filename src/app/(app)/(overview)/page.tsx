@@ -25,7 +25,7 @@ import { comparisonChoiceKeys, comparisonOptions } from "@/app/_components/valua
 import { compositionByAssetType, compositionByDepot, compositionByPosition } from "@/core/composition";
 import { businessDate } from "@/core/dates";
 import { periodLabel } from "@/core/period";
-import { benchmarkLines, listDepots, listPositions, listSecurities, portfolioValuation } from "@/modules/ledger";
+import { benchmarkLines, listDepots, listPositions, listSecurities, portfolioValuation, valuationSummary } from "@/modules/ledger";
 import { listNews } from "@/modules/news";
 import { latestStoredPrices, securityPriceInfo, storedPriceHistory } from "@/modules/prices";
 
@@ -156,7 +156,7 @@ export default async function OverviewPage() {
   const held: DepotPosition[] = portfolio.depots.flatMap((depot, index) =>
     positionsByDepot[index].map((position) => ({ depotId: depot.id, depotName: depot.name, position })),
   );
-  const end = portfolio.series.at(-1) ?? portfolio.start;
+  const summary = valuationSummary(portfolio);
   // Composition is a today snapshot (Positions-tab values plus each Depot's Cash Account), independent of the Period.
   const holdings = portfolio.depots.flatMap((depot, index) => compositionHoldings(depot, positionsByDepot[index]));
   const cashById = new Map(depots.map((depot) => [depot.id, depot.cashBalance]));
@@ -176,15 +176,15 @@ export default async function OverviewPage() {
       <StaleAlert count={staleCount} />
       <ValueSummary
         label="Portfoliowert"
-        value={end.value}
-        investedCapital={end.investedCapital}
-        cash={end.cash}
-        dividends={portfolio.dividends}
-        taxesPaid={portfolio.taxesPaid}
+        value={summary.value}
+        investedCapital={summary.investedCapital}
+        cash={summary.cash}
+        dividends={summary.dividends}
+        taxesPaid={summary.taxesPaid}
         periodLabel={label}
-        to={portfolio.to}
+        to={summary.to}
         today={today}
-        performance={portfolio.performance}
+        performance={summary.performance}
         series={portfolio.series}
         drawdown={portfolio.drawdown}
         chartTab={chartTab}

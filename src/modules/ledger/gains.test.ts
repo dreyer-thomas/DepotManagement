@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createTestDatabase, type TestDatabase } from "../../../test/helpers/test-db";
 import { gainsAnalysis } from "@/core/gains-analysis";
-import { archiveDepot, createDepot, depotValuation, ensureSecurity, gainsInput, recordSplit, recordTransaction, type RecordTransactionInput, taxLedgerInput } from "./index";
+import { archiveDepot, createDepot, depotValuation, dividendAnalysisInput, ensureSecurity, gainsInput, listPositions, recordSplit, recordTransaction, type RecordTransactionInput, taxLedgerInput } from "./index";
 
 let testDb: TestDatabase;
 let depotId: string;
@@ -95,5 +95,33 @@ describe("taxLedgerInput", () => {
       ]),
     );
     expect(input.actions).toEqual({ splits: [], isinChanges: [] });
+  });
+});
+
+describe("dividendAnalysisInput", () => {
+  it("adds each Depot's Positions as of today to the scope's gains input", async () => {
+    await book({ type: "DEPOSIT", date: "2026-01-10", amount: "2000" });
+    await book({ type: "BUY", date: "2026-01-10", quantity: "10", price: "100", fee: "1", security: { id: appleId } });
+    await book({ type: "DIVIDEND", date: "2026-03-20", amount: "30", tax: "7.5", security: { id: appleId } });
+    await book({ depotId: otherDepotId, type: "DEPOSIT", date: "2026-01-01", amount: "99" });
+    const storedPrices = async (ids: string[]) => ids.map((securityId) => ({ id: "p", securityId, date: "2026-10-20", sequence: 0, price: "150", source: "provider" as const }));
+
+    const input = await dividendAnalysisInput("portfolio", TODAY, db(), { storedPrices });
+    const gains = await gainsInput("portfolio", db());
+    expect(input.actions).toEqual(gains.actions);
+    expect(input.securityNames).toEqual(gains.securityNames);
+    const positions = await listPositions(depotId, TODAY, db(), { storedPrices });
+    expect(positions[0].value).toBe("1500");
+    expect(input.depots).toEqual(
+      gains.depots.map((depot) => ({
+        ...depot,
+        positions:
+          depot.depotId === depotId
+            ? [{ securityId: appleId, quantity: "10", value: "1500", costBasis: positions[0].costBasis }]
+            : [],
+      })),
+    );
+    const one = await dividendAnalysisInput({ depotId: otherDepotId }, TODAY, db());
+    expect(one.depots).toEqual([{ depotId: otherDepotId, rows: expect.any(Array), positions: [] }]);
   });
 });

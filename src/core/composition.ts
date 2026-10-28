@@ -159,3 +159,22 @@ export function compositionByDepot(
   const items = ordered(group(holdings, (h) => `depot:${h.depotId}`, (h) => h.depotName));
   return finalize([...items, cashDraft(cash, labels)]);
 }
+
+/**
+ * Share of each holding value in its scope: `value / (Σ non-null values + Σ cash)`, rounded half-up to 30
+ * decimal places. `null` for a holding without a value (unpriced) and for every holding when that total
+ * is not positive. Same order as `values`.
+ */
+export function holdingShares(values: readonly (string | null)[], cash: CompositionCash): (string | null)[] {
+  const total = values.reduce<Decimal>((sum, value) => (value === null ? sum : sum.plus(value)), sumCash(cash));
+  if (total.lte(0)) return values.map(() => null);
+  return values.map((value) =>
+    value === null ? null : canonicalDecimal(new ExactDecimal(value).div(total).toDecimalPlaces(SHARE_DECIMALS, ExactDecimal.ROUND_HALF_UP)),
+  );
+}
+
+/** Σ of the non-null holding values (unpriced holdings count 0) and Σ of the cash balances, as decimal strings. */
+export function holdingTotals(values: readonly (string | null)[], cash: CompositionCash): { positionsValue: string; cash: string } {
+  const positionsValue = values.reduce<Decimal>((sum, value) => (value === null ? sum : sum.plus(value)), new ExactDecimal(0));
+  return { positionsValue: canonicalDecimal(positionsValue), cash: canonicalDecimal(sumCash(cash)) };
+}

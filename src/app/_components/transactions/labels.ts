@@ -29,15 +29,7 @@ export function transactionTypeLabel(type: TransactionType): string {
   return TRANSACTION_TYPE_LABELS[type];
 }
 
-/** German labels of the asset types offered for a new Security, in selection order. */
-export const ASSET_TYPE_LABELS: Record<AssetType, string> = {
-  STOCK: "Aktie",
-  ETF: "ETF",
-  FUND: "Fonds",
-  CERTIFICATE: "Zertifikat",
-  CRYPTO: "Krypto",
-  UNCLASSIFIED: "Nicht zugeordnet",
-};
+export { ASSET_TYPE_LABELS } from "@/modules/ledger/labels";
 
 export const NEW_SECURITY_ASSET_TYPES: AssetType[] = ["STOCK", "ETF", "FUND", "CERTIFICATE", "CRYPTO"];
 

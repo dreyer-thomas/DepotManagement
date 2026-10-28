@@ -661,3 +661,83 @@ export async function listTransactions(depotId: string, db: LedgerDb = prisma): 
   });
   return rows.map(toRecord);
 }
+
+/** Most rows one `queryTransactions` page returns. */
+export const TRANSACTION_QUERY_MAX_LIMIT = 500;
+
+/** Filters and paging of `queryTransactions`; omitted filters match everything. */
+export type TransactionQuery = {
+  depotId?: string;
+  /** Inclusive business-date bounds `YYYY-MM-DD`. */
+  from?: string;
+  to?: string;
+  types?: readonly TransactionType[];
+  securityId?: string;
+  /** `nextCursor` of the previous page; omitted for the first page. */
+  cursor?: string;
+  /** Rows per page, 1..500. */
+  limit: number;
+};
+
+export type QueryTransactionsResult =
+  | { ok: true; rows: TransactionRecord[]; nextCursor: string | null }
+  | { ok: false; reason: "cursor-invalid" };
+
+type CursorKey = [date: string, sequence: number, id: string];
+
+function encodeCursor(row: { date: string; sequence: number; id: string }): string {
+  return Buffer.from(JSON.stringify([row.date, row.sequence, row.id] satisfies CursorKey)).toString("base64url");
+}
+
+function decodeCursor(cursor: string): CursorKey | null {
+  try {
+    const key: unknown = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
+    if (!Array.isArray(key) || key.length !== 3) return null;
+    const [date, sequence, id] = key;
+    if (!isBusinessDate(date) || !Number.isSafeInteger(sequence) || typeof id !== "string" || id === "") return null;
+    return [date, sequence, id];
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Transactions of every Depot (archived included) or one, filtered in SQL by Depot, Security, types and
+ * date range, newest first by `(date, sequence, id)` descending, one page of at most `limit` rows. The
+ * keyset cursor (opaque base64url of the last row's key) continues strictly after that row; `nextCursor`
+ * is `null` on the last page. Quantities as booked. Read-only.
+ */
+export async function queryTransactions(query: TransactionQuery, db: LedgerDb = prisma): Promise<QueryTransactionsResult> {
+  const limit = Math.min(Math.max(Math.trunc(query.limit), 1), TRANSACTION_QUERY_MAX_LIMIT);
+  let after: CursorKey | null = null;
+  if (query.cursor !== undefined) {
+    after = decodeCursor(query.cursor);
+    if (after === null) return { ok: false, reason: "cursor-invalid" };
+  }
+  const date = {
+    ...(query.from !== undefined ? { gte: query.from } : {}),
+    ...(query.to !== undefined ? { lte: query.to } : {}),
+  };
+  const rows = await db.transaction.findMany({
+    where: {
+      ...(query.depotId !== undefined ? { depotId: query.depotId } : {}),
+      ...(query.securityId !== undefined ? { securityId: query.securityId } : {}),
+      ...(query.types !== undefined ? { type: { in: [...query.types] } } : {}),
+      ...(Object.keys(date).length > 0 ? { date } : {}),
+      ...(after
+        ? {
+            OR: [
+              { date: { lt: after[0] } },
+              { date: after[0], sequence: { lt: after[1] } },
+              { date: after[0], sequence: after[1], id: { lt: after[2] } },
+            ],
+          }
+        : {}),
+    },
+    orderBy: [{ date: "desc" }, { sequence: "desc" }, { id: "desc" }],
+    take: limit + 1,
+    include: TRANSACTION_INCLUDE,
+  });
+  const page = rows.slice(0, limit);
+  return { ok: true, rows: page.map(toRecord), nextCursor: rows.length > limit ? encodeCursor(page[page.length - 1]) : null };
+}

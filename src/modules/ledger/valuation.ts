@@ -256,3 +256,31 @@ export async function benchmarkLines(
   );
   return Object.fromEntries(BENCHMARKS.map((benchmark, index) => [benchmark.key, lines[index]])) as BenchmarkLines;
 }
+
+/** The headline figures of a Depot or Portfolio valuation, as the Overview and Depot pages show them. */
+export type ValuationSummary = {
+  from: string;
+  to: string;
+  /** Value, invested capital and cash at the Period end (`series.at(-1) ?? start`). */
+  value: string;
+  investedCapital: string;
+  cash: string;
+  performance: PeriodPerformance;
+  dividends: string;
+  taxesPaid: string;
+};
+
+/** The headline figures of `valuation`: the end point is the last series day, or the start without one. Pure. */
+export function valuationSummary(valuation: Pick<DepotValuation, "from" | "to" | "start" | "series" | "performance" | "dividends" | "taxesPaid">): ValuationSummary {
+  const end = valuation.series.at(-1) ?? valuation.start;
+  return {
+    from: valuation.from,
+    to: valuation.to,
+    value: end.value,
+    investedCapital: end.investedCapital,
+    cash: end.cash,
+    performance: valuation.performance,
+    dividends: valuation.dividends,
+    taxesPaid: valuation.taxesPaid,
+  };
+}

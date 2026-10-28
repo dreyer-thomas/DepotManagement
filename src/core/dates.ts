@@ -92,3 +92,11 @@ export function daysBetween(from: string, to: string): number {
     daysFromCivil(Number(b[1]), Number(b[2]), Number(b[3])) - daysFromCivil(Number(a[1]), Number(a[2]), Number(a[3]))
   );
 }
+
+/**
+ * The last point of each calendar month (`YYYY-MM` of `date`) of `points` sorted ascending by date, in
+ * that order: a daily series sampled to month ends (the last month may end before its last day).
+ */
+export function lastPerMonth<T extends { date: string }>(points: readonly T[]): T[] {
+  return points.filter((point, index) => index === points.length - 1 || points[index + 1].date.slice(0, 7) !== point.date.slice(0, 7));
+}
