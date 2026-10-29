@@ -48,6 +48,47 @@ async function offeredTypes(name: string) {
 }
 
 describe("SecurityList", () => {
+  it("filters the list by name, ISIN, crypto symbol or price symbol as you type", async () => {
+    const list: SecurityWithMapping[] = [
+      ...securities,
+      {
+        id: "s3",
+        name: "EZCORP Inc.",
+        isin: "US3021301094",
+        cryptoSymbol: null,
+        assetType: "STOCK",
+        mapping: { provider: "YAHOO", symbol: "EZ2A.F", origin: "MANUAL", fetchError: null },
+      },
+    ];
+    const user = userEvent.setup({ delay: null });
+    render(<SecurityList securities={list} today="2026-10-26" />);
+    const search = screen.getByRole("searchbox", { name: "Wertpapiere durchsuchen" });
+    const names = () => screen.queryAllByRole("link").map((link) => link.textContent);
+    expect(names()).toEqual(["Bitcoin", "SAP", "EZCORP Inc."]);
+
+    await user.type(search, "sap");
+    expect(names()).toEqual(["SAP"]);
+    await user.clear(search);
+    await user.type(search, "de000716");
+    expect(names()).toEqual(["SAP"]);
+    await user.clear(search);
+    await user.type(search, "btc");
+    expect(names()).toEqual(["Bitcoin"]);
+    await user.clear(search);
+    await user.type(search, "ez2a.f");
+    expect(names()).toEqual(["EZCORP Inc."]);
+    await user.clear(search);
+    await user.type(search, "ezcorp inc");
+    expect(names()).toEqual(["EZCORP Inc."]);
+
+    await user.clear(search);
+    await user.type(search, "xyz");
+    expect(names()).toEqual([]);
+    expect(screen.getByText("Keine Wertpapiere gefunden.")).toBeTruthy();
+    await user.clear(search);
+    expect(names()).toEqual(["Bitcoin", "SAP", "EZCORP Inc."]);
+  });
+
   it("links each name to the Security page", () => {
     render(<SecurityList securities={securities} today="2026-10-26" />);
     expect(screen.getByRole("link", { name: "Bitcoin" }).getAttribute("href")).toBe("/securities/s1");

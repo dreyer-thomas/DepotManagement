@@ -20,6 +20,7 @@ import { ManualPriceButton } from "./ManualPriceDialog";
 import { ManualPriceList } from "./ManualPriceList";
 import { MappingDialogButton, ResolveMappingButton } from "./MappingDialog";
 import { RegionSplitButton } from "./RegionSplitDialog";
+import { SecuritySearch } from "./SecuritySearch";
 import { SecurityLink } from "../security-detail/SecurityLink";
 import { teilfreistellungSummary } from "../tax/labels";
 import { TeilfreistellungButton } from "../tax/TeilfreistellungDialog";
@@ -34,7 +35,7 @@ import { TypeDialogButton } from "./TypeDialog";
  * ("Teilfreistellung 30 % (automatisch|manuell)"), plus "Regionen" with the region split line when the fund has one
  * ("Regionen: USA 72 % · … (Regel MSCI World, Stand 30.09.2026)" / "(manuell)", story 8.4), and for stocks the
  * line "Analysten-Symbol: AAPL" / "… automatisch" with its button "Analysten-Symbol" (story 9.7). A failed last fetch shows an error naming the provider; there "Kurs manuell eintragen" is
- * the Alert's action instead (one per card).
+ * the Alert's action instead (one per card). A search field above the list filters it (`SecuritySearch`).
  */
 export function SecurityList({
   securities,
@@ -65,83 +66,84 @@ export function SecurityList({
   /** Today's business date (default date of a manual Price). */
   today: string;
 }) {
-  return (
-    <Stack component="ul" spacing={1.5} sx={{ listStyle: "none", p: 0, m: 0 }}>
-      {securities.map((security) => {
-        const unclassified = security.assetType === "UNCLASSIFIED";
-        const notFound = security.mapping !== null && security.mapping.provider === null;
-        const price = prices[security.id];
-        const fetchFailed = Boolean(security.mapping?.provider && security.mapping.fetchError);
-        const classification = classifications[security.id] ?? effective(null, security.assetType as ClassifiedAssetType);
-        const fund = security.assetType === "ETF" || security.assetType === "FUND";
-        const stock = security.assetType === "STOCK";
-        const analystSymbol = analystSymbols[security.id]?.symbol ?? null;
-        const override = teilfreistellungOverrides[security.id] ?? null;
-        const regionSplit = fund ? (regionSplits[security.id]?.effective ?? null) : null;
-        const regionSummary = regionSplitSummary(regionSplit);
-        const automaticRate = taxSecurity({ type: security.assetType, assetClass: classification.assetClass.value }, null).teilfreistellung;
-        return (
-          <li key={security.id}>
-            <Card>
-              <CardContent sx={{ "&:last-child": { pb: 2 } }}>
-                <Stack direction="row" sx={{ alignItems: "flex-start", gap: 2 }}>
-                  <SecurityLogo securityId={security.id} name={security.name} />
-                  <Stack sx={{ flexGrow: 1, minWidth: 0, gap: 0.5 }}>
-                    <Typography component="p" variant="subtitle1" sx={{ fontWeight: 600, overflowWrap: "anywhere" }}>
-                      <SecurityLink securityId={security.id}>{security.name}</SecurityLink>
-                    </Typography>
-                    <Stack direction="row" sx={{ alignItems: "center", gap: 1, flexWrap: "wrap" }}>
-                      <Typography variant="body2" color="text.secondary">
-                        {security.isin ?? security.cryptoSymbol}
-                      </Typography>
-                      <Chip
-                        size="small"
-                        variant="outlined"
-                        label={securityTypeLabel(security.assetType)}
-                        color={unclassified ? "warning" : "default"}
-                      />
-                      {watchlistOnly.has(security.id) ? <Chip size="small" variant="outlined" color="primary" label="Watchlist" /> : null}
-                    </Stack>
-                    <Typography variant="body2">{classificationSummary(classification)}</Typography>
-                    {fund ? <Typography variant="body2">{teilfreistellungSummary(override ?? automaticRate, override !== null)}</Typography> : null}
-                    {regionSummary ? <Typography variant="body2">{regionSummary}</Typography> : null}
-                    {stock ? <Typography variant="body2">{analystSymbolSummary(analystSymbol)}</Typography> : null}
-                    <Typography variant="body2" color={security.mapping?.provider ? "text.primary" : "text.secondary"}>
-                      {mappingLabel(security.mapping)}
-                    </Typography>
-                    {price ? (
-                      <div>
-                        <PriceDate info={price} />
-                      </div>
-                    ) : null}
-                    {fetchFailed ? (
-                      <Alert
-                        severity="error"
-                        sx={{ mt: 0.5, alignItems: "center", flexWrap: "wrap", rowGap: 1, "& .MuiAlert-action": { ml: 0, pl: 0 } }}
-                        action={<ManualPriceButton security={security} today={today} />}
-                      >
-                        {fetchErrorText(security.mapping?.provider ?? null)}
-                      </Alert>
-                    ) : null}
-                    <ManualPriceList security={security} prices={manualPrices[security.id] ?? []} today={today} />
-                    <Stack direction="row" sx={{ gap: 1, flexWrap: "wrap", mt: 1, alignItems: "flex-start" }}>
-                      <MappingDialogButton security={security} />
-                      <TypeDialogButton security={security} allowedTypes={allowedAssetTypes(security)} />
-                      <ClassificationButton security={security} classification={classification} />
-                      {fund ? <TeilfreistellungButton security={security} automaticRate={automaticRate} override={override} /> : null}
-                      {fund ? <RegionSplitButton security={security} weights={regionSplit?.weights ?? null} /> : null}
-                      {stock ? <AnalystSymbolButton security={security} symbol={analystSymbol} /> : null}
-                      {fetchFailed ? null : <ManualPriceButton security={security} today={today} />}
-                      {notFound ? <ResolveMappingButton security={security} /> : null}
-                      <LogoUploadButton security={security} />
-                    </Stack>
-                  </Stack>
+  const items = securities.map((security) => {
+    const unclassified = security.assetType === "UNCLASSIFIED";
+    const notFound = security.mapping !== null && security.mapping.provider === null;
+    const price = prices[security.id];
+    const fetchFailed = Boolean(security.mapping?.provider && security.mapping.fetchError);
+    const classification = classifications[security.id] ?? effective(null, security.assetType as ClassifiedAssetType);
+    const fund = security.assetType === "ETF" || security.assetType === "FUND";
+    const stock = security.assetType === "STOCK";
+    const analystSymbol = analystSymbols[security.id]?.symbol ?? null;
+    const override = teilfreistellungOverrides[security.id] ?? null;
+    const regionSplit = fund ? (regionSplits[security.id]?.effective ?? null) : null;
+    const regionSummary = regionSplitSummary(regionSplit);
+    const automaticRate = taxSecurity({ type: security.assetType, assetClass: classification.assetClass.value }, null).teilfreistellung;
+    const text = [security.name, security.isin, security.cryptoSymbol, security.mapping?.symbol, securityTypeLabel(security.assetType)]
+      .filter(Boolean)
+      .join(" ");
+    const node = (
+      <li key={security.id}>
+        <Card>
+          <CardContent sx={{ "&:last-child": { pb: 2 } }}>
+            <Stack direction="row" sx={{ alignItems: "flex-start", gap: 2 }}>
+              <SecurityLogo securityId={security.id} name={security.name} />
+              <Stack sx={{ flexGrow: 1, minWidth: 0, gap: 0.5 }}>
+                <Typography component="p" variant="subtitle1" sx={{ fontWeight: 600, overflowWrap: "anywhere" }}>
+                  <SecurityLink securityId={security.id}>{security.name}</SecurityLink>
+                </Typography>
+                <Stack direction="row" sx={{ alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+                  <Typography variant="body2" color="text.secondary">
+                    {security.isin ?? security.cryptoSymbol}
+                  </Typography>
+                  <Chip
+                    size="small"
+                    variant="outlined"
+                    label={securityTypeLabel(security.assetType)}
+                    color={unclassified ? "warning" : "default"}
+                  />
+                  {watchlistOnly.has(security.id) ? <Chip size="small" variant="outlined" color="primary" label="Watchlist" /> : null}
                 </Stack>
-              </CardContent>
-            </Card>
-          </li>
-        );
-      })}
-    </Stack>
-  );
+                <Typography variant="body2">{classificationSummary(classification)}</Typography>
+                {fund ? <Typography variant="body2">{teilfreistellungSummary(override ?? automaticRate, override !== null)}</Typography> : null}
+                {regionSummary ? <Typography variant="body2">{regionSummary}</Typography> : null}
+                {stock ? <Typography variant="body2">{analystSymbolSummary(analystSymbol)}</Typography> : null}
+                <Typography variant="body2" color={security.mapping?.provider ? "text.primary" : "text.secondary"}>
+                  {mappingLabel(security.mapping)}
+                </Typography>
+                {price ? (
+                  <div>
+                    <PriceDate info={price} />
+                  </div>
+                ) : null}
+                {fetchFailed ? (
+                  <Alert
+                    severity="error"
+                    sx={{ mt: 0.5, alignItems: "center", flexWrap: "wrap", rowGap: 1, "& .MuiAlert-action": { ml: 0, pl: 0 } }}
+                    action={<ManualPriceButton security={security} today={today} />}
+                  >
+                    {fetchErrorText(security.mapping?.provider ?? null)}
+                  </Alert>
+                ) : null}
+                <ManualPriceList security={security} prices={manualPrices[security.id] ?? []} today={today} />
+                <Stack direction="row" sx={{ gap: 1, flexWrap: "wrap", mt: 1, alignItems: "flex-start" }}>
+                  <MappingDialogButton security={security} />
+                  <TypeDialogButton security={security} allowedTypes={allowedAssetTypes(security)} />
+                  <ClassificationButton security={security} classification={classification} />
+                  {fund ? <TeilfreistellungButton security={security} automaticRate={automaticRate} override={override} /> : null}
+                  {fund ? <RegionSplitButton security={security} weights={regionSplit?.weights ?? null} /> : null}
+                  {stock ? <AnalystSymbolButton security={security} symbol={analystSymbol} /> : null}
+                  {fetchFailed ? null : <ManualPriceButton security={security} today={today} />}
+                  {notFound ? <ResolveMappingButton security={security} /> : null}
+                  <LogoUploadButton security={security} />
+                </Stack>
+              </Stack>
+            </Stack>
+          </CardContent>
+        </Card>
+      </li>
+    );
+    return { id: security.id, text, node };
+  });
+  return <SecuritySearch items={items} />;
 }
