@@ -201,6 +201,21 @@ describe("removePortfolioAccess", () => {
     expect(await refresh(clientId, refresh_token)).toMatchObject({ ok: true, body: { scope: "watchlist" } });
   });
 
+  it("reconnecting with portfolio:read after removing it replaces the old grant: one card", async () => {
+    const clientId = await register("Claude");
+    const first = await connect(clientId, () => T0, REDIRECT, true);
+    const [app] = await listConnectedApps(db());
+    expect(await removePortfolioAccess(app.grantId, db())).toEqual({ ok: true, clientName: "Claude" });
+
+    const second = await connect(clientId, at(1), REDIRECT, true);
+    const apps = await listConnectedApps(db());
+    expect(apps).toEqual([expect.objectContaining({ clientName: "Claude", scopes: ["watchlist", "portfolio:read"], createdAt: at(1)().toISOString() })]);
+    expect(apps[0].grantId).not.toBe(app.grantId);
+    expect((await db().oAuthGrant.findUniqueOrThrow({ where: { id: app.grantId } })).revokedAt).toBe(at(1)().toISOString());
+    expect(await verifyAccessToken(first.access_token, config, db(), at(2))).toBeNull();
+    expect(await verifyAccessToken(second.access_token, config, db(), at(2))).toMatchObject({ grantId: apps[0].grantId });
+  });
+
   it("is idempotent when the grant has no portfolio:read (no write)", async () => {
     const clientId = await register("Claude");
     await connect(clientId);

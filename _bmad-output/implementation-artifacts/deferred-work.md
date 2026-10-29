@@ -184,7 +184,9 @@ location: src/modules/mcp/tokens.ts exchangeCode
 source_spec: `spec-10-1-portfolio-read-permission.md`
 severity: low
 reason: exchangeCode (src/modules/mcp/tokens.ts) always creates a new OAuthGrant and never revokes the client's older active grants; pre-existing since story 9.4/9.5, now more likely because the removal dialog tells the user to reconnect. Harmless (old card can be disconnected) but cluttered.
-status: open
+status: done 2026-10-29
+resolution: resolved by sweep bundle dw-decision-dw-21
+resolution-undo: 9e14fde46f8ce3218a78c7fb2b074d3e64475f28ddf16559f6f82482d4f22ffe 2026-10-29 7374617475733a206f70656e
 decision: 2026-10-29 Revoke older grants of the same client — In exchangeCode, after creating the new grant inside the transaction, call revokeGrant for every other non-revoked OAuthGrant with the same clientId, so the latest consent replaces earlier ones and Settings shows one card per app. Add tests in src/modules/mcp covering re-authorization revoking the old grant and its tokens while the new token pair works.
 
 ### DW-22: Value-first ROBIN tax lines are read with abs(), so a printed tax refund would count as tax paid.

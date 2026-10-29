@@ -1,7 +1,8 @@
 // Connected apps (story 9.5): the non-revoked grants listed in Settings › Verbundene Apps, and disconnecting
 // them. Disconnecting uses `revokeGrant` (sets `revokedAt`, deletes every code and token of the grant), so the
 // next MCP call with an old access token gets 401 and its refresh token `invalid_grant`. No token values leave
-// this module.
+// this module. Re-authorizing a client revokes its older grants (see `exchangeCode`), so afterwards only the
+// new grant's card is shown for that client.
 import { prisma } from "@/db";
 import { type McpDb, parseJsonArray } from "./clients";
 import { PORTFOLIO_READ_SCOPE } from "./authorize";

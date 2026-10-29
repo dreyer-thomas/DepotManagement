@@ -389,6 +389,41 @@ describe("token endpoint", () => {
     expect(await refresh(second.body.refresh_token, at(3 * MINUTE))).toMatchObject({ ok: false, error: "invalid_grant" });
   });
 
+  it("re-authorizing a client revokes its older grants but not those of other clients", async () => {
+    const { client_id } = await register();
+    const other = await register();
+    const first = await tokens(client_id);
+    const otherPair = await tokens(other.client_id);
+    const oldGrant = await db().oAuthGrant.findFirstOrThrow({ where: { client: { clientId: client_id } } });
+    const refresh = (id: string, token: string, now: () => Date) =>
+      exchangeToken(form({ grant_type: "refresh_token", client_id: id, refresh_token: token }), config, db(), now);
+
+    // A failed exchange leaves the active grant untouched.
+    const failing = await code(client_id, at(MINUTE));
+    expect(await exchange(client_id, failing, at(MINUTE), { code_verifier: `${VERIFIER.slice(0, -1)}A` })).toMatchObject({ ok: false, error: "invalid_grant" });
+    expect((await db().oAuthGrant.findUniqueOrThrow({ where: { id: oldGrant.id } })).revokedAt).toBeNull();
+
+    const second = await exchange(client_id, await code(client_id, at(2 * MINUTE)), at(2 * MINUTE));
+    if (!second.ok) throw new Error("re-authorization failed");
+    const grants = await db().oAuthGrant.findMany({ where: { client: { clientId: client_id } }, orderBy: { createdAt: "asc" } });
+    expect(grants).toHaveLength(2);
+    expect(grants[0]).toMatchObject({ id: oldGrant.id, revokedAt: at(2 * MINUTE)().toISOString() });
+    expect(grants[1]).toMatchObject({ revokedAt: null, createdAt: at(2 * MINUTE)().toISOString() });
+    expect(await db().oAuthToken.count({ where: { grantId: oldGrant.id } })).toBe(0);
+
+    expect(await verifyAccessToken(first.access_token, config, db(), at(3 * MINUTE))).toBeNull();
+    expect(await refresh(client_id, first.refresh_token, at(3 * MINUTE))).toMatchObject({ ok: false, error: "invalid_grant" });
+    expect(await verifyAccessToken(second.body.access_token, config, db(), at(3 * MINUTE))).toMatchObject({ grantId: grants[1].id });
+    const rotated = await refresh(client_id, second.body.refresh_token, at(4 * MINUTE));
+    expect(rotated).toMatchObject({ ok: true });
+    if (rotated.ok) expect(rotated.body.refresh_token).not.toBe(second.body.refresh_token);
+
+    // The other client's grant stays active and its tokens work.
+    expect((await db().oAuthGrant.findFirstOrThrow({ where: { client: { clientId: other.client_id } } })).revokedAt).toBeNull();
+    expect(await verifyAccessToken(otherPair.access_token, config, db(), at(4 * MINUTE))).not.toBeNull();
+    expect(await refresh(other.client_id, otherPair.refresh_token, at(4 * MINUTE))).toMatchObject({ ok: true });
+  });
+
   it("refuses a refresh token of another client, an unknown one and an expired one (90 days)", async () => {
     const { client_id } = await register();
     const other = await register();

@@ -1,5 +1,6 @@
 // OAuth token endpoint, grants and access-token checks (story 9.4, AD-22). Codes and tokens are opaque,
-// stored only as SHA-256 hashes; refresh tokens rotate and a reused one revokes its whole grant.
+// stored only as SHA-256 hashes; refresh tokens rotate and a reused one revokes its whole grant. A client
+// holds at most one active grant: a new authorization-code exchange revokes the client's older grants.
 import { prisma } from "@/db";
 import { findClient, type McpDb, type RegisteredClient } from "./clients";
 import type { McpConfig } from "./config";
@@ -148,6 +149,7 @@ async function authenticateClient(
 /**
  * Token endpoint (RFC 6749 §3.2): `authorization_code` with PKCE S256 and `refresh_token` with rotation.
  * A reused code revokes the grant created from it; a reused refresh token revokes its whole grant.
+ * A successful code exchange revokes the client's other active grants (the latest consent replaces them).
  */
 export async function exchangeToken(
   request: TokenRequest,
@@ -200,6 +202,12 @@ async function exchangeCode(
     });
     // The consumed code points at its grant until it expires, so a replay revokes the grant.
     await tx.oAuthToken.update({ where: { id: row.id }, data: { grantId: grant.id } });
+    // One active grant per client: re-authorizing replaces the earlier consent.
+    const older = await tx.oAuthGrant.findMany({
+      where: { clientId: client.id, revokedAt: null, id: { not: grant.id } },
+      select: { id: true },
+    });
+    for (const { id } of older) await revokeGrant(id, tx, () => issuedAt);
     return issueTokenPair(tx, grant, config.resource, issuedAt);
   });
 }
