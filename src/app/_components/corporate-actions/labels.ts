@@ -6,7 +6,7 @@ export type SplitErrorReason = SplitFailureReason | "unauthorized";
 const MESSAGES: Record<Exclude<SplitErrorReason, "later-sell-exceeds-holding">, string> = {
   "security-not-found": "Security nicht gefunden.",
   "date-invalid": "Bitte ein gültiges Datum eingeben.",
-  "ratio-invalid": "Bitte ein Verhältnis wie 1:4 eingeben (ganze Zahlen größer 0, verschieden).",
+  "ratio-invalid": "Bitte ein gültiges Verhältnis eingeben: Alt und Neu als ganze Zahlen größer 0, verschieden.",
   "split-exists": "Für dieses Datum ist bereits ein Split erfasst.",
   "split-not-found": "Split nicht gefunden.",
   unauthorized: "Sitzung abgelaufen. Bitte erneut anmelden.",

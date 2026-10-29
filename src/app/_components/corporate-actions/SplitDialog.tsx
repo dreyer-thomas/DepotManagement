@@ -32,7 +32,7 @@ function failureDate(state: { ok: false; reason: string; date?: string }): strin
 }
 
 /**
- * Split form: ratio `alt:neu` and effective date. Records a new split of `security`, or edits `split`
+ * Split form: ratio terms Alt / Neu (two number fields, sent as `alt:neu`) and effective date. Records a new split of `security`, or edits `split`
  * when given. Inputs are controlled so they keep their text after an error; success calls `onSaved`.
  */
 function SplitForm({
@@ -46,7 +46,8 @@ function SplitForm({
   onSaved: () => void;
   onCancel: () => void;
 }) {
-  const [ratio, setRatio] = useState(split ? formatSplitRatio(split) : "");
+  const [ratioOld, setRatioOld] = useState(split?.ratioOld ?? "");
+  const [ratioNew, setRatioNew] = useState(split?.ratioNew ?? "");
   const [date, setDate] = useState(split?.date ?? "");
   const [state, formAction, pending] = useActionState<SplitActionState, FormData>(async (previous, formData) => {
     const result = await saveSplitAction(previous, formData);
@@ -68,19 +69,38 @@ function SplitForm({
             {message}
           </Alert>
         ) : null}
-        <TextField
-          name="ratio"
-          label="Verhältnis (alt:neu)"
-          placeholder="1:4"
-          value={ratio}
-          onChange={(event) => setRatio(event.target.value)}
-          error={field === "ratio"}
-          helperText={field === "ratio" ? message : undefined}
-          autoFocus
-          required
-          fullWidth
-          slotProps={{ htmlInput: { autoComplete: "off", inputMode: "numeric" } }}
-        />
+        <input type="hidden" name="ratio" value={ratioOld || ratioNew ? `${ratioOld}:${ratioNew}` : ""} />
+        <Box>
+          <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+            <TextField
+              label="Alt"
+              placeholder="1"
+              value={ratioOld}
+              onChange={(event) => setRatioOld(event.target.value.trim())}
+              error={field === "ratio"}
+              autoFocus
+              required
+              fullWidth
+              slotProps={{ htmlInput: { autoComplete: "off", inputMode: "numeric", pattern: "[0-9]*" } }}
+            />
+            <Typography aria-hidden sx={{ fontWeight: 600 }}>
+              :
+            </Typography>
+            <TextField
+              label="Neu"
+              placeholder="4"
+              value={ratioNew}
+              onChange={(event) => setRatioNew(event.target.value.trim())}
+              error={field === "ratio"}
+              required
+              fullWidth
+              slotProps={{ htmlInput: { autoComplete: "off", inputMode: "numeric", pattern: "[0-9]*" } }}
+            />
+          </Stack>
+          <Typography variant="caption" color={field === "ratio" ? "error" : "text.secondary"} sx={{ display: "block", mt: 0.5, mx: 1.75 }}>
+            {field === "ratio" ? message : "Verhältnis alt:neu, z. B. 1 und 4 für einen 1:4-Split."}
+          </Typography>
+        </Box>
         <TextField
           name="date"
           label="Gültig ab"

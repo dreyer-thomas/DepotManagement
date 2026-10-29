@@ -14,7 +14,7 @@ import {
 
 describe("split labels", () => {
   it.each<[SplitErrorReason, string, "ratio" | "date" | undefined]>([
-    ["ratio-invalid", "Bitte ein Verhältnis wie 1:4 eingeben (ganze Zahlen größer 0, verschieden).", "ratio"],
+    ["ratio-invalid", "Bitte ein gültiges Verhältnis eingeben: Alt und Neu als ganze Zahlen größer 0, verschieden.", "ratio"],
     ["date-invalid", "Bitte ein gültiges Datum eingeben.", "date"],
     ["split-exists", "Für dieses Datum ist bereits ein Split erfasst.", "date"],
     ["security-not-found", "Security nicht gefunden.", undefined],

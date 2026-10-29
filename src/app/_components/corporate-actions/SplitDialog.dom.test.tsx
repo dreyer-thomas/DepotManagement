@@ -81,7 +81,8 @@ describe("SplitDialog", () => {
     save.mockResolvedValue(saved);
     const { user, dialog } = await openFromTable();
     const form = within(dialog).getByRole("form", { name: "Split erfassen" });
-    await user.type(within(form).getByRole("textbox", { name: "Verhältnis (alt:neu)" }), "1:3");
+    await user.type(within(form).getByRole("textbox", { name: "Alt" }), "1");
+    await user.type(within(form).getByRole("textbox", { name: "Neu" }), "3");
     await user.click(within(form).getByRole("button", { name: "Split erfassen" }));
     await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
     expect(formEntries(save.mock.calls[0][1])).toEqual({ securityId: "s1", ratio: "1:3", date: "" });
@@ -93,17 +94,19 @@ describe("SplitDialog", () => {
     await user.click(within(dialog).getByRole("button", { name: "Split vom 01.03.2024 (1:4) bearbeiten" }));
 
     const form = within(dialog).getByRole("form", { name: "Split bearbeiten" });
-    const ratio = within(form).getByRole("textbox", { name: "Verhältnis (alt:neu)" }) as HTMLInputElement;
-    expect(ratio.value).toBe("1:4");
+    const ratioOld = within(form).getByRole("textbox", { name: "Alt" }) as HTMLInputElement;
+    const ratioNew = within(form).getByRole("textbox", { name: "Neu" }) as HTMLInputElement;
+    expect([ratioOld.value, ratioNew.value]).toEqual(["1", "4"]);
     expect((form.querySelector('input[name="date"]') as HTMLInputElement).value).toBe("2024-03-01");
-    await user.clear(ratio);
-    await user.type(ratio, "1:5");
+    await user.clear(ratioNew);
+    await user.type(ratioNew, "5");
     await user.click(within(form).getByRole("button", { name: "Speichern" }));
 
     await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
     expect(formEntries(save.mock.calls[0][1])).toEqual({ securityId: "s1", splitId: "sp1", ratio: "1:5", date: "2024-03-01" });
     const fresh = await within(dialog).findByRole("form", { name: "Split erfassen" });
-    expect((within(fresh).getByRole("textbox", { name: "Verhältnis (alt:neu)" }) as HTMLInputElement).value).toBe("");
+    expect((within(fresh).getByRole("textbox", { name: "Alt" }) as HTMLInputElement).value).toBe("");
+    expect((within(fresh).getByRole("textbox", { name: "Neu" }) as HTMLInputElement).value).toBe("");
     expect(dialog.isConnected).toBe(true);
   });
 
