@@ -67,9 +67,49 @@ describe("onvistaPrices", () => {
     expect(await onvistaPrices({ fetch }).fetchHistory(ISIN, "2026-10-01", "2026-10-23", CTX)).toEqual({ ok: false, reason: "currency" });
   });
 
+  it("skips eod entries with a null close or timestamp", async () => {
+    const base = recorded("onvista-eod-xetra-gold") as { datetimeLast: (number | null)[]; last: (number | null)[] };
+    const last = [...base.last];
+    last[1] = null;
+    const datetimeLast = [...base.datetimeLast];
+    datetimeLast[2] = null;
+    const eod = { ...base, datetimeLast, last };
+    const { fetch } = fakeFetch(routes(json(recorded("onvista-query-xetra-gold")), json(eod)));
+    const result = await onvistaPrices({ fetch }).fetchHistory(ISIN, "2026-10-01", "2026-10-23", CTX);
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.value).toHaveLength(15);
+    const dates = result.value.map((close) => close.date);
+    expect(dates).not.toContain("2026-10-02");
+    expect(dates).not.toContain("2026-10-05");
+    expect(result.value[0]).toEqual({ date: "2026-10-01", close: "119.05" });
+    expect(result.value[14]).toEqual({ date: "2026-10-23", close: "114.81" });
+  });
+
+  it.each([
+    ["close", "last", 1, "2026-10-02"],
+    ["timestamp", "datetimeLast", 2, "2026-10-05"],
+  ] as const)("skips only the day with a null %s", async (_label, field, index, date) => {
+    const base = recorded("onvista-eod-xetra-gold") as Record<"datetimeLast" | "last", (number | null)[]>;
+    const values = [...base[field]];
+    values[index] = null;
+    const { fetch } = fakeFetch(routes(json(recorded("onvista-query-xetra-gold")), json({ ...base, [field]: values })));
+    const result = await onvistaPrices({ fetch }).fetchHistory(ISIN, "2026-10-01", "2026-10-23", CTX);
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.value).toHaveLength(16);
+    expect(result.value.map((close) => close.date)).not.toContain(date);
+  });
+
+  it("is not found when every eod entry is null", async () => {
+    const eod = json({ isoCurrency: "EUR", datetimeLast: [null], last: [null] });
+    const { fetch } = fakeFetch(routes(json(recorded("onvista-query-xetra-gold")), eod));
+    expect(await onvistaPrices({ fetch }).fetchHistory(ISIN, "2026-10-01", "2026-10-23", CTX)).toEqual({ ok: false, reason: "not-found" });
+  });
+
   it.each([
     ["a malformed query", json({ list: "nope" }), json(recorded("onvista-eod-xetra-gold"))],
     ["arrays of different length", json(recorded("onvista-query-xetra-gold")), json({ isoCurrency: "EUR", datetimeLast: [1], last: [] })],
+    ["arrays of different length with null entries", json(recorded("onvista-query-xetra-gold")), json({ isoCurrency: "EUR", datetimeLast: [null], last: [] })],
+    ["a non-number close", json(recorded("onvista-query-xetra-gold")), json({ isoCurrency: "EUR", datetimeLast: [1], last: ["1.0"] })],
     ["a non-JSON eod", json(recorded("onvista-query-xetra-gold")), new Response("<html>", { status: 200 })],
   ])("returns schema on %s", async (_label, query, eod) => {
     const { fetch } = fakeFetch(routes(query, eod));

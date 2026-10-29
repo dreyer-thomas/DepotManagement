@@ -99,7 +99,9 @@ origin: spec-deferred 9f0a2f38d247
 location: src/modules/prices/providers/onvista.ts:21
 source_spec: `spec-3-4-prices-for-certificates-and-crypto.md`
 reason: `eodSchema` requires `z.array(z.number())` for `datetimeLast` and `last`; the recorded Xetra-Gold response has no nulls and it is unknown whether onvista ever emits them. Settle by observing a live eod_history response with a gap day (e.g. a thinly traded turbo); if nulls occur, accept nullable entries and skip them as the Yahoo adapter does.
-status: open
+status: done 2026-10-29
+resolution: resolved by sweep bundle dw-onvista-nullable-eod-entries
+resolution-undo: f9ab8afbce54b619fe3f00e00103eb01128d103ef48a7b68b98aebd17f75078c 2026-10-29 7374617475733a206f70656e
 
 ### DW-12: No test covers that a BOOKED import batch cannot be discarded and keeps its rows and files.
 origin: spec-deferred a3f8e42616a6

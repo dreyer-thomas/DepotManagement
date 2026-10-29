@@ -18,7 +18,11 @@ const querySchema = z
   .loose();
 
 const eodSchema = z
-  .object({ isoCurrency: z.string(), datetimeLast: z.array(z.number()), last: z.array(z.number()) })
+  .object({
+    isoCurrency: z.string(),
+    datetimeLast: z.array(z.number().nullable()),
+    last: z.array(z.number().nullable()),
+  })
   .loose()
   .refine((eod) => eod.datetimeLast.length === eod.last.length);
 
@@ -26,6 +30,7 @@ const eodSchema = z
  * onvista price adapter (symbol = ISIN): finds the instrument by ISIN, then reads its end-of-day
  * history on onvista's default listing. Only EUR listings are accepted; closes are dated by the
  * Europe/Berlin date of their timestamp (the last of a date wins) and limited to the requested range.
+ * Entries whose timestamp or close is null (gap days) are skipped instead of failing the response.
  */
 export function onvistaPrices({ fetch, now = () => new Date() }: { fetch: FetchLike; now?: () => Date }): PriceAdapter {
   async function fetchHistory(symbol: string, from: string, to: string): Promise<PriceFetch<DailyClose[]>> {
@@ -58,6 +63,7 @@ export function onvistaPrices({ fetch, now = () => new Date() }: { fetch: FetchL
       const byDate = new Map<string, string>();
       parsed.data.datetimeLast.forEach((seconds, index) => {
         const close = parsed.data.last[index];
+        if (seconds === null || close === null) return;
         if (!(close > 0)) return;
         const date = businessDate(new Date(seconds * 1000));
         if (date < from || date > to) return;
