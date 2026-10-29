@@ -160,7 +160,8 @@ location: src/modules/backup/restore.ts
 source_spec: `spec-9-3-watchlists-in-export-and-restore.md`
 severity: low
 reason: The restore dialog and README already say connected apps must reconnect after a restore, but no OAuth tables exist yet, so nothing in code or tests enforces it; once 9.4 adds the tables, restore must delete them (backup/restore.ts) or the text becomes untrue.
-status: open
+status: done 2026-10-29
+resolution: already resolved: src/modules/backup/restore.ts:136-137 calls clearOAuth(tx) inside the restore transaction (OAuth never exported); covered by src/modules/backup/restore.test.ts:269 which seeds oAuthClient/oAuthGrant/oAuthToken and asserts they are cleared
 
 ### DW-20: Real-runtime behavior of the back link (Next.js 16 router interplay, scroll restoration, installed iOS app, swipe gesture) is verified only by argument and happy-dom tests, not in a real browser or
 origin: spec-deferred feacc2b233dc
