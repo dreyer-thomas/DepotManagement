@@ -116,18 +116,6 @@ source_spec: `spec-5-2-deutsche-bank-robin-parser.md`
 severity: medium
 reason: All parser tests read hand-written .txt fixtures modelled on public Deutsche Bank samples; the only unpdf tests use a one-line minimal PDF. Real line breaks, column joins or umlaut normalisation may differ. Settled by anonymised real samples (operator action) added as fixtures.
 status: open
-- source_spec: `_bmad-output/implementation-artifacts/spec-5-2-robin-real-layout.md`
-  summary: Value-first ROBIN tax lines are read with abs(), so a printed tax refund would count as tax paid.
-  evidence: maybe-false (would be medium) — no real ROBIN settlement with withheld or refunded tax exists yet; a real anonymised sample with Kapitalertragsteuer and one with a refund would settle the sign convention.
-- source_spec: `_bmad-output/implementation-artifacts/spec-5-2-robin-real-layout.md`
-  summary: ROBIN dividend parser (dividend.ts) only knows the label-first layout; real unpdf Ertragsgutschriften likely glue values to labels as trades do.
-  evidence: maybe-false (would be high for dividends) — no real ROBIN dividend PDF available; Story 5.2 operator action asks Tommy for one.
-- source_spec: `_bmad-output/implementation-artifacts/spec-5-2-robin-real-layout.md`
-  summary: No real-layout ROBIN sample with several executions (savings plan / rebalancing) — per-section totals in the value-first layout are untested.
-  evidence: maybe-false (would be medium) — real multi-execution ROBIN PDF needed.
-- source_spec: `_bmad-output/implementation-artifacts/spec-5-2-robin-real-layout.md`
-  summary: comdirect fixtures lack a savings-plan execution and a settlement with Provision/fee lines that Story 5.4 requires.
-  evidence: real — test/fixtures/import/comdirect has buy, sell, dividend, dividend-tax only; a real anonymised Sparplan and an order with fees are needed.
 
 ### DW-14: cominvest documents, real comdirect fee lines and real savings-plan/multi-execution layouts are not verified against real unpdf output.
 origin: spec-deferred fd12d01773f4
@@ -187,4 +175,32 @@ location: src/modules/mcp/tokens.ts exchangeCode
 source_spec: `spec-10-1-portfolio-read-permission.md`
 severity: low
 reason: exchangeCode (src/modules/mcp/tokens.ts) always creates a new OAuthGrant and never revokes the client's older active grants; pre-existing since story 9.4/9.5, now more likely because the removal dialog tells the user to reconnect. Harmless (old card can be disconnected) but cluttered.
+status: open
+
+### DW-22: Value-first ROBIN tax lines are read with abs(), so a printed tax refund would count as tax paid.
+origin: migrated from legacy ledger (flat source_spec append from code review of spec-5-2-robin-real-layout.md, 2026-10-26), 2026-10-29
+location: src/modules/import/parsers/deutsche-bank/trade.ts
+source_spec: `_bmad-output/implementation-artifacts/spec-5-2-robin-real-layout.md`
+reason: Maybe-false (would be medium): no real ROBIN settlement with withheld or refunded tax exists yet; a real anonymised sample with Kapitalertragsteuer and one with a refund would settle the sign convention.
+status: open
+
+### DW-23: ROBIN dividend parser (dividend.ts) only knows the label-first layout; real unpdf Ertragsgutschriften likely glue values to labels as trades do.
+origin: migrated from legacy ledger (flat source_spec append from code review of spec-5-2-robin-real-layout.md, 2026-10-26), 2026-10-29
+location: src/modules/import/parsers/deutsche-bank/dividend.ts
+source_spec: `_bmad-output/implementation-artifacts/spec-5-2-robin-real-layout.md`
+reason: Maybe-false (would be high for dividends): no real ROBIN dividend PDF is available; the Story 5.2 operator action asks the operator for one.
+status: open
+
+### DW-24: No real-layout ROBIN sample with several executions (savings plan / rebalancing); per-section totals in the value-first layout are untested.
+origin: migrated from legacy ledger (flat source_spec append from code review of spec-5-2-robin-real-layout.md, 2026-10-26), 2026-10-29
+location: src/modules/import/parsers/deutsche-bank/trade.ts
+source_spec: `_bmad-output/implementation-artifacts/spec-5-2-robin-real-layout.md`
+reason: Maybe-false (would be medium): a real multi-execution ROBIN PDF is needed to verify per-section totals in the value-first layout.
+status: open
+
+### DW-25: comdirect fixtures lack a savings-plan execution and a settlement with Provision/fee lines that Story 5.4 requires.
+origin: migrated from legacy ledger (flat source_spec append from code review of spec-5-2-robin-real-layout.md, 2026-10-26), 2026-10-29
+location: test/fixtures/import/comdirect
+source_spec: `_bmad-output/implementation-artifacts/spec-5-2-robin-real-layout.md`
+reason: Real: at review time test/fixtures/import/comdirect had buy, sell, dividend, dividend-tax only; a real anonymised Sparplan and an order with fees are needed.
 status: open
