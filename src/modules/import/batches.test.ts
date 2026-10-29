@@ -638,8 +638,23 @@ describe("bookImportBatch", () => {
     expect(await decideProposal(batchId, itemId, 0, "discard", db())).toEqual({ ok: false, reason: "not-found" });
     expect(await updateProposal(batchId, itemId, 0, { amount: "1" }, db())).toEqual({ ok: false, reason: "not-found" });
     expect(await discardImportBatch(batchId, env(), db())).toEqual({ ok: false, reason: "not-found" });
+    // Booking already removed the stored files; the refused discard leaves that unchanged.
+    expect(existsSync(join(dataDir, "imports", batchId))).toBe(false);
     expect(await db().importItem.count({ where: { batchId } })).toBe(1);
     expect(await db().transaction.count()).toBe(1);
+  });
+
+  it("refusing to discard a BOOKED batch keeps its rows and stored files", async () => {
+    const { id } = await depot();
+    const batchId = await stage(id, [doc("kauf.pdf", SAP_BUY)]);
+    const files = batchFiles(batchId);
+    expect(files).toHaveLength(1);
+    // Booking removes the stored files, so mark the batch BOOKED directly to observe them.
+    await db().importBatch.update({ where: { id: batchId }, data: { status: "BOOKED" } });
+    expect(await discardImportBatch(batchId, env(), db())).toEqual({ ok: false, reason: "not-found" });
+    expect((await db().importBatch.findUniqueOrThrow({ where: { id: batchId } })).status).toBe("BOOKED");
+    expect(await db().importItem.count({ where: { batchId } })).toBe(1);
+    expect(batchFiles(batchId)).toEqual(files);
   });
 
   it("books accepted proposals by date, not by file order", async () => {

@@ -15,6 +15,8 @@ const BACKUP_NAME = exportFileName(NOW);
 const TODAY = "2026-10-26";
 const MAX = { kind: "preset", preset: "MAX" } as const;
 const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]);
+/** A PNG with bytes distinct from `PNG`, for a pre-existing file a restore must not overwrite. */
+const OTHER_PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 9, 9, 9]);
 
 type Instance = { testDb: TestDatabase; dataDir: string; backupDir: string };
 
@@ -376,6 +378,22 @@ describe("restoreExport", () => {
     expect(statSync(join(target.backupDir, BACKUP_NAME)).mode & 0o777).toBe(0o600);
   });
 
+  it("never overwrites an existing logo file of the same name; it bumps the epoch instead", async () => {
+    await seedFullLedger(source.testDb.client, source.dataDir);
+    const text = await exportOf(source);
+    const colliding = `sec-b-${NOW.getTime()}.png`;
+    mkdirSync(join(target.dataDir, "logos"), { recursive: true });
+    writeFileSync(join(target.dataDir, "logos", colliding), OTHER_PNG);
+    writeFileSync(join(target.dataDir, "logos", `sec-b-${NOW.getTime() + 1}.png`), OTHER_PNG);
+
+    expect(await restoreInto(target, text)).toEqual({ ok: true, backupFileName: BACKUP_NAME });
+    const logo = await target.testDb.client.securityLogo.findUniqueOrThrow({ where: { securityId: "sec-b" } });
+    expect(logo.fileName).toBe(`sec-b-${NOW.getTime() + 2}.png`);
+    expect(readFileSync(join(target.dataDir, "logos", logo.fileName as string))).toEqual(PNG);
+    // The pre-existing files are removed after commit by design.
+    expect(readdirSync(join(target.dataDir, "logos"))).toEqual([logo.fileName]);
+  });
+
   describe("rejects without changing anything", () => {
     let file: ReturnType<typeof JSON.parse>;
 
@@ -532,6 +550,16 @@ describe("restoreExport", () => {
       );
       vi.spyOn(console, "error").mockImplementation(() => undefined);
       await expectRejected(JSON.stringify(file), { ok: false, reason: "restore-failed" }, { backup: true });
+    });
+
+    it("a database failure in the logos step keeps an existing logo file of the colliding name", async () => {
+      writeFileSync(join(target.dataDir, "logos", `sec-b-${NOW.getTime()}.png`), OTHER_PNG);
+      await target.testDb.client.$executeRawUnsafe(
+        `CREATE TRIGGER fail_logo BEFORE INSERT ON "SecurityLogo" BEGIN SELECT RAISE(ABORT, 'injected'); END;`,
+      );
+      vi.spyOn(console, "error").mockImplementation(() => undefined);
+      await expectRejected(JSON.stringify(file), { ok: false, reason: "restore-failed" }, { backup: true });
+      expect(readFileSync(join(target.dataDir, "logos", `sec-b-${NOW.getTime()}.png`))).toEqual(OTHER_PNG);
     });
   });
 });

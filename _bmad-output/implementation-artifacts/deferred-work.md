@@ -109,7 +109,9 @@ location: src/modules/import/batches.ts discardImportBatch
 source_spec: `spec-5-1-upload-documents-into-a-review-batch.md`
 severity: low
 reason: discardImportBatch filters status OPEN (src/modules/import/batches.ts) and ImportBatchView hides Verwerfen for non-OPEN batches, but BOOKED is unreachable until story 5.3 adds booking; test there.
-status: open
+status: done 2026-10-29
+resolution: resolved by sweep bundle dw-import-and-logo-restore-guard-tests
+resolution-undo: e9171678530b3c9cdffb266b2c856d8b7f2fa004100bc237462deb424378a3eb 2026-10-29 7374617475733a206f70656e
 
 ### DW-13: Parser fixtures are synthetic; nothing verifies the regexes against real unpdf output of ROBIN PDFs.
 origin: spec-deferred 83a67129a04d
@@ -156,7 +158,9 @@ location: src/modules/logos/restore.ts (replaceAllLogos)
 source_spec: `spec-6-2-restore-from-export.md`
 severity: low
 reason: restore.test.ts fixes `now` and pre-creates sec-b-1.png, sec-b-7.png and other-sec-5.png; none collides with <securityId>-<NOW epoch>, so the while(existsSync) loop body never runs. A collision needs the same millisecond epoch, which is unlikely in practice.
-status: open
+status: done 2026-10-29
+resolution: resolved by sweep bundle dw-import-and-logo-restore-guard-tests
+resolution-undo: e9171678530b3c9cdffb266b2c856d8b7f2fa004100bc237462deb424378a3eb 2026-10-29 7374617475733a206f70656e
 
 ### DW-19: Story 9.4 must clear its OAuth clients, grants and tokens inside the restore transaction and keep them out of the export.
 origin: spec-deferred 23d9f53556bf
