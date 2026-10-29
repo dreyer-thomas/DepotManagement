@@ -144,7 +144,9 @@ location: src/modules/backup/export.ts (inTransaction)
 source_spec: `spec-6-1-export-all-data.md`
 severity: medium
 reason: @prisma/adapter-better-sqlite3 dist/index.mjs: the mutex is acquired only in startTransaction; plain queries use the same client and execute inside the open BEGIN. Pre-existing for every interactive transaction (ledger batch, logos, reconciliation); the export adds one more read-only transaction that rolls back only on a DB error.
-status: open
+status: done 2026-10-29
+resolution: closed by human decision: Single-user, low-concurrency app; transactions roll back only on DB errors, so the race is accepted and documented.
+decision: 2026-10-29 Accept the risk for a single-user app — Single-user, low-concurrency app; transactions roll back only on DB errors, so the race is accepted and documented.
 
 ### DW-18: The guard in replaceAllLogos that bumps the epoch instead of overwriting an existing logo file is never exercised by a test.
 origin: spec-deferred e7bf6b573f27
@@ -177,6 +179,7 @@ source_spec: `spec-10-1-portfolio-read-permission.md`
 severity: low
 reason: exchangeCode (src/modules/mcp/tokens.ts) always creates a new OAuthGrant and never revokes the client's older active grants; pre-existing since story 9.4/9.5, now more likely because the removal dialog tells the user to reconnect. Harmless (old card can be disconnected) but cluttered.
 status: open
+decision: 2026-10-29 Revoke older grants of the same client — In exchangeCode, after creating the new grant inside the transaction, call revokeGrant for every other non-revoked OAuthGrant with the same clientId, so the latest consent replaces earlier ones and Settings shows one card per app. Add tests in src/modules/mcp covering re-authorization revoking the old grant and its tokens while the new token pair works.
 
 ### DW-22: Value-first ROBIN tax lines are read with abs(), so a printed tax refund would count as tax paid.
 origin: migrated from legacy ledger (flat source_spec append from code review of spec-5-2-robin-real-layout.md, 2026-10-26), 2026-10-29
