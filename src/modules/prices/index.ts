@@ -30,6 +30,7 @@ export {
   REFRESH_OVERLAP_DAYS,
   refetchPriceHistory,
   refreshPrices,
+  refreshSecurityPrices,
   saveManualPrice,
   securityPriceInfo,
   storedPriceHistory,
@@ -44,6 +45,7 @@ export type {
   SaveManualPriceFailureReason,
   SaveManualPriceResult,
   SecurityPriceInfo,
+  SecurityRefreshResult,
   UpdateManualPriceFailureReason,
   UpdateManualPriceResult,
 } from "./prices";

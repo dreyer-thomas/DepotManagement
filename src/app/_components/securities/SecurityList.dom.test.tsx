@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { registerDomCleanup } from "../../../../test/helpers/dom";
@@ -7,6 +7,7 @@ import { effective, emptyLayer, emptyManual } from "@/core/classification";
 import type { SecurityWithMapping } from "@/modules/prices";
 import { LogoProvider } from "./LogoContext";
 import { SecurityList } from "./SecurityList";
+import { SKIPPED_TEXT } from "./SecurityPriceRefreshButton";
 
 vi.mock("@/app/_actions/securities", () => ({
   resolveMissingMappingsAction: vi.fn(),
@@ -14,8 +15,12 @@ vi.mock("@/app/_actions/securities", () => ({
   setMappingAction: vi.fn(),
   changeSecurityTypeAction: vi.fn(),
 }));
+const refreshSecurityPricesAction = vi.hoisted(() => vi.fn());
+const router = vi.hoisted(() => ({ refresh: vi.fn() }));
+vi.mock("next/navigation", () => ({ useRouter: () => router }));
 vi.mock("@/app/_actions/prices", () => ({
   refreshPricesAction: vi.fn(),
+  refreshSecurityPricesAction,
   saveManualPriceAction: vi.fn(),
   updateManualPriceAction: vi.fn(),
   deleteManualPriceAction: vi.fn(),
@@ -36,9 +41,23 @@ const securities: SecurityWithMapping[] = [
   { id: "s2", name: "SAP", isin: "DE0007164600", cryptoSymbol: null, assetType: "UNCLASSIFIED", mapping: null },
 ];
 
+/** `aria-label`s of all buttons matching `pattern`, also those in closed "Bearbeiten" popups (hidden, so unnamed for role queries). */
+// Popups are portaled to the end of the document, so their buttons come after the cards' own ones.
+function buttonLabels(pattern: RegExp): string[] {
+  return [...document.querySelectorAll("button[aria-label]")]
+    .map((button) => button.getAttribute("aria-label") ?? "")
+    .filter((label) => pattern.test(label));
+}
+
+/** Opens the "Bearbeiten" popup of a Security card. */
+async function openEdit(user: ReturnType<typeof userEvent.setup>, name: string) {
+  await user.click(screen.getByRole("button", { name: `Bearbeiten – ${name}` }));
+  return screen.getByRole("group", { name: `Bearbeiten – ${name}` });
+}
+
 async function offeredTypes(name: string) {
   const user = userEvent.setup({ delay: null });
-  await user.click(screen.getByRole("button", { name: `Typ ändern – ${name}` }));
+  await user.click(within(await openEdit(user, name)).getByRole("button", { name: `Typ ändern – ${name}` }));
   const dialog = await screen.findByRole("dialog", { name: "Typ ändern" });
   await user.click(within(dialog).getByRole("combobox", { name: "Typ" }));
   const options = (await screen.findAllByRole("option")).map((option) => option.textContent);
@@ -95,6 +114,81 @@ describe("SecurityList", () => {
     expect(screen.getByRole("link", { name: "SAP" }).getAttribute("href")).toBe("/securities/s2");
   });
 
+  it("filters to Securities with a price problem: stale, missing, failed or without a price source", async () => {
+    const yahoo = (symbol: string, fetchError: string | null = null) => ({ provider: "YAHOO" as const, symbol, origin: "MANUAL" as const, fetchError });
+    const base = { cryptoSymbol: null, assetType: "STOCK" as const };
+    const list: SecurityWithMapping[] = [
+      { ...base, id: "ok", name: "Fresh AG", isin: "DE0000000001", mapping: yahoo("FRS.DE") },
+      { ...base, id: "stale", name: "Stale AG", isin: "DE0000000002", mapping: yahoo("STL.DE") },
+      { ...base, id: "failed", name: "Failed AG", isin: "DE0000000003", mapping: yahoo("FLD.DE", "currency") },
+      { ...base, id: "none", name: "Unmapped AG", isin: "DE0000000004", mapping: { provider: null, symbol: null, origin: "AUTO", fetchError: null } },
+      { ...base, id: "noprice", name: "Priceless AG", isin: "DE0000000005", mapping: yahoo("PRL.DE") },
+    ];
+    const info = (stale: boolean) => ({ date: "2026-10-24", source: "provider" as const, fetchedAt: null, provider: "YAHOO" as const, stale });
+    const user = userEvent.setup({ delay: null });
+    render(
+      <SecurityList
+        securities={list}
+        today="2026-10-26"
+        prices={{ ok: info(false), stale: info(true), failed: info(false), none: info(false) }}
+      />,
+    );
+    const names = () => screen.queryAllByRole("link").map((link) => link.textContent);
+    expect(names()).toHaveLength(5);
+
+    await user.click(screen.getByRole("switch", { name: "Nur Probleme (4)" }));
+    expect(names()).toEqual(["Stale AG", "Failed AG", "Unmapped AG", "Priceless AG"]);
+    // Both filters combine.
+    await user.type(screen.getByRole("searchbox", { name: "Wertpapiere durchsuchen" }), "fld.de");
+    expect(names()).toEqual(["Failed AG"]);
+  });
+
+  it("keeps the edit actions in the 'Bearbeiten' popup, which closes when an action opens its dialog", async () => {
+    const user = userEvent.setup({ delay: null });
+    render(<SecurityList securities={securities} today="2026-10-26" />);
+    expect(screen.queryByRole("button", { name: "Kursquelle bearbeiten – SAP" })).toBeNull();
+    const popup = await openEdit(user, "SAP");
+    expect(within(popup).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual([
+      "Kursquelle bearbeiten – SAP",
+      "Typ ändern – SAP",
+      "Klassifizierung bearbeiten – SAP",
+      "Kurs manuell eintragen – SAP",
+      "Logo hochladen – SAP",
+    ]);
+    await user.click(within(popup).getByRole("button", { name: "Kursquelle bearbeiten – SAP" }));
+    expect(await screen.findByRole("dialog", { name: "Kursquelle bearbeiten" })).toBeTruthy();
+    await waitFor(() => expect(screen.queryByRole("group", { name: "Bearbeiten – SAP" })).toBeNull());
+  });
+
+  it("fetches the Price of one Security with 'Kurs abrufen' and reports the outcome", async () => {
+    const mapped: SecurityWithMapping = {
+      ...securities[1],
+      assetType: "STOCK",
+      mapping: { provider: "YAHOO", symbol: "SAP.DE", origin: "MANUAL", fetchError: null },
+    };
+    const user = userEvent.setup({ delay: null });
+    render(<SecurityList securities={[securities[0], mapped]} today="2026-10-26" />);
+    // Only mapped Securities offer it.
+    expect(screen.queryByRole("button", { name: "Kurs abrufen – Bitcoin" })).toBeNull();
+    const button = screen.getByRole("button", { name: "Kurs abrufen – SAP" });
+
+    refreshSecurityPricesAction.mockResolvedValueOnce({ ok: true, status: "updated" });
+    await user.click(button);
+    expect(refreshSecurityPricesAction).toHaveBeenCalledWith("s2");
+    expect((await screen.findByRole("status")).textContent).toBe("Kurs von SAP abgerufen.");
+    expect(router.refresh).toHaveBeenCalled();
+
+    refreshSecurityPricesAction.mockResolvedValueOnce({ ok: true, status: "failed", reason: "currency" });
+    await user.click(button);
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "Kurs konnte nicht von Yahoo Finance geladen werden. Keine Kurse in EUR für dieses Symbol. Bitte ein Symbol mit Börsenkürzel wählen, z. B. .DE (Xetra) oder .F (Frankfurt).",
+    );
+
+    refreshSecurityPricesAction.mockResolvedValueOnce({ ok: true, status: "skipped" });
+    await user.click(button);
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe(SKIPPED_TEXT));
+  });
+
   it("shows the Analysten-Symbol line and button for stocks only (story 9.7)", () => {
     const list: SecurityWithMapping[] = [
       { id: "a1", name: "Apple Inc.", isin: "US0378331005", cryptoSymbol: null, assetType: "STOCK", mapping: null },
@@ -104,8 +198,7 @@ describe("SecurityList", () => {
     render(<SecurityList securities={list} analystSymbols={{ a1: { symbol: "AAPL", manual: false } }} today="2026-10-26" />);
     expect(screen.getByText("Analysten-Symbol: AAPL").closest("li")?.textContent).toContain("Apple Inc.");
     expect(screen.getByText("Analysten-Symbol: automatisch").closest("li")?.textContent).toContain("SAP SE");
-    expect(screen.getByRole("button", { name: "Analysten-Symbol bearbeiten – Apple Inc." })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Analysten-Symbol bearbeiten – MSCI World" })).toBeNull();
+    expect(buttonLabels(/^Analysten-Symbol bearbeiten/)).toEqual(["Analysten-Symbol bearbeiten – Apple Inc.", "Analysten-Symbol bearbeiten – SAP SE"]);
     expect(screen.getAllByText(/^Analysten-Symbol:/)).toHaveLength(2);
   });
 
@@ -118,7 +211,7 @@ describe("SecurityList", () => {
   it("offers the types allowed for each identifier in 'Typ ändern'", async () => {
     render(<SecurityList securities={securities} today="2026-10-26" />);
     expect(await offeredTypes("SAP")).toEqual(["Aktie", "ETF", "Fonds", "Zertifikat"]);
-    await screen.findByRole("button", { name: "Typ ändern – Bitcoin" });
+    await screen.findByRole("button", { name: "Bearbeiten – Bitcoin" });
     expect(await offeredTypes("Bitcoin")).toEqual(["Krypto"]);
   });
 
@@ -140,17 +233,13 @@ describe("SecurityList", () => {
     );
     expect(screen.getByText("Kurs vom 24.10.2026")).toBeTruthy();
     expect(screen.getByText("Kurs vom 22.10.2026 – veraltet")).toBeTruthy();
-    const error = screen.getByText("Kurs konnte nicht von Yahoo Finance geladen werden.");
+    const error = screen.getByText("Kurs konnte nicht von Yahoo Finance geladen werden. Anbieter nicht erreichbar, bitte später erneut versuchen.");
     expect(error).toBeTruthy();
-    // One button per card: in the action row, or as the Alert action on the failed card.
-    const buttons = screen.getAllByRole("button", { name: /^Kurs manuell eintragen/ });
-    expect(buttons.map((button) => button.getAttribute("aria-label"))).toEqual([
-      "Kurs manuell eintragen – Bitcoin",
-      "Kurs manuell eintragen – SAP",
-    ]);
-    expect(error.closest(".MuiAlert-root")?.contains(buttons[1])).toBe(true);
+    // One button per card: in the "Bearbeiten" popup, or as the Alert action on the failed card.
+    expect(buttonLabels(/^Kurs manuell eintragen/).sort()).toEqual(["Kurs manuell eintragen – Bitcoin", "Kurs manuell eintragen – SAP"]);
+    const action = within(error.closest(".MuiAlert-root") as HTMLElement).getByRole("button", { name: "Kurs manuell eintragen – SAP" });
     const user = userEvent.setup({ delay: null });
-    await user.click(buttons[1]);
+    await user.click(action);
     expect(await screen.findByRole("dialog", { name: "Kurs manuell eintragen" })).toBeTruthy();
   });
 
@@ -176,7 +265,7 @@ describe("SecurityList", () => {
     ]);
     expect(within(items[0]).getByRole("button", { name: "Manuellen Kurs vom 22.10.2026 bearbeiten – SAP" })).toBeTruthy();
     expect(within(items[0]).getByRole("button", { name: "Manuellen Kurs vom 22.10.2026 löschen – SAP" })).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: /^Kurs manuell eintragen/ })).toHaveLength(2);
+    expect(buttonLabels(/^Kurs manuell eintragen/)).toHaveLength(2);
   });
 
   it("shows stored logos from the app route and offers 'Logo hochladen' / 'Logo ersetzen'", () => {
@@ -186,8 +275,7 @@ describe("SecurityList", () => {
       </LogoProvider>,
     );
     expect([...container.querySelectorAll("img")].map((img) => img.getAttribute("src"))).toEqual(["/api/logos/s2?v=1761472800000"]);
-    expect(screen.getByRole("button", { name: "Logo hochladen – Bitcoin" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Logo ersetzen – SAP" })).toBeTruthy();
+    expect(buttonLabels(/^Logo/)).toEqual(["Logo hochladen – Bitcoin", "Logo ersetzen – SAP"]);
   });
 
   it("shows the classification summary per card ('Unbekannt' for unknown values) and opens its dialog", async () => {
@@ -201,7 +289,7 @@ describe("SecurityList", () => {
     // Bitcoin has no classification yet.
     expect(screen.getByText("Unbekannt · Unbekannt · Unbekannt · Unbekannt · Unbekannt · Unbekannt")).toBeTruthy();
     const user = userEvent.setup({ delay: null });
-    await user.click(screen.getByRole("button", { name: "Klassifizierung bearbeiten – SAP" }));
+    await user.click(within(await openEdit(user, "SAP")).getByRole("button", { name: "Klassifizierung bearbeiten – SAP" }));
     const dialog = await screen.findByRole("dialog", { name: "Klassifizierung bearbeiten" });
     expect(within(dialog).getByRole("combobox", { name: "Sektor" }).textContent).toBe("Halbleiter");
   });
@@ -224,7 +312,7 @@ describe("SecurityList", () => {
     );
     expect(screen.getByText("Teilfreistellung 30 % (automatisch)")).toBeTruthy();
     expect(screen.getByText("Teilfreistellung 15 % (manuell)")).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: /^Teilfreistellung bearbeiten/ }).map((button) => button.getAttribute("aria-label"))).toEqual([
+    expect(buttonLabels(/^Teilfreistellung bearbeiten/)).toEqual([
       "Teilfreistellung bearbeiten – MSCI World",
       "Teilfreistellung bearbeiten – Rentenfonds",
     ]);
@@ -265,7 +353,7 @@ describe("SecurityList", () => {
     ).toBeTruthy();
     expect(screen.getByText("Regionen: USA 60 % · Europa 37,5 % · Sonstige 2,5 % (manuell)")).toBeTruthy();
     expect(screen.getAllByText(/^Regionen:/)).toHaveLength(2);
-    expect(screen.getAllByRole("button", { name: /^Regionen bearbeiten/ }).map((button) => button.getAttribute("aria-label"))).toEqual([
+    expect(buttonLabels(/^Regionen bearbeiten/)).toEqual([
       "Regionen bearbeiten – MSCI World",
       "Regionen bearbeiten – Rentenfonds",
       "Regionen bearbeiten – Mein Fonds",

@@ -29,6 +29,14 @@ describe("price labels", () => {
   it("names the provider in the fetch error and the failed Securities in the refresh result", () => {
     expect(providerLabel("YAHOO")).toBe("Yahoo Finance");
     expect(fetchErrorText("YAHOO")).toBe("Kurs konnte nicht von Yahoo Finance geladen werden.");
+    expect(fetchErrorText("YAHOO", "currency")).toBe(
+      "Kurs konnte nicht von Yahoo Finance geladen werden. Keine Kurse in EUR für dieses Symbol. Bitte ein Symbol mit Börsenkürzel wählen, z. B. .DE (Xetra) oder .F (Frankfurt).",
+    );
+    expect(fetchErrorText("ONVISTA", "not-found")).toBe("Kurs konnte nicht von onvista geladen werden. Symbol unbekannt oder keine Kurse im Zeitraum.");
+    expect(fetchErrorText("YAHOO", "network")).toBe(
+      "Kurs konnte nicht von Yahoo Finance geladen werden. Anbieter nicht erreichbar, bitte später erneut versuchen.",
+    );
+    expect(fetchErrorText("YAHOO", "something-new")).toBe("Kurs konnte nicht von Yahoo Finance geladen werden.");
     expect(refreshResultText([])).toBe("Kurse aktualisiert.");
     expect(refreshResultText(["SAP SE", "NVIDIA"])).toBe("Kurse aktualisiert. Fehlgeschlagen: SAP SE, NVIDIA");
   });

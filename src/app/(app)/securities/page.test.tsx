@@ -99,9 +99,10 @@ describe("Securities page", () => {
     expect(text).toContain("Kursquellen werden ermittelt …");
     // "Automatisch suchen" only for the not-found marker.
     expect(text.match(/Automatisch suchen/g)).toHaveLength(1);
-    expect(text.match(/Kursquelle bearbeiten/g)).toHaveLength(4);
-    expect(text.match(/Typ ändern/g)).toHaveLength(4);
-    expect(text.match(/Klassifizierung/g)).toHaveLength(4);
+    // The edit actions sit in each card's "Bearbeiten" popup (not server-rendered; covered by the SecurityList tests).
+    expect(text.match(/Bearbeiten/g)).toHaveLength(4);
+    // "Kurs abrufen" only for the mapped SAP.
+    expect(text.match(/Kurs abrufen/g)).toHaveLength(1);
     expect(renderHtml(tree)).toMatch(/MuiChip-colorWarning[^>]*>(?:(?!<\/div>).)*Typ unbekannt/);
   });
 
@@ -129,9 +130,9 @@ describe("Securities page", () => {
     expect(text.match(/Aktie Watchlist|ETF Watchlist/g)).toHaveLength(1);
   });
 
-  it("passes the Teilfreistellung overrides on and shows the fund summary line and button", async () => {
+  it("passes the Teilfreistellung overrides on and shows the fund summary lines", async () => {
     const world = await security({ isin: "IE00B4L5Y983" }, "MSCI World", "ETF");
-    const bonds = await security({ isin: "IE00B3F81R35" }, "Euro Bonds", "ETF");
+    await security({ isin: "IE00B3F81R35" }, "Euro Bonds", "ETF");
     await security({ isin: "DE0007164600" }, "SAP", "STOCK");
     expect(await setManualClassification(world.id, { assetClass: "Aktien" })).toMatchObject({ ok: true });
     expect(await setTeilfreistellungOverride(world.id, "0")).toEqual({ ok: true });
@@ -141,10 +142,6 @@ describe("Securities page", () => {
     const text = renderText(tree);
     expect(text).toContain("Teilfreistellung 0\u00a0% (manuell)");
     expect(text).toContain("Teilfreistellung 0\u00a0% (automatisch)");
-    const html = renderHtml(tree);
-    expect(html).toContain('aria-label="Teilfreistellung bearbeiten – MSCI World"');
-    expect(html).toContain(`aria-label="Teilfreistellung bearbeiten – ${bonds.name}"`);
-    expect(html).not.toContain('aria-label="Teilfreistellung bearbeiten – SAP"');
   });
 
   it("shows the region split line of funds and passes the splits on", async () => {
@@ -177,7 +174,6 @@ describe("Securities page", () => {
     const text = renderText(tree);
     expect(text).toContain("Analysten-Symbol: AAPL");
     expect(text.match(/Analysten-Symbol:/g)).toHaveLength(1);
-    expect(renderHtml(tree)).toContain('aria-label="Analysten-Symbol bearbeiten – Apple"');
   });
 
   it("shows each Security's classification summary, manual values winning, and passes the classifications on", async () => {
@@ -250,11 +246,13 @@ describe("Securities page", () => {
       const text = renderText(tree);
       expect(text).toContain("Kurse aktualisieren");
       expect(text).toContain("Apple US0378331005 Aktie Unbekannt · Unbekannt · Unbekannt · Unbekannt · Unbekannt · Unbekannt Analysten-Symbol: automatisch Kursquelle noch nicht ermittelt Kurs vom 01.10.2026 Manuelle Kurse 01.10.2026 150\u00a0€ Bearbeiten Löschen");
-      expect(text).toContain("Yahoo Finance · EUNL.DE Kurs vom 22.10.2026 – veraltet Kurs konnte nicht von Yahoo Finance geladen werden. Kurs manuell eintragen");
-      expect(text).toContain("Yahoo Finance · SAP.DE Kurs vom 24.10.2026 Kursquelle bearbeiten");
+      expect(text).toContain(
+        "Yahoo Finance · EUNL.DE Kurs vom 22.10.2026 – veraltet Kurs konnte nicht von Yahoo Finance geladen werden. Anbieter nicht erreichbar, bitte später erneut versuchen. Kurs manuell eintragen Kurs abrufen Bearbeiten",
+      );
+      expect(text).toContain("Yahoo Finance · SAP.DE Kurs vom 24.10.2026 Kurs abrufen Bearbeiten");
       expect(text.match(/veraltet/g)).toHaveLength(1);
-      // One "Kurs manuell eintragen" per card (the failed card has it only in its Alert).
-      expect(text.match(/Kurs manuell eintragen/g)).toHaveLength(3);
+      // Only the failed card shows "Kurs manuell eintragen" outside its "Bearbeiten" popup (as its Alert action).
+      expect(text.match(/Kurs manuell eintragen/g)).toHaveLength(1);
       expect(text.match(/Manuelle Kurse/g)).toHaveLength(1);
       expect(findElement(tree, SecurityList)?.props.manualPrices).toEqual({
         [idle.id]: [{ id: expect.any(String), date: "2026-10-01", price: "150" }],

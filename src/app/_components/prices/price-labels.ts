@@ -37,9 +37,30 @@ export function priceSourceText({ source, fetchedAt, provider }: Pick<PriceDateI
   return time ? `${providerLabel(provider)} · abgerufen ${time}` : providerLabel(provider);
 }
 
-/** Row-level fetch failure: "Kurs konnte nicht von Yahoo Finance geladen werden." */
-export function fetchErrorText(provider: string | null): string {
-  return `Kurs konnte nicht von ${providerLabel(provider)} geladen werden.`;
+const EXCHANGE_HINT = "Bitte ein Symbol mit Börsenkürzel wählen, z. B. .DE (Xetra) oder .F (Frankfurt).";
+
+/** Why a fetch failed (`PriceFetchFailure`), with a hint for Yahoo symbols where it helps; unknown reasons say nothing. */
+export function fetchFailureText(reason: string | null | undefined, provider: string | null): string | null {
+  const yahoo = provider === "YAHOO";
+  switch (reason) {
+    case "currency":
+      return `Keine Kurse in EUR für dieses Symbol.${yahoo ? ` ${EXCHANGE_HINT}` : ""}`;
+    case "not-found":
+      return `Symbol unbekannt oder keine Kurse im Zeitraum.${yahoo ? ` ${EXCHANGE_HINT}` : ""}`;
+    case "network":
+      return "Anbieter nicht erreichbar, bitte später erneut versuchen.";
+    case "schema":
+    case "unexpected":
+      return "Unerwartete Antwort des Anbieters.";
+    default:
+      return null;
+  }
+}
+
+/** Row-level fetch failure: "Kurs konnte nicht von Yahoo Finance geladen werden." plus the reason when known. */
+export function fetchErrorText(provider: string | null, reason?: string | null): string {
+  const why = fetchFailureText(reason, provider);
+  return `Kurs konnte nicht von ${providerLabel(provider)} geladen werden.${why ? ` ${why}` : ""}`;
 }
 
 /** Snackbar after "Kurse aktualisieren", naming every failed Security. */

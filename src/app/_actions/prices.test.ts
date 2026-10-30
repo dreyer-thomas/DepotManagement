@@ -5,6 +5,7 @@ import { createSessionToken, SESSION_COOKIE } from "@/modules/auth";
 const fakes = vi.hoisted(() => ({}) as { current: ReturnType<typeof createRequestFakes> });
 const revalidatePath = vi.hoisted(() => vi.fn());
 const refreshPrices = vi.hoisted(() => vi.fn());
+const refreshSecurityPrices = vi.hoisted(() => vi.fn());
 const dbFile = await vi.hoisted(async () => {
   const { useMigratedDatabaseForSingleton } = await import("../../../test/helpers/migrated-db-file");
   return useMigratedDatabaseForSingleton();
@@ -19,12 +20,19 @@ vi.mock("next/cache", () => ({ revalidatePath }));
 vi.mock("@/modules/prices", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/modules/prices")>()),
   refreshPrices,
+  refreshSecurityPrices,
 }));
 
 import { prisma } from "@/db";
 import { ensureSecurity } from "@/modules/ledger";
 import { watchlistPriceTargets } from "@/modules/watchlist";
-import { deleteManualPriceAction, refreshPricesAction, saveManualPriceAction, updateManualPriceAction } from "./prices";
+import {
+  deleteManualPriceAction,
+  refreshPricesAction,
+  refreshSecurityPricesAction,
+  saveManualPriceAction,
+  updateManualPriceAction,
+} from "./prices";
 
 const SECRET = "test-secret-with-at-least-32-characters";
 const HASH = "$2b$04$Raf6EM460q2HE2THwTzIR.5Uk58FNzZG7FhlOvTFD.sbuFp.We4pO";
@@ -37,6 +45,7 @@ beforeEach(async () => {
   fakes.current.state.incoming.set(SESSION_COOKIE, await createSessionToken("tester", SECRET));
   revalidatePath.mockClear();
   refreshPrices.mockReset();
+  refreshSecurityPrices.mockReset();
   vi.useFakeTimers({ now: new Date("2026-10-25T23:30:00.000Z"), toFake: ["Date"] });
   await prisma.price.deleteMany();
   await prisma.providerMapping.deleteMany();
@@ -74,6 +83,27 @@ describe("refreshPricesAction", () => {
     expect(await refreshPricesAction()).toEqual({ ok: false, reason: "unauthorized" });
     expect(refreshPrices).not.toHaveBeenCalled();
     expect(revalidatePath).not.toHaveBeenCalled();
+  });
+});
+
+describe("refreshSecurityPricesAction", () => {
+  it("awaits the run of one Security for today's Berlin date and revalidates after a fetch", async () => {
+    refreshSecurityPrices.mockResolvedValue({ status: "failed", reason: "currency" });
+    expect(await refreshSecurityPricesAction("s1")).toEqual({ ok: true, status: "failed", reason: "currency" });
+    expect(refreshSecurityPrices).toHaveBeenCalledExactlyOnceWith("s1", "2026-10-26", { watched: watchlistPriceTargets });
+    expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
+  });
+
+  it("does not revalidate when nothing was fetched", async () => {
+    refreshSecurityPrices.mockResolvedValue({ status: "skipped" });
+    expect(await refreshSecurityPricesAction("s1")).toEqual({ ok: true, status: "skipped" });
+    expect(revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("refuses without a session and runs nothing", async () => {
+    signOut();
+    expect(await refreshSecurityPricesAction("s1")).toEqual({ ok: false, reason: "unauthorized" });
+    expect(refreshSecurityPrices).not.toHaveBeenCalled();
   });
 });
 

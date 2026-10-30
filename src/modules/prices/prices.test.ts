@@ -10,6 +10,7 @@ import {
   type PriceDeps,
   refetchPriceHistory,
   refreshPrices,
+  refreshSecurityPrices,
   saveManualPrice,
   securityPriceInfo,
   setMapping,
@@ -710,6 +711,36 @@ describe("refetchPriceHistory", () => {
     const chart = charts({});
     expect(await refetchPriceHistory(sap, "2026-10-23", deps(chart), db())).toEqual({ updated: 0, failed: [] });
     expect(await refetchPriceHistory(idle, "2026-10-23", deps(chart), db())).toEqual({ updated: 0, failed: [] });
+    expect(chart).not.toHaveBeenCalled();
+  });
+});
+
+describe("refreshSecurityPrices", () => {
+  beforeEach(benchmarkMarkers);
+
+  it("fetches only the given Security and reports stored, failed or skipped", async () => {
+    const sap = await security(SAP, "SAP SE");
+    const nvidia = await security(NVIDIA, "NVIDIA");
+    await buy(sap, "2026-10-13");
+    await buy(nvidia, "2026-10-13");
+    await mapTo(sap, "YAHOO", "SAP.DE");
+    await mapTo(nvidia, "YAHOO", "NVD.DE");
+    const chart = charts({ "SAP.DE": recorded("yahoo-chart-sap-de"), "NVD.DE": new Error("No data found, symbol may be delisted") });
+
+    expect(await refreshSecurityPrices(sap, "2026-10-23", deps(chart), db())).toEqual({ status: "updated" });
+    expect(chart.mock.calls.map(([symbol]) => symbol)).toEqual(["SAP.DE"]);
+    expect((await providerRows(sap)).length).toBeGreaterThan(0);
+    expect(await providerRows(nvidia)).toEqual([]);
+
+    expect(await refreshSecurityPrices(nvidia, "2026-10-23", deps(chart), db())).toEqual({ status: "failed", reason: "not-found" });
+    expect(await mapping(nvidia)).toMatchObject({ fetchError: "not-found" });
+
+    // Not mapped (the "not found" marker): nothing to fetch.
+    const unmapped = await security("DE000BASF111", "BASF");
+    await buy(unmapped, "2026-10-13");
+    await mapTo(unmapped, null, null);
+    chart.mockClear();
+    expect(await refreshSecurityPrices(unmapped, "2026-10-23", deps(chart), db())).toEqual({ status: "skipped" });
     expect(chart).not.toHaveBeenCalled();
   });
 });

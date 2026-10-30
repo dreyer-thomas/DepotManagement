@@ -9,7 +9,9 @@ import {
   type DeleteManualPriceResult,
   type PriceRunFailure,
   refreshPrices,
+  refreshSecurityPrices,
   saveManualPrice,
+  type SecurityRefreshResult,
   type SaveManualPriceResult,
   updateManualPrice,
   type UpdateManualPriceResult,
@@ -24,6 +26,9 @@ const formText = z.string().catch("");
 
 /** Result of "Kurse aktualisieren": Securities with stored Prices and the failed ones (with provider). */
 export type RefreshPricesActionResult = { ok: true; updated: number; failed: PriceRunFailure[] } | Unauthorized;
+
+/** Result of "Kurs abrufen" of one Security. */
+export type RefreshSecurityPricesActionResult = ({ ok: true } & SecurityRefreshResult) | Unauthorized;
 
 /** Result of "Kurs manuell eintragen"; `null` before the first submit. */
 export type SaveManualPriceActionState = SaveManualPriceResult | Unauthorized | null;
@@ -44,6 +49,17 @@ export async function refreshPricesAction(): Promise<RefreshPricesActionResult> 
   // Prices and fetch errors show on Securities and Positions.
   revalidatePath("/", "layout");
   return { ok: true, updated: result.updated, failed: result.failed };
+}
+
+/**
+ * "Kurs abrufen": fetches the Prices of one Security now (as "Kurse aktualisieren" would) and waits for
+ * the result, e.g. to check a corrected mapping. A fetch failure is part of the result, never thrown.
+ */
+export async function refreshSecurityPricesAction(securityId: unknown): Promise<RefreshSecurityPricesActionResult> {
+  if (!(await getSession())) return UNAUTHORIZED;
+  const result = await refreshSecurityPrices(formText.parse(securityId), businessDate(new Date()), { watched: watchlistPriceTargets });
+  if (result.status !== "skipped") revalidatePath("/", "layout");
+  return { ok: true, ...result };
 }
 
 const manualPriceInput = z.object({ securityId: formText, date: formText, price: formText });

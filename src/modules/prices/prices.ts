@@ -302,6 +302,32 @@ export function backfillHeldPrices(today: string, deps: PriceDeps = {}, db: Pric
   return serialized(async () => runPlans(await heldPlans(today, true, deps, db), deps, db));
 }
 
+/** Outcome of "Kurs abrufen" for one Security: stored, failed (with reason), or not priced at all. */
+export type SecurityRefreshResult =
+  | { status: "updated" }
+  | { status: "failed"; reason: PriceFetchFailure }
+  | { status: "skipped" };
+
+/**
+ * Fetches the Prices of one Security now, exactly as `refreshPrices` would (a full backfill where needed,
+ * else an incremental refresh), e.g. to check a corrected mapping. `skipped` when the run would not price
+ * it: no Yahoo / onvista / CoinGecko mapping, or neither held, watched nor a benchmark. Serialized with
+ * the other runs.
+ */
+export function refreshSecurityPrices(
+  securityId: string,
+  today: string,
+  deps: PriceDeps = {},
+  db: PricesDb = prisma,
+): Promise<SecurityRefreshResult> {
+  return serialized(async () => {
+    const plans = (await heldPlans(today, false, deps, db)).filter((plan) => plan.securityId === securityId);
+    if (plans.length === 0) return { status: "skipped" };
+    const [failure] = (await runPlans(plans, deps, db)).failed;
+    return failure ? { status: "failed", reason: failure.reason } : { status: "updated" };
+  });
+}
+
 /**
  * Refetches the full provider history of one Security (after a split was recorded, changed or deleted):
  * only when it is mapped to Yahoo and held or already has provider Prices. On success all its PROVIDER

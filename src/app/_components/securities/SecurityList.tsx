@@ -20,6 +20,8 @@ import { ManualPriceButton } from "./ManualPriceDialog";
 import { ManualPriceList } from "./ManualPriceList";
 import { MappingDialogButton, ResolveMappingButton } from "./MappingDialog";
 import { RegionSplitButton } from "./RegionSplitDialog";
+import { SecurityEditMenu } from "./SecurityEditMenu";
+import { SecurityPriceRefreshButton } from "./SecurityPriceRefreshButton";
 import { SecuritySearch } from "./SecuritySearch";
 import { SecurityLink } from "../security-detail/SecurityLink";
 import { teilfreistellungSummary } from "../tax/labels";
@@ -30,12 +32,12 @@ import { TypeDialogButton } from "./TypeDialog";
 /**
  * Securities with logo, name, ISIN or crypto symbol, type chip ("Watchlist" chip when only watched), classification summary
  * ("Aktien · Technologie · Europa · …", unknown values "Unbekannt"), price source and latest price date (stale badge for held Securities), its manual Prices ("Manuelle Kurse" with edit/delete),
- * plus "Kursquelle bearbeiten", "Typ ändern", "Klassifizierung", "Kurs manuell eintragen", (after a miss) "Automatisch
- * suchen", "Logo hochladen" / "Logo ersetzen" and, for funds (ETF/FUND), "Teilfreistellung" with its summary line
+ * plus "Kurs abrufen" (mapped Securities), (after a miss) "Automatisch suchen", and "Bearbeiten" (pencil) opening a popup
+ * with "Kursquelle bearbeiten", "Typ ändern", "Klassifizierung", "Kurs manuell eintragen", "Logo hochladen" / "Logo ersetzen" and, for funds (ETF/FUND), "Teilfreistellung" with its summary line
  * ("Teilfreistellung 30 % (automatisch|manuell)"), plus "Regionen" with the region split line when the fund has one
  * ("Regionen: USA 72 % · … (Regel MSCI World, Stand 30.09.2026)" / "(manuell)", story 8.4), and for stocks the
- * line "Analysten-Symbol: AAPL" / "… automatisch" with its button "Analysten-Symbol" (story 9.7). A failed last fetch shows an error naming the provider; there "Kurs manuell eintragen" is
- * the Alert's action instead (one per card). A search field above the list filters it (`SecuritySearch`).
+ * line "Analysten-Symbol: AAPL" / "… automatisch" with its button "Analysten-Symbol" (story 9.7). A failed last fetch shows an error naming the provider and the reason; there "Kurs manuell eintragen" is
+ * the Alert's action instead (one per card). A search field and the "Nur Probleme" switch above the list filter it (`SecuritySearch`).
  */
 export function SecurityList({
   securities,
@@ -122,20 +124,25 @@ export function SecurityList({
                     sx={{ mt: 0.5, alignItems: "center", flexWrap: "wrap", rowGap: 1, "& .MuiAlert-action": { ml: 0, pl: 0 } }}
                     action={<ManualPriceButton security={security} today={today} />}
                   >
-                    {fetchErrorText(security.mapping?.provider ?? null)}
+                    {fetchErrorText(security.mapping?.provider ?? null, security.mapping?.fetchError)}
                   </Alert>
                 ) : null}
                 <ManualPriceList security={security} prices={manualPrices[security.id] ?? []} today={today} />
                 <Stack direction="row" sx={{ gap: 1, flexWrap: "wrap", mt: 1, alignItems: "flex-start" }}>
-                  <MappingDialogButton security={security} />
-                  <TypeDialogButton security={security} allowedTypes={allowedAssetTypes(security)} />
-                  <ClassificationButton security={security} classification={classification} />
-                  {fund ? <TeilfreistellungButton security={security} automaticRate={automaticRate} override={override} /> : null}
-                  {fund ? <RegionSplitButton security={security} weights={regionSplit?.weights ?? null} /> : null}
-                  {stock ? <AnalystSymbolButton security={security} symbol={analystSymbol} /> : null}
-                  {fetchFailed ? null : <ManualPriceButton security={security} today={today} />}
+                  {security.mapping?.provider ? (
+                    <SecurityPriceRefreshButton security={security} provider={security.mapping.provider} />
+                  ) : null}
                   {notFound ? <ResolveMappingButton security={security} /> : null}
-                  <LogoUploadButton security={security} />
+                  <SecurityEditMenu name={security.name}>
+                    <MappingDialogButton security={security} />
+                    <TypeDialogButton security={security} allowedTypes={allowedAssetTypes(security)} />
+                    <ClassificationButton security={security} classification={classification} />
+                    {fund ? <TeilfreistellungButton security={security} automaticRate={automaticRate} override={override} /> : null}
+                    {fund ? <RegionSplitButton security={security} weights={regionSplit?.weights ?? null} /> : null}
+                    {stock ? <AnalystSymbolButton security={security} symbol={analystSymbol} /> : null}
+                    {fetchFailed ? null : <ManualPriceButton security={security} today={today} />}
+                    <LogoUploadButton security={security} />
+                  </SecurityEditMenu>
                 </Stack>
               </Stack>
             </Stack>
@@ -143,7 +150,9 @@ export function SecurityList({
         </Card>
       </li>
     );
-    return { id: security.id, text, node };
+    // Shown by "Nur Probleme": a stale or missing Price, a failed last fetch, or no price source found.
+    const problem = !price || price.stale || fetchFailed || notFound;
+    return { id: security.id, text, problem, node };
   });
   return <SecuritySearch items={items} />;
 }
