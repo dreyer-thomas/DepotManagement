@@ -526,15 +526,27 @@ export async function saveManualPrice(
 /** One manual Price of a Security as listed on the Securities page. */
 export type ManualPriceRow = { id: string; date: string; price: string };
 
-/** Per Security id its MANUAL Prices, newest date first; Securities without any are absent. Read-only. */
+/**
+ * Per Security id its current MANUAL Prices, newest date first: those dated after its latest PROVIDER
+ * Price (older ones are superseded and stay only in the history); Securities without any are absent.
+ * Read-only.
+ */
 export async function listManualPrices(db: PricesDb = prisma): Promise<Record<string, ManualPriceRow[]>> {
-  const rows = await db.price.findMany({
-    where: { source: "MANUAL" },
-    orderBy: [{ securityId: "asc" }, { date: "desc" }],
-    select: { id: true, securityId: true, date: true, price: true },
-  });
+  const [rows, latestProvider] = await Promise.all([
+    db.price.findMany({
+      where: { source: "MANUAL" },
+      orderBy: [{ securityId: "asc" }, { date: "desc" }],
+      select: { id: true, securityId: true, date: true, price: true },
+    }),
+    db.price.groupBy({ by: ["securityId"], where: { source: "PROVIDER" }, _max: { date: true } }),
+  ]);
+  const supersededUpTo = new Map(latestProvider.map((row) => [row.securityId, row._max.date]));
   const result: Record<string, ManualPriceRow[]> = {};
-  for (const { securityId, id, date, price } of rows) (result[securityId] ??= []).push({ id, date, price });
+  for (const { securityId, id, date, price } of rows) {
+    const providerDate = supersededUpTo.get(securityId);
+    if (providerDate && date <= providerDate) continue;
+    (result[securityId] ??= []).push({ id, date, price });
+  }
   return result;
 }
 

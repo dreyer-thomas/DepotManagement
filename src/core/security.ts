@@ -477,7 +477,7 @@ const AVERAGE_DECIMALS = 10;
  * Moving average of the stored closes of `securityId` for each day `from..to` (inclusive): stored Prices
  * only (source `provider`/`manual`, never `transaction`), carried to the Securities and units as of `to`
  * (as `securityPriceSeries`, so a split is never a drop); one close per date, the resolver winner of that
- * date (manual > provider). Each day's average is the arithmetic mean of the last `window` closes dated
+ * date (provider > manual). Each day's average is the arithmetic mean of the last `window` closes dated
  * on or before it (history before `from` counts), rounded half-up to 10 decimal places; `null` while
  * fewer than `window` closes exist. Empty when `from > to`.
  */

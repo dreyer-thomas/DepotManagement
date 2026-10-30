@@ -79,7 +79,7 @@ NFR11: Scope discipline (SM-C1) — no feature or Broker without a named persona
 - AR6 (AD-6): Cash Account = Depot (1:1); cash side derived by `core/cash`; migration collapses Parqet trade+cash pairs and adjusts amount to match the cash row.
 - AR7 (AD-7): Corporate actions as Security-scoped events; split adjustment on read; ISIN change moves FIFO lots; Parqet transfer pairs → ISIN change.
 - AR8 (AD-8): Business dates `YYYY-MM-DD` Europe/Berlin; intra-day sequence by ledger; order `(date, sequence)`, corporate actions first; "today" passed into core.
-- AR9 (AD-9): Price provider interface; one ProviderMapping per Security (auto-resolved via OpenFIGI/Yahoo, editable); stored Prices unadjusted; source manual|provider, unique (securityId, date, source), `fetchedAt`; resolver manual > provider > transaction price > carry forward; `isStale` in core; history backfill for held Securities.
+- AR9 (AD-9): Price provider interface; one ProviderMapping per Security (auto-resolved via OpenFIGI/Yahoo, editable); stored Prices unadjusted; source manual|provider, unique (securityId, date, source), `fetchedAt`; resolver provider > manual > transaction price > carry forward (amended 2026-10-30); `isStale` in core; history backfill for held Securities.
 - AR10 (AD-10): Performance unit = Depot incl. Cash Account; external flows Deposits, Withdrawals, net taxes; one daily valuation series; invested capital = FIFO Cost Basis of open Positions.
 - AR11 (AD-11): News providers (Google News RSS primary, yahoo-finance2 secondary) by name/ticker; cached; not in backup.
 - AR12 (AD-12): Versioned JSON export incl. Prices and manual logos; restore upgrades old versions, auto-exports first, replaces all in one transaction.

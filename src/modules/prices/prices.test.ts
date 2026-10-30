@@ -781,18 +781,21 @@ describe("latestStoredPrices and Positions", () => {
     );
   });
 
-  it("values Positions with MANUAL over PROVIDER over the Transaction price, carrying forward the latest", async () => {
+  it("values Positions with PROVIDER over MANUAL over the Transaction price, carrying forward the latest", async () => {
     const sap = await security(SAP, "SAP SE");
     await buy(sap, "2026-10-20", "10", "100");
     const positions = () =>
       listPositions(depotId, "2026-10-22", db(), { storedPrices: (ids, asOf) => latestStoredPrices(ids, asOf, db()) });
 
     expect((await positions())[0]).toMatchObject({ price: "100", priceDate: "2026-10-20", value: "1000" });
-    await price(sap, "2026-10-20", "PROVIDER", "110");
-    expect((await positions())[0]).toMatchObject({ price: "110", priceDate: "2026-10-20", value: "1100" });
     await price(sap, "2026-10-20", "MANUAL", "120");
     expect((await positions())[0]).toMatchObject({ price: "120", priceDate: "2026-10-20", value: "1200" });
-    // A later provider Price wins by date; one after "today" is ignored.
+    // A provider Price of the same date makes the manual one redundant.
+    await price(sap, "2026-10-20", "PROVIDER", "110");
+    expect((await positions())[0]).toMatchObject({ price: "110", priceDate: "2026-10-20", value: "1100" });
+    // A newer manual Price wins by date until the provider delivers that date; one after "today" is ignored.
+    await price(sap, "2026-10-21", "MANUAL", "125");
+    expect((await positions())[0]).toMatchObject({ price: "125", priceDate: "2026-10-21", value: "1250" });
     await price(sap, "2026-10-21", "PROVIDER", "130");
     await price(sap, "2026-10-23", "MANUAL", "999");
     expect((await positions())[0]).toMatchObject({ price: "130", priceDate: "2026-10-21", value: "1300" });
@@ -942,7 +945,6 @@ describe("manual Price maintenance", () => {
     const nvidia = await security(NVIDIA, "NVIDIA");
     const a = await price(sap, "2026-10-20", "MANUAL", "12.34");
     const b = await price(sap, "2026-10-22", "MANUAL", "1234.56789");
-    await price(sap, "2026-10-23", "PROVIDER", "99");
     await price(nvidia, "2026-10-23", "PROVIDER", "99");
     expect(await listManualPrices(db())).toEqual({
       [sap]: [
@@ -950,6 +952,18 @@ describe("manual Price maintenance", () => {
         { id: a, date: "2026-10-20", price: "12.34" },
       ],
     });
+  });
+
+  it("leaves out MANUAL rows on or before the latest PROVIDER Price; they stay stored for the history", async () => {
+    const sap = await security(SAP, "SAP SE");
+    await price(sap, "2026-10-20", "MANUAL", "12.34");
+    await price(sap, "2026-10-21", "MANUAL", "13");
+    const newer = await price(sap, "2026-10-23", "MANUAL", "14");
+    await price(sap, "2026-10-21", "PROVIDER", "99");
+    expect(await listManualPrices(db())).toEqual({ [sap]: [{ id: newer, date: "2026-10-23", price: "14" }] });
+    await price(sap, "2026-10-23", "PROVIDER", "100");
+    expect(await listManualPrices(db())).toEqual({});
+    expect(await db().price.count({ where: { securityId: sap, source: "MANUAL" } })).toBe(3);
   });
 
   async function failingMapping(securityId: string) {
@@ -1015,20 +1029,20 @@ describe("manual Price maintenance", () => {
     expect(await rows()).toEqual(before);
   });
 
-  it("deletes a MANUAL row only; the resolver then picks the provider Price of that date", async () => {
+  it("deletes a MANUAL row only; the resolver then picks the latest provider Price", async () => {
     const sap = await security(SAP, "SAP SE");
     await buy(sap, "2026-10-01");
     const mappingBefore = await failingMapping(sap);
+    await price(sap, "2026-10-23", "PROVIDER", "110");
     const manual = await price(sap, "2026-10-24", "MANUAL", "120");
-    await price(sap, "2026-10-24", "PROVIDER", "110");
     expect((await securityPriceInfo(TODAY, db()))[sap]).toMatchObject({ source: "manual" });
     expect(await deleteManualPrice(manual, db())).toEqual({ ok: true });
     expect((await rows()).map((row) => row.source)).toEqual(["PROVIDER"]);
     expect(await mapping(sap)).toEqual(mappingBefore);
-    expect((await securityPriceInfo(TODAY, db()))[sap]).toMatchObject({ date: "2026-10-24", source: "provider", provider: "YAHOO" });
+    expect((await securityPriceInfo(TODAY, db()))[sap]).toMatchObject({ date: "2026-10-23", source: "provider", provider: "YAHOO" });
   });
 
-  it("keeps a MANUAL row through full and incremental runs; Positions and price info use it", async () => {
+  it("keeps a MANUAL row through full and incremental runs; the provider Price of its date then wins", async () => {
     const sap = await security(SAP, "SAP SE");
     await buy(sap, "2026-10-13", "10", "100");
     await mapTo(sap, "YAHOO", "SAP.DE");
@@ -1045,11 +1059,12 @@ describe("manual Price maintenance", () => {
     expect(await db().price.count({ where: { securityId: sap, date: "2026-10-22", source: "PROVIDER" } })).toBe(1);
     expect(await manualRow()).toEqual(before);
 
-    expect((await securityPriceInfo("2026-10-22", db()))[sap]).toMatchObject({ date: "2026-10-22", source: "manual" });
+    expect((await securityPriceInfo("2026-10-22", db()))[sap]).toMatchObject({ date: "2026-10-22", source: "provider" });
     const [position] = await listPositions(depotId, "2026-10-22", db(), {
       storedPrices: (ids, asOf) => latestStoredPrices(ids, asOf, db()),
     });
-    expect(position).toMatchObject({ price: "999", priceDate: "2026-10-22", value: "9990" });
+    expect(position).toMatchObject({ priceDate: "2026-10-22" });
+    expect(position.price).not.toBe("999");
   });
 
   it("clears the stale flag of a held Security only for a manual Price within 3 days", async () => {

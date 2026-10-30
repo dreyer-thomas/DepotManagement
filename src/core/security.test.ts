@@ -350,13 +350,13 @@ describe("securityPriceSeries", () => {
       { date: "2026-01-02", price: null },
       { date: "2026-01-03", price: "10" },
       { date: "2026-01-04", price: "10" },
-      { date: "2026-01-05", price: "13" },
-      { date: "2026-01-06", price: "13" },
+      { date: "2026-01-05", price: "12" },
+      { date: "2026-01-06", price: "12" },
     ]);
     // Earlier observations carry into the range; other Securities are ignored.
     expect(securityPriceSeries([...observations, provider("2026-01-08", "99", "s2")], "s1", NONE, "2026-01-07", "2026-01-08")).toEqual([
-      { date: "2026-01-07", price: "13" },
-      { date: "2026-01-08", price: "13" },
+      { date: "2026-01-07", price: "12" },
+      { date: "2026-01-08", price: "12" },
     ]);
     expect(securityPriceSeries(observations, "s1", NONE, "2026-01-02", "2026-01-01")).toEqual([]);
   });
@@ -536,21 +536,21 @@ describe("securityMovingAverage", () => {
     transaction,
   ];
 
-  it("window 3: stored Prices only, manual wins on a date, null while fewer closes", () => {
+  it("window 3: stored Prices only, provider wins over manual on a date, null while fewer closes", () => {
     expect(securityMovingAverage(observations, "s1", NONE, "2026-01-01", "2026-01-06", 3)).toEqual([
       { date: "2026-01-01", average: null },
       { date: "2026-01-02", average: null },
       { date: "2026-01-03", average: null },
       { date: "2026-01-04", average: null },
-      { date: "2026-01-05", average: "12.3333333333" },
-      { date: "2026-01-06", average: "14.3333333333" },
+      { date: "2026-01-05", average: "12" },
+      { date: "2026-01-06", average: "14" },
     ]);
   });
 
   it("Split: closes before the split are adjusted to the units as of the end", () => {
     const actions: CorporateActions = { splits: [{ securityId: "s1", date: "2026-01-04", ratioOld: "1", ratioNew: "2" }], isinChanges: [] };
     const points = securityMovingAverage(observations, "s1", actions, "2026-01-01", "2026-01-06", 3);
-    expect(points.map((p) => p.average)).toEqual([null, null, null, null, "8.6666666667", "12.3333333333"]);
+    expect(points.map((p) => p.average)).toEqual([null, null, null, null, "8.3333333333", "12"]);
   });
 
   it("Lookback: closes before from count", () => {

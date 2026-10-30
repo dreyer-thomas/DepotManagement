@@ -51,7 +51,7 @@ CAP-N corresponds to PRD FR-N (CAP-19 added 2026-10-26).
   - **success:** For a date without a Price, the last known Price (sourced, manual or from a Transaction) is carried forward and used for value, charts and return metrics.
 - **CAP-9** — Manual price fallback
   - **intent:** Tommy can enter or correct a Price when no Price Source covers a Security.
-  - **success:** A manual Price takes precedence over a sourced Price for that date in every view.
+  - **success:** A manual Price fills in where no sourced Price exists for that date, in every view; once the source delivers that date, the sourced Price wins (amended 2026-10-30).
 - **CAP-10** — Portfolio and Depot overview
   - **intent:** Tommy can see current value, invested capital and Gain/Loss (absolute and %) for the Portfolio and each Depot, with the list of Positions and their value and Gain/Loss.
   - **success:** After migration, values match broker statements at month end apart from Price timing (SM-2).

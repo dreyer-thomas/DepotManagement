@@ -55,7 +55,7 @@ function changeRatio(a: string, b: string): string | null {
  * The figures of an entry for `securityId` added on `dateAdded`, as of `today`. Every observation is
  * carried to the Securities and units as of `today` (`adjustedPrice`), so a split after the date added
  * is neutral and an ISIN change follows the Security to its successor. Prices resolve with the single
- * resolver (manual > provider > Transaction, carry-forward).
+ * resolver (provider > manual > Transaction, carry-forward).
  */
 export function entryFigures(
   observations: readonly PriceObservation[],

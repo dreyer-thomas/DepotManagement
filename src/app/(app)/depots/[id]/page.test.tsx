@@ -322,7 +322,7 @@ describe("Depot detail page", () => {
     expect(html.split(href).length - 1).toBe(2);
   });
 
-  it("values Positions with stored Prices: manual over provider over the Transaction price", async () => {
+  it("values Positions with stored Prices: provider over manual over the Transaction price", async () => {
     const { id } = await depot();
     const buy = await recordTrade({
       depotId: id,
@@ -337,10 +337,11 @@ describe("Depot detail page", () => {
     const price = (date: string, source: "MANUAL" | "PROVIDER", value: string) =>
       prisma.price.create({ data: { securityId, date, source, price: value, fetchedAt: "2026-01-12T18:00:00.000Z" } });
 
-    await price("2026-01-12", "PROVIDER", "110");
-    expect(renderText(await DepotDetailPage(props(id)))).toContain("110,00\u00a0€ Kurs vom 12.01.2026 – veraltet 1.100,00\u00a0€ +100,00\u00a0€");
     await price("2026-01-12", "MANUAL", "115");
     expect(renderText(await DepotDetailPage(props(id)))).toContain("115,00\u00a0€ Kurs vom 12.01.2026 – veraltet 1.150,00\u00a0€ +150,00\u00a0€");
+    // The provider Price of the same date makes the manual one redundant.
+    await price("2026-01-12", "PROVIDER", "110");
+    expect(renderText(await DepotDetailPage(props(id)))).toContain("110,00\u00a0€ Kurs vom 12.01.2026 – veraltet 1.100,00\u00a0€ +100,00\u00a0€");
   });
 
   it("orders Positions by value descending and leaves out future-dated buys", async () => {

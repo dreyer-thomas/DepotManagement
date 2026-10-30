@@ -320,11 +320,11 @@ describe("securityDetail", () => {
     expect(custom?.movingAverages["200"].every((point) => point.average === null)).toBe(true);
     const ma38 = custom!.movingAverages["38"];
     expect(ma38).toHaveLength(12);
-    // Closes 2024-12-31 110, 04-01..05-10 = 100..139 (manual 999 wins on 05-10); trade prices never count.
+    // Closes 2024-12-31 110, 04-01..05-10 = 100..139 (the provider 139 beats the manual 999 on 05-10); trade prices never count.
     expect(ma38[0]).toEqual({ date: "2025-05-01", average: null });
     expect(ma38.find((point) => point.date === "2025-05-07")?.average).not.toBeNull();
     expect(ma38.find((point) => point.date === "2025-05-08")?.average).toBe("118.5");
-    // 05-10: closes 102..138 plus the manual 999 → 5439 / 38.
-    expect(ma38.find((point) => point.date === "2025-05-10")?.average).toBe("143.1315789474");
+    // 05-10: closes 102..139 → 4579 / 38.
+    expect(ma38.find((point) => point.date === "2025-05-10")?.average).toBe("120.5");
   });
 });

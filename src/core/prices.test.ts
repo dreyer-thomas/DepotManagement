@@ -43,14 +43,20 @@ describe("resolvePrice", () => {
   });
 });
 
-describe("resolvePrice precedence (manual > provider > Transaction)", () => {
+describe("resolvePrice precedence (provider > manual > Transaction)", () => {
   const buy = obs("t", "2026-10-20", 3, "100");
   const provider = stored("p", "2026-10-20", "101", "provider");
   const manual = stored("m", "2026-10-20", "102", "manual");
 
-  it("prefers a manual Price on the same date, regardless of order", () => {
-    expect(resolvePrice([buy, provider, manual], "s1", "2026-10-25")).toMatchObject({ price: "102", date: "2026-10-20" });
-    expect(resolvePrice([manual, provider, buy], "s1", "2026-10-25")).toMatchObject({ price: "102", date: "2026-10-20" });
+  it("prefers a provider Price over a manual one on the same date, regardless of order", () => {
+    expect(resolvePrice([buy, provider, manual], "s1", "2026-10-25")).toMatchObject({ price: "101", date: "2026-10-20", source: "provider" });
+    expect(resolvePrice([manual, provider, buy], "s1", "2026-10-25")).toMatchObject({ price: "101", date: "2026-10-20", source: "provider" });
+  });
+
+  it("prefers a manual Price over a Transaction price on the same date, and a newer manual Price over an older provider one", () => {
+    expect(resolvePrice([buy, manual], "s1", "2026-10-25")).toMatchObject({ price: "102", source: "manual" });
+    const laterManual = stored("m1", "2026-10-23", "103", "manual");
+    expect(resolvePrice([provider, laterManual], "s1", "2026-10-25")).toMatchObject({ price: "103", date: "2026-10-23", source: "manual" });
   });
 
   it("prefers a provider Price over a Transaction price on the same date", () => {

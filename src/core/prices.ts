@@ -5,7 +5,7 @@
 import { addDays } from "./dates";
 import { compareLedgerOrder } from "./ledger-order";
 
-/** Where an observed price comes from; on the same date manual wins over provider over Transaction. */
+/** Where an observed price comes from; on the same date provider wins over manual over Transaction. */
 export type PriceSource = "manual" | "provider" | "transaction";
 
 /**
@@ -34,9 +34,10 @@ export type ResolvedPrice = {
   provider: string | null;
 };
 
-const SOURCE_RANK: Record<PriceSource, number> = { transaction: 0, provider: 1, manual: 2 };
+// A manual Price fills a gap until the provider delivers that date; then the provider Price makes it redundant.
+const SOURCE_RANK: Record<PriceSource, number> = { transaction: 0, manual: 1, provider: 2 };
 
-/** Resolver order: `(date, source transaction < provider < manual, sequence, id)`; the last on or before a date wins. */
+/** Resolver order: `(date, source transaction < manual < provider, sequence, id)`; the last on or before a date wins. */
 export function compareObservations(a: PriceObservation, b: PriceObservation): number {
   if (a.date !== b.date) return a.date < b.date ? -1 : 1;
   return (
@@ -48,8 +49,8 @@ export function compareObservations(a: PriceObservation, b: PriceObservation): n
 
 /**
  * Price of `securityId` on `date`: the last observation dated on or before `date`, ordered by
- * `(date, source transaction < provider < manual, sequence, id)` — on a date a manual Price wins, else a
- * provider Price, else the last Transaction; without one on `date` the latest earlier one is carried
+ * `(date, source transaction < manual < provider, sequence, id)` — on a date a provider Price wins, else a
+ * manual Price, else the last Transaction; without one on `date` the latest earlier one is carried
  * forward by the same precedence. `null` when there is none.
  */
 export function resolvePrice(

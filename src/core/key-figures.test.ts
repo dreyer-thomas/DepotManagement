@@ -82,7 +82,7 @@ describe("fiftyTwoWeekFigures", () => {
     });
   });
 
-  it("Transaction prices never set a high; a manual Price wins on its date; later dates ignored", () => {
+  it("Transaction prices never set a high; a provider Price beats a manual one on its date; later dates ignored", () => {
     const observations: PriceObservation[] = [
       provider("2026-09-01", "100"),
       { id: "t", securityId: "s1", date: "2026-09-02", sequence: 1, price: "500", source: "transaction" },
@@ -91,7 +91,7 @@ describe("fiftyTwoWeekFigures", () => {
       provider("2026-10-29", "300"),
     ];
     expect(fiftyTwoWeekFigures(observations, "s1", NO_CORPORATE_ACTIONS, TODAY)).toMatchObject({
-      high: { price: "110", date: "2026-09-03" },
+      high: { price: "120", date: "2026-09-03" },
       low: { price: "100", date: "2026-09-01" },
       distanceToHigh: "0",
     });

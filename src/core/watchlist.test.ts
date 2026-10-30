@@ -152,7 +152,7 @@ describe("entryFigures", () => {
     expect(figures.sinceAdded).toBe("0.04");
   });
 
-  it("follows the resolver precedence: manual over provider on the same date", () => {
+  it("follows the resolver precedence: provider over manual on the same date", () => {
     const figures = entryFigures(
       [obs("2026-10-27", "100"), obs("2026-10-27", "105", "manual"), obs("2026-10-26", "90", "transaction")],
       "s1",
@@ -160,8 +160,8 @@ describe("entryFigures", () => {
       "2026-10-26",
       "2026-10-28",
     );
-    expect(figures).toMatchObject({ price: "105", priceSource: "manual", priceProvider: null });
-    expect(Number(figures.sinceAdded)).toBeCloseTo(105 / 90 - 1, 12);
+    expect(figures).toMatchObject({ price: "100", priceSource: "provider", priceProvider: "YAHOO" });
+    expect(Number(figures.sinceAdded)).toBeCloseTo(100 / 90 - 1, 12);
   });
 
   it("flags a stale latest Price (older than 3 days)", () => {
