@@ -8,6 +8,7 @@ import { PageTitle } from "@/app/_components/Placeholder";
 import { MappingAutoResolver } from "@/app/_components/securities/MappingAutoResolver";
 import { PriceRefreshButton } from "@/app/_components/securities/PriceRefreshButton";
 import { SecurityList } from "@/app/_components/securities/SecurityList";
+import { BENCHMARKS } from "@/core/benchmarks";
 import { businessDate } from "@/core/dates";
 import { listAnalystSymbols, listClassifications, listRegionSplits } from "@/modules/classification";
 import { listHeldSecurities } from "@/modules/ledger";
@@ -36,6 +37,12 @@ export default async function SecuritiesPage() {
   ]);
   const heldSet = new Set(held);
   const watchlistOnly = new Set(watched.filter((id) => !heldSet.has(id)));
+  const benchmarkIsins = new Set(BENCHMARKS.map((benchmark) => benchmark.isin));
+  const fetched = new Set([
+    ...held,
+    ...watched,
+    ...securities.filter((security) => security.isin !== null && benchmarkIsins.has(security.isin)).map((security) => security.id),
+  ]);
   const pending = securities.filter((security) => security.mapping === null).length;
   return (
     <>
@@ -61,6 +68,7 @@ export default async function SecuritiesPage() {
             regionSplits={regionSplits}
             analystSymbols={analystSymbols}
             watchlistOnly={watchlistOnly}
+            fetched={fetched}
             today={today}
           />
         </>

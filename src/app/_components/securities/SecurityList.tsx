@@ -48,6 +48,7 @@ export function SecurityList({
   regionSplits = {},
   analystSymbols = {},
   watchlistOnly = new Set(),
+  fetched,
   today,
 }: {
   securities: SecurityWithMapping[];
@@ -65,11 +66,17 @@ export function SecurityList({
   analystSymbols?: Record<string, AnalystSymbolInfo>;
   /** Securities on ≥ 1 watchlist and not held (story 9.2): chip "Watchlist". */
   watchlistOnly?: ReadonlySet<string>;
+  /**
+   * Securities the price runs fetch (held, watched or a benchmark); only these get "Kurs abrufen" and count for
+   * "Nur Probleme". Absent: all Securities.
+   */
+  fetched?: ReadonlySet<string>;
   /** Today's business date (default date of a manual Price). */
   today: string;
 }) {
   const items = securities.map((security) => {
     const unclassified = security.assetType === "UNCLASSIFIED";
+    const isFetched = fetched?.has(security.id) ?? true;
     const notFound = security.mapping !== null && security.mapping.provider === null;
     const price = prices[security.id];
     const fetchFailed = Boolean(security.mapping?.provider && security.mapping.fetchError);
@@ -129,7 +136,7 @@ export function SecurityList({
                 ) : null}
                 <ManualPriceList security={security} prices={manualPrices[security.id] ?? []} today={today} />
                 <Stack direction="row" sx={{ gap: 1, flexWrap: "wrap", mt: 1, alignItems: "flex-start" }}>
-                  {security.mapping?.provider ? (
+                  {isFetched && security.mapping?.provider ? (
                     <SecurityPriceRefreshButton security={security} provider={security.mapping.provider} />
                   ) : null}
                   {notFound ? <ResolveMappingButton security={security} /> : null}
@@ -150,8 +157,9 @@ export function SecurityList({
         </Card>
       </li>
     );
-    // Shown by "Nur Probleme": a stale or missing Price, a failed last fetch, or no price source found.
-    const problem = !price || price.stale || fetchFailed || notFound;
+    // Shown by "Nur Probleme": a fetched Security with a stale or missing Price, a failed last fetch, or no price source
+    // found. A Security that is neither held, watched nor a benchmark is never fetched, so it cannot be repaired here.
+    const problem = isFetched && (!price || price.stale || fetchFailed || notFound);
     return { id: security.id, text, problem, node };
   });
   return <SecuritySearch items={items} />;

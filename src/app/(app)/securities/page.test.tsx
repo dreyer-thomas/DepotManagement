@@ -101,8 +101,9 @@ describe("Securities page", () => {
     expect(text.match(/Automatisch suchen/g)).toHaveLength(1);
     // The edit actions sit in each card's "Bearbeiten" popup (not server-rendered; covered by the SecurityList tests).
     expect(text.match(/Bearbeiten/g)).toHaveLength(4);
-    // "Kurs abrufen" only for the mapped SAP.
-    expect(text.match(/Kurs abrufen/g)).toHaveLength(1);
+    // Nothing is held or watched: only the benchmark ETF is fetched, so no mapped Security gets "Kurs abrufen".
+    expect([...(findElement(tree, SecurityList)?.props.fetched as Set<string>)]).toEqual([msci.id]);
+    expect(text).not.toContain("Kurs abrufen");
     expect(renderHtml(tree)).toMatch(/MuiChip-colorWarning[^>]*>(?:(?!<\/div>).)*Typ unbekannt/);
   });
 

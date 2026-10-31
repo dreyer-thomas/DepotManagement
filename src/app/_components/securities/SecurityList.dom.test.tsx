@@ -143,6 +143,20 @@ describe("SecurityList", () => {
     expect(names()).toEqual(["Failed AG"]);
   });
 
+  it("ignores Securities that are not fetched (neither held, watched nor a benchmark) for 'Nur Probleme' and 'Kurs abrufen'", async () => {
+    const yahoo = (symbol: string, fetchError: string | null = null) => ({ provider: "YAHOO" as const, symbol, origin: "MANUAL" as const, fetchError });
+    const base = { cryptoSymbol: null, assetType: "STOCK" as const };
+    const list: SecurityWithMapping[] = [
+      { ...base, id: "held", name: "Held AG", isin: "DE0000000001", mapping: yahoo("HLD.DE", "currency") },
+      { ...base, id: "sold", name: "Sold AG", isin: "DE0000000002", mapping: yahoo("SLD.DE", "currency") },
+    ];
+    const user = userEvent.setup({ delay: null });
+    render(<SecurityList securities={list} today="2026-10-26" fetched={new Set(["held"])} />);
+    expect(buttonLabels(/^Kurs abrufen/)).toEqual(["Kurs abrufen – Held AG"]);
+    await user.click(screen.getByRole("switch", { name: "Nur Probleme (1)" }));
+    expect(screen.queryAllByRole("link").map((link) => link.textContent)).toEqual(["Held AG"]);
+  });
+
   it("keeps the edit actions in the 'Bearbeiten' popup, which closes when an action opens its dialog", async () => {
     const user = userEvent.setup({ delay: null });
     render(<SecurityList securities={securities} today="2026-10-26" />);
