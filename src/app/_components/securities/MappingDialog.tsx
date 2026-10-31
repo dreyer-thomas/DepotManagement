@@ -138,7 +138,9 @@ export function ResolveMappingButton({ security }: { security: { id: string; nam
     };
   }
   return (
-    <Stack component="form" action={formAction} noValidate spacing={1}>
+    // `gap`, not `spacing`: spacing's sibling margin would push the button down past the hidden input, out of line
+    // with the card's other action buttons.
+    <Stack component="form" action={formAction} noValidate sx={{ gap: 1 }}>
       <input type="hidden" name="securityId" value={security.id} />
       <Button type="submit" variant="outlined" size="small" disabled={pending} aria-label={`Automatisch suchen – ${security.name}`} sx={TOUCH_TARGET}>
         Automatisch suchen
