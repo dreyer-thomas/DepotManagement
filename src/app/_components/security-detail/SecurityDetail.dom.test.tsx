@@ -76,7 +76,7 @@ describe("SecurityActions", () => {
     await user.click(screen.getByRole("button", { name: "Aktionen für Welt ETF" }));
     await user.click(await screen.findByRole("menuitem", { name: "Neue Buchung" }));
     const dialog = await screen.findByRole("dialog", { name: "Neue Buchung" });
-    expect((within(dialog).getByRole("combobox", { name: "Security" }) as HTMLInputElement).value).toBe("Welt ETF (IE00B4L5Y983)");
+    expect((within(dialog).getByRole("combobox", { name: "Wertpapier" }) as HTMLInputElement).value).toBe("Welt ETF (IE00B4L5Y983)");
     await user.click(within(dialog).getByRole("button", { name: "Buchen" }));
     await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
     expect(formEntries(save.mock.calls[0][1])).toMatchObject({ depotId: "a", securityId: "s1" });

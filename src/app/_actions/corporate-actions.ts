@@ -89,7 +89,7 @@ const isinChangeForm = z.object({
 
 /**
  * Records an ISIN change of `oldSecurityId` through the ledger (new Security selected by id, or
- * created from the "Neue Security anlegen" fields), or edits ISIN change `isinChangeId` when given
+ * created from the "Neues Wertpapier anlegen" fields), or edits ISIN change `isinChangeId` when given
  * (date and quantities only). Quantities are German decimals. Revalidates and schedules a price backfill
  * on success only.
  */

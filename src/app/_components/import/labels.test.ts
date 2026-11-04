@@ -114,7 +114,7 @@ describe("import labels", () => {
       "x.pdf: Buchung wurde abgelehnt. Es wurde nichts gebucht.",
     );
     expect(ledgerRejectedMessage({ fileName: "u.pdf", type: "ISIN_CHANGE", failure: { reason: "isin-change-exists" } })).toBe(
-      "u.pdf: Für dieses Datum ist bereits ein ISIN-Wechsel dieser Security erfasst. Es wurde nichts gebucht.",
+      "u.pdf: Für dieses Datum ist bereits ein ISIN-Wechsel dieses Wertpapiers erfasst. Es wurde nichts gebucht.",
     );
     expect(
       ledgerRejectedMessage({ fileName: "u.pdf", type: "ISIN_CHANGE", failure: { reason: "later-sell-exceeds-holding", date: "2026-09-01" } as never }),

@@ -78,9 +78,9 @@ describe("IsinChangeDialog from the Positions row menu", () => {
     save.mockResolvedValue({ ok: true } as Awaited<ReturnType<typeof saveIsinChangeAction>>);
     const { user, dialog } = await openFromTable();
     const form = within(dialog).getByRole("form", { name: "ISIN-Wechsel erfassen" });
-    await user.click(within(form).getByRole("combobox", { name: "Neue Security" }));
+    await user.click(within(form).getByRole("combobox", { name: "Neues Wertpapier" }));
     const options = (await screen.findAllByRole("option")).map((option) => option.textContent);
-    expect(options).toEqual(["Neuname Software SE (DE000SYN0013)", "Synthetik Gamma AG (DE000SYN0003)", "Neue Security anlegen"]);
+    expect(options).toEqual(["Neuname Software SE (DE000SYN0013)", "Synthetik Gamma AG (DE000SYN0003)", "Neues Wertpapier anlegen"]);
     await user.click(screen.getByRole("option", { name: "Neuname Software SE (DE000SYN0013)" }));
     fireEvent.change(form.querySelector('input[name="date"]')!, { target: { value: "2024-07-01" } });
     await user.type(within(form).getByRole("textbox", { name: "Alte Stückzahl" }), "12");

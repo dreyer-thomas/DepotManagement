@@ -4,7 +4,7 @@ import type { IsinChangeFailureReason, IsinChangeRecord, SplitFailureReason } fr
 export type SplitErrorReason = SplitFailureReason | "unauthorized";
 
 const MESSAGES: Record<Exclude<SplitErrorReason, "later-sell-exceeds-holding">, string> = {
-  "security-not-found": "Security nicht gefunden.",
+  "security-not-found": "Wertpapier nicht gefunden.",
   "date-invalid": "Bitte ein gültiges Datum eingeben.",
   "ratio-invalid": "Bitte ein gültiges Verhältnis eingeben: Alt und Neu als ganze Zahlen größer 0, verschieden.",
   "split-exists": "Für dieses Datum ist bereits ein Split erfasst.",
@@ -44,12 +44,12 @@ export type IsinChangeField =
   | "newQuantity";
 
 const ISIN_CHANGE_MESSAGES: Record<Exclude<IsinChangeErrorReason, "later-sell-exceeds-holding">, string> = {
-  "security-not-found": "Bitte eine Security auswählen oder neu anlegen.",
-  "same-security": "Die neue Security muss sich von der alten unterscheiden.",
+  "security-not-found": "Bitte ein Wertpapier auswählen oder neu anlegen.",
+  "same-security": "Das neue Wertpapier muss sich vom alten unterscheiden.",
   "date-invalid": "Bitte ein gültiges Datum eingeben.",
   "old-quantity-invalid": "Bitte eine alte Stückzahl größer 0 mit höchstens 8 Nachkommastellen eingeben.",
   "new-quantity-invalid": "Bitte eine neue Stückzahl größer 0 mit höchstens 8 Nachkommastellen eingeben.",
-  "isin-change-exists": "Für dieses Datum ist bereits ein ISIN-Wechsel dieser Security erfasst.",
+  "isin-change-exists": "Für dieses Datum ist bereits ein ISIN-Wechsel dieses Wertpapiers erfasst.",
   "isin-change-not-found": "ISIN-Wechsel nicht gefunden.",
   "isin-invalid": "Bitte eine gültige ISIN eingeben.",
   "crypto-symbol-invalid": "Bitte ein gültiges Krypto-Symbol eingeben (bis 10 Buchstaben oder Ziffern).",

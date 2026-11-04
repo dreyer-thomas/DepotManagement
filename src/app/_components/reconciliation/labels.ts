@@ -4,7 +4,7 @@ import type { ReconciliationRowRecord } from "@/modules/ledger";
 
 /** Name of a row: the Security, or the Cash Account. */
 export function rowName(row: Pick<ReconciliationRowRecord, "securityId" | "security">): string {
-  return row.securityId === null ? "Cash-Konto" : (row.security?.name ?? "Unbekannte Security");
+  return row.securityId === null ? "Cash-Konto" : (row.security?.name ?? "Unbekanntes Wertpapier");
 }
 
 /** A row value as shown: `12 Stück` for a Position, `1.234,56 €` for the Cash Account. */

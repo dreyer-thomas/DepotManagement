@@ -107,7 +107,7 @@ UX-DR8: Composition donut + legend — toggle by Position (top 8 + "Sonstige") �
 UX-DR9: Security logo component — 32px round, from local cache, deterministic-color initials fallback with no layout shift; used at every Security mention.
 UX-DR10: Positions table — logo + Security, quantity, price + stale badge, value, Gain/Loss abs/% pill, share; sortable (default value desc); Cash row pinned bottom; stacked rows on phones.
 UX-DR11: Transaction list — newest first, grouped by month, type icon, Security, quantity, amount, cash effect; row opens form; paginated by month (no infinite scroll).
-UX-DR12: Transaction form — type-first adaptive fields; Security Autocomplete (ISIN/name) with "Neue Security anlegen"; live cash effect; duplicate warning with "Trotzdem buchen"; delete confirm; dialog on desktop, full-screen on phone; German decimal input.
+UX-DR12: Transaction form — type-first adaptive fields; Security Autocomplete (ISIN/name) with "Neues Wertpapier anlegen"; live cash effect; duplicate warning with "Trotzdem buchen"; delete confirm; dialog on desktop, full-screen on phone; German decimal input.
 UX-DR13: Import review — upload dropzone (multi-PDF), per-file section with status chip (erkannt/Duplikat/mehrdeutig/fehlgeschlagen), inline-editable proposals, per-proposal book/discard, ambiguous decisions gate "Buchen", failed file → "Manuell erfassen" prefilled form; open batches persist and are counted in nav.
 UX-DR14: Stale badge and Overview stale Alert ("Kurse für N Wertpapiere veraltet") linking to Securities; tooltip with source and fetch time.
 UX-DR15: Securities surface — list of all Securities; classify `UNCLASSIFIED`; edit provider mapping; manual Price entry; "Kurse aktualisieren" with progress and failure snackbar; replace/upload logo.
@@ -287,7 +287,7 @@ So that my trades are in the ledger.
 
 **Given** a Depot exists
 **When** I open "Neue Buchung" (dialog on desktop, full-screen on phone) and choose Kauf or Verkauf
-**Then** I can pick a Security via Autocomplete by ISIN or name, or choose "Neue Security anlegen" with ISIN (or crypto symbol), name and asset type (STOCK, ETF, FUND, CERTIFICATE, CRYPTO; FUND added by Story 2.5) (UX-DR12)
+**Then** I can pick a Security via Autocomplete by ISIN or name, or choose "Neues Wertpapier anlegen" with ISIN (or crypto symbol), name and asset type (STOCK, ETF, FUND, CERTIFICATE, CRYPTO; FUND added by Story 2.5) (UX-DR12)
 **And** the Security is created only on save via idempotent `ledger.ensureSecurity`; ISIN and upper-case crypto symbol are unique (AD-16)
 **And** I enter date, quantity (up to 8 decimals), price, fee and tax; inputs accept German decimal comma and pasted `1.234,56`
 **And** the saved Transaction follows AD-14 (amount = unsigned gross value = quantity × price as entered or stated, fee ≥ 0, signed tax), values are stored as TEXT decimal strings (AD-5), the business date as `YYYY-MM-DD`, and the ledger service assigns the next intra-day sequence (AD-8)
@@ -1209,7 +1209,7 @@ So that I can park ideas, watch them and drop them when I no longer believe in t
 **Given** the new surface "Watchlists" (drawer between Wertpapiere and Einstellungen; under "Mehr" on phones)
 **When** I create, rename or delete a watchlist (name required, unique, ≤ 60 characters; deleting a non-empty list asks for confirmation naming the list and its entry count)
 **Then** the lists appear as tabs (a select on phones) in the order created, the last opened list is remembered per browser, and an empty state offers "Watchlist anlegen"
-**And** "Wertpapier hinzufügen" opens a form with the Security Autocomplete of the Transaction form (ISIN, crypto symbol or name; "Neue Security anlegen" for an unknown ISIN creates it through `ledger.ensureSecurity`, AD-16), a note (plain text, ≤ 2000 characters) and the date added (default today, editable)
+**And** "Wertpapier hinzufügen" opens a form with the Security Autocomplete of the Transaction form (ISIN, crypto symbol or name; "Neues Wertpapier anlegen" for an unknown ISIN creates it through `ledger.ensureSecurity`, AD-16), a note (plain text, ≤ 2000 characters) and the date added (default today, editable)
 **And** a Security already on that list is refused with "Steht schon auf dieser Liste"; it may stand on other lists
 **And** an entry can be edited (note, date added, move to another list) and removed; removing never deletes the Security or its Prices
 **And** the list shows per entry: logo, name, ISIN/symbol, current Price with stale badge, change today (% and €/unit), change since added (% from the resolved Price on the date added, AD-9 carry-forward; "–" without a Price), date added, the first line of the note, and a chip "im Bestand" when `heldSecurities` contains it; sortable by name, change today, change since added and date added (default date added, newest first); stacked rows on phones

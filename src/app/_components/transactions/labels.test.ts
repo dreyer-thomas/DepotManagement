@@ -82,8 +82,8 @@ describe("transaction labels", () => {
     ["fee-invalid", "DEPOSIT", "fee", "Gebühren dürfen nicht negativ sein."],
     ["tax-invalid", "TAX", "amount", "Bitte einen Betrag ungleich 0 eingeben."],
     ["tax-invalid", "DIVIDEND", "tax", "Bitte einen gültigen Steuerbetrag eingeben."],
-    ["security-required", "DIVIDEND", "security", "Bitte eine Security wählen."],
-    ["security-not-allowed", "DEPOSIT", "security", "Ein- und Auszahlungen haben keine Security."],
+    ["security-required", "DIVIDEND", "security", "Bitte ein Wertpapier wählen."],
+    ["security-not-allowed", "DEPOSIT", "security", "Ein- und Auszahlungen haben kein Wertpapier."],
   ])("%s for %s shows on %s", (reason, type, field, message) => {
     expect(transactionErrorField(reason, type)).toBe(field);
     expect(transactionErrorMessage(reason, undefined, type)).toBe(message);

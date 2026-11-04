@@ -48,7 +48,7 @@ describe("AddWatchlistEntryButton", () => {
     add.mockResolvedValue(OK_ADD);
     const { user, dialog } = await openAdd();
     expect((within(dialog).getByLabelText(/Aufgenommen am/) as HTMLInputElement).value).toBe("2026-10-28");
-    await user.click(within(dialog).getByRole("combobox", { name: "Security" }));
+    await user.click(within(dialog).getByRole("combobox", { name: "Wertpapier" }));
     await user.click(await screen.findByRole("option", { name: "SAP SE (DE0007164600)" }));
     await user.type(within(dialog).getByRole("textbox", { name: "Notiz" }), "KGV niedrig");
     await user.click(within(dialog).getByRole("button", { name: "Hinzufügen" }));
@@ -56,11 +56,11 @@ describe("AddWatchlistEntryButton", () => {
     expect(formEntries(add.mock.calls[0][1])).toEqual({ watchlistId: "w1", securityId: "s1", note: "KGV niedrig", dateAdded: "2026-10-28" });
   }, SLOW);
 
-  it("offers 'Neue Security anlegen' with identifier, name and type, and shows ledger reasons on the fields", async () => {
+  it("offers 'Neues Wertpapier anlegen' with identifier, name and type, and shows ledger reasons on the fields", async () => {
     add.mockResolvedValueOnce({ ok: false, reason: "isin-invalid" });
     const { user, dialog } = await openAdd();
-    await user.click(within(dialog).getByRole("combobox", { name: "Security" }));
-    await user.click(await screen.findByRole("option", { name: "Neue Security anlegen" }));
+    await user.click(within(dialog).getByRole("combobox", { name: "Wertpapier" }));
+    await user.click(await screen.findByRole("option", { name: "Neues Wertpapier anlegen" }));
     await user.type(within(dialog).getByRole("textbox", { name: "ISIN oder Krypto-Symbol" }), "DE000BAD0000");
     await user.type(within(dialog).getByRole("textbox", { name: "Name" }), "Bad AG");
     await user.click(within(dialog).getByRole("combobox", { name: "Art" }));
@@ -79,7 +79,7 @@ describe("AddWatchlistEntryButton", () => {
   it("shows 'Steht schon auf dieser Liste' on the Security field", async () => {
     add.mockResolvedValue({ ok: false, reason: "already-on-list" });
     const { user, dialog } = await openAdd();
-    await user.click(within(dialog).getByRole("combobox", { name: "Security" }));
+    await user.click(within(dialog).getByRole("combobox", { name: "Wertpapier" }));
     await user.click(await screen.findByRole("option", { name: "SAP SE (DE0007164600)" }));
     await user.click(within(dialog).getByRole("button", { name: "Hinzufügen" }));
     expect(await within(dialog).findByText("Steht schon auf dieser Liste")).toBeDefined();

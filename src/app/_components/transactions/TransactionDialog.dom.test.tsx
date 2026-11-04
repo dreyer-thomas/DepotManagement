@@ -35,8 +35,8 @@ async function fillNewSecurityBuy() {
   const dialog = await screen.findByRole("dialog", { name: "Neue Buchung" });
 
   await user.click(within(dialog).getByRole("button", { name: "Kauf" }));
-  await user.click(within(dialog).getByRole("combobox", { name: "Security" }));
-  await user.click(await screen.findByRole("option", { name: "Neue Security anlegen" }));
+  await user.click(within(dialog).getByRole("combobox", { name: "Wertpapier" }));
+  await user.click(await screen.findByRole("option", { name: "Neues Wertpapier anlegen" }));
   await user.type(input("ISIN oder Krypto-Symbol"), "IE00B5BMR087");
   await user.type(input("Name"), "Synthetik S&P ETF");
   await user.click(within(dialog).getByRole("combobox", { name: "Art" }));
@@ -73,7 +73,7 @@ describe("NewTransactionButton", () => {
     expect(await within(dialog).findByText("Bitte eine Stückzahl größer 0 mit höchstens 8 Nachkommastellen eingeben.")).toBeTruthy();
     expect(dialog.isConnected).toBe(true);
     expect(within(dialog).getByRole("button", { name: "Kauf" }).getAttribute("aria-pressed")).toBe("true");
-    expect((within(dialog).getByRole("combobox", { name: "Security" }) as HTMLInputElement).value).toBe("Neue Security anlegen");
+    expect((within(dialog).getByRole("combobox", { name: "Wertpapier" }) as HTMLInputElement).value).toBe("Neues Wertpapier anlegen");
     expect(input("ISIN oder Krypto-Symbol").value).toBe("IE00B5BMR087");
     expect(input("Name").value).toBe("Synthetik S&P ETF");
     expect(within(dialog).getByRole("combobox", { name: "Art" }).textContent).toBe("ETF");
@@ -108,7 +108,7 @@ describe("TransactionDialog", () => {
       <TransactionDialog open onClose={() => {}} formKey={1} depot={depot} securities={securities} today="2024-03-01" security={securities[0]} />,
     );
     const dialog = await screen.findByRole("dialog", { name: "Neue Buchung" });
-    expect((within(dialog).getByRole("combobox", { name: "Security" }) as HTMLInputElement).value).toBe("Welt ETF (IE00B4L5Y983)");
+    expect((within(dialog).getByRole("combobox", { name: "Wertpapier" }) as HTMLInputElement).value).toBe("Welt ETF (IE00B4L5Y983)");
     await user.click(within(dialog).getByRole("button", { name: "Buchen" }));
     await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
     expect(formEntries(save.mock.calls[0][1])).toMatchObject({ depotId: "d1", type: "BUY", securityId: "s1" });

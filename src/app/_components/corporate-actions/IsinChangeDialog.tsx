@@ -43,7 +43,7 @@ function failureDate(state: { ok: false; reason: string; date?: string }): strin
 }
 
 /**
- * ISIN-change form: new Security (existing or "Neue Security anlegen"), effective date, old and new
+ * ISIN-change form: new Security (existing or "Neues Wertpapier anlegen"), effective date, old and new
  * quantity. Records a new change of `security`, or edits `isinChange` (date and quantities; both
  * Securities stay). Inputs are controlled so they keep their text after an error; success calls `onSaved`.
  */
@@ -128,7 +128,7 @@ function IsinChangeForm({
               renderInput={(params) => (
                 <TextField
                   {...params}
-                  label="Neue Security"
+                  label="Neues Wertpapier"
                   placeholder="ISIN, Krypto-Symbol oder Name"
                   required
                   autoFocus

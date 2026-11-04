@@ -8,7 +8,7 @@ export const WATCHLIST_FIELDS = {
   name: "name",
   entryId: "entryId",
   securityId: "securityId",
-  /** `NEW_SECURITY_MARKER` when "Neue Security anlegen" is chosen. */
+  /** `NEW_SECURITY_MARKER` when "Neues Wertpapier anlegen" is chosen. */
   newSecurity: "newSecurity",
   securityIdentifier: "securityIdentifier",
   securityName: "securityName",
@@ -17,5 +17,5 @@ export const WATCHLIST_FIELDS = {
   dateAdded: "dateAdded",
 } as const;
 
-/** Value of the `newSecurity` field when "Neue Security anlegen" is chosen. */
+/** Value of the `newSecurity` field when "Neues Wertpapier anlegen" is chosen. */
 export const NEW_SECURITY_MARKER = "1";

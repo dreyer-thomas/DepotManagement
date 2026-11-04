@@ -1,11 +1,11 @@
 import { createFilterOptions } from "@mui/material/Autocomplete";
 import type { SecuritySummary } from "@/modules/ledger";
 
-/** An Autocomplete option of a Security picker: an existing Security, or "Neue Security anlegen". */
+/** An Autocomplete option of a Security picker: an existing Security, or "Neues Wertpapier anlegen". */
 export type SecurityOption = { kind: "security"; security: SecuritySummary } | { kind: "new" };
 
 export const NEW_OPTION: SecurityOption = { kind: "new" };
-const NEW_LABEL = "Neue Security anlegen";
+const NEW_LABEL = "Neues Wertpapier anlegen";
 
 export function optionLabel(option: SecurityOption): string {
   if (option.kind === "new") return NEW_LABEL;
@@ -21,7 +21,7 @@ const baseFilter = createFilterOptions<SecurityOption>({
       : [option.security.isin, option.security.cryptoSymbol, option.security.name].filter(Boolean).join(" "),
 });
 
-/** Matching Securities, then always "Neue Security anlegen" as the last option. */
+/** Matching Securities, then always "Neues Wertpapier anlegen" as the last option. */
 export function filterSecurityOptions(
   options: SecurityOption[],
   state: Parameters<typeof baseFilter>[1],

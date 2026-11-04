@@ -25,7 +25,7 @@ export const TRADE_FIELDS = {
 
 export type TradeFieldName = (typeof TRADE_FIELDS)[keyof typeof TRADE_FIELDS];
 
-/** Value of the `newSecurity` field when "Neue Security anlegen" is chosen. */
+/** Value of the `newSecurity` field when "Neues Wertpapier anlegen" is chosen. */
 export const NEW_SECURITY_MARKER = "1";
 
 /** Value of the `allowDuplicate` field when "Trotzdem buchen" is pressed. */

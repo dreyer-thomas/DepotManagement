@@ -147,7 +147,7 @@ export function TransactionList({
                 <TableHead>
                   <TableRow>
                     <TableCell>Art</TableCell>
-                    <TableCell>Security</TableCell>
+                    <TableCell>Wertpapier</TableCell>
                     <TableCell>Datum</TableCell>
                     <TableCell sx={numeric}>Stück</TableCell>
                     <TableCell sx={numeric}>Betrag</TableCell>

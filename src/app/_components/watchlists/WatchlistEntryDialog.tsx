@@ -103,7 +103,7 @@ function NoteAndDate({
 }
 
 /**
- * "Wertpapier hinzufügen": the Security Autocomplete of the Transaction form (with "Neue Security
+ * "Wertpapier hinzufügen": the Security Autocomplete of the Transaction form (with "Neues Wertpapier
  * anlegen" and its fields), note and date added (default today). Success closes the dialog.
  */
 function AddEntryForm({
@@ -171,7 +171,7 @@ function AddEntryForm({
               renderInput={(params) => (
                 <TextField
                   {...params}
-                  label="Security"
+                  label="Wertpapier"
                   placeholder="ISIN, Krypto-Symbol oder Name"
                   required
                   error={Boolean(errorFor("security"))}

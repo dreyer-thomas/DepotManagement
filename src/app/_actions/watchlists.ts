@@ -84,7 +84,7 @@ export async function deleteWatchlistAction(
 }
 
 /**
- * "Wertpapier hinzufügen": an existing Security or a new one ("Neue Security anlegen", created through
+ * "Wertpapier hinzufügen": an existing Security or a new one ("Neues Wertpapier anlegen", created through
  * the ledger). A success schedules a price backfill (a newly watched Security needs its history).
  */
 export async function addWatchlistEntryAction(

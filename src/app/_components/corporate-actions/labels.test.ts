@@ -17,7 +17,7 @@ describe("split labels", () => {
     ["ratio-invalid", "Bitte ein gültiges Verhältnis eingeben: Alt und Neu als ganze Zahlen größer 0, verschieden.", "ratio"],
     ["date-invalid", "Bitte ein gültiges Datum eingeben.", "date"],
     ["split-exists", "Für dieses Datum ist bereits ein Split erfasst.", "date"],
-    ["security-not-found", "Security nicht gefunden.", undefined],
+    ["security-not-found", "Wertpapier nicht gefunden.", undefined],
     ["split-not-found", "Split nicht gefunden.", undefined],
     ["unauthorized", "Sitzung abgelaufen. Bitte erneut anmelden.", undefined],
   ])("%s → %j on field %s", (reason, message, field) => {
@@ -39,10 +39,10 @@ describe("split labels", () => {
 
 describe("ISIN-change labels", () => {
   it.each<[IsinChangeErrorReason, string, IsinChangeField | undefined]>([
-    ["security-not-found", "Bitte eine Security auswählen oder neu anlegen.", "newSecurity"],
-    ["same-security", "Die neue Security muss sich von der alten unterscheiden.", "newSecurity"],
+    ["security-not-found", "Bitte ein Wertpapier auswählen oder neu anlegen.", "newSecurity"],
+    ["same-security", "Das neue Wertpapier muss sich vom alten unterscheiden.", "newSecurity"],
     ["date-invalid", "Bitte ein gültiges Datum eingeben.", "date"],
-    ["isin-change-exists", "Für dieses Datum ist bereits ein ISIN-Wechsel dieser Security erfasst.", "date"],
+    ["isin-change-exists", "Für dieses Datum ist bereits ein ISIN-Wechsel dieses Wertpapiers erfasst.", "date"],
     ["old-quantity-invalid", "Bitte eine alte Stückzahl größer 0 mit höchstens 8 Nachkommastellen eingeben.", "oldQuantity"],
     ["new-quantity-invalid", "Bitte eine neue Stückzahl größer 0 mit höchstens 8 Nachkommastellen eingeben.", "newQuantity"],
     ["isin-change-not-found", "ISIN-Wechsel nicht gefunden.", undefined],

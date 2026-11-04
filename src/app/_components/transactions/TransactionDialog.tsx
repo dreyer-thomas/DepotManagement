@@ -269,7 +269,7 @@ function TransactionForm({
         renderInput={(params) => (
           <TextField
             {...params}
-            label={securityRequired ? "Security" : "Security (optional)"}
+            label={securityRequired ? "Wertpapier" : "Wertpapier (optional)"}
             placeholder="ISIN, Krypto-Symbol oder Name"
             required={securityRequired}
             error={Boolean(errorFor("security"))}

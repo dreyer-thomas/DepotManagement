@@ -65,7 +65,7 @@ Behavioral; visual specs in `DESIGN.md.Components`.
 | Security logo | Every Security mention | Logo before the name, always served from the local logo cache (fetched once in the background: logo.dev, fallback Elbstream; certificates show issuer or underlying logo; crypto falls back to CoinGecko). Missing logo shows initials immediately, never a broken image or layout shift. A manually uploaded logo always wins. |
 | Positions table | Depot detail, Overview (top Positions) | Columns: logo + Security, quantity, price (+ stale badge), value, Gain/Loss abs/%, share. Sortable, default by value desc. Cash Account row pinned at the bottom, visually distinct. Phone: stacked rows (name, value, Gain/Loss). |
 | Transaction list | Depot detail, Security detail | Newest first, grouped by month; type icon, Security, quantity, amount, cash effect. Row click opens the form in edit mode. |
-| Transaction form | Dialog (desktop), full-screen page (phone) | Type first; fields adapt to type (BUY/SELL: Security, date, quantity, price, fee, tax; DIVIDEND: Security, amount, tax; FEE/TAX: value; DEPOSIT/WITHDRAWAL: amount). Security via Autocomplete on ISIN or name; unknown ISIN offers "Neue Security anlegen". Shows the computed cash effect live. On save a possible duplicate shows an inline warning requiring explicit "Trotzdem buchen". Delete asks for confirmation. |
+| Transaction form | Dialog (desktop), full-screen page (phone) | Type first; fields adapt to type (BUY/SELL: Security, date, quantity, price, fee, tax; DIVIDEND: Security, amount, tax; FEE/TAX: value; DEPOSIT/WITHDRAWAL: amount). Security via Autocomplete on ISIN or name; unknown ISIN offers "Neues Wertpapier anlegen". Shows the computed cash effect live. On save a possible duplicate shows an inline warning requiring explicit "Trotzdem buchen". Delete asks for confirmation. |
 | Import review table | Import | One section per file with status chip; proposals editable inline; per proposal: book / discard. Ambiguous duplicates require a decision before "Buchen" is enabled. Failed files show reason and a "Manuell erfassen" link to the prefilled form. |
 | Back link | Sub-pages: Security detail, Depot detail, reconciliation, import batch, Parqet migration | "‹ <origin>" on its own line above the page header (title, logo and actions keep their full width) naming the page Tommy came from (Depot, watchlist, Übersicht, …); returns there as left (history back: URL, scroll, tab kept); in-page changes are never the target; without an in-app origin it leads to the logical parent (Wertpapiere, Depots, the Depot, Import, Einstellungen). Top-level pages have none. ≥ 44 px, keyboard-operable. |
 | Stale badge | Every price display | Appears when Price older than 3 days; tooltip shows source and fetch time. |
@@ -148,7 +148,7 @@ Failure: a Price is stale → stale badge with date on the Position and the Over
 3. Enters date, quantity, price and fee; the form shows the cash effect "−1.004,90 €".
 4. **Climax:** He saves; the Positions table and Cash Account balance reflect the buy immediately.
 
-Failure: the ISIN is unknown → "Neue Security anlegen" creates it; type is asked (stock/ETF/certificate/crypto) and the provider mapping is resolved in the background.
+Failure: the ISIN is unknown → "Neues Wertpapier anlegen" creates it; type is asked (stock/ETF/certificate/crypto) and the provider mapping is resolved in the background.
 
 ### Flow 4 — One-time Parqet migration (CAP-15)
 

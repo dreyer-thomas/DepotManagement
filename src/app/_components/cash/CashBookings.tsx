@@ -34,7 +34,7 @@ export function CashBookings({ balance, bookings }: { balance: string; bookings:
             <TableRow>
               <TableCell>Datum</TableCell>
               <TableCell>Art</TableCell>
-              <TableCell>Security</TableCell>
+              <TableCell>Wertpapier</TableCell>
               <TableCell sx={numeric}>Cash-Effekt</TableCell>
               <TableCell sx={numeric}>Saldo</TableCell>
             </TableRow>

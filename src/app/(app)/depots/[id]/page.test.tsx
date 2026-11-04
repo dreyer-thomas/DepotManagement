@@ -195,7 +195,7 @@ describe("Depot detail page", () => {
     expect(html).toMatch(selectedTab("Cash-Konto"));
     expect(text).toContain("Cash-Konto 731,10\u00a0€");
     expect(text).toContain("Saldo 731,10\u00a0€");
-    expect(text).toMatch(/Datum .*Art .*Security .*Cash-Effekt .*Saldo/);
+    expect(text).toMatch(/Datum .*Art .*Wertpapier .*Cash-Effekt .*Saldo/);
     expect(text).toMatch(
       new RegExp(
         [
@@ -237,7 +237,7 @@ describe("Depot detail page", () => {
     const { id } = await depot();
     await bookMatrix(id);
     const text = renderText(await DepotDetailPage(props(id, "transactions")));
-    expect(text).toMatch(/Art .*Security .*Datum .*Stück .*Betrag .*Cash-Effekt/);
+    expect(text).toMatch(/Art .*Wertpapier .*Datum .*Stück .*Betrag .*Cash-Effekt/);
     expect(text).toContain("Auszahlung 04.03.2026 300,00\u00a0€ -300,00\u00a0€");
     expect(text).toContain("Steuer 03.03.2026 -3,50\u00a0€ +3,50\u00a0€");
     expect(text).toContain("Gebühr 02.03.2026 4,90\u00a0€ -4,90\u00a0€");

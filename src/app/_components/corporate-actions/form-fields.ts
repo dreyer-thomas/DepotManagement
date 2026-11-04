@@ -7,7 +7,7 @@ export const ISIN_CHANGE_FIELDS = {
   /** Set in edit mode: the ISIN change being edited. */
   isinChangeId: "isinChangeId",
   newSecurityId: "newSecurityId",
-  /** `NEW_SECURITY_MARKER` when "Neue Security anlegen" is chosen. */
+  /** `NEW_SECURITY_MARKER` when "Neues Wertpapier anlegen" is chosen. */
   newSecurity: "newSecurity",
   securityIdentifier: "securityIdentifier",
   securityName: "securityName",
