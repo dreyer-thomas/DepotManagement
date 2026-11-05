@@ -5,7 +5,9 @@ import {
   fiftyTwoWeekFigures,
   hasProviderKeyFigures,
   isKeyFiguresStale,
+  fiftyTwoWeekFromCloses,
   KEY_FIGURES_STALE_AFTER_DAYS,
+  tradingDayCloses,
   upcomingEarningsDate,
 } from "./key-figures";
 import type { PriceObservation } from "./prices";
@@ -112,6 +114,40 @@ describe("fiftyTwoWeekFigures", () => {
     };
     expect(fiftyTwoWeekFigures(observations, "old", actions, TODAY)).toEqual(expected);
     expect(fiftyTwoWeekFigures(observations, "new", actions, TODAY)).toEqual(expected);
+  });
+});
+
+describe("tradingDayCloses", () => {
+  it("stored closes only, one per date (resolver winner), ascending, nothing after today", () => {
+    const observations: PriceObservation[] = [
+      provider("2026-09-03", "120.50"),
+      provider("2026-09-01", "100"),
+      { id: "t", securityId: "s1", date: "2026-09-02", sequence: 1, price: "500", source: "transaction" },
+      { id: "m", securityId: "s1", date: "2026-09-03", sequence: 0, price: "110", source: "manual" },
+      { id: "m2", securityId: "s1", date: "2026-09-04", sequence: 0, price: "111", source: "manual" },
+      provider("2026-09-04", "5", "s2"),
+      provider("2026-10-29", "300"),
+    ];
+    expect(tradingDayCloses(observations, "s1", NO_CORPORATE_ACTIONS, TODAY)).toEqual([
+      { date: "2026-09-01", price: "100" },
+      { date: "2026-09-03", price: "120.5" },
+      { date: "2026-09-04", price: "111" },
+    ]);
+  });
+
+  it("closes before a split are adjusted to today's units", () => {
+    const actions: CorporateActions = { splits: [{ securityId: "s1", date: "2026-07-28", ratioOld: "1", ratioNew: "2" }], isinChanges: [] };
+    expect(tradingDayCloses([provider("2026-06-01", "200"), provider("2026-08-01", "95")], "s1", actions, TODAY)).toEqual([
+      { date: "2026-06-01", price: "100" },
+      { date: "2026-08-01", price: "95" },
+    ]);
+  });
+
+  it("fiftyTwoWeekFigures is fiftyTwoWeekFromCloses over tradingDayCloses", () => {
+    const observations = [provider("2025-10-29", "80"), provider("2026-01-15", "120"), provider("2026-10-27", "108")];
+    expect(fiftyTwoWeekFromCloses(tradingDayCloses(observations, "s1", NO_CORPORATE_ACTIONS, TODAY), TODAY)).toEqual(
+      fiftyTwoWeekFigures(observations, "s1", NO_CORPORATE_ACTIONS, TODAY),
+    );
   });
 });
 

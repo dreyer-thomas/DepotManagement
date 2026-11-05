@@ -110,20 +110,22 @@ export type FiftyTwoWeekFigures = {
 export const NO_FIFTY_TWO_WEEK_FIGURES: FiftyTwoWeekFigures = { high: null, low: null, distanceToHigh: null, performance: null };
 
 /** Days back from today to the window start (`today − 364` .. `today` = 52 weeks + 1 day of closes). */
-const WINDOW_DAYS = 364;
+export const FIFTY_TWO_WEEK_WINDOW_DAYS = 364;
 
 /**
- * The 52-week figures of `securityId` as of `today`: stored closes only (provider/manual Prices, never
- * Transaction prices), carried to the Security it maps to today and its units as of today (a split is
- * never a drop); one close per date (the resolver winner, as `securityMovingAverage`). Window =
- * `today − 364 .. today`. All `null` without a close in the window.
+ * The trading-day closes of `securityId` as of `today`, ascending by date: stored closes only
+ * (provider/manual Prices, never Transaction prices), carried to the Security it maps to today and its
+ * units as of today (a split is never a drop); one close per date (the resolver winner, as
+ * `securityMovingAverage`); closes after `today` are ignored. Dates without a stored Price (weekends,
+ * holidays) are absent, never carried forward. Prices are canonical decimal strings. Shared by the
+ * 52-week figures (story 9.6) and the technical signals (story 11.2).
  */
-export function fiftyTwoWeekFigures(
+export function tradingDayCloses(
   observations: readonly PriceObservation[],
   securityId: string,
   actions: CorporateActions,
   today: string,
-): FiftyTwoWeekFigures {
+): DatedClose[] {
   const target = currentSecurityId(securityId, actions, today);
   const own = adjustedObservations(
     observations.filter((observation) => observation.source !== "transaction"),
@@ -138,13 +140,22 @@ export function fiftyTwoWeekFigures(
     if (last && last.date === observation.date) last.price = observation.price;
     else closes.push({ date: observation.date, price: observation.price });
   }
+  return closes.map((close) => ({ date: close.date, price: canonicalDecimal(close.price) }));
+}
 
-  const start = addDays(today, -WINDOW_DAYS);
+/**
+ * The 52-week figures from trading-day closes (ascending by date, as `tradingDayCloses` returns them) as of
+ * `today`. Window = `today − 364 .. today`; closes after `today` are ignored. All `null` without a close in
+ * the window.
+ */
+export function fiftyTwoWeekFromCloses(closes: readonly DatedClose[], today: string): FiftyTwoWeekFigures {
+  const start = addDays(today, -FIFTY_TWO_WEEK_WINDOW_DAYS);
   let base: DatedClose | null = null;
   let high: DatedClose | null = null;
   let low: DatedClose | null = null;
   let latest: DatedClose | null = null;
   for (const close of closes) {
+    if (close.date > today) continue;
     if (close.date <= start) base = close;
     if (close.date < start) continue;
     const price = new ExactDecimal(close.price);
@@ -154,9 +165,10 @@ export function fiftyTwoWeekFigures(
   }
   if (high === null || low === null || latest === null) return NO_FIFTY_TWO_WEEK_FIGURES;
 
+  const last = latest;
   const ratio = (from: string): string | null => {
     const divisor = new ReturnDecimal(from);
-    return divisor.isZero() ? null : ratioString(new ReturnDecimal(latest.price).dividedBy(divisor).minus(1));
+    return divisor.isZero() ? null : ratioString(new ReturnDecimal(last.price).dividedBy(divisor).minus(1));
   };
   return {
     high: { price: canonicalDecimal(high.price), date: high.date },
@@ -164,4 +176,17 @@ export function fiftyTwoWeekFigures(
     distanceToHigh: ratio(high.price),
     performance: base === null ? null : ratio(base.price),
   };
+}
+
+/**
+ * The 52-week figures of `securityId` as of `today`: `fiftyTwoWeekFromCloses` over `tradingDayCloses`
+ * (stored, split-adjusted closes, one per date). All `null` without a close in the window.
+ */
+export function fiftyTwoWeekFigures(
+  observations: readonly PriceObservation[],
+  securityId: string,
+  actions: CorporateActions,
+  today: string,
+): FiftyTwoWeekFigures {
+  return fiftyTwoWeekFromCloses(tradingDayCloses(observations, securityId, actions, today), today);
 }
