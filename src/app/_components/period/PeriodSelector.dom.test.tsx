@@ -28,8 +28,11 @@ describe("PeriodSelector", () => {
     render(<PeriodSelector period={{ kind: "preset", preset: "3J" }} today={TODAY} />);
     const names = within(screen.getByRole("group", { name: "Zeitraum" }))
       .getAllByRole("button")
-      .map((button) => button.textContent);
+      .map((button) => button.getAttribute("aria-label") ?? button.textContent);
     expect(names).toEqual(["1T", "1W", "1M", "YTD", "1J", "3J", "Benutzerdefiniert"]);
+    // "Benutzerdefiniert" is a calendar icon with the name as tooltip, never the word.
+    expect(pill("Benutzerdefiniert").textContent).toBe("");
+    expect(pill("Benutzerdefiniert").getAttribute("title")).toBe("Benutzerdefiniert");
     expect(pill("3J").getAttribute("aria-pressed")).toBe("true");
     expect(pill("1J").getAttribute("aria-pressed")).toBe("false");
   });

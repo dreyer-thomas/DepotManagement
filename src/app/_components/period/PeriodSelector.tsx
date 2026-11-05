@@ -2,7 +2,6 @@
 
 import EditCalendarOutlined from "@mui/icons-material/EditCalendarOutlined";
 import Alert from "@mui/material/Alert";
-import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Dialog from "@mui/material/Dialog";
 import DialogActions from "@mui/material/DialogActions";
@@ -35,11 +34,14 @@ export function customRangeError(from: string, to: string, today: string): strin
   return null;
 }
 
+// Fixed 44 × 44 circles (every label has at most three characters); the group's -1px overlap is undone.
 const PILL = {
-  minHeight: 44,
+  width: 44,
+  height: 44,
   minWidth: 44,
-  px: { xs: 1, sm: 1.5 },
-  border: 0,
+  p: 0,
+  m: "0 !important",
+  border: "0 !important",
   borderRadius: "999px !important",
   textTransform: "none",
   fontWeight: 500,
@@ -50,8 +52,8 @@ const PILL = {
 /**
  * Global Period selector (1T · 1W · 1M · YTD · 1J · 3J · Benutzerdefiniert). A pill stores the choice via
  * the server action (cookie) and refreshes the page; "Benutzerdefiniert" opens a Von/Bis dialog whose
- * range must satisfy `from ≤ to ≤ today` before anything is saved. Below `sm` that pill shows a
- * calendar icon instead of the word, so the row fits a phone.
+ * range must satisfy `from ≤ to ≤ today` before anything is saved. Every pill is a circle; "Benutzerdefiniert"
+ * is a calendar icon (name as tooltip, the custom range when one is chosen).
  */
 export function PeriodSelector({ period, today }: { period: PeriodSelection; today: string }) {
   const router = useRouter();
@@ -146,10 +148,7 @@ export function PeriodSelector({ period, today }: { period: PeriodSelection; tod
           aria-label="Benutzerdefiniert"
           title={period.kind === "custom" ? periodLabel(period) : "Benutzerdefiniert"}
         >
-          <EditCalendarOutlined aria-hidden fontSize="small" sx={{ display: { xs: "block", sm: "none" } }} />
-          <Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>
-            Benutzerdefiniert
-          </Box>
+          <EditCalendarOutlined aria-hidden fontSize="small" />
         </ToggleButton>
       </ToggleButtonGroup>
       <Dialog
