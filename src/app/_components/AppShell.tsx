@@ -23,6 +23,7 @@ import { spacing } from "@/theme/tokens";
 import { logout } from "../_actions/logout";
 import { HistoryTracker } from "./back-navigation/HistoryTracker";
 import { ColorModeToggle } from "./ColorModeToggle";
+import { RefreshButton } from "./RefreshButton";
 import { type NavItem, activeBottomHref, bottomItems, drawerItems, isActive, navBadgeCount, openImportsLabel } from "./navigation";
 
 const DRAWER_WIDTH = 240;
@@ -81,6 +82,7 @@ export function AppShell({ children, openImports = 0 }: { children: ReactNode; o
           <Typography component="div" variant="h6" sx={{ flexGrow: 1, fontWeight: 600, color: "primary.main" }}>
             DepotManagement
           </Typography>
+          <RefreshButton />
           <ColorModeToggle />
           <form action={logout} style={{ display: "flex" }}>
             <IconButton type="submit" color="inherit" size="large" aria-label="Abmelden" title="Abmelden">

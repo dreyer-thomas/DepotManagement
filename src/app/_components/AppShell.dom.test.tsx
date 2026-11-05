@@ -5,7 +5,8 @@ import { registerDomCleanup } from "../../../test/helpers/dom";
 import { AppShell } from "./AppShell";
 import { MoreLinks } from "./MoreLinks";
 
-vi.mock("next/navigation", () => ({ usePathname: () => "/" }));
+vi.mock("next/navigation", () => ({ usePathname: () => "/", useRouter: () => ({ refresh: vi.fn() }) }));
+vi.mock("../_actions/refresh", () => ({ refreshAllAction: vi.fn() }));
 vi.mock("../_actions/logout", () => ({ logout: vi.fn() }));
 
 registerDomCleanup();

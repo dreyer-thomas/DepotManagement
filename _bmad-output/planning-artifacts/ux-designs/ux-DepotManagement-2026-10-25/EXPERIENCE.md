@@ -71,6 +71,7 @@ Behavioral; visual specs in `DESIGN.md.Components`.
 | Stale badge | Every price display | Appears when Price older than 3 days; tooltip shows source and fetch time. |
 | Composition donut | Overview, Depot | Donut + legend list; toggle: by Position · by asset type (ETF · Fonds · Aktie · Zertifikat · Krypto · Guthaben) · by Depot (Overview only). By Position shows the top 8 and "Sonstige". Cash always its own segment. Tapping a legend row highlights the segment. |
 | Price refresh | Securities, Overview menu | "Kurse aktualisieren" triggers on-demand fetch; button shows progress; result snackbar names failures. |
+| Refresh all | Top bar on every page, next to "Darstellung" | Icon-only button (refresh arrow, tooltip "Kurse und Nachrichten aktualisieren"): fetches all Prices, then all news; the icon becomes a spinner while running; result snackbar names failed Prices and news; the page reloads. |
 | Destructive confirm | Delete Transaction, archive Depot, restore | Dialog naming the object. Restore requires typing "WIEDERHERSTELLEN" and states that all data will be replaced and an automatic export is taken first. |
 
 ## State Patterns
