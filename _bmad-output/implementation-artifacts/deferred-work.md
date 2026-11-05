@@ -216,3 +216,19 @@ location: test/fixtures/import/comdirect
 source_spec: `_bmad-output/implementation-artifacts/spec-5-2-robin-real-layout.md`
 reason: Real: at review time test/fixtures/import/comdirect had buy, sell, dividend, dividend-tax only; a real anonymised Sparplan and an order with fees are needed.
 status: open
+
+### DW-26: refetchPriceHistory derives the start from the held role only, ignoring the watched and benchmark starts that heldPlans uses.
+origin: spec-deferred 8e1377c6efa4
+location: src/modules/prices/prices.ts refetchPriceHistory
+source_spec: `spec-11-1-three-years-of-price-history-for-held-securities.md`
+severity: low
+reason: For a held Security that is also watched or a benchmark, whose first stored close is after its watched/benchmark start, the split refetch sets historyFrom later than heldPlans' start, so the next run does one extra full backfill. Pre-existing (the old code used firstActivity ?? earliest, which was worse); fixing it needs the watched loader passed into refetchPriceHistory by schedulePriceRefetch.
+status: open
+
+### DW-27: Epic 11 context leaves tie rules open for Story 11.2 (52 Wochen near both high and low, TSI equal to signal or 0, MACD with both crosses in 5 closes).
+origin: spec-deferred a31fbfe52377
+location: _bmad-output/implementation-artifacts/epic-11-context.md
+source_spec: `spec-11-1-three-years-of-price-history-for-held-securities.md`
+severity: low
+reason: The interpretation rules in epics.md / epic-11-context.md do not cover these boundary cases; Story 11.2 must decide them.
+status: open

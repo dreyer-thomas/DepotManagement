@@ -3,11 +3,11 @@
 // Fetch failures are typed per Security, recorded on its mapping row and returned; they never throw,
 // never stop other Securities and never touch existing Price rows.
 import { prisma } from "@/db";
-import { benchmarkStartDate } from "@/core/benchmarks";
 import type { Split } from "@/core/corporate-actions";
 import { addDays, isBusinessDate } from "@/core/dates";
 import { ExactDecimal } from "@/core/decimal";
 import { parseDecimalInput } from "@/core/decimal-input";
+import { priceHistoryStart } from "@/core/price-history";
 import { isStale, type PriceObservation, type PriceSource, resolvePrice } from "@/core/prices";
 import type { PriceProvider } from "@/db/generated/prisma/client";
 import {
@@ -99,11 +99,11 @@ async function loadSplits(db: PricesDb): Promise<Split[]> {
 /**
  * Plans for the held Securities, the benchmark ETFs (`core/benchmarks`, created once the ledger has a
  * row) and the watched Securities (`deps.watched`) mapped to Yahoo, onvista or CoinGecko: a full backfill
- * from the target's first date — a held Security's first activity date, a benchmark's
- * `benchmarkStartDate` (back to the `3J` preset start), a watched Security's date from `deps.watched`;
- * the earliest when a Security is several of these — when `historyFrom` is unset or later than it;
- * otherwise (unless `backfillOnly`) an incremental refresh from `REFRESH_OVERLAP_DAYS` before the latest
- * stored provider Price. Benchmarks and watched Securities are priced only: `listHeldSecurities` stays the
+ * from the target's history start (`priceHistoryStart`, AD-9 amended) — a held Security's first activity
+ * date or the buffered `3J` start, whichever is earlier; a benchmark's `benchmarkStartDate`; a watched
+ * Security's date from `deps.watched`; the earliest when a Security is several of these — when
+ * `historyFrom` is unset or later than it; otherwise (unless `backfillOnly`) an incremental refresh from
+ * `REFRESH_OVERLAP_DAYS` before the latest stored provider Price. Benchmarks and watched Securities are priced only: `listHeldSecurities` stays the
  * definition of held. A Security that is none of these is not planned (its stored Prices stay).
  */
 async function heldPlans(today: string, backfillOnly: boolean, deps: PriceDeps, db: PricesDb): Promise<Plan[]> {
@@ -115,25 +115,26 @@ async function heldPlans(today: string, backfillOnly: boolean, deps: PriceDeps, 
     console.warn(`Prices: mapping resolution failed (${error instanceof Error ? error.name : "unknown"})`);
   }
   const watched = deps.watched ? await deps.watched(today, db) : new Map<string, string>();
+  const benchmarks = new Set(benchmarkIds);
   const targets = [...new Set([...(await listHeldSecurities(today, db)), ...benchmarkIds, ...watched.keys()])];
   const mappings = await mappingsOf(targets, FETCHED_PROVIDERS, db);
   if (mappings.length === 0) return [];
-  const firstDates = await firstActivityDates(
+  // Every target with ledger activity (a sold-out watched one too, as before): for a watched or benchmark
+  // Security its own start is never after the buffered `3J` start, so only an earlier first activity wins.
+  const firstActivity = await firstActivityDates(
     mappings.map((mapping) => mapping.securityId),
     db,
   );
-  if (firstLedger !== null) {
-    const benchmarkFrom = benchmarkStartDate(firstLedger, today);
-    // benchmarkFrom ≤ first ledger date − 10 days, so it is never after a held benchmark's own first activity.
-    for (const securityId of benchmarkIds) firstDates.set(securityId, benchmarkFrom);
-  }
-  for (const [securityId, from] of watched) {
-    const current = firstDates.get(securityId);
-    if (current === undefined || from < current) firstDates.set(securityId, from);
-  }
   const plans: Plan[] = [];
   for (const { securityId, provider, symbol, historyFrom } of mappings) {
-    const first = firstDates.get(securityId);
+    const first = priceHistoryStart(
+      {
+        firstActivity: firstActivity.get(securityId),
+        watchedFrom: watched.get(securityId),
+        firstLedger: benchmarks.has(securityId) ? firstLedger : null,
+      },
+      today,
+    );
     if (!first || first > today) continue;
     if (historyFrom === null || historyFrom > first) {
       plans.push({ securityId, provider, symbol, from: first, to: today, full: true });
@@ -287,16 +288,17 @@ async function runPlans(plans: Plan[], deps: PriceDeps, db: PricesDb): Promise<P
 
 /**
  * Fetches Prices of every held Security mapped to Yahoo, onvista or CoinGecko (after auto-resolving missing mappings): a full
- * backfill from its first activity date where needed, else the days since its latest stored provider
- * Price (with overlap) up to `today`. Never throws for a fetch failure; runs are serialized in-process.
+ * backfill from its history start (`priceHistoryStart`: the earlier of its first activity date and the
+ * buffered `3J` start) where needed, else the days since its latest stored provider Price (with overlap)
+ * up to `today`. Never throws for a fetch failure; runs are serialized in-process.
  */
 export function refreshPrices(today: string, deps: PriceDeps = {}, db: PricesDb = prisma): Promise<PriceRunResult> {
   return serialized(async () => runPlans(await heldPlans(today, false, deps, db), deps, db));
 }
 
 /**
- * Like `refreshPrices`, but only for held Securities that need a full backfill (new held Security, first
- * activity moved earlier, mapping changed); no provider call otherwise. Called after ledger writes.
+ * Like `refreshPrices`, but only for held Securities that need a full backfill (new held Security, history
+ * start moved earlier, mapping changed); no provider call otherwise. Called after ledger writes.
  */
 export function backfillHeldPrices(today: string, deps: PriceDeps = {}, db: PricesDb = prisma): Promise<PriceRunResult> {
   return serialized(async () => runPlans(await heldPlans(today, true, deps, db), deps, db));
@@ -330,8 +332,10 @@ export function refreshSecurityPrices(
 
 /**
  * Refetches the full provider history of one Security (after a split was recorded, changed or deleted):
- * only when it is mapped to Yahoo and held or already has provider Prices. On success all its PROVIDER
- * rows are replaced; on failure they are kept and the error recorded.
+ * only when it is mapped to Yahoo and held or already has provider Prices. A held Security is fetched from
+ * its history start (`priceHistoryStart`, as `refreshPrices` plans it) or its earliest stored provider
+ * date when that is earlier; an unheld one from its earliest stored provider date. On success all its
+ * PROVIDER rows are replaced; on failure they are kept and the error recorded.
  */
 export function refetchPriceHistory(
   securityId: string,
@@ -350,7 +354,10 @@ export function refetchPriceHistory(
       select: { date: true },
     });
     if (!held && !earliest) return EMPTY_RESULT;
-    const from = (await firstActivityDates([securityId], db)).get(securityId) ?? earliest?.date;
+    const heldStart = held
+      ? priceHistoryStart({ firstActivity: (await firstActivityDates([securityId], db)).get(securityId) }, today)
+      : null;
+    const from = heldStart !== null && (!earliest || heldStart < earliest.date) ? heldStart : earliest?.date;
     if (!from || from > today) return EMPTY_RESULT;
     return runPlans([{ securityId, provider: "YAHOO", symbol: mapping.symbol, from, to: today, full: true }], deps, db);
   });

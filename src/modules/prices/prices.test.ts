@@ -1,7 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestDatabase, type TestDatabase } from "../../../test/helpers/test-db";
 import { type FetchCall, fakeFetch, json, recorded } from "../../../test/helpers/providers";
-import { createDepot, ensureBenchmarkSecurities, ensureSecurity, listHeldSecurities, listPositions, recordSplit, recordTrade, updateTransaction } from "@/modules/ledger";
+import {
+  createDepot,
+  depotValuation,
+  ensureBenchmarkSecurities,
+  ensureSecurity,
+  listHeldSecurities,
+  listPositions,
+  portfolioValuation,
+  recordSplit,
+  recordTrade,
+  returnSeries,
+  updateTransaction,
+} from "@/modules/ledger";
 import {
   backfillHeldPrices,
   deleteManualPrice,
@@ -103,14 +115,16 @@ async function benchmarkMarkers() {
 const mapping = (securityId: string) => db().providerMapping.findUnique({ where: { securityId } });
 
 describe("refreshPrices", () => {
-  it("backfills a held Yahoo Security from its first activity date, then refreshes without duplicates", async () => {
+  it("backfills a recent Yahoo holding from the buffered 3J start, then refreshes without duplicates", async () => {
     const sap = await security(SAP, "SAP SE");
     await buy(sap, "2026-10-13");
     await mapTo(sap, "YAHOO", "SAP.DE");
     const chart = charts({ "SAP.DE": recorded("yahoo-chart-sap-de") });
 
     expect(await refreshPrices("2026-10-23", deps(chart), db())).toEqual({ updated: 1, failed: [] });
-    expect(chart.mock.calls[0][1]).toMatchObject({ period1: "2026-10-13", period2: "2026-10-24" });
+    // First buy 2026-10-13 is within 3 years: 3J preset start (2023-10-23) − 10 days.
+    expect(chart.mock.calls[0][1]).toMatchObject({ period1: "2023-10-13", period2: "2026-10-24" });
+    // The recorded history starts at 2026-10-13 only: stored as delivered, no error (short provider history).
     const rows = await providerRows(sap);
     expect(rows.map((row) => row.date)).toEqual([
       "2026-10-13",
@@ -125,7 +139,7 @@ describe("refreshPrices", () => {
     ]);
     expect(rows[0]).toEqual({ date: "2026-10-13", price: "197.28", fetchedAt: "2026-10-23T18:00:00.000Z" });
     expect(rows.every((row) => typeof row.price === "string")).toBe(true);
-    expect(await mapping(sap)).toMatchObject({ historyFrom: "2026-10-13", fetchedAt: NOW.toISOString(), fetchError: null });
+    expect(await mapping(sap)).toMatchObject({ historyFrom: "2023-10-13", fetchedAt: NOW.toISOString(), fetchError: null });
 
     // Incremental: 7 days of overlap before the latest stored row, replaced in place.
     expect(await refreshPrices("2026-10-23", deps(chart), db())).toEqual({ updated: 1, failed: [] });
@@ -342,7 +356,7 @@ describe("certificates and crypto", () => {
   const onvistaOk = () => ({ onvista: json(recorded("onvista-query-xetra-gold")), onvistaEod: json(recorded("onvista-eod-xetra-gold")) });
   const coingeckoOk = () => json(recorded("coingecko-market-chart-bitcoin"));
 
-  it("stores the recorded onvista closes of a held certificate from its first activity date", async () => {
+  it("stores the recorded onvista closes of a recent certificate holding, asked from the buffered 3J start", async () => {
     const gold = await certificate();
     await buy(gold, "2026-10-01");
     await mapTo(gold, "ONVISTA", GOLD);
@@ -352,15 +366,15 @@ describe("certificates and crypto", () => {
     expect(rows).toHaveLength(17);
     expect(rows[0]).toEqual({ date: "2026-10-01", price: "119.05", fetchedAt: NOW.toISOString() });
     expect(rows[16]).toMatchObject({ date: "2026-10-23", price: "114.81" });
-    expect(await mapping(gold)).toMatchObject({ historyFrom: "2026-10-01", fetchedAt: NOW.toISOString(), fetchError: null });
-    expect(calls[1].url).toContain("startDate=2026-10-01");
+    expect(await mapping(gold)).toMatchObject({ historyFrom: "2023-10-13", fetchedAt: NOW.toISOString(), fetchError: null });
+    expect(calls[1].url).toContain("startDate=2023-10-13");
   });
 
-  it("stores CoinGecko closes of a recent crypto holding without calling Binance", async () => {
+  it("stores CoinGecko closes of a recent crypto holding and asks Binance for the buffered 3J start (no EUR pair: CoinGecko only)", async () => {
     const btc = await cryptoSecurity("BTC", "Bitcoin");
     await buy(btc, "2026-10-16", "1", "70000");
     await mapTo(btc, "COINGECKO", "bitcoin");
-    const { fetch, calls } = providers({ coingecko: coingeckoOk() });
+    const { fetch, calls } = providers({ coingecko: coingeckoOk(), binance: json(recorded("binance-klines-invalid-symbol"), 400) });
     expect(await refreshPrices("2026-10-23", deps(charts({}), fetch), db())).toEqual({ updated: 1, failed: [] });
     const rows = await providerRows(btc);
     expect(rows.map((row) => row.date)).toEqual([
@@ -374,28 +388,31 @@ describe("certificates and crypto", () => {
       "2026-10-23",
     ]);
     expect(rows[0].price).toBe("72537.3051996502");
-    expect(calls).toHaveLength(1);
-    expect(await mapping(btc)).toMatchObject({ historyFrom: "2026-10-16", fetchError: null });
+    expect(calls).toHaveLength(2);
+    expect(calls[1].url).toContain(`startTime=${Date.UTC(2023, 9, 13)}`);
+    expect(await mapping(btc)).toMatchObject({ historyFrom: "2023-10-13", fetchError: null });
   });
 
   it("sends the CoinGecko key from env with the price fetch only when set", async () => {
     const btc = await cryptoSecurity("BTC", "Bitcoin");
     await buy(btc, "2026-10-16", "1", "70000");
     await mapTo(btc, "COINGECKO", "bitcoin");
-    const keyed = providers({ coingecko: coingeckoOk() });
+    const notFound = () => json(recorded("binance-klines-invalid-symbol"), 400);
+    const keyed = providers({ coingecko: coingeckoOk(), binance: notFound() });
     await refreshPrices("2026-10-23", { ...deps(charts({}), keyed.fetch), env: { COINGECKO_API_KEY: "cg-key" } }, db());
     const chartCall = keyed.calls.find((call) => call.url.includes("/market_chart?"))!;
     expect(chartCall.headers["x-cg-demo-api-key"]).toBe("cg-key");
 
-    const blank = providers({ coingecko: coingeckoOk() });
+    const blank = providers({ coingecko: coingeckoOk(), binance: notFound() });
     await refreshPrices("2026-10-23", { ...deps(charts({}), blank.fetch), env: { COINGECKO_API_KEY: " " } }, db());
-    expect(blank.calls).toHaveLength(1);
-    expect(Object.keys(blank.calls[0].headers)).not.toContain("x-cg-demo-api-key");
+    const blankCoingecko = blank.calls.filter((call) => call.url.includes("api.coingecko.com"));
+    expect(blankCoingecko).toHaveLength(1);
+    expect(Object.keys(blankCoingecko[0].headers)).not.toContain("x-cg-demo-api-key");
   });
 
   it("backfills an old crypto holding once from Binance, then refreshes from CoinGecko only", async () => {
     const btc = await cryptoSecurity("BTC", "Bitcoin");
-    await buy(btc, "2024-01-01", "1", "40000");
+    await buy(btc, "2023-01-02", "1", "40000");
     await mapTo(btc, "COINGECKO", "bitcoin");
     const { fetch, calls } = providers({ coingecko: coingeckoOk(), binance: json(recorded("binance-klines-btceur")) });
 
@@ -403,14 +420,14 @@ describe("certificates and crypto", () => {
     expect(calls.map((call) => call.url)).toEqual([
       "https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=eur&days=365&interval=daily",
       // [first BUY, day before the first CoinGecko date]
-      `https://api.binance.com/api/v3/klines?symbol=BTCEUR&interval=1d&startTime=${Date.UTC(2024, 0, 1)}&endTime=${Date.UTC(2026, 9, 15)}&limit=1000`,
+      `https://api.binance.com/api/v3/klines?symbol=BTCEUR&interval=1d&startTime=${Date.UTC(2023, 0, 2)}&endTime=${Date.UTC(2026, 9, 15)}&limit=1000`,
     ]);
     const rows = await providerRows(btc);
     expect(rows).toHaveLength(13);
     expect(rows[0]).toMatchObject({ date: "2024-01-01", price: "40113.43" });
     expect(rows[4]).toMatchObject({ date: "2024-01-05", price: "40463.66" });
     expect(rows[5]).toMatchObject({ date: "2026-10-16", price: "72537.3051996502" });
-    expect(await mapping(btc)).toMatchObject({ historyFrom: "2024-01-01", fetchError: null });
+    expect(await mapping(btc)).toMatchObject({ historyFrom: "2023-01-02", fetchError: null });
 
     expect(await refreshPrices("2026-10-23", deps(charts({}), fetch), db())).toEqual({ updated: 1, failed: [] });
     expect(calls).toHaveLength(3);
@@ -420,19 +437,19 @@ describe("certificates and crypto", () => {
 
   it("completes the backfill with CoinGecko closes only when Binance does not know the pair", async () => {
     const btc = await cryptoSecurity("BTC", "Bitcoin");
-    await buy(btc, "2024-01-01", "1", "40000");
+    await buy(btc, "2023-01-02", "1", "40000");
     await mapTo(btc, "COINGECKO", "bitcoin");
     const { fetch, calls } = providers({ coingecko: coingeckoOk(), binance: json(recorded("binance-klines-invalid-symbol"), 400) });
     expect(await refreshPrices("2026-10-23", deps(charts({}), fetch), db())).toEqual({ updated: 1, failed: [] });
     expect(await providerRows(btc)).toHaveLength(8);
-    expect(await mapping(btc)).toMatchObject({ historyFrom: "2024-01-01", fetchError: null });
+    expect(await mapping(btc)).toMatchObject({ historyFrom: "2023-01-02", fetchError: null });
     await refreshPrices("2026-10-23", deps(charts({}), fetch), db());
     expect(calls.filter((call) => call.url.includes("binance"))).toHaveLength(1);
   });
 
   it("stores CoinGecko closes and retries the Binance backfill next run after a Binance network failure", async () => {
     const btc = await cryptoSecurity("BTC", "Bitcoin");
-    await buy(btc, "2024-01-01", "1", "40000");
+    await buy(btc, "2023-01-02", "1", "40000");
     await mapTo(btc, "COINGECKO", "bitcoin");
     const failing = providers({ coingecko: coingeckoOk(), binance: new TypeError("fetch failed") });
     expect(await refreshPrices("2026-10-23", deps(charts({}), failing.fetch), db())).toEqual({ updated: 1, failed: [] });
@@ -444,7 +461,7 @@ describe("certificates and crypto", () => {
     expect(await refreshPrices("2026-10-23", deps(charts({}), working.fetch), db())).toEqual({ updated: 1, failed: [] });
     expect(working.calls.filter((call) => call.url.includes("binance"))).toHaveLength(1);
     expect(await providerRows(btc)).toHaveLength(13);
-    expect(await mapping(btc)).toMatchObject({ historyFrom: "2024-01-01" });
+    expect(await mapping(btc)).toMatchObject({ historyFrom: "2023-01-02" });
   });
 
   it("reports onvista and CoinGecko failures with their own provider, keeps rows and still updates others", async () => {
@@ -614,31 +631,98 @@ describe("watched Securities", () => {
     await backfillHeldPrices("2026-10-23", watchedDeps(chart), db());
     expect(chart.mock.calls[0][1]).toMatchObject({ period1: "2020-05-04" });
   });
+
+  it("keeps the earlier first activity date of a sold-out, watched Security", async () => {
+    const sap = await security(SAP, "SAP SE");
+    await buy(sap, "2020-05-04");
+    const sell = await recordTrade({ depotId, type: "SELL", date: "2020-06-01", quantity: "10", price: "1", security: { id: sap } }, db());
+    if (!sell.ok) throw new Error("setup failed");
+    await mapTo(sap, "YAHOO", "SAP.DE");
+    await benchmarkMarkers();
+    await watch(sap, "2026-10-20");
+    const chart = charts({ "SAP.DE": recorded("yahoo-chart-sap-de") });
+
+    expect(await listHeldSecurities("2026-10-23", db())).toEqual([]);
+    expect(await refreshPrices("2026-10-23", watchedDeps(chart), db())).toEqual({ updated: 1, failed: [] });
+    expect(chart.mock.calls[0][1]).toMatchObject({ period1: "2020-05-04" });
+  });
 });
 
 describe("backfillHeldPrices", () => {
-  it("fetches only Securities needing a full backfill, and again when the first activity moves earlier", async () => {
+  it("fetches only Securities needing a full backfill, and again when the first activity moves before the 3J start", async () => {
     const sap = await security(SAP, "SAP SE");
     const buyId = await buy(sap, "2026-10-15");
     await mapTo(sap, "YAHOO", "SAP.DE");
     const chart = charts({ "SAP.DE": recorded("yahoo-chart-sap-de") });
 
+    // A new buy plans from the buffered 3J start.
     expect(await backfillHeldPrices("2026-10-23", deps(chart), db())).toEqual({ updated: 1, failed: [] });
-    expect((await providerRows(sap))[0].date).toBe("2026-10-15");
+    expect(chart.mock.calls[0][1]).toMatchObject({ period1: "2023-10-13" });
+    expect(await mapping(sap)).toMatchObject({ historyFrom: "2023-10-13" });
     expect(await backfillHeldPrices("2026-10-23", deps(chart), db())).toEqual({ updated: 0, failed: [] });
     expect(chart).toHaveBeenCalledTimes(1);
 
-    // Back-dated BUY: full backfill from the new first activity date.
-    const moved = await updateTransaction(
+    // Back-dated within 3 years: the start is unchanged, no new backfill.
+    const recent = await updateTransaction(
       buyId,
       { depotId, type: "BUY", date: "2026-10-13", quantity: "10", price: "100", security: { id: sap } },
       db(),
     );
+    expect(recent.ok).toBe(true);
+    expect(await backfillHeldPrices("2026-10-23", deps(chart), db())).toEqual({ updated: 0, failed: [] });
+
+    // Back-dated before the 3J start: full backfill from the new first activity date.
+    const moved = await updateTransaction(
+      buyId,
+      { depotId, type: "BUY", date: "2020-05-04", quantity: "10", price: "100", security: { id: sap } },
+      db(),
+    );
     expect(moved.ok).toBe(true);
     expect(await backfillHeldPrices("2026-10-23", deps(chart), db())).toEqual({ updated: 1, failed: [] });
-    expect(chart.mock.calls[1][1]).toMatchObject({ period1: "2026-10-13" });
+    expect(chart.mock.calls[1][1]).toMatchObject({ period1: "2020-05-04" });
     expect(await providerRows(sap)).toHaveLength(9);
-    expect(await mapping(sap)).toMatchObject({ historyFrom: "2026-10-13" });
+    expect(await mapping(sap)).toMatchObject({ historyFrom: "2020-05-04" });
+  });
+
+  it("does not re-backfill an old holding whose history already starts at its first activity", async () => {
+    const sap = await security(SAP, "SAP SE");
+    await buy(sap, "2020-05-04");
+    await db().providerMapping.create({
+      data: { securityId: sap, provider: "YAHOO", symbol: "SAP.DE", origin: "AUTO", updatedAt: NOW.toISOString(), historyFrom: "2020-05-04" },
+    });
+    await benchmarkMarkers();
+    await db().price.create({ data: { securityId: sap, date: "2026-10-20", source: "PROVIDER", price: "190", fetchedAt: NOW.toISOString() } });
+    const chart = charts({ "SAP.DE": recorded("yahoo-chart-sap-de") });
+
+    expect(await backfillHeldPrices("2026-10-23", deps(chart), db())).toEqual({ updated: 0, failed: [] });
+    expect(chart).not.toHaveBeenCalled();
+    expect(await refreshPrices("2026-10-23", deps(chart), db())).toEqual({ updated: 1, failed: [] });
+    expect(chart.mock.calls[0][1]).toMatchObject({ period1: "2026-10-13" });
+    expect(await mapping(sap)).toMatchObject({ historyFrom: "2020-05-04" });
+  });
+
+  it("backfills an existing mapping whose history starts at the first buy once from the 3J start, then refreshes incrementally", async () => {
+    const sap = await security(SAP, "SAP SE");
+    await buy(sap, "2026-10-13");
+    await db().providerMapping.create({
+      data: { securityId: sap, provider: "YAHOO", symbol: "SAP.DE", origin: "AUTO", updatedAt: NOW.toISOString(), historyFrom: "2026-10-13" },
+    });
+    await benchmarkMarkers();
+    await db().price.create({ data: { securityId: sap, date: "2026-10-22", source: "PROVIDER", price: "190", fetchedAt: NOW.toISOString() } });
+    const chart = charts({ "SAP.DE": recorded("yahoo-chart-sap-de") });
+
+    // Scheduler run 1: full plan from the buffered 3J start.
+    expect(await refreshPrices("2026-10-23", deps(chart), db())).toEqual({ updated: 1, failed: [] });
+    expect(chart.mock.calls[0][1]).toMatchObject({ period1: "2023-10-13" });
+    expect(await mapping(sap)).toMatchObject({ historyFrom: "2023-10-13", fetchError: null });
+    expect(await providerRows(sap)).toHaveLength(9);
+
+    // Scheduler run 2 (next day): incremental, 7 days before the latest stored provider Price.
+    expect(await refreshPrices("2026-10-24", deps(chart), db())).toEqual({ updated: 1, failed: [] });
+    expect(chart.mock.calls[1][1]).toMatchObject({ period1: "2026-10-16" });
+    expect(await mapping(sap)).toMatchObject({ historyFrom: "2023-10-13" });
+    expect(await backfillHeldPrices("2026-10-24", deps(chart), db())).toEqual({ updated: 0, failed: [] });
+    expect(chart).toHaveBeenCalledTimes(2);
   });
 
   it("backfills again after the mapping was edited", async () => {
@@ -652,6 +736,50 @@ describe("backfillHeldPrices", () => {
     expect(await backfillHeldPrices("2026-10-23", deps(chart), db())).toEqual({ updated: 1, failed: [] });
     expect(chart.mock.calls.map(([symbol]) => symbol)).toEqual(["SAP.F", "SAP.DE"]);
     expect(await providerRows(sap)).toHaveLength(9);
+  });
+});
+
+describe("history before the first buy", () => {
+  /** The recorded SAP.DE chart with synthetic weekday closes from 2023-10-13 prepended (no real data). */
+  function threeYearChart() {
+    const fixture = recorded("yahoo-chart-sap-de") as { meta: unknown; quotes: { date: string }[] };
+    const synthetic: { date: string; close: number; adjclose: number }[] = [];
+    for (let day = Date.UTC(2023, 9, 13); day < Date.UTC(2026, 9, 13); day += 86_400_000) {
+      const weekday = new Date(day).getUTCDay();
+      if (weekday === 0 || weekday === 6) continue;
+      const close = 120 + (synthetic.length % 50);
+      synthetic.push({ date: new Date(day + 7 * 3_600_000).toISOString(), close, adjclose: close });
+    }
+    return { ...fixture, quotes: [...synthetic, ...fixture.quotes] };
+  }
+
+  it("leaves valuation, charts and returns unchanged by Prices stored before the first buy", async () => {
+    const sap = await security(SAP, "SAP SE");
+    await buy(sap, "2026-10-13");
+    await mapTo(sap, "YAHOO", "SAP.DE");
+    await benchmarkMarkers();
+    const chart = charts({ "SAP.DE": threeYearChart() });
+    expect(await refreshPrices("2026-10-23", deps(chart), db())).toEqual({ updated: 1, failed: [] });
+    const before = await db().price.count({ where: { securityId: sap, source: "PROVIDER", date: { lt: "2026-10-13" } } });
+    expect(before).toBeGreaterThan(700);
+
+    const options = { storedPrices: (ids: string[], asOf: string) => storedPriceHistory(ids, asOf, db()) };
+    const evaluate = async () => {
+      const results = [];
+      for (const preset of ["3J", "MAX"] as const) {
+        const selection = { kind: "preset", preset } as const;
+        results.push(await depotValuation(depotId, selection, "2026-10-23", db(), options));
+        results.push(await portfolioValuation(selection, "2026-10-23", db(), options));
+      }
+      results.push(await returnSeries({ depotId }, "2026-10-23", db(), options));
+      results.push(await returnSeries("portfolio", "2026-10-23", db(), options));
+      return results;
+    };
+    const withHistory = await evaluate();
+
+    await db().price.deleteMany({ where: { securityId: sap, date: { lt: "2026-10-13" } } });
+    expect(await db().price.count({ where: { securityId: sap, date: { lt: "2026-10-13" } } })).toBe(0);
+    expect(withHistory).toEqual(await evaluate());
   });
 });
 
@@ -676,14 +804,47 @@ describe("refetchPriceHistory", () => {
     expect(await mapping(nvidia)).toMatchObject({ fetchError: "network", historyFrom: null });
 
     expect(await backfillHeldPrices("2024-06-14", deps(chart), db())).toEqual({ updated: 1, failed: [] });
-    expect(chart.mock.calls[1][1]).toMatchObject({ period1: "2024-06-03" });
+    // Held since 2024-06-03: the buffered 3J start (2021-06-14 − 10 days).
+    expect(chart.mock.calls[1][1]).toMatchObject({ period1: "2021-06-04" });
     const rows = await providerRows(nvidia);
     expect(rows).toHaveLength(10);
     expect(rows.find((row) => row.date === "2024-06-07")?.price).toBe("1104.4");
-    expect(await mapping(nvidia)).toMatchObject({ fetchError: null, historyFrom: "2024-06-03" });
+    expect(await mapping(nvidia)).toMatchObject({ fetchError: null, historyFrom: "2021-06-04" });
   });
 
-  it("refetches a sold-out Security that has provider Prices, from its first activity date", async () => {
+  it("refetches a held Security from its history start, so the next run needs no extra backfill", async () => {
+    const nvidia = await security(NVIDIA, "NVIDIA");
+    await buy(nvidia, "2024-06-03", "1", "1000");
+    await mapTo(nvidia, "YAHOO", "NVD.DE");
+    const chart = charts({ "NVD.DE": recorded("yahoo-chart-nvd-de-split") });
+    await benchmarkMarkers();
+    expect(await refreshPrices("2024-06-14", deps(chart), db())).toEqual({ updated: 1, failed: [] });
+    expect((await recordSplit({ securityId: nvidia, date: "2024-06-10", ratio: "1:10" }, db())).ok).toBe(true);
+
+    expect(await refetchPriceHistory(nvidia, "2024-06-14", deps(chart), db())).toEqual({ updated: 1, failed: [] });
+    expect(chart.mock.calls[1][1]).toMatchObject({ period1: "2021-06-04" });
+    expect(await mapping(nvidia)).toMatchObject({ fetchError: null, historyFrom: "2021-06-04" });
+    expect(await backfillHeldPrices("2024-06-14", deps(chart), db())).toEqual({ updated: 0, failed: [] });
+    expect(chart).toHaveBeenCalledTimes(2);
+  });
+
+  it("refetches a held Security from its earliest stored provider date when that is before its history start", async () => {
+    const nvidia = await security(NVIDIA, "NVIDIA");
+    await buy(nvidia, "2024-06-03", "1", "1000");
+    await mapTo(nvidia, "YAHOO", "NVD.DE");
+    const chart = charts({ "NVD.DE": recorded("yahoo-chart-nvd-de-split") });
+    await benchmarkMarkers();
+    expect(await refreshPrices("2024-06-14", deps(chart), db())).toEqual({ updated: 1, failed: [] });
+    // Older provider history, e.g. from a watchlist start before the buffered 3J start (2021-06-04).
+    await db().price.create({ data: { securityId: nvidia, date: "2020-01-02", source: "PROVIDER", price: "50", fetchedAt: NOW.toISOString() } });
+    expect((await recordSplit({ securityId: nvidia, date: "2024-06-10", ratio: "1:10" }, db())).ok).toBe(true);
+
+    expect(await refetchPriceHistory(nvidia, "2024-06-14", deps(chart), db())).toEqual({ updated: 1, failed: [] });
+    expect(chart.mock.calls[1][1]).toMatchObject({ period1: "2020-01-02" });
+    expect(await mapping(nvidia)).toMatchObject({ fetchError: null, historyFrom: "2020-01-02" });
+  });
+
+  it("refetches a sold-out Security that has provider Prices, from its earliest stored provider date", async () => {
     const nvidia = await security(NVIDIA, "NVIDIA");
     await buy(nvidia, "2024-06-03", "1", "1000");
     await mapTo(nvidia, "YAHOO", "NVD.DE");
@@ -691,10 +852,13 @@ describe("refetchPriceHistory", () => {
     expect(await refreshPrices("2024-06-14", deps(chart), db())).toEqual({ updated: 1, failed: [] });
     const sell = await recordTrade({ depotId, type: "SELL", date: "2024-06-07", quantity: "1", price: "1100", security: { id: nvidia } }, db());
     expect(sell.ok).toBe(true);
+    // A provider Price before the first buy (as the buffered 3J backfill stores them).
+    await db().price.create({ data: { securityId: nvidia, date: "2024-05-20", source: "PROVIDER", price: "900", fetchedAt: NOW.toISOString() } });
     expect((await recordSplit({ securityId: nvidia, date: "2024-06-10", ratio: "1:10" }, db())).ok).toBe(true);
 
     expect(await refetchPriceHistory(nvidia, "2024-06-14", deps(chart), db())).toEqual({ updated: 1, failed: [] });
-    expect(chart.mock.calls[1][1]).toMatchObject({ period1: "2024-06-03" });
+    // The earliest stored provider date, not the first buy (2024-06-03).
+    expect(chart.mock.calls[1][1]).toMatchObject({ period1: "2024-05-20" });
     const rows = await providerRows(nvidia);
     expect(rows).toHaveLength(10);
     expect(rows[0].date).toBe("2024-06-03");

@@ -33,14 +33,22 @@ export const BENCHMARK_HISTORY_DAYS = 10;
 const LONGEST_PRESET_MONTHS = 36;
 
 /**
+ * The buffered `3J` start: `BENCHMARK_HISTORY_DAYS` before the `3J` preset start (`today` − 36 months),
+ * e.g. today `2026-10-23` → `2023-10-13`.
+ */
+export function bufferedPresetStart(today: string): string {
+  return addDays(addMonths(today, -LONGEST_PRESET_MONTHS), -BENCHMARK_HISTORY_DAYS);
+}
+
+/**
  * The first date of benchmark price history: `BENCHMARK_HISTORY_DAYS` before the earlier of the earliest
  * ledger date and the `3J` preset start (`today` − 36 months), so every preset Period has a base close
  * even on a ledger younger than the Period.
  */
 export function benchmarkStartDate(firstLedgerDate: string, today: string): string {
-  const presetStart = addMonths(today, -LONGEST_PRESET_MONTHS);
-  const earliest = firstLedgerDate < presetStart ? firstLedgerDate : presetStart;
-  return addDays(earliest, -BENCHMARK_HISTORY_DAYS);
+  const ledgerStart = addDays(firstLedgerDate, -BENCHMARK_HISTORY_DAYS);
+  const presetStart = bufferedPresetStart(today);
+  return ledgerStart < presetStart ? ledgerStart : presetStart;
 }
 
 /**
