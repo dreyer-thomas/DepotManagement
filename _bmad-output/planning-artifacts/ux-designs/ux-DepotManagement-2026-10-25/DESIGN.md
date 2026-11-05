@@ -1,42 +1,47 @@
 ---
 name: DepotManagement
-description: Self-hosted, single-user portfolio tracker. MUI 9 on Next.js; this DESIGN.md specifies the brand-layer delta (direction "Minze") over MUI defaults.
+description: Self-hosted, single-user portfolio tracker. MUI 9 on Next.js; this DESIGN.md specifies the brand-layer delta (direction "Schiefer", re-themed 2026-11-05 from "Minze") over MUI defaults.
 status: final
-updated: 2026-10-25
+updated: 2026-11-05
 colors:
   # Overrides on top of the MUI default theme. Unlisted palette entries
   # (error, warning, info, grey, divider) inherit from MUI.
-  primary: '#0FA68A'
-  primary-dark: '#3CCFB0'
-  accent: '#FFB547'
-  accent-dark: '#FFC877'
-  background: '#F3FBF8'
-  background-dark: '#0E1A17'
+  primary: '#00857E'
+  primary-dark: '#14B8A6'
+  accent: '#FFA600'
+  accent-dark: '#FFB733'
+  background: '#F3F4F6'
+  background-dark: '#111827'
   surface: '#FFFFFF'
-  surface-dark: '#16241F'
-  ink: '#0B3B33'
-  ink-dark: '#E3F2EE'
-  gain: '#12A150'
-  gain-dark: '#4ADE80'
-  gain-soft: '#DDF6EC'
-  gain-soft-dark: '#123826'
-  loss: '#E5484D'
-  loss-dark: '#FF7A7E'
-  loss-soft: '#FDE7E8'
-  loss-soft-dark: '#3A1A1C'
+  surface-dark: '#1E2939'
+  ink: '#1E2939'
+  ink-dark: '#F3F4F6'
+  gain: '#008236'
+  gain-dark: '#34D399'
+  gain-soft: '#E3FAEC'
+  gain-soft-dark: '#12352F'
+  loss: '#D6000A'
+  loss-dark: '#FF6467'
+  loss-soft: '#FEEDEE'
+  loss-soft-dark: '#3B1D25'
   stale: '#A15C00'
   stale-dark: '#FFC877'
-  stale-soft: '#FFF1D6'
+  stale-soft: '#FEF3C6'
   stale-soft-dark: '#3A2A10'
-  cash: '#B9C4CC'
-  cash-dark: '#5B6870'
-  chart-invested: '#9BB8B0'
-  chart-invested-dark: '#55736B'
-  series-1: '#0FA68A'
-  series-2: '#5BC8F5'
-  series-3: '#FFB547'
-  series-4: '#A78BFA'
-  series-5: '#FF8FA3'
+  cash: '#99A1AF'
+  cash-dark: '#6A7282'
+  chart-invested: '#7C93AD'
+  chart-invested-dark: '#3B82B6'
+  series-1: '#003F5C'
+  series-1-dark: '#2A86B0'
+  series-2: '#665191'
+  series-2-dark: '#8A6FC2'
+  series-3: '#D45087'
+  series-3-dark: '#E0669A'
+  series-4: '#FF7C43'
+  series-4-dark: '#FF8A57'
+  series-5: '#FFA600'
+  series-5-dark: '#FFB733'
 typography:
   # Font family and text ramp inherit from MUI (Roboto). Headings and figures are bolder.
   page-title:
@@ -73,7 +78,7 @@ components:
   hero-card:
     background: '{colors.surface}'
     radius: '{rounded.card}'
-    shadow: '0 2px 10px rgba(15,166,138,.10)'
+    shadow: '0 2px 10px rgba(16,24,40,.08)'
     value-typography: '{typography.figure-hero}'
   kpi-card:
     background: '{colors.surface}'
@@ -119,19 +124,19 @@ components:
 
 ## Brand & Style
 
-DepotManagement should feel **fresh and playful** while staying precise: a light, mint-tinted surface, soft rounded cards, a lively area chart and real company logos make checking the Portfolio pleasant — numbers stay the hero. Direction "Minze" was chosen from four rendered options (`.working/directions-1.html`); see [mockups/overview-desktop.html](mockups/overview-desktop.html). Spines win on conflict with mockups. MUI 9 provides the component behavior; this file restyles palette, shape, figure typography and a handful of domain components.
+DepotManagement should feel **calm and precise**, close to Parqet's look: a cool neutral grey page with white cards (light) or a slate-navy page with slightly lighter cards (dark), one teal brand color, clear green/red for gains and losses, a multi-hue composition palette and real company logos — numbers stay the hero. Direction "Schiefer" replaced the original mint direction "Minze" on 2026-11-05 (Tommy found Minze too green); the mockups in [mockups/](mockups/overview-desktop.html) still show Minze colors and are authoritative for layout only. Spines win on conflict with mockups. MUI 9 provides the component behavior; this file restyles palette, shape, figure typography and a handful of domain components.
 
 ## Colors
 
-- **Primary Minze (`#0FA68A` / dark `#3CCFB0`)** — brand color: selected Period pill, active navigation, primary buttons, the value line and its gradient fill, the first composition segment.
-- **Accent Amber (`#FFB547`)** — secondary highlight: dividend KPI border, third composition segment, small playful accents. Never used for gain/loss or errors.
-- **Background (`#F3FBF8`) and Surface (`#FFFFFF`)** — the mint-tinted page with white cards gives the fresh feel. Dark mode: deep green-black background with slightly lighter card surface.
-- **Ink (`#0B3B33`)** — headings and primary text, a green-tinted near-black.
-- **Gain (`#12A150`) / Loss (`#E5484D`)** with soft variants — only on performance figures and gain/loss pills, always with sign and arrow.
-- **Stale (`#A15C00` on `#FFF1D6`)** — stale-price badge, ambiguous import chip, warnings that are not errors.
-- **Cash (`#B9C4CC`)** — cash segment and Cash Account rows; deliberately neutral.
-- **Series 1–5** — categorical palette for composition and multi-Depot charts, in fixed order; cash always uses `{colors.cash}`.
-- Dark mode follows the system setting with a manual toggle; every token has a `-dark` variant.
+- **Primary Teal (`#00857E` / dark `#14B8A6`)** — brand color: selected Period pill, active navigation and tab, primary buttons, links, the value line and its gradient fill. Light value is a deepened teal so white button text and teal links on white reach 4.5:1; dark buttons use dark text.
+- **Accent Amber (`#FFA600` / dark `#FFB733`)** — secondary highlight: dividend KPI border, small accents. Never used for gain/loss or errors.
+- **Background (`#F3F4F6`) and Surface (`#FFFFFF`)** — neutral cool-grey page with white cards. Dark mode: slate-navy background `#111827` with card surface `#1E2939`.
+- **Ink (`#1E2939` / dark `#F3F4F6`)** — headings and primary text, a slate near-black.
+- **Gain (`#008236`) / Loss (`#D6000A`)** with soft variants — only on performance figures and gain/loss pills, always with sign and arrow. Light values reach 4.5:1 on white and on their soft pill.
+- **Stale (`#A15C00` on `#FEF3C6`)** — stale-price badge, ambiguous import chip, warnings that are not errors.
+- **Cash (`#99A1AF`)** — cash segment and Cash Account rows; deliberately neutral grey.
+- **Chart invested (`#7C93AD` / dark `#3B82B6`)** — dashed invested-capital line, a muted slate blue.
+- **Series 1–5** — categorical palette for composition and multi-Depot charts in fixed order: navy, purple, magenta, orange, amber; each has a lighter `-dark` variant that stays visible on the dark surface. Cash always uses `{colors.cash}`.
 
 ## Typography
 
@@ -143,7 +148,7 @@ MUI's 8px unit. Gutters 16px phone / 24px desktop; content max width 1280px; car
 
 ## Elevation & Depth
 
-Cards float slightly on the mint background with a soft, mint-tinted shadow (`0 2px 10px rgba(15,166,138,.10)`), no borders. Dialogs and menus use MUI elevation. No heavy shadows.
+Cards float slightly on the grey background with a soft neutral shadow (`0 2px 10px rgba(16,24,40,.08)`), no borders. Dialogs and menus use MUI elevation. No heavy shadows.
 
 ## Shapes
 
@@ -166,7 +171,7 @@ Inherited from MUI with theme overrides only: AppBar, Drawer, BottomNavigation, 
 
 | Do | Don't |
 | --- | --- |
-| Mint background, white floating cards | Grey enterprise look or bordered boxes everywhere |
+| Neutral grey background, white floating cards | Grey enterprise look or bordered boxes everywhere |
 | Gradient fill under the value line | Gradient fills on invested capital or in tables |
 | Logos (or initials) before every Security name | Mixing logo sizes or square/round logos |
 | Gain/loss colors only for performance, with sign + arrow | Green/red row backgrounds or color-only meaning |

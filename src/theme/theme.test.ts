@@ -24,7 +24,7 @@ describe("design tokens", () => {
 
   it("match the DESIGN.md shape, shadow and typography roles", () => {
     expect(rounded).toEqual({ input: "8px", card: "16px", full: "9999px" });
-    expect(shadows.card).toBe("0 2px 10px rgba(15,166,138,.10)");
+    expect(shadows.card).toBe("0 2px 10px rgba(16,24,40,.08)");
     expect(typography["figure-hero"]).toMatchObject({ fontSize: "34px", fontWeight: "700" });
   });
 });
@@ -34,29 +34,30 @@ describe("theme", () => {
   const dark = theme.colorSchemes.dark!.palette;
 
   it("builds the light scheme from the base tokens", () => {
-    expect(light.primary.main).toBe("#0FA68A");
-    expect(light.background.default).toBe("#F3FBF8");
+    expect(light.primary.main).toBe("#00857E");
+    expect(light.background.default).toBe("#F3F4F6");
     expect(light.background.paper).toBe("#FFFFFF");
-    expect(light.text.primary).toBe("#0B3B33");
-    expect(light.accent.main).toBe("#FFB547");
-    expect(light.gain).toMatchObject({ main: "#12A150", soft: "#DDF6EC" });
-    expect(light.loss).toMatchObject({ main: "#E5484D", soft: "#FDE7E8" });
-    expect(light.stale).toMatchObject({ main: "#A15C00", soft: "#FFF1D6" });
-    expect(light.cash.main).toBe("#B9C4CC");
-    expect(light.chart).toMatchObject({ invested: "#9BB8B0", series1: "#0FA68A", series5: "#FF8FA3" });
+    expect(light.text.primary).toBe("#1E2939");
+    expect(light.accent.main).toBe("#FFA600");
+    expect(light.gain).toMatchObject({ main: "#008236", soft: "#E3FAEC" });
+    expect(light.loss).toMatchObject({ main: "#D6000A", soft: "#FEEDEE" });
+    expect(light.stale).toMatchObject({ main: "#A15C00", soft: "#FEF3C6" });
+    expect(light.cash.main).toBe("#99A1AF");
+    expect(light.chart).toMatchObject({ invested: "#7C93AD", series1: "#003F5C", series5: "#FFA600" });
   });
 
   it("builds the dark scheme from the -dark tokens", () => {
-    expect(dark.primary.main).toBe("#3CCFB0");
-    expect(dark.background.default).toBe("#0E1A17");
-    expect(dark.background.paper).toBe("#16241F");
-    expect(dark.text.primary).toBe("#E3F2EE");
-    expect(dark.accent.main).toBe("#FFC877");
-    expect(dark.gain).toMatchObject({ main: "#4ADE80", soft: "#123826" });
-    expect(dark.loss).toMatchObject({ main: "#FF7A7E", soft: "#3A1A1C" });
+    expect(dark.primary.main).toBe("#14B8A6");
+    expect(dark.background.default).toBe("#111827");
+    expect(dark.background.paper).toBe("#1E2939");
+    expect(dark.text.primary).toBe("#F3F4F6");
+    expect(dark.accent.main).toBe("#FFB733");
+    expect(dark.gain).toMatchObject({ main: "#34D399", soft: "#12352F" });
+    expect(dark.loss).toMatchObject({ main: "#FF6467", soft: "#3B1D25" });
     expect(dark.stale).toMatchObject({ main: "#FFC877", soft: "#3A2A10" });
-    expect(dark.cash.main).toBe("#5B6870");
-    expect(dark.chart.invested).toBe("#55736B");
+    expect(dark.cash.main).toBe("#6A7282");
+    expect(dark.chart.invested).toBe("#3B82B6");
+    expect(dark.chart).toMatchObject({ series1: "#2A86B0", series5: "#FFB733" });
   });
 
   it("uses class-based CSS variables", () => {

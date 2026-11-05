@@ -106,11 +106,11 @@ function palette(mode: Mode) {
     cash: brand("cash", mode),
     chart: {
       invested: token("chart-invested", mode),
-      series1: colors["series-1"],
-      series2: colors["series-2"],
-      series3: colors["series-3"],
-      series4: colors["series-4"],
-      series5: colors["series-5"],
+      series1: token("series-1", mode),
+      series2: token("series-2", mode),
+      series3: token("series-3", mode),
+      series4: token("series-4", mode),
+      series5: token("series-5", mode),
     },
   };
 }
@@ -152,7 +152,7 @@ export const theme = createTheme({
       },
     },
     MuiPaper: {
-      // Cards float with the mint shadow; no dark-mode elevation overlay, so they show the surface token exactly.
+      // Cards float with the soft card shadow; no dark-mode elevation overlay, so they show the surface token exactly.
       styleOverrides: { elevation1: { boxShadow: shadows.card, backgroundImage: "none" } },
     },
     MuiCard: {
