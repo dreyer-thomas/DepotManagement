@@ -1,6 +1,7 @@
 import { prisma } from "@/db";
 import type { WatchlistEntrySource } from "@/db/generated/prisma/client";
-import { type FiftyTwoWeekFigures, fiftyTwoWeekFigures } from "@/core/key-figures";
+import { type FiftyTwoWeekFigures, fiftyTwoWeekFromCloses, tradingDayCloses } from "@/core/key-figures";
+import { type TechnicalPosition, technicalPosition } from "@/core/technical";
 import { currentSecurityId, entryFigures, type EntryFigures, isValidDateAdded, WATCHLIST_NOTE_MAX_LENGTH, watchlistHistoryStart } from "@/core/watchlist";
 import {
   ensureSecurity,
@@ -213,16 +214,26 @@ export type WatchlistEntryView = WatchlistEntryRecord &
     held: boolean;
     /** 52-week figures from the stored, split-adjusted closes as of today (story 9.6). */
     fiftyTwoWeek: FiftyTwoWeekFigures;
+    /**
+     * Technical signals and series as of today from the same closes as `fiftyTwoWeek` (story 11.4, AD-23);
+     * present only on the entries of the list named by `WatchlistViewOptions.technicalFor`.
+     */
+    technical?: TechnicalPosition;
   };
+
+/** `technicalFor`: the id of the one watchlist whose entries also get `technical` (the MCP `get_watchlist`). */
+export type WatchlistViewOptions = { technicalFor?: string };
 
 export type WatchlistView = { id: string; name: string; position: number; entries: WatchlistEntryView[] };
 
 /**
  * Every watchlist in creation order with its entries (by position) and their figures as of `today`:
  * resolved Price (stored Prices and Transaction prices, split-adjusted), stale flag, change today and
- * change since added (`core/watchlist`) and the 52-week figures (`core/key-figures`). Read-only, no provider call.
+ * change since added (`core/watchlist`) and the 52-week figures (`core/key-figures`); with `technicalFor`, the
+ * entries of that list also carry the technical position (`core/technical`) — only there, so the watchlist
+ * page and other lists pay no indicator work. Read-only, no provider call.
  */
-export async function watchlistView(today: string, db: WatchlistDb = prisma): Promise<WatchlistView[]> {
+export async function watchlistView(today: string, db: WatchlistDb = prisma, options: WatchlistViewOptions = {}): Promise<WatchlistView[]> {
   const lists = await db.watchlist.findMany({
     orderBy: { position: "asc" },
     select: { id: true, name: true, position: true, entries: { select: ENTRY_SELECT, orderBy: { position: "asc" } } },
@@ -243,6 +254,8 @@ export async function watchlistView(today: string, db: WatchlistDb = prisma): Pr
     entries: list.entries.flatMap((entry) => {
       const security = byId.get(entry.securityId);
       if (!security) return [];
+      // One source for the 52-week figures and the technical signals: the stored, split-adjusted closes.
+      const closes = tradingDayCloses(observations, entry.securityId, actions, today);
       return [
         {
           ...entry,
@@ -250,7 +263,8 @@ export async function watchlistView(today: string, db: WatchlistDb = prisma): Pr
           security,
           // Held when the Security it maps to today (its ISIN-change successor, if any) is held.
           held: heldSet.has(currentSecurityId(entry.securityId, actions, today)),
-          fiftyTwoWeek: fiftyTwoWeekFigures(observations, entry.securityId, actions, today),
+          fiftyTwoWeek: fiftyTwoWeekFromCloses(closes, today),
+          ...(list.id === options.technicalFor ? { technical: technicalPosition(closes, today) } : {}),
         },
       ];
     }),

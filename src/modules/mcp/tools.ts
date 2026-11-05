@@ -3,12 +3,14 @@
 // refuse the same inputs), reasons become `{ error, message }`. No figures are computed here; `held` is part
 // of an entry only when the grant also holds `portfolio:read` (story 10.2). Payload values are never logged.
 // `get_watchlist` adds each entry's key figures (story 9.6: the classification module's snapshot plus the
-// 52-week figures computed by core) and, for stocks, the analyst ratings (story 9.7).
+// 52-week figures computed by core) and, for stocks, the analyst ratings (story 9.7), and each entry's
+// technical signals (story 11.4: `technicalPosition` from core, latest values only, no series).
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { analystConsensusOf, analystCountOf, type AnalystRatings, consensusMean, targetChange } from "@/core/analyst-ratings";
 import { emptyKeyFigures, type FiftyTwoWeekFigures } from "@/core/key-figures";
+import { type InsufficientHistory, TECHNICAL_PARAMETERS, type TechnicalPosition } from "@/core/technical";
 import { WATCHLIST_NAME_MAX_LENGTH, WATCHLIST_NOTE_MAX_LENGTH } from "@/core/watchlist";
 import { type KeyFiguresInfo, listKeyFigures } from "@/modules/classification";
 import { type AssetType, findSecurity, listSecurities, SECURITY_NAME_MAX_LENGTH } from "@/modules/ledger";
@@ -201,9 +203,69 @@ export function keyFiguresPayload(week: FiftyTwoWeekFigures, info: KeyFiguresInf
   };
 }
 
+/** A signal without enough closes, as the tools return it. */
+function insufficientPayload(signal: InsufficientHistory) {
+  return { value: null, reason: signal.reason };
+}
+
+/**
+ * The latest technical signals of a Security (story 11.4, snake_case) from the `technicalPosition` result the
+ * card renders: decimals passed unchanged, `as_of` = date of the last close (null without closes), a signal
+ * without enough closes `{ value: null, reason: "insufficient-history" }`. Never the series. Pure.
+ */
+export function technicalPayload(position: TechnicalPosition) {
+  const { trend, rsi, macd, tsi, fiftyTwoWeeks } = position;
+  return {
+    basis: "closing prices",
+    as_of: position.series.at(-1)?.date ?? null,
+    trend:
+      trend.value === null
+        ? insufficientPayload(trend)
+        : { value: trend.value, date: trend.date, key: trend.key, label: trend.label, sma200: trend.sma200 },
+    rsi: rsi.value === null ? insufficientPayload(rsi) : { value: rsi.value, date: rsi.date, key: rsi.key, label: rsi.label },
+    macd:
+      macd.value === null
+        ? insufficientPayload(macd)
+        : { value: macd.value, date: macd.date, key: macd.key, label: macd.label, signal: macd.signal, histogram: macd.histogram },
+    tsi:
+      tsi.value === null
+        ? insufficientPayload(tsi)
+        : { value: tsi.value, date: tsi.date, key: tsi.key, label: tsi.label, signal: tsi.signal },
+    fifty_two_weeks:
+      fiftyTwoWeeks.value === null
+        ? insufficientPayload(fiftyTwoWeeks)
+        : {
+            value: fiftyTwoWeeks.value,
+            date: fiftyTwoWeeks.date,
+            key: fiftyTwoWeeks.key,
+            label: fiftyTwoWeeks.label,
+            high: fiftyTwoWeeks.high.price,
+            high_date: fiftyTwoWeeks.high.date,
+            low: fiftyTwoWeeks.low.price,
+            low_date: fiftyTwoWeeks.low.date,
+          },
+  };
+}
+
+const { trend: T, rsi: R, macd: M, tsi: S, fiftyTwoWeeks: W } = TECHNICAL_PARAMETERS;
+
+/** How `technical` reads (appended to the `get_security` and `get_watchlist` descriptions); numbers from `TECHNICAL_PARAMETERS`. */
+export const TECHNICAL_DESCRIPTION =
+  ` technical: the latest technical signals as the app's card "Technische Lage" shows them, computed from the stored daily closing prices of the Security whose prices are used (price_security in get_security; for a watchlist entry the Security it maps to today, the successor after an ISIN change), split-adjusted to today, one close per trading day, never a series; basis "closing prices", as_of = date of the last close (null without closes).` +
+  ` Only stored provider/manual closes count: Transaction prices are not used and nothing is carried forward, so as_of can be earlier than the price date and the signals can be old; compare as_of with today (fifty_two_weeks is insufficient-history when the last close is older than the 52-week window).` +
+  ` Price-valued fields (sma200, the macd value, signal and histogram, fifty_two_weeks high and low) are in EUR, split-adjusted to today; the macd value and histogram are absolute price differences, not comparable across Securities.` +
+  ` Each of trend, rsi, macd, tsi and fifty_two_weeks is either { value (decimal string), date (last close), key (stable English key), label (German wording) } with its extra fields as siblings of value/date/key/label, or { value: null, reason: "insufficient-history" } when the history is too short.` +
+  ` trend (at least ${T.minCloses} closes): value = last close ÷ SMA${T.smaWindow} − 1 as a ratio (0.082 = 8.2 %), extra field sma200 (the average); key up when the close is above SMA${T.smaWindow} and SMA${T.smaWindow} is higher than ${T.slopeLookback} closes earlier, down when the close is below and SMA${T.smaWindow} is lower than ${T.slopeLookback} closes earlier, otherwise sideways.` +
+  ` rsi (RSI ${R.period} with Wilder smoothing, at least ${R.minCloses} closes): value 0..100; key overbought at >= ${R.overbought}, oversold at <= ${R.oversold}, otherwise neutral.` +
+  ` macd (MACD ${M.fast}/${M.slow}, signal ${M.signal}, at least ${M.minCloses} closes): value = MACD line in price units, extra fields signal (signal line) and histogram (MACD − signal); key positive when MACD is above the signal line, negative when at or below it, positive-turning-up / negative-turning-down when the lines crossed within the last ${M.crossLookback} closes.` +
+  ` tsi (TSI ${S.long}/${S.short}, signal ${S.signal}, scaled by ${S.scale} so -${S.scale}..${S.scale}, at least ${S.minCloses} closes): extra field signal (signal line); key positive when TSI >= 0 and above signal, fading when TSI >= 0 and at or below signal, turning when TSI < 0 and above signal, negative when TSI < 0 and at or below signal.` +
+  ` fifty_two_weeks (needs a close within the window today − ${W.windowDays} days .. today, not a minimum number of closes): value = last close ÷ 52-week high − 1 as a ratio, extra fields high, high_date, low, low_date (closing prices); key near-high when close >= high × (1 − ${W.nearBand}), near-low when close <= low × (1 + ${W.nearBand}), near-high taking precedence when both apply, otherwise between.` +
+  ` The signals are descriptive and often conflict; there is no combined score or verdict, and they are not a recommendation.`;
+
 /**
  * An entry as the tools return it (snake_case, decimals as strings); with `keyFigures` (from
- * `listKeyFigures`) it also carries `key_figures`, with `withHeld` (the grant holds `portfolio:read`) `held`.
+ * `listKeyFigures`) it also carries `key_figures`, with `withHeld` (the grant holds `portfolio:read`) `held`,
+ * and `technical` when the view entry carries it (`watchlistView` with `technicalFor`).
  */
 export function entryPayload(entry: WatchlistEntryView, keyFigures?: Readonly<Record<string, KeyFiguresInfo>>, withHeld = false) {
   return {
@@ -224,6 +286,7 @@ export function entryPayload(entry: WatchlistEntryView, keyFigures?: Readonly<Re
     client_name: entry.clientName,
     ...(withHeld ? { held: entry.held } : {}),
     ...(keyFigures ? { key_figures: keyFiguresPayload(entry.fiftyTwoWeek, keyFigures[entry.securityId]) } : {}),
+    ...(entry.technical ? { technical: technicalPayload(entry.technical) } : {}),
   };
 }
 
@@ -320,12 +383,14 @@ export function registerWatchlistTools(server: McpServer, ctx: McpToolContext): 
     "get_watchlist",
     {
       description:
-        "Returns one watchlist with its entries: Security, note, date added, latest price (EUR, decimal string), price date, stale flag, change today and change since added (ratios), and key_figures: Yahoo Finance figures as of `as_of` (null when not delivered; `stale` when older than 7 days; ratios as plain decimals, e.g. dividend_yield 0.0118 = 1.18 %, debt_to_equity_percent in percent units; amounts with their currency) plus fifty_two_week high/low (with dates), distance to high and 52-week performance computed from stored closing prices, and for stocks `analysts` (null without analyst data): the Yahoo listing `symbol` it comes from, consensus (optimistic ≤ 2.0 < neutral ≤ 3.0 < pessimistic on the 1 = strong buy … 5 = strong sell mean), consensus_mean, analyst_count, the monthly recommendation trend (oldest first, period \"0m\" = current month), price_target in that listing's currency (never converted) with implied_change versus its current price (ratio), and recent_changes (up to 10 up-/downgrades, newest first). Not investment advice.",
+        "Returns one watchlist with its entries: Security, note, date added, latest price (EUR, decimal string), price date, stale flag, change today and change since added (ratios), and key_figures: Yahoo Finance figures as of `as_of` (null when not delivered; `stale` when older than 7 days; ratios as plain decimals, e.g. dividend_yield 0.0118 = 1.18 %, debt_to_equity_percent in percent units; amounts with their currency) plus fifty_two_week high/low (with dates), distance to high and 52-week performance computed from stored closing prices, and for stocks `analysts` (null without analyst data): the Yahoo listing `symbol` it comes from, consensus (optimistic ≤ 2.0 < neutral ≤ 3.0 < pessimistic on the 1 = strong buy … 5 = strong sell mean), consensus_mean, analyst_count, the monthly recommendation trend (oldest first, period \"0m\" = current month), price_target in that listing's currency (never converted) with implied_change versus its current price (ratio), and recent_changes (up to 10 up-/downgrades, newest first). Each entry also carries technical (see below)." +
+        TECHNICAL_DESCRIPTION +
+        " Not investment advice.",
       inputSchema: { watchlist_id: id("watchlist") },
       annotations: { readOnlyHint: true },
     },
     guarded("get_watchlist", async ({ watchlist_id }) => {
-      const list = (await watchlistView(ctx.today, ctx.db)).find((candidate) => candidate.id === watchlist_id);
+      const list = (await watchlistView(ctx.today, ctx.db, { technicalFor: watchlist_id })).find((candidate) => candidate.id === watchlist_id);
       if (!list) return refusal("watchlist-not-found");
       const keyFigures = await listKeyFigures(
         list.entries.map((entry) => entry.securityId),

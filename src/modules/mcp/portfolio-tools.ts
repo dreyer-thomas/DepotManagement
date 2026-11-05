@@ -1,8 +1,9 @@
 // Portfolio read tools (Epic 10, scope `portfolio:read`). Registered for every grant so a client without the
 // scope gets the specific refusal instead of "unknown tool"; each tool checks the scope at call time through
 // `requirePortfolioRead` and then calls the same exported module services and core functions the pages use
-// (story 10.2): no figure is computed here. Read-only; amounts are EUR decimal strings, dates `YYYY-MM-DD`;
-// payload values are never logged.
+// (story 10.2): no figure is computed here; `get_security` also returns the card's technical signals
+// (story 11.4, `technicalPayload` of `securityDetail().technical`). Read-only; amounts are EUR decimal
+// strings, dates `YYYY-MM-DD`; payload values are never logged.
 import type { McpServer, ToolCallback } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
@@ -45,7 +46,7 @@ import {
 } from "@/modules/ledger";
 import { latestStoredPrices, storedPriceHistory } from "@/modules/prices";
 import { PORTFOLIO_READ_SCOPE } from "./authorize";
-import { guarded, type Handler, keyFiguresPayload, type McpToolContext, refusal, result } from "./tools";
+import { guarded, type Handler, keyFiguresPayload, type McpToolContext, refusal, result, TECHNICAL_DESCRIPTION, technicalPayload } from "./tools";
 
 export const PORTFOLIO_TOOL_NAMES = [
   "get_portfolio_summary",
@@ -430,7 +431,9 @@ export function registerPortfolioTools(server: McpServer, ctx: McpToolContext): 
 
   register(
     "get_security",
-    "One Security (held, sold or only watched) as its detail page shows it, over all non-archived booking Depots or one depot_id: held (open Position in a non-archived Depot), booked, latest price with date and stale flag (of price_security: the Security whose prices are used, which differs from security after an ISIN change), Period figures (value at the Period end, gain split, TTWROR, XIRR, price change), the holding snapshot (quantity, Cost Basis, value, unrealized, average price), all_time results since the first buy (realized, unrealized, dividends, fees, taxes_paid, total = realized + unrealized + dividends − fees, total_invested, return_ratio, XIRR, value), the effective classification and key_figures (Yahoo Finance snapshot, 52-week figures from stored closes, analyst ratings for stocks). Not investment advice.",
+    "One Security (held, sold or only watched) as its detail page shows it, over all non-archived booking Depots or one depot_id: held (open Position in a non-archived Depot), booked, latest price with date and stale flag (of price_security: the Security whose prices are used, which differs from security after an ISIN change), Period figures (value at the Period end, gain split, TTWROR, XIRR, price change), the holding snapshot (quantity, Cost Basis, value, unrealized, average price), all_time results since the first buy (realized, unrealized, dividends, fees, taxes_paid, total = realized + unrealized + dividends − fees, total_invested, return_ratio, XIRR, value), the effective classification and key_figures (Yahoo Finance snapshot, 52-week figures from stored closes, analyst ratings for stocks) and technical (see below)." +
+      TECHNICAL_DESCRIPTION +
+      " Not investment advice.",
     { security_id: z.string().describe("The Security id (from list_positions or search_securities)."), depot_id: optionalId("Depot"), period: periodArg },
     async ({ security_id, depot_id, period }) => {
       const selection = selectionOf(period, ctx.today);
@@ -488,6 +491,7 @@ export function registerPortfolioTools(server: McpServer, ctx: McpToolContext): 
         },
         classification: classificationPayload(classification),
         key_figures: keyFiguresPayload(detail.fiftyTwoWeek, keyFigures[security.id]),
+        technical: technicalPayload(detail.technical),
       });
     },
   );

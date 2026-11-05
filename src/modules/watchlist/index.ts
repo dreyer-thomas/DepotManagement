@@ -26,6 +26,7 @@ export type {
   WatchlistEntryRecord,
   WatchlistEntrySource,
   WatchlistEntryView,
+  WatchlistViewOptions,
   WatchlistView,
 } from "./entries";
 export { exportWatchlists, replaceAllWatchlists } from "./backup";

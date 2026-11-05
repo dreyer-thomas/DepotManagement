@@ -1,6 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import reference from "../../../test/fixtures/technical/reference-series.json";
 import { createTestDatabase, type TestDatabase } from "../../../test/helpers/test-db";
 import { effective } from "@/core/classification";
 import { holdingShares, holdingTotals } from "@/core/composition";
@@ -28,9 +29,10 @@ import {
   valuationSummary,
 } from "@/modules/ledger";
 import { latestStoredPrices, storedPriceHistory } from "@/modules/prices";
+import { addWatchlistEntry, createWatchlist } from "@/modules/watchlist";
 import { PORTFOLIO_READ_DENIED_MESSAGE, PORTFOLIO_TOOL_NAMES, requirePortfolioRead } from "./portfolio-tools";
 import { createMcpServer } from "./server";
-import { keyFiguresPayload, type McpToolContext } from "./tools";
+import { keyFiguresPayload, type McpToolContext, TECHNICAL_DESCRIPTION } from "./tools";
 
 const TODAY = "2026-10-28";
 const DENIED = { error: "portfolio-read-required", message: PORTFOLIO_READ_DENIED_MESSAGE };
@@ -571,6 +573,113 @@ describe("get_security", () => {
       payload: { error: "security-not-in-depot", message: "Dieses Wertpapier wurde in diesem Depot nicht gebucht." },
     });
     expect(await call("get_security", { security_id: fx.sap, period: "1X" })).toEqual(refused("period-invalid"));
+  });
+});
+
+describe("technical (story 11.4)", () => {
+  const TECHNICAL_KEYS = ["as_of", "basis", "fifty_two_weeks", "macd", "rsi", "trend", "tsi"];
+  const INSUFFICIENT = { value: null, reason: "insufficient-history" };
+
+  /** "Technik AG" with the 300 reference closes 2025-08-04..2026-09-25. */
+  async function technik(): Promise<string> {
+    const created = await ensureSecurity({ isin: "DE000TECH008" }, { name: "Technik AG", assetType: "STOCK" }, db());
+    if (!created.ok) throw new Error(`setup failed: ${created.reason}`);
+    const securityId = created.security.id;
+    await db().price.createMany({
+      data: reference.closes.map(({ date, price: value }) => ({ securityId, date, source: "PROVIDER" as const, price: value, fetchedAt: `${date}T18:00:00.000Z` })),
+    });
+    return securityId;
+  }
+
+  async function watchlist(name: string, securityIds: string[]): Promise<string> {
+    const created = await createWatchlist({ name }, db());
+    if (!created.ok) throw new Error(`setup failed: ${created.reason}`);
+    for (const securityId of securityIds) {
+      const added = await addWatchlistEntry({ watchlistId: created.watchlist.id, security: { id: securityId } }, TODAY, db());
+      if (!added.ok) throw new Error(`setup failed: ${added.reason}`);
+    }
+    return created.watchlist.id;
+  }
+
+  it("get_security returns the card input's five latest signals; get_watchlist the same per entry", async () => {
+    const tech = await technik();
+    const { payload } = await call("get_security", { security_id: tech });
+    const { technical } = (await securityDetail(tech, undefined, { kind: "preset", preset: "1J" }, TODAY, db(), history))!;
+    const { trend, rsi, macd, tsi, fiftyTwoWeeks } = technical;
+    if (trend.value === null || rsi.value === null || macd.value === null || tsi.value === null || fiftyTwoWeeks.value === null) {
+      throw new Error("the reference closes must give every signal");
+    }
+    expect(payload.technical).toEqual({
+      basis: "closing prices",
+      as_of: "2026-09-25",
+      trend: { value: trend.value, date: trend.date, key: trend.key, label: trend.label, sma200: trend.sma200 },
+      rsi: { value: rsi.value, date: rsi.date, key: rsi.key, label: rsi.label },
+      macd: { value: macd.value, date: macd.date, key: macd.key, label: macd.label, signal: macd.signal, histogram: macd.histogram },
+      tsi: { value: tsi.value, date: tsi.date, key: tsi.key, label: tsi.label, signal: tsi.signal },
+      fifty_two_weeks: {
+        value: fiftyTwoWeeks.value,
+        date: fiftyTwoWeeks.date,
+        key: fiftyTwoWeeks.key,
+        label: fiftyTwoWeeks.label,
+        high: fiftyTwoWeeks.high.price,
+        high_date: fiftyTwoWeeks.high.date,
+        low: fiftyTwoWeeks.low.price,
+        low_date: fiftyTwoWeeks.low.date,
+      },
+    });
+    for (const signal of ["trend", "rsi", "macd", "tsi", "fifty_two_weeks"]) expect(payload.technical[signal].value).toEqual(expect.any(String));
+
+    const ideas = await watchlist("Ideen", [tech, fx.watched, fx.unpriced]);
+    const other = await watchlist("Andere", [tech]);
+    const listed = await call("get_watchlist", { watchlist_id: ideas });
+    const [techEntry, watchedEntry, unpricedEntry] = listed.payload.entries;
+    expect(techEntry.technical).toEqual(payload.technical);
+    // One stored close (2026-10-27): only the 52-week signal.
+    expect(watchedEntry.technical).toMatchObject({
+      as_of: "2026-10-27",
+      trend: INSUFFICIENT,
+      rsi: INSUFFICIENT,
+      macd: INSUFFICIENT,
+      tsi: INSUFFICIENT,
+      fifty_two_weeks: { value: "0", date: "2026-10-27", key: "near-high", high: "200", low: "200" },
+    });
+    // No stored Prices at all.
+    expect(unpricedEntry.technical).toEqual({
+      basis: "closing prices",
+      as_of: null,
+      trend: INSUFFICIENT,
+      rsi: INSUFFICIENT,
+      macd: INSUFFICIENT,
+      tsi: INSUFFICIENT,
+      fifty_two_weeks: INSUFFICIENT,
+    });
+    const otherList = await call("get_watchlist", { watchlist_id: other });
+    expect(otherList.payload.entries[0].technical).toEqual(payload.technical);
+
+    const securities = await Promise.all([fx.watched, fx.unpriced, fx.sap].map((id) => call("get_security", { security_id: id })));
+    const all = [
+      payload.technical,
+      ...listed.payload.entries.map((entry: { technical: object }) => entry.technical),
+      otherList.payload.entries[0].technical,
+      ...securities.map((security) => security.payload.technical),
+    ];
+    for (const technical of all) expect(Object.keys(technical).sort()).toEqual(TECHNICAL_KEYS);
+  });
+
+  it("explains the signals in both descriptions and leaves the entry write results without technical", async () => {
+    const { tools } = await mcp.listTools();
+    for (const name of ["get_security", "get_watchlist"]) {
+      const description = tools.find((tool) => tool.name === name)?.description ?? "";
+      expect(description).toContain(`${TECHNICAL_DESCRIPTION} Not investment advice.`);
+    }
+    await technik();
+    const ideas = await watchlist("Ideen", []);
+    const added = await call("add_watchlist_entry", { watchlist_id: ideas, isin: "DE000TECH008" });
+    expect(added).toMatchObject({ isError: false, payload: { name: "Technik AG" } });
+    expect(added.payload).not.toHaveProperty("technical");
+    const updated = await call("update_watchlist_entry", { entry_id: added.payload.id, note: "x" });
+    expect(updated).toMatchObject({ isError: false, payload: { id: added.payload.id, note: "x" } });
+    expect(updated.payload).not.toHaveProperty("technical");
   });
 });
 

@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createTestDatabase, type TestDatabase } from "../../../test/helpers/test-db";
-import { createDepot, ensureSecurity, recordSplit, recordTrade } from "@/modules/ledger";
+import { tradingDayCloses } from "@/core/key-figures";
+import { technicalPosition } from "@/core/technical";
+import { createDepot, ensureSecurity, recordSplit, recordTrade, securityPriceObservations } from "@/modules/ledger";
+import { storedPriceHistory } from "@/modules/prices";
 import {
   addWatchlistEntry,
   createWatchlist,
@@ -267,6 +270,37 @@ describe("watchlistView", () => {
     await add(ideas, await security(SAP, "SAP SE"));
     const [view] = await watchlistView(TODAY, db());
     expect(view.entries[0]).toMatchObject({ price: null, stale: false, changeToday: null, sinceAdded: null, held: false });
+  });
+});
+
+describe("watchlistView technicalFor", () => {
+  it("adds the technical position only to the entries of the named list", async () => {
+    const ideas = await list("Ideen");
+    const other = await list("Andere");
+    const sap = await security(SAP, "SAP SE");
+    const apple = await security(APPLE, "Apple Inc.");
+    for (let day = 1; day <= 28; day++) await price(sap, `2026-09-${String(day).padStart(2, "0")}`, String(100 + (day % 7)));
+    await price(sap, "2026-10-27", "26");
+    expect((await recordSplit({ securityId: sap, date: "2026-10-15", ratio: "1:4" }, db())).ok).toBe(true);
+    await price(apple, "2026-10-27", "200");
+    await add(ideas, sap);
+    await add(other, sap);
+    await add(other, apple);
+
+    for (const view of await watchlistView(TODAY, db())) for (const entry of view.entries) expect(entry).not.toHaveProperty("technical");
+
+    const [first, second] = await watchlistView(TODAY, db(), { technicalFor: ideas });
+    const { observations, actions } = await securityPriceObservations(
+      [sap],
+      TODAY,
+      { storedPrices: (ids, asOf) => storedPriceHistory(ids, asOf, db()) },
+      db(),
+    );
+    const expected = technicalPosition(tradingDayCloses(observations, sap, actions, TODAY), TODAY);
+    expect(first.entries[0].technical).toEqual(expected);
+    expect(expected.series).toHaveLength(29);
+    expect(expected.rsi.value).toEqual(expect.any(String));
+    for (const entry of second.entries) expect(entry).not.toHaveProperty("technical");
   });
 });
 
