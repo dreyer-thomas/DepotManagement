@@ -1,5 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { findElement } from "../../../../../test/helpers/next-mocks";
+import { SecurityTotal } from "@/app/_components/security-detail/SecurityTotal";
 import { renderHtml } from "../../../../../test/helpers/render-text";
 
 const dbFile = await vi.hoisted(async () => {
@@ -221,10 +222,9 @@ describe("Security detail page", () => {
     let html = renderHtml(tree);
     const watchCard = text(section(html, 'id="security-key-figures"', 'id="security-news"'));
     expect(watchCard).toContain("Yahoo Finance, Stand 18.10.2026 – veraltet");
+    // Closed by default: the stock summary only (the full groups are covered by the KeyFiguresCard tests).
     expect(watchCard).toContain("KGV 30,43");
-    expect(watchCard).toContain("KGV erwartet –");
-    expect(watchCard).toContain("52-Wochen-Hoch 120,00 € (15.01.2026)");
-    expect(watchCard).toContain("auf Schlusskursbasis");
+    expect(watchCard).not.toContain("KGV erwartet");
     expect(watchCard).toContain("Angaben ohne Gewähr, keine Anlageberatung");
     expect(watchCard).not.toContain("Kennzahlen aktualisieren");
 
@@ -541,10 +541,17 @@ describe("Security detail page", () => {
     const { id } = await twoDepots();
     const card = async () => text(section(renderHtml(await SecurityDetailPage(props(id))), 'id="security-total"', 'id="security-lots"'));
     const max = await card();
-    // Realized 0, unrealized 1.650 − 1.600, dividends 20; taxes 5 separate; invested 1.600; 70 / 1.600.
-    expect(max).toMatch(
-      /Gesamt seit Erstkauf Realisiert 0,00 € Unrealisiert \+50,00 € Dividenden \+20,00 € Gebühren 0,00 € Gesamt \+70,00 € Steuern gezahlt nicht in Gewinn\/Verlust enthalten \+5,00 € Investiert gesamt 1\.600,00 € Rendite auf Investiert \+4,38 % XIRR \+\d+,\d\d %/,
-    );
+    // Closed by default: return on invested (70 / 1.600) and XIRR.
+    expect(max).toMatch(/Gesamt seit Erstkauf Rendite auf Investiert \+4,38 % XIRR \+\d+,\d\d % Kennzahlen/);
+    // Realized 0, unrealized 1.650 − 1.600, dividends 20; taxes 5 separate; invested 1.600.
+    expect(findElement(await SecurityDetailPage(props(id)), SecurityTotal)!.props.total).toMatchObject({
+      realized: "0",
+      unrealized: "50",
+      dividends: "20",
+      total: "70",
+      taxesPaid: "5",
+      totalInvested: "1600",
+    });
     cookieJar.set(PERIOD_COOKIE, "1M");
     expect(await card()).toBe(max);
     cookieJar.set(PERIOD_COOKIE, "custom:2026-03-01:2026-03-31");
@@ -603,11 +610,9 @@ describe("Security detail page", () => {
     await book({ depotId: a, type: "BUY", date: "2025-01-02", quantity: "10", price: "100", fee: "1", security: { id } });
     await book({ depotId: a, type: "SELL", date: "2026-01-02", quantity: "10", price: "120", fee: "1", security: { id } });
     cookieJar.set(PERIOD_COOKIE, "1M");
-    const card = text(section(renderHtml(await SecurityDetailPage(props(id))), 'id="security-total"', 'id="security-lots"'));
-    expect(card).toContain("Realisiert +198,00 €");
-    expect(card).toContain("Unrealisiert 0,00 €");
-    expect(card).toContain("Gesamt +198,00 €");
-    expect(card).toContain("Investiert gesamt 1.001,00 €");
+    const tree = await SecurityDetailPage(props(id));
+    const card = text(section(renderHtml(tree), 'id="security-total"', 'id="security-lots"'));
+    expect(findElement(tree, SecurityTotal)!.props.total).toMatchObject({ realized: "198", unrealized: "0", total: "198", totalInvested: "1001" });
     expect(card).toContain("Rendite auf Investiert +19,78 %");
     expect(card).toContain("XIRR +19,78 %");
   });

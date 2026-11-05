@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ThemeProvider } from "@mui/material/styles";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -63,7 +63,8 @@ function snapshot(figures: ProviderKeyFigures, overrides: Partial<KeyFiguresSnap
   };
 }
 
-function renderCard(props: Partial<Parameters<typeof KeyFiguresCard>[0]> = {}) {
+/** Renders the card, opened unless `open` is false. */
+function renderCard(props: Partial<Parameters<typeof KeyFiguresCard>[0]> = {}, open = true) {
   render(
     <ThemeProvider theme={theme}>
       <KeyFiguresCard
@@ -77,7 +78,14 @@ function renderCard(props: Partial<Parameters<typeof KeyFiguresCard>[0]> = {}) {
       />
     </ThemeProvider>,
   );
-  return screen.getByRole("region", { name: "Kennzahlen" });
+  const card = screen.getByRole("region", { name: "Kennzahlen" });
+  if (open) fireEvent.click(within(card).getByRole("button", { name: "Kennzahlen ausklappen" }));
+  return card;
+}
+
+/** "label value" per dt/dd pair of the whole card. */
+function allPairs(card: HTMLElement): string[] {
+  return [...card.querySelectorAll("dt")].map((dt) => `${dt.textContent} ${dt.nextElementSibling?.textContent}`);
 }
 
 /** "label value" per dt/dd pair of a group. */
@@ -87,6 +95,37 @@ function pairs(card: HTMLElement, group: string): string[] {
 }
 
 describe("KeyFiguresCard", () => {
+  it("is closed by default: a stock shows KGV, Dividendenrendite, Marktkapitalisierung, Umsatz and Nettomarge", () => {
+    const card = renderCard({}, false);
+    const toggle = within(card).getByRole("button", { name: "Kennzahlen ausklappen" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(card.textContent).toContain("Yahoo Finance, Stand 28.10.2026");
+    expect(within(card).queryByRole("region", { name: "Bewertung" })).toBeNull();
+    expect(allPairs(card)).toEqual([
+      "KGV 30,43",
+      `Dividendenrendite 1,18${NBSP}%`,
+      `Marktkapitalisierung 243,77${NBSP}Mrd.${NBSP}€`,
+      `Umsatz (12 Monate) 35,90${NBSP}Mrd.${NBSP}€`,
+      `Nettomarge 19,87${NBSP}%`,
+    ]);
+    expect(card.textContent).toContain("Angaben ohne Gewähr, keine Anlageberatung");
+
+    fireEvent.click(toggle);
+    expect(within(card).getByRole("button", { name: "Kennzahlen einklappen" }).getAttribute("aria-expanded")).toBe("true");
+    expect(within(card).getByRole("region", { name: "Bewertung" })).toBeDefined();
+  });
+
+  it("closed: an ETF shows TER and 52-week performance", () => {
+    const etf = { ...emptyKeyFigures(), fundFamily: "iShares", expenseRatio: "0.002", inceptionDate: "2009-09-25" };
+    const card = renderCard({ assetType: "ETF", snapshot: snapshot(etf) }, false);
+    expect(allPairs(card)).toEqual([`laufende Kosten (TER) 0,20${NBSP}%`, `Performance 52 Wochen +12,34${NBSP}%`]);
+  });
+
+  it("closed: crypto shows the 52-week distance to the high and performance", () => {
+    const card = renderCard({ assetType: "CRYPTO", snapshot: null, canRefresh: false }, false);
+    expect(allPairs(card)).toEqual([`Abstand zum 52-Wochen-Hoch -5,20${NBSP}%`, `Performance 52 Wochen +12,34${NBSP}%`]);
+  });
+
   it("German stock: source and date, every stock group, 52-week figures and the hint", () => {
     const card = renderCard({ snapshot: snapshot(SAP, { fetchedToday: false }) });
     expect(card.textContent).toContain("Yahoo Finance, Stand 28.10.2026");
@@ -140,7 +179,7 @@ describe("KeyFiguresCard", () => {
       "Abstand zum 52-Wochen-Hoch –",
       "Performance 52 Wochen –",
     ]);
-    expect(within(card).queryByRole("button")).toBeNull();
+    expect(within(card).queryByRole("button", { name: /aktualisier/ })).toBeNull();
   });
 
   it("without a snapshot: 'Noch keine Daten von Yahoo Finance' and the button", () => {
@@ -173,6 +212,6 @@ describe("KeyFiguresCard", () => {
 
   it("hides the button when the Security cannot be refreshed", () => {
     const card = renderCard({ canRefresh: false });
-    expect(within(card).queryByRole("button")).toBeNull();
+    expect(within(card).queryByRole("button", { name: /aktualisier/ })).toBeNull();
   });
 });

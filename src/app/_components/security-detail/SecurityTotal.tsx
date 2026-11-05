@@ -1,15 +1,13 @@
 import ArrowDownward from "@mui/icons-material/ArrowDownward";
 import ArrowUpward from "@mui/icons-material/ArrowUpward";
 import Box from "@mui/material/Box";
-import Card from "@mui/material/Card";
-import CardContent from "@mui/material/CardContent";
 import Divider from "@mui/material/Divider";
 import Typography from "@mui/material/Typography";
 import type { ReactNode } from "react";
-import { CardHeading } from "@/app/_components/overview/CardHeading";
 import { canonicalDecimal, ExactDecimal } from "@/core/decimal";
 import { formatMoney } from "@/core/format";
 import type { SecurityTotal as SecurityTotalFigures } from "@/core/security";
+import { CollapsibleCard } from "./CollapsibleCard";
 import { percentOrMissing, ratioTone, signedMoneyOrMissing, TOTAL_HEADING } from "./labels";
 
 const LIST_SX = { m: 0, maxWidth: 480, display: "grid", gridTemplateColumns: "1fr auto", columnGap: 2, alignItems: "baseline" };
@@ -50,29 +48,41 @@ function ReturnValue({ ratio }: { ratio: string | null }) {
 
 /**
  * Card "Gesamt seit Erstkauf": the all-time result of the holding as of today, independent of the
- * Period — realized, unrealized, dividends, fees, total, then taxes paid (separate), total invested,
- * return on invested and XIRR. Renders the figures it is given; computes nothing.
+ * Period. Closed (default) it shows return on invested and XIRR; opened it shows realized, unrealized,
+ * dividends, fees, total, then taxes paid (separate), total invested, return on invested and XIRR.
+ * Renders the figures it is given; computes nothing.
  */
 export function SecurityTotal({ total }: { total: SecurityTotalFigures }) {
+  const returnRow = <TotalRow label="Rendite auf Investiert" value={<ReturnValue ratio={total.returnRatio} />} />;
+  const xirrRow = <TotalRow label="XIRR" value={percentOrMissing(total.xirr)} />;
   return (
-    <Card component="section" aria-labelledby="security-total" sx={{ mb: 2, minWidth: 0 }}>
-      <CardContent>
-        <CardHeading id="security-total">{TOTAL_HEADING}</CardHeading>
+    <CollapsibleCard
+      id="security-total"
+      heading={TOTAL_HEADING}
+      collapsed={
         <Box component="dl" sx={LIST_SX}>
-          <TotalRow label="Realisiert" value={signedMoneyOrMissing(total.realized)} />
-          <TotalRow label="Unrealisiert" value={signedMoneyOrMissing(total.unrealized)} />
-          <TotalRow label="Dividenden" value={signedMoneyOrMissing(total.dividends)} />
-          <TotalRow label="Gebühren" value={signedMoneyOrMissing(canonicalDecimal(new ExactDecimal(total.fees).negated()))} />
-          <TotalRow label="Gesamt" value={signedMoneyOrMissing(total.total)} bold />
+          {returnRow}
+          {xirrRow}
         </Box>
-        <Divider sx={{ my: 1, maxWidth: 480 }} />
-        <Box component="dl" sx={LIST_SX}>
-          <TotalRow label="Steuern gezahlt" value={signedMoneyOrMissing(total.taxesPaid)} note="nicht in Gewinn/Verlust enthalten" />
-          <TotalRow label="Investiert gesamt" value={formatMoney(total.totalInvested)} />
-          <TotalRow label="Rendite auf Investiert" value={<ReturnValue ratio={total.returnRatio} />} />
-          <TotalRow label="XIRR" value={percentOrMissing(total.xirr)} />
-        </Box>
-      </CardContent>
-    </Card>
+      }
+      expanded={
+        <>
+          <Box component="dl" sx={LIST_SX}>
+            <TotalRow label="Realisiert" value={signedMoneyOrMissing(total.realized)} />
+            <TotalRow label="Unrealisiert" value={signedMoneyOrMissing(total.unrealized)} />
+            <TotalRow label="Dividenden" value={signedMoneyOrMissing(total.dividends)} />
+            <TotalRow label="Gebühren" value={signedMoneyOrMissing(canonicalDecimal(new ExactDecimal(total.fees).negated()))} />
+            <TotalRow label="Gesamt" value={signedMoneyOrMissing(total.total)} bold />
+          </Box>
+          <Divider sx={{ my: 1, maxWidth: 480 }} />
+          <Box component="dl" sx={LIST_SX}>
+            <TotalRow label="Steuern gezahlt" value={signedMoneyOrMissing(total.taxesPaid)} note="nicht in Gewinn/Verlust enthalten" />
+            <TotalRow label="Investiert gesamt" value={formatMoney(total.totalInvested)} />
+            {returnRow}
+            {xirrRow}
+          </Box>
+        </>
+      }
+    />
   );
 }

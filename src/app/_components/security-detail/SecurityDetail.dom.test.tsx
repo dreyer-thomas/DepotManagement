@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ThemeProvider } from "@mui/material/styles";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -360,8 +360,20 @@ describe("SecurityTotal", () => {
     return [...section.querySelectorAll("dt")].map((dt) => [dt.textContent ?? "", dt.nextElementSibling?.textContent ?? ""]);
   }
 
+  const open = () => fireEvent.click(screen.getByRole("button", { name: "Gesamt seit Erstkauf ausklappen" }));
+
+  it("is closed by default with only the return on invested and XIRR", () => {
+    render(<SecurityTotal total={figures} />);
+    expect(screen.getByRole("button", { name: "Gesamt seit Erstkauf ausklappen" }).getAttribute("aria-expanded")).toBe("false");
+    expect(rows()).toEqual([
+      ["Rendite auf Investiert", "+20,23\u00a0%"],
+      ["XIRR", "+19,78\u00a0%"],
+    ]);
+  });
+
   it("lists the all-time figures with signs, taxes and invested separately", () => {
     render(<SecurityTotal total={figures} />);
+    open();
     expect(screen.getByRole("heading", { name: "Gesamt seit Erstkauf" })).toBeTruthy();
     expect(rows()).toEqual([
       ["Realisiert", "+198,00\u00a0€"],
@@ -380,6 +392,7 @@ describe("SecurityTotal", () => {
 
   it("shows – without a value", () => {
     render(<SecurityTotal total={{ ...figures, unrealized: null, total: null, returnRatio: null, xirr: null, value: null }} />);
+    open();
     const byLabel = Object.fromEntries(rows());
     expect(byLabel["Unrealisiert"]).toBe("–");
     expect(byLabel["Gesamt"]).toBe("–");

@@ -2,16 +2,14 @@
 
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
-import Card from "@mui/material/Card";
-import CardContent from "@mui/material/CardContent";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import { useState, useTransition } from "react";
 import { refreshKeyFiguresAction } from "@/app/_actions/key-figures";
-import { CardHeading } from "@/app/_components/overview/CardHeading";
 import { formatCompactAmount, formatDate, formatFigure, formatMoney, formatPercent, formatRate } from "@/core/format";
 import { type DatedClose, type FiftyTwoWeekFigures, hasProviderKeyFigures, type ProviderKeyFigures, upcomingEarningsDate } from "@/core/key-figures";
 import type { KeyFiguresSnapshot } from "@/modules/classification";
+import { CollapsibleCard } from "./CollapsibleCard";
 
 const MISSING = "–";
 const NBSP = " ";
@@ -74,6 +72,17 @@ function stockGroups(figures: ProviderKeyFigures, today: string): Group[] {
   ];
 }
 
+/** The closed card of a STOCK: KGV, Dividendenrendite, Marktkapitalisierung, Umsatz and Nettomarge. */
+function stockSummary(figures: ProviderKeyFigures): Row[] {
+  return [
+    { label: "KGV", value: figure(figures.trailingPE) },
+    { label: "Dividendenrendite", value: rate(figures.dividendYield) },
+    { label: "Marktkapitalisierung", value: amount(figures.marketCap, figures.marketCapCurrency) },
+    { label: "Umsatz (12 Monate)", value: amount(figures.revenue, figures.revenueCurrency) },
+    { label: "Nettomarge", value: rate(figures.profitMargin) },
+  ];
+}
+
 function fundGroups(figures: ProviderKeyFigures): Group[] {
   return [
     {
@@ -100,6 +109,17 @@ function priceGroup(fiftyTwoWeek: FiftyTwoWeekFigures): Group {
   };
 }
 
+/**
+ * The rows of the closed card: the stock summary, for an ETF/fund the TER, otherwise the 52-week distance
+ * to the high; always the 52-week performance last.
+ */
+function summaryRows(assetType: string, snapshot: KeyFiguresSnapshot | null, prices: Group): Row[] {
+  const price = (label: string) => prices.rows.find((row) => row.label === label)!;
+  if (snapshot && assetType === "STOCK") return stockSummary(snapshot.figures);
+  if (snapshot) return [{ label: "laufende Kosten (TER)", value: rate(snapshot.figures.expenseRatio) }, price("Performance 52 Wochen")];
+  return [price("Abstand zum 52-Wochen-Hoch"), price("Performance 52 Wochen")];
+}
+
 function GroupList({ group, id }: { group: Group; id: string }) {
   return (
     <Box component="section" aria-labelledby={id} sx={{ minWidth: 0 }}>
@@ -111,18 +131,24 @@ function GroupList({ group, id }: { group: Group; id: string }) {
           {group.note}
         </Typography>
       ) : null}
-      <Box component="dl" sx={{ m: 0, mt: 0.5, display: "grid", gridTemplateColumns: "1fr auto", columnGap: 2, alignItems: "baseline" }}>
-        {group.rows.map((row) => (
-          <Box key={row.label} sx={{ display: "contents" }}>
-            <Typography component="dt" variant="body2" sx={{ m: 0, py: 0.25 }}>
-              {row.label}
-            </Typography>
-            <Typography component="dd" variant="figure" sx={{ m: 0, py: 0.25, textAlign: "right", whiteSpace: "nowrap" }}>
-              {row.value}
-            </Typography>
-          </Box>
-        ))}
-      </Box>
+      <RowList rows={group.rows} />
+    </Box>
+  );
+}
+
+function RowList({ rows, maxWidth }: { rows: Row[]; maxWidth?: number }) {
+  return (
+    <Box component="dl" sx={{ m: 0, mt: 0.5, maxWidth, display: "grid", gridTemplateColumns: "1fr auto", columnGap: 2, alignItems: "baseline" }}>
+      {rows.map((row) => (
+        <Box key={row.label} sx={{ display: "contents" }}>
+          <Typography component="dt" variant="body2" sx={{ m: 0, py: 0.25 }}>
+            {row.label}
+          </Typography>
+          <Typography component="dd" variant="figure" sx={{ m: 0, py: 0.25, textAlign: "right", whiteSpace: "nowrap" }}>
+            {row.value}
+          </Typography>
+        </Box>
+      ))}
     </Box>
   );
 }
@@ -179,7 +205,9 @@ export function SourceLine({ snapshot, suffix }: { snapshot: KeyFiguresSnapshot 
  * Card "Kennzahlen" (story 9.6, both detail layouts): for a STOCK the provider groups Bewertung · Größe ·
  * Dividende · Qualität · Risiko · Termine, for an ETF/fund Fondsgesellschaft, TER and Auflagedatum (each
  * with source and date, a stale snapshot flagged), and for every type the 52-week figures computed from
- * the stored closes. "Kennzahlen aktualisieren" fetches now (at most once a day). Computes nothing itself.
+ * the stored closes. Closed (default) it shows only a summary (stock: KGV, Dividendenrendite,
+ * Marktkapitalisierung, Umsatz, Nettomarge; ETF/fund: TER and 52-week performance; otherwise distance to the
+ * 52-week high and performance). "Kennzahlen aktualisieren" fetches now (at most once a day). Computes nothing itself.
  */
 export function KeyFiguresCard({
   securityId,
@@ -202,7 +230,9 @@ export function KeyFiguresCard({
   const provider = hasProviderKeyFigures(assetType);
   const groups: Group[] = [];
   if (provider && snapshot) groups.push(...(assetType === "STOCK" ? stockGroups(snapshot.figures, today) : fundGroups(snapshot.figures)));
-  groups.push(priceGroup(fiftyTwoWeek));
+  const prices = priceGroup(fiftyTwoWeek);
+  groups.push(prices);
+  const summary = summaryRows(assetType, provider ? snapshot : null, prices);
   const fresh = snapshot?.fetchedToday ?? false;
 
   const refresh = () =>
@@ -212,15 +242,28 @@ export function KeyFiguresCard({
     });
 
   return (
-    <Card component="section" aria-labelledby="security-key-figures" sx={{ mb: 2, minWidth: 0 }}>
-      <CardContent>
-        <CardHeading id="security-key-figures">Kennzahlen</CardHeading>
-        {provider ? <SourceLine snapshot={snapshot} /> : null}
-        <Box sx={{ mt: 1.5, display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, columnGap: 4, rowGap: 2 }}>
-          {groups.map((group, index) => (
-            <GroupList key={group.title} group={group} id={`key-figures-group-${index}`} />
-          ))}
-        </Box>
+    <CollapsibleCard
+      id="security-key-figures"
+      heading="Kennzahlen"
+      collapsed={
+        <>
+          {provider ? <SourceLine snapshot={snapshot} /> : null}
+          <Box sx={{ mt: 1 }}>
+            <RowList rows={summary} maxWidth={480} />
+          </Box>
+        </>
+      }
+      expanded={
+        <>
+          {provider ? <SourceLine snapshot={snapshot} /> : null}
+          <Box sx={{ mt: 1.5, display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, columnGap: 4, rowGap: 2 }}>
+            {groups.map((group, index) => (
+              <GroupList key={group.title} group={group} id={`key-figures-group-${index}`} />
+            ))}
+          </Box>
+        </>
+      }
+    >
         <Stack spacing={1} sx={{ mt: 2, alignItems: "flex-start" }}>
           {provider && canRefresh ? (
             <Button variant="outlined" size="small" onClick={refresh} disabled={pending || fresh} sx={{ minHeight: 44 }}>
@@ -236,7 +279,6 @@ export function KeyFiguresCard({
             {KEY_FIGURES_HINT}
           </Typography>
         </Stack>
-      </CardContent>
-    </Card>
+    </CollapsibleCard>
   );
 }
