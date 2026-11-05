@@ -5,6 +5,7 @@ import Paper from "@mui/material/Paper";
 import Typography from "@mui/material/Typography";
 import { type Theme, useTheme } from "@mui/material/styles";
 import { LineChart } from "@mui/x-charts/LineChart";
+import { ChartsReferenceLine } from "@mui/x-charts/ChartsReferenceLine";
 import { ChartsTooltipContainer, type ChartsTooltipProps, useAxesTooltip } from "@mui/x-charts/ChartsTooltip";
 import { createContext, useContext, useMemo } from "react";
 import {
@@ -13,7 +14,13 @@ import {
   hasAverage,
   noAverageText,
   NO_PRICE_HISTORY_TEXT,
+  pivotCaption,
+  pivotLevelLabel,
+  pivotLevels,
+  pivotTooltipLine,
+  pivotYRange,
   type PriceChartAverageOverlay,
+  type PriceChartPivotOverlay,
   type PriceChartPoint,
   type PriceChartTrade,
   hasPriceHistory,
@@ -21,6 +28,7 @@ import {
   priceTooltipLines,
   priceXFormatter,
   toAveragePlotData,
+  toPivotPlotData,
   toPricePlotData,
 } from "./price-chart";
 import { tickDates } from "./value-chart";
@@ -32,10 +40,13 @@ export type PriceChartProps = {
   trades: readonly PriceChartTrade[];
   /** Optional dashed moving-average overlay (story 7-8), in the chart's units. */
   average?: PriceChartAverageOverlay;
+  /** Optional ZigZag line with labelled Fibonacci levels (story 11.5), in the chart's units. */
+  pivots?: PriceChartPivotOverlay;
 };
 
 const PRICE = "price";
 const AVERAGE = "average";
+const ZIGZAG = "zigzag";
 const BUY = "buy";
 const SELL = "sell";
 
@@ -45,6 +56,8 @@ function colors(theme: Theme) {
   return {
     price: palette.primary.main,
     average: palette.text.secondary,
+    zigzag: palette.chart?.invested ?? palette.grey[400],
+    level: palette.text.secondary,
     buy: palette.chart?.series2 ?? palette.info.main,
     sell: palette.chart?.series3 ?? palette.warning.main,
     grid: palette.divider,
@@ -55,16 +68,18 @@ type TooltipData = {
   points: readonly PriceChartPoint[];
   trades: readonly PriceChartTrade[];
   average?: PriceChartAverageOverlay;
+  pivots?: PriceChartPivotOverlay;
 };
 const DataContext = createContext<TooltipData>({ points: [], trades: [] });
 
 function TooltipContent() {
-  const { points, trades, average } = useContext(DataContext);
+  const { points, trades, average, pivots } = useContext(DataContext);
   const axes = useAxesTooltip({ directions: ["x"] });
   const point = axes?.[0] ? points[axes[0].dataIndex] : undefined;
   if (!point) return null;
   const lines = priceTooltipLines(point, trades);
   const averageLine = average ? averageTooltipLine(point.date, average) : null;
+  const pivotLine = pivots ? pivotTooltipLine(point.date, pivots) : null;
   return (
     <Paper elevation={3} sx={{ borderRadius: 2, px: 1.5, py: 1, bgcolor: "background.paper", minWidth: 160, maxWidth: 320 }}>
       <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
@@ -84,6 +99,16 @@ function TooltipContent() {
             </Typography>
             <Typography component="dd" variant="figure" sx={{ m: 0, textAlign: "right", whiteSpace: "nowrap" }}>
               {averageLine.value}
+            </Typography>
+          </>
+        ) : null}
+        {pivotLine ? (
+          <>
+            <Typography component="dt" variant="body2" color="text.secondary">
+              {pivotLine.label}
+            </Typography>
+            <Typography component="dd" variant="body2" sx={{ m: 0, textAlign: "right", whiteSpace: "nowrap" }}>
+              {pivotLine.value}
             </Typography>
           </>
         ) : null}
@@ -113,16 +138,25 @@ function PriceTooltip(props: ChartsTooltipProps) {
 /**
  * Price chart ("Kurs"): the split-adjusted daily price as a 3 px primary line without area, buys as
  * triangles and sells as diamonds on the line, horizontal grid only, axis tooltip with the day's trades;
- * optionally a dashed moving-average line ("GD 200" / "GD 38") with its own tooltip line.
+ * optionally a dashed moving-average line ("GD 200" / "GD 38") with its own tooltip line and (story 11.5)
+ * a ZigZag line through the pivots with dotted, labelled Fibonacci level lines (y range covers every level;
+ * never a wave count).
  * Plots exactly the given points; the only computation is `Number(...)` for coordinates.
  */
-export function PriceChart({ points, trades, average }: PriceChartProps) {
+export function PriceChart({ points, trades, average, pivots }: PriceChartProps) {
   const palette = colors(useTheme());
   const plot = useMemo(() => toPricePlotData(points, trades), [points, trades]);
   const ticks = useMemo(() => tickDates(plot.dates), [plot]);
   const formatX = useMemo(() => priceXFormatter(points), [points]);
   const averages = useMemo(() => (average ? toAveragePlotData(points, average.points) : null), [points, average]);
-  const data = useMemo(() => ({ points, trades, average }), [points, trades, average]);
+  const zigzag = useMemo(() => (pivots ? toPivotPlotData(points, pivots.pivots) : null), [points, pivots]);
+  const levels = useMemo(() => (pivots ? pivotLevels(pivots) : []), [pivots]);
+  const yRange = useMemo(
+    () => pivotYRange([...plot.prices, ...plot.buys, ...plot.sells, ...(averages ?? [])], pivots),
+    [plot, averages, pivots],
+  );
+  const data = useMemo(() => ({ points, trades, average, pivots }), [points, trades, average, pivots]);
+  const caption = pivots ? pivotCaption(pivots) : null;
   if (points.length === 0) return null;
   if (!hasPriceHistory(points)) {
     return (
@@ -135,7 +169,7 @@ export function PriceChart({ points, trades, average }: PriceChartProps) {
     <>
       <Box
         role="figure"
-        aria-label={priceChartAriaLabel(points, trades, hasAverage(average) ? average?.window : undefined)}
+        aria-label={priceChartAriaLabel(points, trades, hasAverage(average) ? average?.window : undefined, pivots)}
         sx={{
           mt: 1.5,
           width: "100%",
@@ -143,6 +177,10 @@ export function PriceChart({ points, trades, average }: PriceChartProps) {
           height: { xs: 160, sm: 200 },
           [`& .MuiLineChart-line[data-series="${PRICE}"]`]: { stroke: palette.price, strokeWidth: 3 },
           [`& .MuiLineChart-line[data-series="${AVERAGE}"]`]: { stroke: palette.average, strokeWidth: 2, strokeDasharray: "6 4" },
+          [`& .MuiLineChart-line[data-series="${ZIGZAG}"]`]: { stroke: palette.zigzag, strokeWidth: 2 },
+          [`& .MuiLineChart-mark[data-series="${ZIGZAG}"]`]: { fill: palette.zigzag, stroke: palette.zigzag },
+          "& .MuiChartsReferenceLine-line": { stroke: palette.level, strokeWidth: 1, strokeDasharray: "2 3" },
+          "& .MuiChartsReferenceLine-label": { fill: palette.level, fontSize: 11 },
           [`& .MuiLineChart-line[data-series="${BUY}"], & .MuiLineChart-line[data-series="${SELL}"]`]: { display: "none" },
           [`& .MuiLineChart-mark[data-series="${BUY}"]`]: { fill: palette.buy, stroke: palette.buy },
           [`& .MuiLineChart-mark[data-series="${SELL}"]`]: { fill: palette.sell, stroke: palette.sell },
@@ -167,7 +205,7 @@ export function PriceChart({ points, trades, average }: PriceChartProps) {
                 valueFormatter: formatX,
               },
             ]}
-            yAxis={[{ position: "none" }]}
+            yAxis={[yRange ? { position: "none", min: yRange.min, max: yRange.max } : { position: "none" }]}
             series={[
               { id: PRICE, data: plot.prices, curve: "linear", showMark: false, label: "Kurs", color: palette.price },
               ...(average && averages
@@ -182,16 +220,45 @@ export function PriceChart({ points, trades, average }: PriceChartProps) {
                     },
                   ]
                 : []),
+              ...(zigzag
+                ? [
+                    {
+                      id: ZIGZAG,
+                      data: zigzag,
+                      curve: "linear" as const,
+                      connectNulls: true,
+                      showMark: true,
+                      shape: "circle" as const,
+                      label: "Wendepunkte",
+                      color: palette.zigzag,
+                    },
+                  ]
+                : []),
               { id: BUY, data: plot.buys, showMark: true, shape: "triangle", label: "Kauf", color: palette.buy },
               { id: SELL, data: plot.sells, showMark: true, shape: "diamond", label: "Verkauf", color: palette.sell },
             ]}
             slots={{ tooltip: PriceTooltip }}
-          />
+          >
+            {levels.map((level, index) => (
+              // Neighbouring levels label at opposite ends so close lines do not stack their labels.
+              <ChartsReferenceLine
+                key={level.ratio}
+                y={Number(level.price)}
+                label={pivotLevelLabel(level)}
+                labelAlign={index % 2 === 0 ? "start" : "end"}
+              />
+            ))}
+          </LineChart>
         </DataContext.Provider>
       </Box>
       {average && !hasAverage(average) ? (
         <Typography variant="caption" color="text.secondary" component="p" sx={{ mt: 0.5 }}>
           {noAverageText(average.window)}
+        </Typography>
+      ) : null}
+      {caption ? (
+        <Typography variant="caption" color="text.secondary" component="p" sx={{ mt: 0.5 }}>
+          {caption}
         </Typography>
       ) : null}
     </>

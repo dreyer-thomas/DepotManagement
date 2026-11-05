@@ -5,8 +5,11 @@ import {
   BENCHMARK_COOKIE,
   MOVING_AVERAGE_COOKIE,
   type MovingAverageChoice,
+  PIVOTS_COOKIE,
+  type PivotChoice,
   parseBenchmarkChoice,
   parseMovingAverage,
+  parsePivotChoice,
   parseSecurityChartMode,
   parseTechnicalIndicator,
   parseValueChartTab,
@@ -41,4 +44,9 @@ export async function readBenchmarkChoice(availableKeys: readonly string[]): Pro
 /** The stored indicator of the "Technische Lage" chart; default `tsi`. */
 export async function readTechnicalIndicator(): Promise<TechnicalIndicator> {
   return parseTechnicalIndicator((await cookies()).get(TECHNICAL_INDICATOR_COOKIE)?.value);
+}
+
+/** The stored pivots overlay of the "Kurs" chart (story 11.5); default `off`. */
+export async function readPivotChoice(): Promise<PivotChoice> {
+  return parsePivotChoice((await cookies()).get(PIVOTS_COOKIE)?.value);
 }

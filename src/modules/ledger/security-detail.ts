@@ -36,6 +36,7 @@ import {
 } from "@/core/security";
 import { type TechnicalPosition, technicalPosition } from "@/core/technical";
 import { sumValuationSeries, type ValuationPoint, type ValuationRow, valuationSeries } from "@/core/valuation";
+import { ZIGZAG_THRESHOLDS, zigzag, type ZigzagResult, type ZigzagThreshold } from "@/core/zigzag";
 import { loadCorporateActions } from "./corporate-actions";
 import type { LedgerDb } from "./depots";
 import { lineageObservations, type StoredPriceLoader } from "./positions";
@@ -90,6 +91,11 @@ export type SecurityDetail = {
   performanceLine: PerformancePoint[];
   /** Moving averages (200 / 38 stored closes) of `priceSecurity` for `from..to`, split-adjusted as of `to`. */
   movingAverages: Record<MovingAverageWindow, MovingAveragePoint[]>;
+  /**
+   * ZigZag pivots and Fibonacci levels per threshold (story 11.5) from the Period's trading-day closes of
+   * `priceSecurity` (stored closes only, split-adjusted as of `to`, no carried-forward days).
+   */
+  pivots: Record<ZigzagThreshold, ZigzagResult>;
   /** All-time monthly heatmap of the scope's Security series (first row..today), years without a return dropped. */
   heatmap: HeatmapYear[];
   /** 52-week figures as of `today` from the stored, split-adjusted closes (story 9.6), independent of the Period. */
@@ -233,6 +239,11 @@ export async function securityDetail(
 
   // One source for the 52-week figures and the technical signals: the stored, split-adjusted closes.
   const closes = tradingDayCloses(observations, securityId, actions, today);
+  // Pivots: the Period's trading-day closes in the chart's units (as of `to`).
+  const periodCloses = tradingDayCloses(observations, priceSecurity.id, actions, to).filter((close) => close.date >= from);
+  const pivots = Object.fromEntries(
+    ZIGZAG_THRESHOLDS.map((threshold) => [threshold, zigzag(periodCloses, threshold)]),
+  ) as Record<ZigzagThreshold, ZigzagResult>;
 
   return {
     security,
@@ -266,6 +277,7 @@ export async function securityDetail(
       "200": securityMovingAverage(observations, priceSecurity.id, actions, from, to, 200),
       "38": securityMovingAverage(observations, priceSecurity.id, actions, from, to, 38),
     },
+    pivots,
     heatmap,
     fiftyTwoWeek: fiftyTwoWeekFromCloses(closes, today),
     technical: technicalPosition(closes, today),

@@ -5,7 +5,7 @@ import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { readMovingAverage, readSecurityChartMode, readTechnicalIndicator } from "@/app/_actions/chart-preference-cookie";
+import { readMovingAverage, readPivotChoice, readSecurityChartMode, readTechnicalIndicator } from "@/app/_actions/chart-preference-cookie";
 import { readPeriod } from "@/app/_actions/period-cookie";
 import { BackLink } from "@/app/_components/back-navigation/BackLink";
 import { NewsList } from "@/app/_components/news/NewsList";
@@ -57,11 +57,11 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
  * One Security across all Depots or one Depot (story 4-6), also when no longer held: header with the
  * watchlist chips, Period selector, the actions menu (with "Zur Watchlist …"), Depot switcher, hero (value,
  * Period gain/loss, TTWROR, XIRR, price line, Kurs/Wert/Performance/Drawdown chart with the optional
- * moving average, breakdown), KPIs, "Gesamt seit Erstkauf" (story 4-7), "Kennzahlen" (story 9.6), "Technische Lage"
+ * moving average and "Wendepunkte" (story 11.5, ZigZag pivots with Fibonacci levels), breakdown), KPIs, "Gesamt seit Erstkauf" (story 4-7), "Kennzahlen" (story 9.6), "Technische Lage"
  * (story 11.3, signals and indicator chart), "Analystenbewertungen"
  * (story 9.7, stocks with analyst data), "Performance-Heatmap" (story
  * 7-8), open FIFO lots, Transaction history and 14-day news. A never-booked Security (story 9.2) gets
- * the watch layout instead: Price header with the Period change and the Kurs chart, "Auf Watchlists",
+ * the watch layout instead: Price header with the Period change and the Kurs chart (with both overlays), "Auf Watchlists",
  * "Kennzahlen", "Technische Lage", "Analystenbewertungen", news and classification — no holding or Transaction blocks. Every figure comes from `core` via
  * `securityDetail` (AD-10); no provider call during render.
  */
@@ -76,13 +76,14 @@ export default async function SecurityDetailPage({ params, searchParams }: Props
   if (!detail) notFound();
   const { security } = detail;
   const booked = detail.depots.length > 0;
-  const [splits, isinChanges, securities, articles, chartMode, movingAverage, technicalIndicator, watchlists, entries, classifications, keyFigures, heldIds] = await Promise.all([
+  const [splits, isinChanges, securities, articles, chartMode, movingAverage, pivotChoice, technicalIndicator, watchlists, entries, classifications, keyFigures, heldIds] = await Promise.all([
     listSplits(),
     listIsinChanges(),
     listSecurities(),
     listSecurityNews(today, security.id),
     readSecurityChartMode(),
     readMovingAverage(),
+    readPivotChoice(),
     readTechnicalIndicator(),
     listWatchlists(),
     securityWatchlistEntries(security.id, today),
@@ -196,6 +197,8 @@ export default async function SecurityDetailPage({ params, searchParams }: Props
                 movingAverages={detail.movingAverages}
                 initialMode={chartMode}
                 initialMovingAverage={movingAverage}
+                pivots={detail.pivots}
+                initialPivots={pivotChoice}
               />
             }
           />
@@ -234,6 +237,8 @@ export default async function SecurityDetailPage({ params, searchParams }: Props
                   movingAverages={detail.movingAverages}
                   initialMode={chartMode}
                   initialMovingAverage={movingAverage}
+                  pivots={detail.pivots}
+                  initialPivots={pivotChoice}
                 />
               )
             }

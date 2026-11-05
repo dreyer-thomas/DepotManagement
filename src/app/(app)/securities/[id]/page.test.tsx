@@ -28,7 +28,7 @@ import { PERIOD_COOKIE } from "@/app/_actions/period-cookie";
 import { archiveDepot, createDepot, ensureSecurity, recordIsinChange, recordSplit, recordTransaction, type RecordTransactionInput } from "@/modules/ledger";
 import { SecurityActions } from "../../../_components/security-detail/SecurityActions";
 import { SecurityHero } from "../../../_components/security-detail/SecurityHero";
-import { MOVING_AVERAGE_COOKIE, SECURITY_CHART_COOKIE, TECHNICAL_INDICATOR_COOKIE } from "../../../_components/charts/chart-preference";
+import { MOVING_AVERAGE_COOKIE, PIVOTS_COOKIE, SECURITY_CHART_COOKIE, TECHNICAL_INDICATOR_COOKIE } from "../../../_components/charts/chart-preference";
 import { securityDetail } from "@/modules/ledger";
 import { setMapping, storedPriceHistory } from "@/modules/prices";
 import { addWatchlistEntry, createWatchlist } from "@/modules/watchlist";
@@ -152,6 +152,7 @@ describe("Security detail page", () => {
     expect(header).toContain("+10,00 € · Max +10,00 %");
     expect(header).toContain("Kurs vom 25.10.2026");
     expect(header).toContain("Gleitender Durchschnitt");
+    expect(header).toContain("Wendepunkte");
     expect(header).not.toContain("Wert");
     expect(html).not.toContain('aria-label="Diagramm"');
     const chart = findElement(tree, WatchHeader)!.props.chart as { props: Record<string, unknown> };
@@ -629,6 +630,8 @@ describe("Security detail page", () => {
     expect(chart.props.performance).toEqual(detail.performanceLine);
     expect(chart.props.movingAverages).toEqual(detail.movingAverages);
     expect(chart.props.initialMovingAverage).toBe("off");
+    expect(chart.props.pivots).toEqual(detail.pivots);
+    expect(chart.props.initialPivots).toBe("off");
     expect(detail.performanceLine.at(-1)?.performance).toBe(detail.performance.ttwror);
 
     const html = renderHtml(tree);
@@ -647,6 +650,13 @@ describe("Security detail page", () => {
     cookieJar.set(MOVING_AVERAGE_COOKIE, "x");
     const invalid = findElement(await SecurityDetailPage(props(id)), SecurityHero)!.props.chart as { props: Record<string, unknown> };
     expect(invalid.props.initialMovingAverage).toBe("off");
+
+    cookieJar.set(PIVOTS_COOKIE, "12");
+    const storedPivots = findElement(await SecurityDetailPage(props(id)), SecurityHero)!.props.chart as { props: Record<string, unknown> };
+    expect(storedPivots.props.initialPivots).toBe("12");
+    cookieJar.set(PIVOTS_COOKIE, "10");
+    const invalidPivots = findElement(await SecurityDetailPage(props(id)), SecurityHero)!.props.chart as { props: Record<string, unknown> };
+    expect(invalidPivots.props.initialPivots).toBe("off");
   });
 
   it("Technische Lage in both layouts after Kennzahlen: signals, Period series, last close date, stored indicator", async () => {

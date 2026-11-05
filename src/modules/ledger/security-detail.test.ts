@@ -3,6 +3,7 @@ import { createTestDatabase, type TestDatabase } from "../../../test/helpers/tes
 import { fiftyTwoWeekFromCloses } from "@/core/key-figures";
 import type { PriceObservation } from "@/core/prices";
 import { technicalPosition } from "@/core/technical";
+import { zigzag } from "@/core/zigzag";
 import {
   archiveDepot,
   createDepot,
@@ -328,6 +329,54 @@ describe("securityDetail", () => {
     expect(ma38.find((point) => point.date === "2025-05-08")?.average).toBe("118.5");
     // 05-10: closes 102..139 → 4579 / 38.
     expect(ma38.find((point) => point.date === "2025-05-10")?.average).toBe("120.5");
+  });
+
+  it("Pivots: from the Period's stored closes in the chart's split-adjusted units, per threshold", async () => {
+    // A Transaction price never counts; the close before the Period is ignored.
+    await book(depotA, { type: "BUY", date: "2026-03-02", quantity: "1", price: "999", security: { id: securityId } });
+    const split = await recordSplit({ securityId, date: "2026-03-04", ratio: "1:2" }, db());
+    if (!split.ok) throw new Error(`setup failed: ${split.reason}`);
+    const storedPrices = async (_ids: string[], asOf: string) =>
+      [
+        provider("2026-02-26", "100"),
+        provider("2026-03-02", "200"),
+        provider("2026-03-03", "220"),
+        provider("2026-03-04", "120"),
+        provider("2026-03-05", "108"),
+        provider("2026-03-06", "100"),
+        provider("2026-03-09", "112"),
+        provider("2026-03-10", "115"),
+      ].filter((p) => p.date <= asOf);
+    const detail = await securityDetail(securityId, undefined, { kind: "custom", from: "2026-03-01", to: "2026-03-10" }, TODAY, db(), {
+      storedPrices,
+    });
+    expect(detail?.pivots["8"]).toEqual({
+      pivots: [
+        { date: "2026-03-02", price: "100", kind: "low" },
+        { date: "2026-03-04", price: "120", kind: "high" },
+        { date: "2026-03-06", price: "100", kind: "low" },
+      ],
+      retracements: [
+        { ratio: "0.382", price: "107.64" },
+        { ratio: "0.5", price: "110" },
+        { ratio: "0.618", price: "112.36" },
+      ],
+      extension: { ratio: "1.618", price: "87.64" },
+    });
+    const expectedCloses = [
+      ["2026-03-02", "100"],
+      ["2026-03-03", "110"],
+      ["2026-03-04", "120"],
+      ["2026-03-05", "108"],
+      ["2026-03-06", "100"],
+      ["2026-03-09", "112"],
+      ["2026-03-10", "115"],
+    ].map(([date, price]) => ({ date, price }));
+    expect(detail?.pivots["5"]).toEqual(zigzag(expectedCloses, "5"));
+    expect(detail?.pivots["12"]).toEqual(zigzag(expectedCloses, "12"));
+
+    const none = await securityDetail(securityId, undefined, { kind: "custom", from: "2026-03-01", to: "2026-03-10" }, TODAY, db());
+    expect(none?.pivots["8"]).toEqual({ pivots: [], retracements: [], extension: null });
   });
 
   it("Technical position: from the same trading-day closes as the 52-week figures, independent of the Period", async () => {

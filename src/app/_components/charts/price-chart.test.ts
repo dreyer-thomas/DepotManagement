@@ -3,6 +3,15 @@ import {
   averageTooltipLine,
   hasAverage,
   noAverageText,
+  pivotAriaSuffix,
+  pivotCaption,
+  pivotLevelLabel,
+  pivotLevels,
+  pivotThresholdLabel,
+  pivotTooltipLine,
+  pivotYRange,
+  type PriceChartPivotOverlay,
+  toPivotPlotData,
   hasPriceHistory,
   type PriceChartPoint,
   type PriceChartTrade,
@@ -90,5 +99,86 @@ describe("price chart helpers", () => {
     expect(format(utcDate("2026-10-21"), { location: "tick" })).toBe("21.10.");
     expect(format(utcDate("2026-10-21"), { location: "tooltip" })).toBe("21.10.2026");
     expect(format(utcDate("2026-10-25"))).toBe("");
+  });
+});
+
+describe("pivots overlay helpers", () => {
+  const OVERLAY: PriceChartPivotOverlay = {
+    threshold: "8",
+    pivots: [
+      { date: "2026-01-01", price: "100", kind: "low" },
+      { date: "2026-01-03", price: "120", kind: "high" },
+      { date: "2026-01-05", price: "100", kind: "low" },
+    ],
+    retracements: [
+      { ratio: "0.382", price: "107.64" },
+      { ratio: "0.5", price: "110" },
+      { ratio: "0.618", price: "112.36" },
+    ],
+    extension: { ratio: "1.618", price: "87.64" },
+  };
+  const NO_LEVELS = { retracements: [], extension: null };
+  const POINTS_7: PriceChartPoint[] = ["100", "110", "120", "108", "100", "112", "115"].map((price, index) => ({
+    date: `2026-01-0${index + 1}`,
+    price,
+  }));
+
+  it("labels levels with ratio and price", () => {
+    expect(pivotThresholdLabel("12")).toBe("12\u00a0%");
+    expect(pivotLevels(OVERLAY).map(pivotLevelLabel)).toEqual([
+      "38,2\u00a0% · 107,64\u00a0€",
+      "50\u00a0% · 110,00\u00a0€",
+      "61,8\u00a0% · 112,36\u00a0€",
+      "161,8\u00a0% · 87,64\u00a0€",
+    ]);
+    expect(pivotLevels({ ...OVERLAY, extension: null })).toHaveLength(3);
+  });
+
+  it("captions without pivots and with a single pivot; none with a completed swing", () => {
+    expect(pivotCaption({ threshold: "8", pivots: [], ...NO_LEVELS })).toBe("Keine Wendepunkte ab 8\u00a0% im Zeitraum.");
+    expect(pivotCaption({ threshold: "12", pivots: [OVERLAY.pivots[0]], ...NO_LEVELS })).toBe(
+      "Keine abgeschlossene Bewegung ab 12\u00a0% im Zeitraum.",
+    );
+    expect(pivotCaption(OVERLAY)).toBeNull();
+  });
+
+  it("plots the ZigZag only on pivot dates", () => {
+    expect(toPivotPlotData(POINTS_7, OVERLAY.pivots)).toEqual([100, null, 120, null, 100, null, null]);
+  });
+
+  it("widens the y range to every drawn level", () => {
+    const range = pivotYRange([100, 120, null], OVERLAY)!;
+    expect(range.min).toBeLessThan(87.64);
+    expect(range.max).toBeGreaterThan(120);
+    expect(pivotYRange([100, 120], undefined)).toBeNull();
+    expect(pivotYRange([100, 120], { ...OVERLAY, ...NO_LEVELS })).toBeNull();
+  });
+
+  it("tooltip line on pivot days only", () => {
+    expect(pivotTooltipLine("2026-01-03", OVERLAY)).toEqual({ label: "Wendepunkt", value: "Hoch" });
+    expect(pivotTooltipLine("2026-01-05", OVERLAY)).toEqual({ label: "Wendepunkt", value: "Tief" });
+    expect(pivotTooltipLine("2026-01-04", OVERLAY)).toBeNull();
+  });
+
+  it("appends the pivots and levels to the text alternative", () => {
+    const suffix =
+      ", mit Wendepunkten ab 8\u00a0%: 3 Wendepunkte, Fibonacci 38,2\u00a0% 107,64\u00a0€, 50\u00a0% 110,00\u00a0€, " +
+      "61,8\u00a0% 112,36\u00a0€, 161,8\u00a0% 87,64\u00a0€";
+    expect(pivotAriaSuffix(OVERLAY)).toBe(suffix);
+    expect(priceChartAriaLabel(POINTS_7, [], undefined, OVERLAY)).toMatch(new RegExp(`${suffix}$`));
+    expect(pivotAriaSuffix({ ...OVERLAY, pivots: [OVERLAY.pivots[0]], ...NO_LEVELS })).toBe(
+      ", mit Wendepunkten ab 8\u00a0%: 1 Wendepunkt",
+    );
+  });
+
+  it("never outputs a wave count", () => {
+    const texts = [
+      pivotAriaSuffix(OVERLAY),
+      ...pivotLevels(OVERLAY).map(pivotLevelLabel),
+      pivotCaption({ threshold: "5", pivots: [], ...NO_LEVELS }),
+      pivotCaption({ threshold: "5", pivots: [OVERLAY.pivots[0]], ...NO_LEVELS }),
+      ...OVERLAY.pivots.map((pivot) => pivotTooltipLine(pivot.date, OVERLAY)?.value),
+    ].join("\n");
+    expect(texts).not.toMatch(/Welle|Elliott|\bWave\b|\(\s*[1-5ABC]\s*\)|\b[ABC]\b/);
   });
 });

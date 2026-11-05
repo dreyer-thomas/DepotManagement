@@ -4,6 +4,7 @@
  * formatted from the original decimal strings via `core/format`.
  */
 import { formatDate, formatMoney, formatQuantity } from "@/core/format";
+import type { FibonacciLevel, ZigzagPivot, ZigzagThreshold } from "@/core/zigzag";
 import { spanDays, tickLabel, utcDate } from "./value-chart";
 
 /** One day of the price line; `price` is a decimal string or `null` before the first known price. */
@@ -36,6 +37,17 @@ export type PriceChartAverageWindow = "200" | "38";
 
 /** The optional dashed moving-average overlay of the price chart. */
 export type PriceChartAverageOverlay = { window: PriceChartAverageWindow; points: readonly PriceChartAverage[] };
+
+/**
+ * The optional pivots overlay (story 11.5): ZigZag pivots of the selected threshold and the Fibonacci
+ * levels of the last completed swing (`core/zigzag`), in the chart's units. No wave count, ever.
+ */
+export type PriceChartPivotOverlay = {
+  threshold: ZigzagThreshold;
+  pivots: readonly ZigzagPivot[];
+  retracements: readonly FibonacciLevel[];
+  extension: FibonacciLevel | null;
+};
 
 export const TRADE_LABELS = { BUY: "Kauf", SELL: "Verkauf" } as const;
 export const NO_PRICE_HISTORY_TEXT = "Kein Kursverlauf vorhanden.";
@@ -84,6 +96,83 @@ export function toAveragePlotData(points: readonly PriceChartPoint[], averages: 
   });
 }
 
+/** Threshold label: `8 %`. */
+export function pivotThresholdLabel(threshold: ZigzagThreshold): string {
+  return `${threshold}\u00a0%`;
+}
+
+const LEVEL_RATIO_LABELS: Record<FibonacciLevel["ratio"], string> = {
+  "0.382": "38,2\u00a0%",
+  "0.5": "50\u00a0%",
+  "0.618": "61,8\u00a0%",
+  "1.618": "161,8\u00a0%",
+};
+
+/** The drawn levels: retracements, then the extension when there is one. */
+export function pivotLevels(overlay: PriceChartPivotOverlay): FibonacciLevel[] {
+  return overlay.extension ? [...overlay.retracements, overlay.extension] : [...overlay.retracements];
+}
+
+/** Label of a level line: `38,2 % · 107,64 €`. */
+export function pivotLevelLabel(level: FibonacciLevel): string {
+  return `${LEVEL_RATIO_LABELS[level.ratio]} · ${formatMoney(level.price)}`;
+}
+
+/**
+ * Caption below the chart when the overlay draws no levels: `Keine Wendepunkte ab 8 % im Zeitraum.`
+ * without pivots, `Keine abgeschlossene Bewegung ab 8 % im Zeitraum.` with a single one; `null` otherwise.
+ */
+export function pivotCaption(overlay: PriceChartPivotOverlay): string | null {
+  const threshold = pivotThresholdLabel(overlay.threshold);
+  if (overlay.pivots.length === 0) return `Keine Wendepunkte ab ${threshold} im Zeitraum.`;
+  if (overlay.pivots.length === 1) return `Keine abgeschlossene Bewegung ab ${threshold} im Zeitraum.`;
+  return null;
+}
+
+/** Plot coordinates of the ZigZag line, index-aligned with the price points: the pivot price on pivot dates, else `null`. */
+export function toPivotPlotData(points: readonly PriceChartPoint[], pivots: readonly ZigzagPivot[]): (number | null)[] {
+  const byDate = new Map(pivots.map((pivot) => [pivot.date, pivot.price]));
+  return points.map((point) => {
+    const price = byDate.get(point.date);
+    return price === undefined ? null : Number(price);
+  });
+}
+
+/**
+ * The y-axis range covering the plotted values and every drawn level (5 % padding of the span), or
+ * `null` without levels (the axis keeps its automatic range).
+ */
+export function pivotYRange(
+  values: readonly (number | null)[],
+  overlay: PriceChartPivotOverlay | undefined,
+): { min: number; max: number } | null {
+  if (!overlay) return null;
+  const levels = pivotLevels(overlay).map((level) => Number(level.price));
+  if (levels.length === 0) return null;
+  const all = [...values.filter((value): value is number => value !== null), ...levels];
+  const min = Math.min(...all);
+  const max = Math.max(...all);
+  const pad = (max - min) * 0.05 || Math.abs(max) * 0.05 || 1;
+  return { min: min - pad, max: max + pad };
+}
+
+/** The pivot's tooltip line of a day (`Wendepunkt` · `Hoch` / `Tief`), `null` on other days. */
+export function pivotTooltipLine(date: string, overlay: PriceChartPivotOverlay): { label: string; value: string } | null {
+  const pivot = overlay.pivots.find((candidate) => candidate.date === date);
+  return pivot ? { label: "Wendepunkt", value: pivot.kind === "high" ? "Hoch" : "Tief" } : null;
+}
+
+/**
+ * Text-alternative suffix of the overlay: `, mit Wendepunkten ab 8 %: 3 Wendepunkte, Fibonacci 38,2 % 107,64 €, …`
+ * (without levels only the pivot count).
+ */
+export function pivotAriaSuffix(overlay: PriceChartPivotOverlay): string {
+  const base = `, mit Wendepunkten ab ${pivotThresholdLabel(overlay.threshold)}: ${count(overlay.pivots.length, "Wendepunkt", "Wendepunkte")}`;
+  const levels = pivotLevels(overlay);
+  if (levels.length === 0) return base;
+  return `${base}, Fibonacci ${levels.map((level) => `${LEVEL_RATIO_LABELS[level.ratio]} ${formatMoney(level.price)}`).join(", ")}`;
+}
+
 /** Tooltip label of the overlay: `GD 200`, `GD 38`. */
 export function averageLabel(window: PriceChartAverageWindow): string {
   return `GD ${window}`;
@@ -123,12 +212,13 @@ function count(n: number, singular: string, plural: string): string {
 /**
  * Text alternative, e.g. `Kursverlauf 01.01.2026 – 26.10.2026: Kurs von 100,00 € auf 112,46 €, 2 Käufe,
  * 1 Verkauf` — first and last known price of the range; with the overlay `…, mit gleitendem Durchschnitt
- * 200 Tage` appended.
+ * 200 Tage` appended; with the pivots overlay `pivotAriaSuffix` after that.
  */
 export function priceChartAriaLabel(
   points: readonly PriceChartPoint[],
   trades: readonly PriceChartTrade[],
   averageWindow?: PriceChartAverageWindow,
+  pivots?: PriceChartPivotOverlay,
 ): string {
   const first = points.at(0);
   const last = points.at(-1);
@@ -141,7 +231,8 @@ export function priceChartAriaLabel(
   return (
     `Kursverlauf ${formatDate(first.date)} – ${formatDate(last.date)}: Kurs von ${formatMoney(from)} auf ${formatMoney(to)}, ` +
     `${count(buys, "Kauf", "Käufe")}, ${count(sells, "Verkauf", "Verkäufe")}` +
-    (averageWindow ? `, mit gleitendem Durchschnitt ${averageWindow} Tage` : "")
+    (averageWindow ? `, mit gleitendem Durchschnitt ${averageWindow} Tage` : "") +
+    (pivots ? pivotAriaSuffix(pivots) : "")
   );
 }
 

@@ -335,6 +335,90 @@ describe("SecurityChart", () => {
     document.cookie = "dm_security_chart=; path=/; max-age=0";
   });
 
+  const pivots = {
+    "5": {
+      pivots: [
+        { date: "2026-10-21", price: "100", kind: "low" as const },
+        { date: "2026-10-22", price: "105", kind: "high" as const },
+      ],
+      retracements: [
+        { ratio: "0.382" as const, price: "103.09" },
+        { ratio: "0.5" as const, price: "102.5" },
+        { ratio: "0.618" as const, price: "101.91" },
+      ],
+      extension: { ratio: "1.618" as const, price: "108.09" },
+    },
+    "8": { pivots: [{ date: "2026-10-21", price: "100", kind: "low" as const }], retracements: [], extension: null },
+    "12": { pivots: [], retracements: [], extension: null },
+  };
+
+  it("Wendepunkte: switch on (8 % default), pick 12 % without reload, stored in a cookie; starts from the stored choice", async () => {
+    const user = userEvent.setup({ delay: null });
+    const { unmount } = render(
+      <ThemeProvider theme={theme}>
+        <SecurityChart valuePoints={valuePoints} pricePoints={pricePoints} trades={trades} movingAverages={movingAverages} pivots={pivots} />
+      </ThemeProvider>,
+    );
+    const toggle = screen.getByRole("switch", { name: "Wendepunkte" });
+    expect((toggle as HTMLInputElement).checked).toBe(false);
+    expect(screen.queryByRole("group", { name: "Schwelle" })).toBeNull();
+    expect(screen.getByRole("figure").getAttribute("aria-label")).not.toContain("Wendepunkt");
+
+    await user.click(toggle);
+    expect(document.cookie).toContain("dm_pivots=8");
+    const thresholds = screen.getByRole("group", { name: "Schwelle" });
+    expect(within(thresholds).getAllByRole("button").map((button) => button.textContent)).toEqual(["5\u00a0%", "8\u00a0%", "12\u00a0%"]);
+    expect(within(thresholds).getByRole("button", { name: "8\u00a0%" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("figure").getAttribute("aria-label")).toMatch(/mit Wendepunkten ab 8\u00a0%: 1 Wendepunkt$/);
+    expect(screen.getByText("Keine abgeschlossene Bewegung ab 8 % im Zeitraum.")).toBeTruthy();
+
+    await user.click(within(thresholds).getByRole("button", { name: "12\u00a0%" }));
+    expect(document.cookie).toContain("dm_pivots=12");
+    expect(screen.getByRole("figure").getAttribute("aria-label")).toMatch(/mit Wendepunkten ab 12\u00a0%: 0 Wendepunkte$/);
+    expect(screen.getByText("Keine Wendepunkte ab 12 % im Zeitraum.")).toBeTruthy();
+
+    await user.click(within(thresholds).getByRole("button", { name: "5\u00a0%" }));
+    expect(document.cookie).toContain("dm_pivots=5");
+    expect(screen.getByRole("figure").getAttribute("aria-label")).toMatch(/2 Wendepunkte, Fibonacci 38,2\u00a0% 103,09\u00a0€/);
+    await waitFor(() => {
+      if (document.querySelectorAll(".MuiChartsReferenceLine-line").length !== 4) throw new Error("not drawn yet");
+    });
+    expect(document.querySelector('.MuiLineChart-line[data-series="zigzag"]')).toBeTruthy();
+    // Never a wave count.
+    expect(document.body.textContent).not.toMatch(/Welle|Elliott|\(\s*[1-5ABC]\s*\)/);
+    expect(screen.getByRole("figure").getAttribute("aria-label")).not.toMatch(/Welle|Elliott/);
+
+    await user.click(screen.getByRole("switch", { name: "Wendepunkte" }));
+    expect(document.cookie).toContain("dm_pivots=off");
+    expect(document.querySelector('.MuiLineChart-line[data-series="zigzag"]')).toBeNull();
+    expect(document.querySelectorAll(".MuiChartsReferenceLine-line")).toHaveLength(0);
+
+    // Not shown outside "Kurs".
+    await user.click(screen.getByRole("button", { name: "Wert" }));
+    expect(screen.queryByRole("switch", { name: "Wendepunkte" })).toBeNull();
+    unmount();
+
+    render(
+      <ThemeProvider theme={theme}>
+        <SecurityChart valuePoints={[]} pricePoints={pricePoints} trades={[]} pivots={pivots} initialPivots="12" />
+      </ThemeProvider>,
+    );
+    expect((screen.getByRole("switch", { name: "Wendepunkte" }) as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByRole("button", { name: "12\u00a0%" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("figure").getAttribute("aria-label")).toMatch(/mit Wendepunkten ab 12\u00a0%/);
+    document.cookie = "dm_pivots=; path=/; max-age=0";
+    document.cookie = "dm_security_chart=; path=/; max-age=0";
+  });
+
+  it("without pivots the Wendepunkte switch is not offered", () => {
+    render(
+      <ThemeProvider theme={theme}>
+        <SecurityChart valuePoints={valuePoints} pricePoints={pricePoints} trades={trades} />
+      </ThemeProvider>,
+    );
+    expect(screen.queryByRole("switch", { name: "Wendepunkte" })).toBeNull();
+  });
+
   it("price only (no value points): no mode toggle, Kurs with the overlay even when Wert was stored", () => {
     render(
       <ThemeProvider theme={theme}>

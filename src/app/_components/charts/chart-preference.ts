@@ -2,7 +2,7 @@
  * Chart choices that persist per browser like the global Period (story 7-6): the value-chart tab of
  * Overview and Depot detail (one shared cookie), the Security chart mode, (story 7-8) the "Kurs"
  * moving-average overlay, (story 8-2) the "Vergleich mit" choice of the Performance tab and (story 11.3) the
- * indicator of the "Technische Lage" chart. Written client-side on
+ * indicator of the "Technische Lage" chart and (story 11.5) the "Kurs" pivots overlay. Written client-side on
  * change (no server action, so switching never refreshes the page) and read by the server page for the
  * initial state. Not httpOnly: the cookies hold only a UI choice.
  */
@@ -12,6 +12,7 @@ export const SECURITY_CHART_COOKIE = "dm_security_chart";
 export const MOVING_AVERAGE_COOKIE = "dm_moving_average";
 export const BENCHMARK_COOKIE = "dm_benchmark";
 export const TECHNICAL_INDICATOR_COOKIE = "dm_technical_indicator";
+export const PIVOTS_COOKIE = "dm_pivots";
 
 /** About one year, as the Period cookie. */
 export const CHART_PREFERENCE_MAX_AGE = 365 * 24 * 60 * 60;
@@ -43,6 +44,16 @@ export const DEFAULT_MOVING_AVERAGE: MovingAverageChoice = "off";
 /** The stored moving-average choice; a missing or invalid value gives `off`. */
 export function parseMovingAverage(value: string | undefined | null): MovingAverageChoice {
   return MOVING_AVERAGE_CHOICES.find((choice) => choice === value) ?? DEFAULT_MOVING_AVERAGE;
+}
+
+/** Pivots overlay of the "Kurs" chart (story 11.5): off, or on with a 5 / 8 / 12 % threshold. */
+export const PIVOT_CHOICES = ["off", "5", "8", "12"] as const;
+export type PivotChoice = (typeof PIVOT_CHOICES)[number];
+export const DEFAULT_PIVOT_CHOICE: PivotChoice = "off";
+
+/** The stored pivots choice; a missing or invalid value gives `off`. */
+export function parsePivotChoice(value: string | undefined | null): PivotChoice {
+  return PIVOT_CHOICES.find((choice) => choice === value) ?? DEFAULT_PIVOT_CHOICE;
 }
 
 /** Indicator of the "Technische Lage" chart (story 11.3). */
@@ -80,7 +91,8 @@ export function storeChartPreference(
     | typeof SECURITY_CHART_COOKIE
     | typeof MOVING_AVERAGE_COOKIE
     | typeof BENCHMARK_COOKIE
-    | typeof TECHNICAL_INDICATOR_COOKIE,
+    | typeof TECHNICAL_INDICATOR_COOKIE
+    | typeof PIVOTS_COOKIE,
   value: string,
 ): void {
   if (typeof document === "undefined") return;

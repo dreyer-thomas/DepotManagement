@@ -50,6 +50,11 @@ export const CHART_MODE_LABELS: Record<ChartMode, string> = {
 export const MOVING_AVERAGE_LABEL = "Gleitender Durchschnitt";
 export const MOVING_AVERAGE_WINDOW_LABELS = { "200": "200 Tage", "38": "38 Tage" } as const;
 
+/** The "Kurs" pivots switch and its threshold toggle (story 11.5). */
+export const PIVOTS_LABEL = "Wendepunkte";
+export const PIVOT_THRESHOLD_GROUP_LABEL = "Schwelle";
+export const PIVOT_THRESHOLD_LABELS = { "5": "5\u00a0%", "8": "8\u00a0%", "12": "12\u00a0%" } as const;
+
 /** Heatmap card of the Security page (story 7-8). */
 export const SECURITY_HEATMAP_HEADING = "Performance-Heatmap";
 
