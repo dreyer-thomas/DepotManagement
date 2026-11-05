@@ -37,7 +37,6 @@ import { WatchHeader } from "../../../_components/security-detail/WatchHeader";
 import { WatchlistCard } from "../../../_components/security-detail/WatchlistCard";
 import { KeyFiguresCard } from "../../../_components/security-detail/KeyFiguresCard";
 import { AnalystRatingsCard } from "../../../_components/security-detail/AnalystRatingsCard";
-import { AddToWatchlistButton } from "../../../_components/watchlists/WatchlistEntryDialog";
 import SecurityDetailPage, { generateMetadata } from "./page";
 
 const TODAY = "2026-10-26";
@@ -175,12 +174,13 @@ describe("Security detail page", () => {
     expect(classified).toMatch(/Halbleiter/);
     expect(html).toContain('aria-label="Klassifizierung bearbeiten – Welt ETF"');
 
-    // List chip in the header, "Zur Watchlist" with this list as already containing the Security.
+    // List chip in the header; "Zur Watchlist …" in the actions menu with this list as already containing the Security.
     expect(section(html, "<h1", 'aria-label="Kurs"')).toContain(`href="/watchlists?list=${list.watchlist.id}"`);
-    const add = findElement(tree, AddToWatchlistButton)!;
-    expect(add.props.onLists).toEqual([list.watchlist.id]);
-    expect(add.props.lists).toEqual([{ id: list.watchlist.id, name: "Ideen" }]);
-    expect(page).toContain("Zur Watchlist");
+    expect(findElement(tree, SecurityActions)!.props.watchlist).toEqual({
+      lists: [{ id: list.watchlist.id, name: "Ideen" }],
+      onLists: [list.watchlist.id],
+    });
+    expect(page).not.toContain("Zur Watchlist");
 
     for (const block of ['aria-label="Depot"', 'aria-label="Wert"', 'id="security-total"', 'id="security-heatmap"', 'id="security-lots"', 'id="security-transactions"']) {
       expect(html).not.toContain(block);
@@ -200,7 +200,7 @@ describe("Security detail page", () => {
     expect(findElement(tree, WatchHeader)!.props.chart).toBeUndefined();
     expect(html).not.toContain('id="security-watchlists"');
     expect(html).toContain('id="security-classification"');
-    expect(findElement(tree, AddToWatchlistButton)!.props.lists).toEqual([]);
+    expect((findElement(tree, SecurityActions)!.props.watchlist as { lists: unknown[]; onLists: string[] }).lists).toEqual([]);
   });
 
   it("Kennzahlen in both layouts: snapshot with source and date, 52-week figures, refresh only when held or watched", async () => {
@@ -225,7 +225,6 @@ describe("Security detail page", () => {
     // Closed by default: the stock summary only (the full groups are covered by the KeyFiguresCard tests).
     expect(watchCard).toContain("KGV 30,43");
     expect(watchCard).not.toContain("KGV erwartet");
-    expect(watchCard).toContain("Angaben ohne Gewähr, keine Anlageberatung");
     expect(watchCard).not.toContain("Kennzahlen aktualisieren");
 
     // Watched only (never booked, not held): refreshable in the watch layout.
@@ -273,7 +272,7 @@ describe("Security detail page", () => {
     const card = text(section(html, 'id="security-analyst-ratings"', 'id="security-news"'));
     expect(card).toContain("Analystenbewertungen");
     expect(card).toContain("Optimistisch · 51 Analysten");
-    expect(card).toContain("Einschätzungen von Analysten, keine Anlageberatung");
+    expect(card).not.toContain("keine Anlageberatung");
 
     // Booked layout: also right after "Kennzahlen".
     const a = await depot("Alpha");
@@ -436,7 +435,7 @@ describe("Security detail page", () => {
     expect(html).not.toContain('id="security-watchlists"');
     expect(html).not.toContain('id="security-classification"');
     expect(section(html, "<h1", 'aria-label="Depot"')).toContain(`href="/watchlists?list=${list.watchlist.id}"`);
-    expect(findElement(tree, AddToWatchlistButton)!.props.onLists).toEqual([list.watchlist.id]);
+    expect((findElement(tree, SecurityActions)!.props.watchlist as { lists: unknown[]; onLists: string[] }).onLists).toEqual([list.watchlist.id]);
     const news = text(section(html, 'id="security-news"'));
     expect(news).toContain("Eigene Meldung");
     expect(news).not.toContain("Fremde Meldung");
@@ -639,8 +638,7 @@ describe("Security detail page", () => {
     expect(text(card)).toMatch(/Jan Feb Mär .* Dez Gesamt/);
     expect(text(card)).toContain("2025");
     expect(text(card)).not.toContain("2026");
-    expect(card).toContain('href="/analyses?tab=returns&amp;scope=portfolio&amp;dimension=assetClass"');
-    expect(text(card)).toContain("Zur Heatmap des gesamten Portfolios");
+    expect(card).not.toContain('href="/analyses');
 
     cookieJar.set(MOVING_AVERAGE_COOKIE, "38");
     const stored = findElement(await SecurityDetailPage(props(id)), SecurityHero)!.props.chart as { props: Record<string, unknown> };

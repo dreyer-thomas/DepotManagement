@@ -107,6 +107,22 @@ describe("SecurityActions", () => {
     await user.click(screen.getByRole("button", { name: "Aktionen für Welt ETF" }));
     const items = (await screen.findAllByRole("menuitem")).map((item) => item.textContent);
     expect(items).toEqual(["Split …", "ISIN-Wechsel …"]);
+  }, 20_000);
+
+  it("offers Zur Watchlist first and opens its dialog", async () => {
+    const user = userEvent.setup({ delay: null });
+    render(<SecurityActions {...props} transactionDepots={[]} watchlist={{ lists: [{ id: "w1", name: "Ideen" }], onLists: [] }} />);
+    await user.click(screen.getByRole("button", { name: "Aktionen für Welt ETF" }));
+    const items = (await screen.findAllByRole("menuitem")).map((item) => item.textContent);
+    expect(items).toEqual(["Zur Watchlist …", "Split …", "ISIN-Wechsel …"]);
+    await user.click(screen.getByRole("menuitem", { name: "Zur Watchlist …" }));
+    expect(await screen.findByRole("dialog", { name: "Zur Watchlist" })).toBeTruthy();
+  }, 20_000);
+
+  it("opens the split dialog from the menu", async () => {
+    const user = userEvent.setup({ delay: null });
+    render(<SecurityActions {...props} transactionDepots={[]} />);
+    await user.click(screen.getByRole("button", { name: "Aktionen für Welt ETF" }));
     await user.click(screen.getByRole("menuitem", { name: "Split …" }));
     expect(await screen.findByRole("dialog", { name: "Split – Welt ETF" })).toBeTruthy();
   }, 20_000);

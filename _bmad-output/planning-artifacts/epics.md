@@ -1084,7 +1084,7 @@ So that I can judge how one holding performed month by month and against its tre
 **Acceptance Criteria:**
 
 **Given** Security detail (scope "Alle Depots" or one Depot from its switcher)
-**Then** a card "Performance-Heatmap" shows the time-weighted return (TTWROR, AD-10) of this Position per month with a "Gesamt" column per year, and a toggle "Q | M" switching between quarters and months; colours, signs and empty cells as in Story 7.3 (months without holding stay "–"); a link "Zur Heatmap des gesamten Portfolios" opens Analysen › Rendite
+**Then** a card "Performance-Heatmap" shows the time-weighted return (TTWROR, AD-10) of this Position per month with a "Gesamt" column per year, and a toggle "Q | M" switching between quarters and months; colours, signs and empty cells as in Story 7.3 (months without holding stay "–"); no link to the Portfolio heatmap (removed 2026-11-05 at Tommy's request)
 **And** for a Security no longer held the heatmap covers the months it was held
 **And** the chart toggle gains "Performance": the Position's cumulative time-weighted return in % over the global Period (buys and sells are flows, not gains), with hover and the buy/sell/dividend markers
 **And** the "Kurs" view gains an optional overlay "Gleitender Durchschnitt" (200 days, switchable to 38 days), drawn dashed on split-adjusted prices and computed only from stored Prices; off by default, the choice persists per browser
@@ -1228,7 +1228,7 @@ So that I can judge the idea with chart, news and classification.
 **When** the Security detail page (Story 4.6) opens
 **Then** it shows the header with Price, stale badge and change over the global Period, the price chart over the Period with the moving-average overlay of Story 7.8, news of the last 14 days (watchlist Securities are added to the news set, AD-17 amended), the classification (AD-20), and a card "Auf Watchlists" listing each list with date added, change since added and the full note (editable inline through the 9.1 form)
 **And** blocks that need a holding or Transactions (Position, all-time result, Transaction history, dividends, per-Security heatmap and performance) are omitted, not shown empty; a Security that was held keeps them
-**And** every Security detail page gets "Zur Watchlist" (choose list, note, date) and, when on lists, the list chips
+**And** every Security detail page gets "Zur Watchlist …" in its actions menu (choose list, note, date; a header button until 2026-11-05) and, when on lists, the list chips
 **And** the Securities page marks Securities that are only on watchlists ("Watchlist") so they are not mistaken for holdings
 
 ### Story 9.3: Watchlists in Export and Restore
@@ -1298,7 +1298,7 @@ So that I can judge an idea or a holding without opening another finance site.
   - Termine: nächste Quartalszahlen
 **And** for ETFs and funds: Fondsgesellschaft, laufende Kosten (TER), Auflagedatum; for crypto and certificates only the price figures below
 **And** price figures are computed by a pure core function from stored, split-adjusted Prices (AD-9), for every Security with Prices: 52-Wochen-Hoch and -Tief (closing prices, with dates), Abstand zum 52-Wochen-Hoch in %, Performance 52 Wochen; labelled "auf Schlusskursbasis"
-**And** a figure the provider does not deliver shows "–", never 0; amounts are EUR as quoted for the mapped (EUR) listing; ratios are shown as Yahoo delivers them; a snapshot older than 7 days is flagged like a stale Price; a hint states "Angaben ohne Gewähr, keine Anlageberatung"
+**And** a figure the provider does not deliver shows "–", never 0; amounts are EUR as quoted for the mapped (EUR) listing; ratios are shown as Yahoo delivers them; a snapshot older than 7 days is flagged like a stale Price; no disclaimer line (removed 2026-11-05 at Tommy's request; single-user app)
 **And** analyst ratings and price targets are shown separately (Story 9.7)
 **And** the watchlist table (Story 9.1) gains optional columns KGV, Dividendenrendite and Abstand zum 52-Wochen-Hoch, chosen via a column menu and remembered per browser; on phones they appear in the expanded row
 **And** the MCP tool `get_watchlist` (Story 9.4) returns the key figures per entry, and `get_security` (Story 10.2) returns them when that tool exists
@@ -1322,7 +1322,7 @@ So that I can read the market's sentiment as one input next to my own judgement.
   - trend: four small stacked columns (vor 3 Monaten … aktuell) with the same five categories, so a shift is visible at a glance
   - Kursziel: mean with low–high range and the implied change in % to the current price of the same listing and currency (a USD target is compared with the USD price and labelled "USD")
   - when delivered, a collapsible "Letzte Änderungen" list (last 10 up-/downgrades)
-  - source and date, and the hint "Einschätzungen von Analysten, keine Anlageberatung"
+  - source and date (the hint "Einschätzungen von Analysten, keine Anlageberatung" was removed 2026-11-05 at Tommy's request)
 **And** ETFs, funds, certificates and crypto show no card; a stock without analyst data shows nothing (no empty card)
 **And** the watchlist table gains an optional column "Analysten" (consensus label and n) in the column menu of Story 9.6
 **And** the MCP tools that return key figures (Story 9.6) also return the analyst data

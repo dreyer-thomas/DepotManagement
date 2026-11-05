@@ -52,7 +52,6 @@ export const MOVING_AVERAGE_WINDOW_LABELS = { "200": "200 Tage", "38": "38 Tage"
 
 /** Heatmap card of the Security page (story 7-8). */
 export const SECURITY_HEATMAP_HEADING = "Performance-Heatmap";
-export const PORTFOLIO_HEATMAP_LINK_TEXT = "Zur Heatmap des gesamten Portfolios";
 
 export const TOTAL_HEADING = "Gesamt seit Erstkauf";
 

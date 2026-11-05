@@ -10,13 +10,15 @@ import type { IsinChangeRecord, SecuritySummary, SplitRecord } from "@/modules/l
 import { IsinChangeDialog } from "../corporate-actions/IsinChangeDialog";
 import { SplitDialog } from "../corporate-actions/SplitDialog";
 import { type DialogDepot, TransactionDialog } from "../transactions/TransactionDialog";
+import { AddToWatchlistDialog, type AddToWatchlistProps } from "../watchlists/WatchlistEntryDialog";
 
 const TOUCH_TARGET = { minHeight: 44 };
 
-type Dialog = { kind: "split" } | { kind: "isin-change" } | { kind: "transaction"; depot: DialogDepot };
+type Dialog = { kind: "watchlist" } | { kind: "split" } | { kind: "isin-change" } | { kind: "transaction"; depot: DialogDepot };
 
 /**
- * Kebab menu of the Security page ("Aktionen für <name>"): "Split …", "ISIN-Wechsel …" and — when
+ * Kebab menu of the Security page ("Aktionen für <name>"): "Zur Watchlist …" (when `watchlist` is given),
+ * "Split …", "ISIN-Wechsel …" and — when
  * `transactionDepots` is non-empty — "Neue Buchung" with the Security preselected: directly for one
  * Depot, after "Depot wählen" for several.
  */
@@ -26,6 +28,7 @@ export function SecurityActions({
   isinChanges,
   securities,
   transactionDepots,
+  watchlist,
   today,
 }: {
   security: SecuritySummary;
@@ -34,6 +37,8 @@ export function SecurityActions({
   securities: SecuritySummary[];
   /** Depots a new Transaction may be booked in (non-archived); empty omits "Neue Buchung". */
   transactionDepots: readonly DialogDepot[];
+  /** Lists for "Zur Watchlist …"; absent omits the item. */
+  watchlist?: Pick<AddToWatchlistProps, "lists" | "onLists">;
   today: string;
 }) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
@@ -66,6 +71,11 @@ export function SecurityActions({
         <MoreVert aria-hidden />
       </IconButton>
       <Menu id={menuId} anchorEl={anchor} open={Boolean(anchor)} onClose={() => setAnchor(null)}>
+        {watchlist ? (
+          <MenuItem sx={TOUCH_TARGET} onClick={() => start({ kind: "watchlist" })}>
+            Zur Watchlist …
+          </MenuItem>
+        ) : null}
         <MenuItem sx={TOUCH_TARGET} onClick={() => start({ kind: "split" })}>
           Split …
         </MenuItem>
@@ -103,6 +113,17 @@ export function SecurityActions({
             </MenuItem>
           ))}
         </Menu>
+      ) : null}
+      {dialog?.kind === "watchlist" && watchlist ? (
+        <AddToWatchlistDialog
+          open={open}
+          onClose={close}
+          formKey={session}
+          security={security}
+          lists={watchlist.lists}
+          onLists={watchlist.onLists}
+          today={today}
+        />
       ) : null}
       {dialog?.kind === "split" ? (
         <SplitDialog key={session} open={open} onClose={close} security={security} splits={splits} />

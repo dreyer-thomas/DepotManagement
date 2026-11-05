@@ -108,7 +108,7 @@ describe("KeyFiguresCard", () => {
       `Umsatz (12 Monate) 35,90${NBSP}Mrd.${NBSP}€`,
       `Nettomarge 19,87${NBSP}%`,
     ]);
-    expect(card.textContent).toContain("Angaben ohne Gewähr, keine Anlageberatung");
+    expect(card.textContent).not.toContain("Angaben ohne Gewähr");
 
     fireEvent.click(toggle);
     expect(within(card).getByRole("button", { name: "Kennzahlen einklappen" }).getAttribute("aria-expanded")).toBe("true");
@@ -148,7 +148,7 @@ describe("KeyFiguresCard", () => {
       `Performance 52 Wochen +12,34${NBSP}%`,
     ]);
     expect(card.textContent).toContain("auf Schlusskursbasis");
-    expect(card.textContent).toContain("Angaben ohne Gewähr, keine Anlageberatung");
+    expect(card.textContent).not.toContain("Angaben ohne Gewähr");
     expect(within(card).getByRole("button", { name: "Kennzahlen aktualisieren" })).toBeDefined();
     expect(card.querySelectorAll("dl").length).toBe(7);
   });
@@ -195,10 +195,9 @@ describe("KeyFiguresCard", () => {
     expect(card.textContent).toContain("Yahoo Finance, Stand 20.10.2026 – veraltet");
   });
 
-  it("a snapshot from today disables the button", () => {
+  it("a snapshot from today hides the button", () => {
     const card = renderCard();
-    const button = within(card).getByRole("button", { name: "Heute schon aktualisiert" }) as HTMLButtonElement;
-    expect(button.disabled).toBe(true);
+    expect(within(card).queryByRole("button", { name: /aktualisier/ })).toBeNull();
   });
 
   it("runs the action and shows its message", async () => {

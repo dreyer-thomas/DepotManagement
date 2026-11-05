@@ -75,7 +75,7 @@ describe("AnalystRatingsCard", () => {
     expect(card.querySelector("[data-target-change]")?.textContent).toBe(`+12,50${NBSP}%`);
     expect(within(card).getByText("Yahoo Finance, Stand 28.10.2026")).toBeTruthy();
     expect(card.textContent).not.toContain("Daten von");
-    expect(within(card).getByText("Einschätzungen von Analysten, keine Anlageberatung")).toBeTruthy();
+    expect(card.textContent).not.toContain("keine Anlageberatung");
   });
 
   it("draws an aria-hidden donut with three sectors and darker strong bands", () => {

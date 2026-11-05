@@ -32,7 +32,6 @@ import { CONSENSUS_LABELS } from "./labels";
 const MISSING = "–";
 const NBSP = " ";
 
-export const ANALYST_RATINGS_HINT = "Einschätzungen von Analysten, keine Anlageberatung";
 
 
 const PERIOD_LABELS: Record<TrendPeriod, string> = {
@@ -346,9 +345,6 @@ export function AnalystRatingsCard({ snapshot }: { snapshot: KeyFiguresSnapshot 
         </Box>
         <Stack spacing={1} sx={{ mt: 2, alignItems: "flex-start" }}>
           <RecentChanges changes={ratings.changes} />
-          <Typography variant="caption" color="text.secondary">
-            {ANALYST_RATINGS_HINT}
-          </Typography>
         </Stack>
       </CardContent>
     </Card>

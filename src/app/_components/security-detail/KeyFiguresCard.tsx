@@ -16,7 +16,6 @@ const NBSP = " ";
 
 /** Source line of the card. */
 export const KEY_FIGURES_SOURCE = "Yahoo Finance";
-export const KEY_FIGURES_HINT = "Angaben ohne Gewähr, keine Anlageberatung";
 
 type Row = { label: string; value: string };
 type Group = { title: string; rows: Row[]; note?: string };
@@ -207,7 +206,7 @@ export function SourceLine({ snapshot, suffix }: { snapshot: KeyFiguresSnapshot 
  * with source and date, a stale snapshot flagged), and for every type the 52-week figures computed from
  * the stored closes. Closed (default) it shows only a summary (stock: KGV, Dividendenrendite,
  * Marktkapitalisierung, Umsatz, Nettomarge; ETF/fund: TER and 52-week performance; otherwise distance to the
- * 52-week high and performance). "Kennzahlen aktualisieren" fetches now (at most once a day). Computes nothing itself.
+ * 52-week high and performance). "Kennzahlen aktualisieren" fetches now; it is hidden once fetched today. Computes nothing itself.
  */
 export function KeyFiguresCard({
   securityId,
@@ -233,7 +232,8 @@ export function KeyFiguresCard({
   const prices = priceGroup(fiftyTwoWeek);
   groups.push(prices);
   const summary = summaryRows(assetType, provider ? snapshot : null, prices);
-  const fresh = snapshot?.fetchedToday ?? false;
+  // Fetched today already: no button (at most one fetch a day).
+  const showButton = provider && canRefresh && !(snapshot?.fetchedToday ?? false);
 
   const refresh = () =>
     startTransition(async () => {
@@ -264,10 +264,11 @@ export function KeyFiguresCard({
         </>
       }
     >
+      {showButton || message ? (
         <Stack spacing={1} sx={{ mt: 2, alignItems: "flex-start" }}>
-          {provider && canRefresh ? (
-            <Button variant="outlined" size="small" onClick={refresh} disabled={pending || fresh} sx={{ minHeight: 44 }}>
-              {fresh ? "Heute schon aktualisiert" : "Kennzahlen aktualisieren"}
+          {showButton ? (
+            <Button variant="outlined" size="small" onClick={refresh} disabled={pending} sx={{ minHeight: 44 }}>
+              Kennzahlen aktualisieren
             </Button>
           ) : null}
           {message ? (
@@ -275,10 +276,8 @@ export function KeyFiguresCard({
               {message}
             </Typography>
           ) : null}
-          <Typography variant="caption" color="text.secondary">
-            {KEY_FIGURES_HINT}
-          </Typography>
         </Stack>
+      ) : null}
     </CollapsibleCard>
   );
 }

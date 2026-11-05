@@ -1,11 +1,11 @@
 // @vitest-environment happy-dom
-import { render, screen, waitForElementToBeRemoved, within } from "@testing-library/react";
+import { render, screen, waitFor, waitForElementToBeRemoved, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { formEntries, registerDomCleanup } from "../../../../test/helpers/dom";
 import { addWatchlistEntryAction, removeWatchlistEntryAction, updateWatchlistEntryAction } from "@/app/_actions/watchlists";
 import type { SecuritySummary } from "@/modules/ledger";
-import { AddToWatchlistButton, AddWatchlistEntryButton, EditWatchlistEntryDialog } from "./WatchlistEntryDialog";
+import { AddToWatchlistDialog, AddWatchlistEntryButton, EditWatchlistEntryDialog } from "./WatchlistEntryDialog";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }) }));
 vi.mock("@/app/_actions/watchlists", () => ({
@@ -139,7 +139,7 @@ describe("EditWatchlistEntryDialog", () => {
   });
 });
 
-describe("AddToWatchlistButton", () => {
+describe("AddToWatchlistDialog", () => {
   const LISTS = [
     { id: "w1", name: "Ideen" },
     { id: "w2", name: "Dividenden" },
@@ -147,21 +147,21 @@ describe("AddToWatchlistButton", () => {
 
   async function openTo(lists = LISTS, onLists: string[] = []) {
     const user = userEvent.setup({ delay: null });
-    render(<AddToWatchlistButton security={SAP} lists={lists} onLists={onLists} today="2026-10-28" />);
-    await user.click(screen.getByRole("button", { name: "Zur Watchlist" }));
+    const onClose = vi.fn();
+    render(<AddToWatchlistDialog open onClose={onClose} formKey={0} security={SAP} lists={lists} onLists={onLists} today="2026-10-28" />);
     const dialog = await screen.findByRole("dialog", { name: "Zur Watchlist" });
-    return { user, dialog };
+    return { user, dialog, onClose };
   }
 
   it("adds the fixed Security to the first list not containing it, with note and date added", async () => {
     add.mockResolvedValue(OK_ADD);
-    const { user, dialog } = await openTo(LISTS, ["w1"]);
+    const { user, dialog, onClose } = await openTo(LISTS, ["w1"]);
     expect(within(dialog).getByText("SAP SE")).toBeTruthy();
     expect(within(dialog).getByRole("combobox", { name: /Watchlist/ }).textContent).toBe("Dividenden");
     expect((within(dialog).getByLabelText(/Aufgenommen am/) as HTMLInputElement).value).toBe("2026-10-28");
     await user.type(within(dialog).getByRole("textbox", { name: "Notiz" }), "Idee");
     await user.click(within(dialog).getByRole("button", { name: "Hinzufügen" }));
-    await waitForElementToBeRemoved(dialog);
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
     expect(formEntries(add.mock.calls[0][1])).toEqual({ securityId: "s1", watchlistId: "w2", note: "Idee", dateAdded: "2026-10-28" });
   }, SLOW);
 

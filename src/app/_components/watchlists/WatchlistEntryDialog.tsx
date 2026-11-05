@@ -1,7 +1,6 @@
 "use client";
 
 import AddOutlined from "@mui/icons-material/AddOutlined";
-import BookmarkAddOutlined from "@mui/icons-material/BookmarkAddOutlined";
 import Alert from "@mui/material/Alert";
 import Autocomplete from "@mui/material/Autocomplete";
 import Box from "@mui/material/Box";
@@ -494,40 +493,41 @@ export function EditWatchlistEntryDialog({
   );
 }
 
-/**
- * Button "Zur Watchlist" of the Security detail page (story 9.2) with its dialog. `onLists`: ids of the
- * lists the Security is already on (the default list is the first other one).
- */
-export function AddToWatchlistButton({
-  security,
-  lists,
-  onLists,
-  today,
-}: {
+/** Shared props of "Zur Watchlist": the fixed Security, the lists and the ids of the lists it is already on. */
+export type AddToWatchlistProps = {
   security: { id: string; name: string; isin: string | null; cryptoSymbol: string | null };
   lists: readonly { id: string; name: string }[];
   onLists: readonly string[];
   today: string;
-}) {
-  const dialog = useDialog();
+};
+
+/**
+ * Dialog "Zur Watchlist" of the Security detail page (story 9.2), opened from its actions menu. `onLists`:
+ * ids of the lists the Security is already on (the default list is the first other one). A new `formKey`
+ * starts a fresh form.
+ */
+export function AddToWatchlistDialog({
+  open,
+  onClose,
+  formKey,
+  security,
+  lists,
+  onLists,
+  today,
+}: AddToWatchlistProps & { open: boolean; onClose: () => void; formKey: number }) {
   return (
-    <>
-      <Button variant="outlined" startIcon={<BookmarkAddOutlined />} onClick={dialog.show} sx={TOUCH_TARGET}>
-        Zur Watchlist
-      </Button>
-      <EntryDialog open={dialog.open} onClose={dialog.hide}>
-        {(titleId) => (
-          <AddToWatchlistForm
-            key={dialog.session}
-            security={security}
-            lists={lists}
-            onLists={onLists}
-            today={today}
-            titleId={titleId}
-            onClose={dialog.hide}
-          />
-        )}
-      </EntryDialog>
-    </>
+    <EntryDialog open={open} onClose={onClose}>
+      {(titleId) => (
+        <AddToWatchlistForm
+          key={formKey}
+          security={security}
+          lists={lists}
+          onLists={onLists}
+          today={today}
+          titleId={titleId}
+          onClose={onClose}
+        />
+      )}
+    </EntryDialog>
   );
 }

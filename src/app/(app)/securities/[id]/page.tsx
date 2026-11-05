@@ -30,7 +30,6 @@ import { SecurityTransactions } from "@/app/_components/security-detail/Security
 import { WatchHeader } from "@/app/_components/security-detail/WatchHeader";
 import { WatchlistCard } from "@/app/_components/security-detail/WatchlistCard";
 import { WatchlistChips } from "@/app/_components/security-detail/WatchlistChips";
-import { AddToWatchlistButton } from "@/app/_components/watchlists/WatchlistEntryDialog";
 import { SecurityLogo } from "@/app/_components/securities/SecurityLogo";
 import { hasAnalystData } from "@/core/analyst-ratings";
 import { type ClassifiedAssetType, effective } from "@/core/classification";
@@ -55,7 +54,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 /**
  * One Security across all Depots or one Depot (story 4-6), also when no longer held: header with the
- * watchlist chips, Period selector, "Zur Watchlist" and the actions menu, Depot switcher, hero (value,
+ * watchlist chips, Period selector, the actions menu (with "Zur Watchlist …"), Depot switcher, hero (value,
  * Period gain/loss, TTWROR, XIRR, price line, Kurs/Wert/Performance/Drawdown chart with the optional
  * moving average, breakdown), KPIs, "Gesamt seit Erstkauf" (story 4-7), "Kennzahlen" (story 9.6), "Analystenbewertungen"
  * (story 9.7, stocks with analyst data), "Performance-Heatmap" (story
@@ -142,13 +141,13 @@ export default async function SecurityDetailPage({ params, searchParams }: Props
         </Stack>
         <Stack direction="row" spacing={1} sx={{ alignItems: "center", flexWrap: "wrap", rowGap: 1 }}>
           <PeriodSelector period={period} today={today} />
-          <AddToWatchlistButton security={security} lists={watchlistOptions} onLists={onLists.map((list) => list.id)} today={today} />
           <SecurityActions
             security={security}
             splits={splits}
             isinChanges={isinChanges}
             securities={securities}
             transactionDepots={transactionDepots}
+            watchlist={{ lists: watchlistOptions, onLists: onLists.map((list) => list.id) }}
             today={today}
           />
         </Stack>
