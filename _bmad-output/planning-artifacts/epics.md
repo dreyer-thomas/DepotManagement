@@ -51,6 +51,7 @@ FR26: Tommy can set target weights by equity region and asset class (global fund
 FR27: Tommy can keep several named watchlists of Securities he does not need to hold, each entry with a note and the date added, see Price, change today and since added, open the Security detail, and has them in export/restore.
 FR28: Tommy can connect Claude (Desktop, Code, iOS) via MCP with OAuth using his login, let it create, edit and delete watchlists and entries, and see and revoke connections in Settings.
 FR29: Per connection, Tommy can grant Claude read-only access to Depots, Positions, Transactions and figures; nothing is written via MCP.
+FR30: Tommy can see on a Security's detail page its technical position — trend against the 200-day average, RSI, MACD, TSI and distance to the 52-week high — each with a plain-German interpretation, plus an indicator chart switchable between TSI, RSI and MACD; no combined buy/sell verdict.
 FR19: Tommy can open a detail page per Security across all Depots (also when no longer held) showing news, price history with his buys and sells marked, the Transaction history with Depot, and the all-time result since the first buy (realized, unrealized, dividends, fees, taxes, total, return in % and XIRR), and key figures (valuation, size, dividend, quality, 52-week range).
 
 ### NonFunctional Requirements
@@ -93,6 +94,7 @@ NFR11: Scope discipline (SM-C1) — no feature or Broker without a named persona
 - AR20: Data sources per `data-sources.md` (yahoo-finance2 4.0.5, onvista JSON for certificates, CoinGecko + Binance backfill for crypto, OpenFIGI); EODHD only as escape hatch.
 - AR21: Parqet CSV format and quirks per `parqet-export-format.md` (semicolon, decimal comma, newest first, dividends `shares=1`, negative tax = refund, `cost` tax rows, rounding mismatches, synthetic times).
 - AR22: Testing — vitest; core, parsers and provider adapters unit-tested; provider contract test on a known split; migration reconciled against local untracked Parqet exports; no personal data in repo.
+- AR23 (AD-23): `core/technical` computes SMA200 trend, RSI(14, Wilder), MACD(12/26/9), TSI(25/13/7) and fixed German interpretations from split-adjusted trading-day closes (no carry-forward); computed on read; same function for card and MCP; no verdict.
 
 ### UX Design Requirements
 
@@ -117,6 +119,7 @@ UX-DR18: State patterns — empty states (no Depot: "Depot anlegen" / "Aus Parqe
 UX-DR19: Voice and tone — German, short, factual microcopy per EXPERIENCE.md examples; name Depot and Security in confirmations.
 UX-DR20: Interaction rules — no optimistic writes, no hover-only actions, no auto-booking, modal depth ≤ 1, Enter submits / Esc closes.
 UX-DR21: Accessibility floor — WCAG 2.2 AA, sign + arrow with gain/loss colors, keyboard-operable forms and chart tooltips, ≥ 44 px touch targets, semantic tables and readable stacked rows.
+UX-DR22: Card "Technische Lage" on the Security detail page (both layouts), closed by default (CollapsibleCard): signal rows "Signal · Wert · Einordnung"; opened adds an indicator chart with a TSI · RSI · MACD toggle sharing the price chart's Period and time axis; interpretation always in words, never colour alone.
 
 ### FR Coverage Map
 
@@ -149,6 +152,7 @@ FR26: Epic 8 - Region weights for global funds, target allocation and rebalancin
 FR27: Epic 9 - Watchlists, Security detail without a holding, export/restore (Stories 9.1–9.3)
 FR28: Epic 9 - Claude connector with OAuth, connected apps (Stories 9.4, 9.5)
 FR29: Epic 10 - Portfolio read permission and read tools (Stories 10.1, 10.2)
+FR30: Epic 11 - Technical position card, indicators, signals for Claude (Stories 11.1–11.4; ZigZag/Fibonacci optional in 11.5)
 
 ## Epic List
 
@@ -215,6 +219,10 @@ Tommy parks investment ideas on watchlists, follows their prices and news withou
 ### Epic 10: Portfolio Access for Claude
 Tommy lets a connected Claude read his Depots, holdings, Transactions and figures for risk and strategy analyses; read-only, same figures as the app.
 **FRs covered:** FR29 · **Also:** NFR2, AR1
+
+### Epic 11: Technische Lage
+Tommy sees at a glance on a Security's detail page how it stands technically — trend, momentum, overbought/oversold — to decide whether to buy a watched stock or hold or sell a held one, and Claude can use the same signals.
+**FRs covered:** FR30 · **Also:** AR1, AR9, AR23, NFR10
 
 **Action outside the epics:** take the Parqet CSV export of every portfolio before cancelling the Parqet subscription.
 
@@ -1361,3 +1369,98 @@ So that I can run risk and strategy analyses with Claude instead of Parqet.
 **And** no MCP tool writes ledger, prices, classification, tax or target data; the tool list contains no such tool (test)
 **And** with `portfolio:read`, watchlist entries additionally carry `held: true|false`
 **And** amounts are decimal strings in EUR, dates `YYYY-MM-DD`; responses never include credentials, session data or other connections' data
+
+## Epic 11: Technische Lage
+
+Tommy sees at a glance on a Security's detail page how it stands technically — trend, momentum, overbought/oversold — to decide whether to buy a watched stock or hold or sell a held one. No combined verdict; Claude can use the same signals.
+
+### Story 11.1: Three Years of Price History for Held Securities
+
+As Tommy,
+I want enough price history for every held Security,
+So that trend and momentum indicators have data even for stocks I bought recently.
+
+**Acceptance Criteria:**
+
+**Given** a held Security whose first Transaction is less than 3 years ago
+**When** the scheduler runs or a ledger write introduces it as held
+**Then** its provider history is fetched from the earlier of its first Transaction date and the `3J` Period start minus the benchmark buffer (the same start as watched Securities, AD-9 amended)
+**And** an existing mapping whose stored history starts later is backfilled once (full plan), later runs only refresh the overlap window
+**And** only symbols leave the server (AD-13); a provider without that much history stores what it delivers, without error
+**And** value, charts and returns are unchanged: Prices before the first Transaction never enter valuations (test on a fixture Depot)
+**And** the history start is one pure core function with unit tests (held only, held and watched, benchmark)
+
+### Story 11.2: Technical Indicators in Core
+
+As Tommy,
+I want trend and momentum figures computed reliably from my stored prices,
+So that the signals I base decisions on are correct and consistent everywhere.
+
+**Acceptance Criteria:**
+
+**Given** the split-adjusted closes of a Security on dates with a stored Price (provider or manual; carried-forward days excluded, AD-23)
+**When** `technicalPosition(closes, today)` in `core/technical` is called
+**Then** it returns per signal the value, the date of the last close, the interpretation key and German label, or `null` with `insufficient-history`:
+  - **Trend:** distance of the last close to SMA200 in %; "Aufwärtstrend" when above SMA200 and SMA200 higher than 20 trading days earlier, "Abwärtstrend" when below and lower, else "Seitwärts"; needs 220 closes
+  - **RSI(14)**, Wilder smoothing: "überkauft" ≥ 70, "überverkauft" ≤ 30, else "neutral"; needs 15 closes
+  - **MACD(12, 26, 9):** "positiv" when MACD > signal, "negativ" when below; a cross within the last 5 closes adds "dreht nach oben" / "dreht nach unten"; needs 35 closes
+  - **TSI(25, 13)** with signal line EMA 7: "Schwung positiv" (TSI > signal and > 0), "Schwung lässt nach" (TSI < signal and > 0), "Schwung negativ" (TSI < 0 and < signal), "Schwung dreht" (TSI > signal and < 0); needs 45 closes
+  - **52 Wochen:** distance to the 52-week high from Story 9.6, "nahe Hoch" when within 5 %, "nahe Tief" when within 5 % of the low, else "dazwischen"
+**And** it also returns the daily series of TSI and signal, RSI, and MACD, signal and histogram for the chart
+**And** EMAs are seeded with the SMA of their first window; parameters and thresholds sit in one table; all arithmetic uses `decimal.js`; ratios are rounded only at presentation (AD-5)
+**And** unit tests check every indicator against reference values computed by hand or spreadsheet on a fixed fixture series (≥ 250 closes), the minimum-history edges, a split inside the window and a series with gaps (weekends, holidays)
+**And** no function combines signals into a verdict
+
+### Story 11.3: Card "Technische Lage"
+
+As Tommy,
+I want a card on the detail page that shows the technical signals at a glance,
+So that I can judge whether to buy, hold or sell without opening another site.
+
+**Acceptance Criteria:**
+
+**Given** the Security detail page (both layouts: held and watch-only)
+**When** it renders
+**Then** a card "Technische Lage" follows "Kennzahlen", closed by default (same chevron as "Kennzahlen")
+**And** closed it shows one row per signal (Trend, RSI, MACD, TSI, 52 Wochen) with value and German interpretation, e.g. "Trend · +8,2 % zum 200-Tage-Schnitt · Aufwärtstrend"; the interpretation is in words, with the gain/loss/stale soft tokens as a secondary cue only (never colour alone)
+**And** opened it adds an indicator chart with a toggle TSI · RSI · MACD (last choice remembered per browser):
+  - TSI with signal line and zero line
+  - RSI with lines and shaded zones at 30 and 70
+  - MACD with signal line and histogram
+  - it covers the Period selected for the page, shares the price chart's time axis, and has a crosshair tooltip and a text alternative
+**And** a signal without enough history shows "zu wenig Kursdaten", and a Security without Prices shows the card with only that line
+**And** the source line reads "berechnet aus Schlusskursen, Stand <last close date>"
+**And** the card works for every asset type with Prices (stocks, ETFs, funds, certificates, crypto)
+**And** DOM tests cover the closed and opened states, the toggle and insufficient history; a page test checks the order of the cards
+
+### Story 11.4: Technical Signals for Claude
+
+As Tommy,
+I want Claude to see the same technical signals,
+So that I can ask Claude whether to buy, hold or sell with technical, fundamental and position data together.
+
+**Acceptance Criteria:**
+
+**Given** a connected Claude
+**When** it calls `get_security` (scope `portfolio:read`, Story 10.2) or `get_watchlist` (scope `watchlist`, Story 9.4)
+**Then** the payload gains `technical` per Security: each signal with value (decimal string), last close date, interpretation key and German label, or `null` with `insufficient-history`, from the same core function as the card (AD-23)
+**And** the tool descriptions explain the signals, thresholds and that they are not a recommendation
+**And** no new tool writes anything; series are not included (only the latest signal values)
+**And** a test compares the MCP values with the card's input for a fixture Security
+
+### Story 11.5: ZigZag Pivots with Fibonacci Retracements
+
+*Optional, later: start only after Tommy decides, once he has used Story 11.3.*
+
+As Tommy,
+I want the significant highs and lows of a stock marked with Fibonacci levels,
+So that I can read trend waves (Elliott-style) myself without the app pretending to count them.
+
+**Acceptance Criteria:**
+
+**Given** the price chart of a Security
+**When** I switch on "Wendepunkte" in the chart
+**Then** a ZigZag line connects pivots whose move exceeds a threshold (default 8 %, selectable 5 · 8 · 12 %) computed by a pure core function from trading-day closes
+**And** for the last completed swing the 38,2 %, 50 % and 61,8 % retracement levels and the 161,8 % extension are drawn and labelled
+**And** the app shows no wave numbers and no Elliott count
+**And** unit tests cover pivot detection (threshold edges, a flat series, a split) and the level calculation

@@ -23,7 +23,7 @@ sources:
 
 ## Capabilities
 
-CAP-N corresponds to PRD FR-N (CAP-19 added 2026-10-26).
+CAP-N corresponds to PRD FR-N (CAP-19 added 2026-10-26; CAP-30 added 2026-11-05).
 
 - **CAP-1** — Manage Depots
   - **intent:** Tommy can create, rename and archive Depots, each assigned to one Broker and owning one Cash Account.
@@ -114,6 +114,9 @@ CAP-N corresponds to PRD FR-N (CAP-19 added 2026-10-26).
 - **CAP-29** — Portfolio access for Claude
   - **intent:** Per connection, Tommy can grant Claude read-only access to Depots, Positions, Transactions and figures.
   - **success:** Figures returned equal the app's; no MCP tool writes; without the grant no portfolio data is returned.
+- **CAP-30** — Technical position
+  - **intent:** Tommy can see on a Security's detail page how it stands technically (trend, momentum, overbought/oversold, distance to the 52-week high) to support buy, hold and sell decisions.
+  - **success:** Every signal shows its value and a plain-German interpretation from fixed rules; an indicator chart (TSI, RSI, MACD) shares the price chart's Period; values match a hand-checked reference; too little history shows "zu wenig Kursdaten" instead of a value; there is no combined buy/sell verdict.
 
 ## Constraints
 
@@ -140,6 +143,7 @@ CAP-N corresponds to PRD FR-N (CAP-19 added 2026-10-26).
 - Security transfers between Depots.
 - Foreign currencies.
 - Spin-offs and mergers with cash components.
+- Buy/sell recommendations or a combined signal score; automatic Elliott-wave counts.
 
 ## Success signal
 

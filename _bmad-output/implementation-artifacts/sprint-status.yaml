@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 10-25-2026 14:10
-last_updated: 2026-10-28
+last_updated: 2026-11-05
 project: DepotManagement
 project_key: NOKEY
 tracking_system: file-system
@@ -129,3 +129,11 @@ development_status:
   10-1-portfolio-read-permission: done
   10-2-portfolio-read-tools: done
   epic-10-retrospective: optional
+
+  epic-11: backlog
+  11-1-three-years-of-price-history-for-held-securities: backlog
+  11-2-technical-indicators-in-core: backlog
+  11-3-card-technische-lage: backlog
+  11-4-technical-signals-for-claude: backlog
+  11-5-zigzag-pivots-with-fibonacci-retracements: backlog
+  epic-11-retrospective: optional
