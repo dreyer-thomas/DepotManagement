@@ -28,7 +28,7 @@ import { PERIOD_COOKIE } from "@/app/_actions/period-cookie";
 import { archiveDepot, createDepot, ensureSecurity, recordIsinChange, recordSplit, recordTransaction, type RecordTransactionInput } from "@/modules/ledger";
 import { SecurityActions } from "../../../_components/security-detail/SecurityActions";
 import { SecurityHero } from "../../../_components/security-detail/SecurityHero";
-import { MOVING_AVERAGE_COOKIE, SECURITY_CHART_COOKIE } from "../../../_components/charts/chart-preference";
+import { MOVING_AVERAGE_COOKIE, SECURITY_CHART_COOKIE, TECHNICAL_INDICATOR_COOKIE } from "../../../_components/charts/chart-preference";
 import { securityDetail } from "@/modules/ledger";
 import { setMapping, storedPriceHistory } from "@/modules/prices";
 import { addWatchlistEntry, createWatchlist } from "@/modules/watchlist";
@@ -37,6 +37,7 @@ import { WatchHeader } from "../../../_components/security-detail/WatchHeader";
 import { WatchlistCard } from "../../../_components/security-detail/WatchlistCard";
 import { KeyFiguresCard } from "../../../_components/security-detail/KeyFiguresCard";
 import { AnalystRatingsCard } from "../../../_components/security-detail/AnalystRatingsCard";
+import { TechnicalCard } from "../../../_components/security-detail/TechnicalCard";
 import SecurityDetailPage, { generateMetadata } from "./page";
 
 const TODAY = "2026-10-26";
@@ -646,5 +647,59 @@ describe("Security detail page", () => {
     cookieJar.set(MOVING_AVERAGE_COOKIE, "x");
     const invalid = findElement(await SecurityDetailPage(props(id)), SecurityHero)!.props.chart as { props: Record<string, unknown> };
     expect(invalid.props.initialMovingAverage).toBe("off");
+  });
+
+  it("Technische Lage in both layouts after Kennzahlen: signals, Period series, last close date, stored indicator", async () => {
+    const id = await security();
+    // 20 daily closes up to yesterday: RSI available, the other signals need more history.
+    for (let back = 20; back >= 1; back--) await providerPrice(id, addDays(TODAY, -back), String(100 + (back % 4)));
+    cookieJar.set(PERIOD_COOKIE, "1W");
+
+    // Watch layout: Kennzahlen < Technische Lage < news.
+    let tree = await SecurityDetailPage(props(id));
+    expect(findElement(tree, WatchHeader)).toBeDefined();
+    let card = findElement(tree, TechnicalCard)!;
+    const detail = (await securityDetail(id, undefined, { kind: "preset", preset: "1W" }, TODAY, undefined, { storedPrices: storedPriceHistory }))!;
+    const { series, ...signals } = detail.technical;
+    expect(card.props.position).toEqual(signals);
+    expect(card.props.asOf).toBe(addDays(TODAY, -1));
+    expect(card.props.from).toBe(detail.from);
+    expect(card.props.to).toBe(detail.to);
+    expect(card.props.series).toEqual(series.filter((point) => point.date >= detail.from && point.date <= detail.to));
+    expect((card.props.series as unknown[]).length).toBeLessThan(series.length);
+    expect(card.props.initialIndicator).toBe("tsi");
+    let html = renderHtml(tree);
+    expect(html.indexOf('id="security-key-figures"')).toBeLessThan(html.indexOf('id="security-technical"'));
+    expect(html.indexOf('id="security-technical"')).toBeLessThan(html.indexOf('id="security-news"'));
+    const watchCard = text(section(html, 'id="security-technical"', 'id="security-news"'));
+    expect(watchCard).toContain(`Technische Lage berechnet aus Schlusskursen, Stand ${addDays(TODAY, -1).split("-").reverse().join(".")}`);
+    expect(watchCard).toContain("Trend zu wenig Kursdaten");
+    expect(watchCard).toMatch(/RSI \d+,\d /);
+
+    // Booked layout: Kennzahlen < Technische Lage < heatmap; the stored indicator is the initial one.
+    cookieJar.set(TECHNICAL_INDICATOR_COOKIE, "rsi");
+    const a = await depot("Alpha");
+    await book({ depotId: a, type: "BUY", date: addDays(TODAY, -10), quantity: "1", price: "100", security: { id } });
+    tree = await SecurityDetailPage(props(id));
+    expect(findElement(tree, SecurityHero)).toBeDefined();
+    card = findElement(tree, TechnicalCard)!;
+    expect(card.props.initialIndicator).toBe("rsi");
+    html = renderHtml(tree);
+    expect(html.indexOf('id="security-key-figures"')).toBeLessThan(html.indexOf('id="security-technical"'));
+    expect(html.indexOf('id="security-technical"')).toBeLessThan(html.indexOf('id="security-heatmap"'));
+
+    cookieJar.set(TECHNICAL_INDICATOR_COOKIE, "nope");
+    expect(findElement(await SecurityDetailPage(props(id)), TechnicalCard)!.props.initialIndicator).toBe("tsi");
+  });
+
+  it("Technische Lage without any Price: only 'zu wenig Kursdaten'", async () => {
+    const id = await security();
+    const tree = await SecurityDetailPage(props(id));
+    expect(findElement(tree, TechnicalCard)!.props.asOf).toBeNull();
+    const html = renderHtml(tree);
+    const card = text(section(html, 'id="security-technical"', 'id="security-news"'));
+    expect(card).toContain("Technische Lage zu wenig Kursdaten");
+    expect(card).not.toContain("Trend");
+    expect(html).not.toContain("berechnet aus Schlusskursen");
   });
 });

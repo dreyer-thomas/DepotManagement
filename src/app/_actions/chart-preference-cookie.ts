@@ -1,4 +1,4 @@
-// Chart choices (value-chart tab, Security chart mode) for server components. Not a server action file:
+// Chart choices (value-chart tab, Security chart mode, technical indicator, …) for server components. Not a server action file:
 // the client writes these cookies (`chart-preference.ts`), server pages read the initial state here.
 import { cookies } from "next/headers";
 import {
@@ -8,9 +8,12 @@ import {
   parseBenchmarkChoice,
   parseMovingAverage,
   parseSecurityChartMode,
+  parseTechnicalIndicator,
   parseValueChartTab,
   SECURITY_CHART_COOKIE,
   type SecurityChartMode,
+  TECHNICAL_INDICATOR_COOKIE,
+  type TechnicalIndicator,
   VALUE_CHART_TAB_COOKIE,
   type ValueChartTab,
 } from "@/app/_components/charts/chart-preference";
@@ -33,4 +36,9 @@ export async function readMovingAverage(): Promise<MovingAverageChoice> {
 /** The stored "Vergleich mit" choice when it is one of `availableKeys` on this page; otherwise `none`. */
 export async function readBenchmarkChoice(availableKeys: readonly string[]): Promise<string> {
   return parseBenchmarkChoice((await cookies()).get(BENCHMARK_COOKIE)?.value, availableKeys);
+}
+
+/** The stored indicator of the "Technische Lage" chart; default `tsi`. */
+export async function readTechnicalIndicator(): Promise<TechnicalIndicator> {
+  return parseTechnicalIndicator((await cookies()).get(TECHNICAL_INDICATOR_COOKIE)?.value);
 }

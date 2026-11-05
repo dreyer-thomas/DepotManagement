@@ -52,9 +52,12 @@ export function formatMoney(value: DecimalInput, options: SignOptions = {}): str
   return `${formatDecimal(toDecimal(value), 2, { sign: options.sign })}${NBSP}€`;
 }
 
-/** Takes a ratio: `"0.0321"` → `"+3,21 %"`. Always signed (except zero). */
-export function formatPercent(ratio: DecimalInput): string {
-  return `${formatDecimal(toDecimal(ratio).times(100), 2, { sign: true })}${NBSP}%`;
+/**
+ * Takes a ratio: `"0.0321"` → `"+3,21 %"`. Always signed (except zero). `decimals` (default 2) sets the
+ * fraction digits: `formatPercent("0.0821", 1)` → `"+8,2 %"`.
+ */
+export function formatPercent(ratio: DecimalInput, decimals = 2): string {
+  return `${formatDecimal(toDecimal(ratio).times(100), decimals, { sign: true })}${NBSP}%`;
 }
 
 /** Takes a ratio difference, signed with two decimals in percentage points: `"0.0123"` → `"+1,23 Pp."`. */
@@ -128,9 +131,12 @@ export function formatMonth(isoDate: string): string {
   return `${MONTHS_DE[Number(m) - 1]} ${y}`;
 }
 
-/** A plain figure (e.g. KGV, Beta): two decimals, "-" only when negative, no unit: `"30.432"` → `"30,43"`. */
-export function formatFigure(value: DecimalInput): string {
-  return formatDecimal(toDecimal(value), 2, {});
+/**
+ * A plain figure (e.g. KGV, Beta): two decimals (or `decimals`), "-" only when negative, no unit:
+ * `"30.432"` → `"30,43"`, `formatFigure("64.27", 1)` → `"64,3"`.
+ */
+export function formatFigure(value: DecimalInput, decimals = 2): string {
+  return formatDecimal(toDecimal(value), decimals, {});
 }
 
 /** Takes a ratio, two decimals, unsigned unless negative: `"0.0118"` → `"1,18 %"`, `"-0.052"` → `"-5,20 %"`. */

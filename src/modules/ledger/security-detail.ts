@@ -1,7 +1,7 @@
 import { prisma } from "@/db";
 import { addDays } from "@/core/dates";
 import { type Drawdown, drawdown } from "@/core/drawdown";
-import { type FiftyTwoWeekFigures, fiftyTwoWeekFigures } from "@/core/key-figures";
+import { type FiftyTwoWeekFigures, fiftyTwoWeekFromCloses, tradingDayCloses } from "@/core/key-figures";
 import { type PeriodSelection, resolvePeriod } from "@/core/period";
 import { computePositions } from "@/core/positions";
 import type { ResolvedPrice } from "@/core/prices";
@@ -34,6 +34,7 @@ import {
   securityTrades,
   sumSecurityPerformance,
 } from "@/core/security";
+import { type TechnicalPosition, technicalPosition } from "@/core/technical";
 import { sumValuationSeries, type ValuationPoint, type ValuationRow, valuationSeries } from "@/core/valuation";
 import { loadCorporateActions } from "./corporate-actions";
 import type { LedgerDb } from "./depots";
@@ -93,6 +94,11 @@ export type SecurityDetail = {
   heatmap: HeatmapYear[];
   /** 52-week figures as of `today` from the stored, split-adjusted closes (story 9.6), independent of the Period. */
   fiftyTwoWeek: FiftyTwoWeekFigures;
+  /**
+   * Technical signals and the full daily indicator series as of `today` (story 11.3, AD-23) from the same
+   * trading-day closes as `fiftyTwoWeek`; independent of the Period (the page filters the series).
+   */
+  technical: TechnicalPosition;
 };
 
 /** Moving-average windows in stored closes. */
@@ -225,6 +231,9 @@ export async function securityDetail(
     heatmap = returnHeatmap(all.start, all.series, securityFlowRows(scopeRows), today).filter((year) => year.total !== null);
   }
 
+  // One source for the 52-week figures and the technical signals: the stored, split-adjusted closes.
+  const closes = tradingDayCloses(observations, securityId, actions, today);
+
   return {
     security,
     depots,
@@ -258,6 +267,7 @@ export async function securityDetail(
       "38": securityMovingAverage(observations, priceSecurity.id, actions, from, to, 38),
     },
     heatmap,
-    fiftyTwoWeek: fiftyTwoWeekFigures(observations, securityId, actions, today),
+    fiftyTwoWeek: fiftyTwoWeekFromCloses(closes, today),
+    technical: technicalPosition(closes, today),
   };
 }

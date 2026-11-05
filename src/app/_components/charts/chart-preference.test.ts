@@ -9,7 +9,9 @@ import {
   parseSecurityChartMode,
   parseValueChartTab,
   SECURITY_CHART_COOKIE,
+  parseTechnicalIndicator,
   storeChartPreference,
+  TECHNICAL_INDICATOR_COOKIE,
   VALUE_CHART_TAB_COOKIE,
 } from "./chart-preference";
 
@@ -36,6 +38,17 @@ describe("parseMovingAverage", () => {
     expect(parseMovingAverage("off")).toBe("off");
     expect(parseMovingAverage("x")).toBe("off");
     expect(parseMovingAverage(undefined)).toBe("off");
+  });
+});
+
+describe("parseTechnicalIndicator", () => {
+  it("accepts tsi, rsi and macd; anything else is tsi", () => {
+    expect(parseTechnicalIndicator("rsi")).toBe("rsi");
+    expect(parseTechnicalIndicator("macd")).toBe("macd");
+    expect(parseTechnicalIndicator("tsi")).toBe("tsi");
+    expect(parseTechnicalIndicator("RSI")).toBe("tsi");
+    expect(parseTechnicalIndicator(undefined)).toBe("tsi");
+    expect(parseTechnicalIndicator(null)).toBe("tsi");
   });
 });
 
@@ -67,6 +80,7 @@ describe("storeChartPreference", () => {
     document.cookie = `${SECURITY_CHART_COOKIE}=; path=/; max-age=0`;
     document.cookie = `${MOVING_AVERAGE_COOKIE}=; path=/; max-age=0`;
     document.cookie = `${BENCHMARK_COOKIE}=; path=/; max-age=0`;
+    document.cookie = `${TECHNICAL_INDICATOR_COOKIE}=; path=/; max-age=0`;
   });
 
   it("writes the cookie in the browser", () => {
@@ -74,6 +88,8 @@ describe("storeChartPreference", () => {
     storeChartPreference(SECURITY_CHART_COOKIE, "value");
     storeChartPreference(MOVING_AVERAGE_COOKIE, "38");
     storeChartPreference(BENCHMARK_COOKIE, "depot:a");
+    storeChartPreference(TECHNICAL_INDICATOR_COOKIE, "rsi");
+    expect(document.cookie).toContain("dm_technical_indicator=rsi");
     expect(document.cookie).toContain("dm_benchmark=depot%3Aa");
     expect(document.cookie).toContain("dm_moving_average=38");
     expect(document.cookie).toContain("dm_chart_tab=drawdown");

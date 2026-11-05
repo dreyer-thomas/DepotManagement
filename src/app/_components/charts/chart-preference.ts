@@ -1,7 +1,8 @@
 /**
  * Chart choices that persist per browser like the global Period (story 7-6): the value-chart tab of
  * Overview and Depot detail (one shared cookie), the Security chart mode, (story 7-8) the "Kurs"
- * moving-average overlay and (story 8-2) the "Vergleich mit" choice of the Performance tab. Written client-side on
+ * moving-average overlay, (story 8-2) the "Vergleich mit" choice of the Performance tab and (story 11.3) the
+ * indicator of the "Technische Lage" chart. Written client-side on
  * change (no server action, so switching never refreshes the page) and read by the server page for the
  * initial state. Not httpOnly: the cookies hold only a UI choice.
  */
@@ -10,6 +11,7 @@ export const VALUE_CHART_TAB_COOKIE = "dm_chart_tab";
 export const SECURITY_CHART_COOKIE = "dm_security_chart";
 export const MOVING_AVERAGE_COOKIE = "dm_moving_average";
 export const BENCHMARK_COOKIE = "dm_benchmark";
+export const TECHNICAL_INDICATOR_COOKIE = "dm_technical_indicator";
 
 /** About one year, as the Period cookie. */
 export const CHART_PREFERENCE_MAX_AGE = 365 * 24 * 60 * 60;
@@ -43,6 +45,16 @@ export function parseMovingAverage(value: string | undefined | null): MovingAver
   return MOVING_AVERAGE_CHOICES.find((choice) => choice === value) ?? DEFAULT_MOVING_AVERAGE;
 }
 
+/** Indicator of the "Technische Lage" chart (story 11.3). */
+export const TECHNICAL_INDICATORS = ["tsi", "rsi", "macd"] as const;
+export type TechnicalIndicator = (typeof TECHNICAL_INDICATORS)[number];
+export const DEFAULT_TECHNICAL_INDICATOR: TechnicalIndicator = "tsi";
+
+/** The stored indicator; a missing or invalid value gives `tsi`. */
+export function parseTechnicalIndicator(value: string | undefined | null): TechnicalIndicator {
+  return TECHNICAL_INDICATORS.find((indicator) => indicator === value) ?? DEFAULT_TECHNICAL_INDICATOR;
+}
+
 /** "Vergleich mit" without a comparison ("keiner"). */
 export const NO_BENCHMARK_CHOICE = "none";
 
@@ -63,7 +75,12 @@ export function chartPreferenceCookie(name: string, value: string, secure: boole
 
 /** Stores a chart choice in the browser (client components only); never reloads the page. */
 export function storeChartPreference(
-  name: typeof VALUE_CHART_TAB_COOKIE | typeof SECURITY_CHART_COOKIE | typeof MOVING_AVERAGE_COOKIE | typeof BENCHMARK_COOKIE,
+  name:
+    | typeof VALUE_CHART_TAB_COOKIE
+    | typeof SECURITY_CHART_COOKIE
+    | typeof MOVING_AVERAGE_COOKIE
+    | typeof BENCHMARK_COOKIE
+    | typeof TECHNICAL_INDICATOR_COOKIE,
   value: string,
 ): void {
   if (typeof document === "undefined") return;

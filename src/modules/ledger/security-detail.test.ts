@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createTestDatabase, type TestDatabase } from "../../../test/helpers/test-db";
+import { fiftyTwoWeekFromCloses } from "@/core/key-figures";
 import type { PriceObservation } from "@/core/prices";
+import { technicalPosition } from "@/core/technical";
 import {
   archiveDepot,
   createDepot,
@@ -326,5 +328,34 @@ describe("securityDetail", () => {
     expect(ma38.find((point) => point.date === "2025-05-08")?.average).toBe("118.5");
     // 05-10: closes 102..139 → 4579 / 38.
     expect(ma38.find((point) => point.date === "2025-05-10")?.average).toBe("120.5");
+  });
+
+  it("Technical position: from the same trading-day closes as the 52-week figures, independent of the Period", async () => {
+    // 60 weekday closes; a weekend Saturday has no Price, a Transaction price never counts.
+    const closes: PriceObservation[] = [];
+    let day = new Date(Date.UTC(2026, 6, 1));
+    while (closes.length < 60) {
+      const weekday = day.getUTCDay();
+      if (weekday !== 0 && weekday !== 6) closes.push(provider(day.toISOString().slice(0, 10), String(100 + (closes.length % 7) * 3)));
+      day = new Date(day.getTime() + 86_400_000);
+    }
+    const storedPrices = async (_ids: string[], asOf: string) => closes.filter((p) => p.date <= asOf);
+    await book(depotA, { type: "BUY", date: "2026-08-03", quantity: "1", price: "500", security: { id: securityId } });
+    const today = "2026-10-27";
+    const expectedCloses = closes.map((p) => ({ date: p.date, price: p.price }));
+
+    const detail = await securityDetail(securityId, undefined, { kind: "preset", preset: "1M" }, today, db(), { storedPrices });
+    expect(detail?.technical).toEqual(technicalPosition(expectedCloses, today));
+    expect(detail?.fiftyTwoWeek).toEqual(fiftyTwoWeekFromCloses(expectedCloses, today));
+    expect(detail?.technical.series).toHaveLength(60);
+    expect(detail?.technical.trend).toEqual({ value: null, reason: "insufficient-history" });
+    expect(detail?.technical.rsi.value).not.toBeNull();
+
+    const max = await securityDetail(securityId, undefined, MAX, today, db(), { storedPrices });
+    expect(max?.technical).toEqual(detail?.technical);
+
+    const none = await securityDetail(securityId, undefined, MAX, today, db());
+    expect(none?.technical.series).toEqual([]);
+    expect(none?.technical.rsi).toEqual({ value: null, reason: "insufficient-history" });
   });
 });

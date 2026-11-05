@@ -71,6 +71,12 @@ describe("formatPercent", () => {
     expect(formatPercent("12.345")).toBe(`+1.234,50${NBSP}%`);
   });
 
+  it("takes optional fraction digits", () => {
+    expect(formatPercent("0.0821", 1)).toBe(`+8,2${NBSP}%`);
+    expect(formatPercent("-0.031", 1)).toBe(`-3,1${NBSP}%`);
+    expect(formatPercent("0.0004", 1)).toBe(`0,0${NBSP}%`);
+  });
+
   it("shows zero without a sign", () => {
     expect(formatPercent("0")).toBe(`0,00${NBSP}%`);
     expect(formatPercent("-0.00001")).toBe(`0,00${NBSP}%`);
@@ -162,6 +168,12 @@ describe("formatFigure", () => {
     expect(formatFigure("1234.5")).toBe("1.234,50");
     expect(formatFigure("-0.125")).toBe("-0,13");
     expect(formatFigure("0")).toBe("0,00");
+  });
+
+  it("takes optional fraction digits", () => {
+    expect(formatFigure("64.27", 1)).toBe("64,3");
+    expect(formatFigure("0.012345", 4)).toBe("0,0123");
+    expect(formatFigure("-1.2345", 4)).toBe("-1,2345");
   });
 });
 
