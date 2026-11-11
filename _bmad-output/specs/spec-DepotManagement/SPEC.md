@@ -66,7 +66,7 @@ CAP-N corresponds to PRD FR-N (CAP-19 added 2026-10-26; CAP-30 added 2026-11-05)
   - **success:** Shares per breakdown sum to the total value including cash.
 - **CAP-14** — News on holdings
   - **intent:** Tommy can see news headlines from the last 14 days for held Securities, overall and per Security.
-  - **success:** Each headline links to the original article; quality is comparable to Parqet's feed in Tommy's judgment; items with a source-provided teaser can be read in the app first.
+  - **success:** Each headline links to the original article; quality is comparable to Parqet's feed in Tommy's judgment; items with a source-provided teaser can be read in the app first; each item shows "im Depot" when the Security is held in a non-archived Depot and the change today in % when the Security has Prices.
 - **CAP-15** — Initial migration from Parqet
   - **intent:** Tommy can bring his full Transaction history for all Depots in once from Parqet CSV exports (`parqet-export-format.md`), one file per Depot with the target Depot selected.
   - **success:** Positions, invested capital and Cash Account balance per Depot match Parqet as of the export date; same-timestamp Security transfers become splits or ISIN changes, an unpaired TransferIn becomes a delivery at Parqet's cost, and the migration completes without per-row decisions (asset types estimated from names, editable later); an export without cash movements gets minimal funding deposits so the Cash Account never goes negative; a Depot can be deleted to redo a migration; every trade is booked even when Parqet's cash rows differ (missing money as deposit, extra outflow as tax), no migrated Cash Account goes negative, sub-0.001 rounding oversells are absorbed, and fee-only realized-gain differences are not deviations; documents later imported for migrated Transactions are detected as duplicates.
@@ -117,6 +117,9 @@ CAP-N corresponds to PRD FR-N (CAP-19 added 2026-10-26; CAP-30 added 2026-11-05)
 - **CAP-30** — Technical position
   - **intent:** Tommy can see on a Security's detail page how it stands technically (trend, momentum, overbought/oversold, distance to the 52-week high) to support buy, hold and sell decisions.
   - **success:** Every signal shows its value and a plain-German interpretation from fixed rules; an indicator chart (TSI, RSI, MACD) shares the price chart's Period; values match a hand-checked reference; too little history shows "zu wenig Kursdaten" instead of a value; there is no combined buy/sell verdict.
+- **CAP-31** — Price marks
+  - **intent:** Tommy can note a stop and a target price for any held or watched Security (e.g. from a newspaper or analysts) and is warned in the app when the latest Price falls below the stop or rises above the target, so he can reconsider.
+  - **success:** A stop (fixed or trailing by %) and a target are kept per Security with source text and date set, in EUR and split-adjusted; the warning shows while the mark is breached and disappears only when the Price returns or the mark changes; breached marks are listed on the dashboard and flagged in the securities list, watchlists and detail page; the analyst mean target is offered as a suggestion; marks survive export/restore; Claude can read and set them.
 
 ## Constraints
 
@@ -140,6 +143,7 @@ CAP-N corresponds to PRD FR-N (CAP-19 added 2026-10-26; CAP-30 added 2026-11-05)
 - Benchmarks, dividend forecasts, rebalancing (later wish-list candidates).
 - Multi-user, sharing, onboarding, billing, support for others; native mobile apps.
 - Placing orders or any trading function.
+- Push, e-mail or other notifications outside the app; intraday price monitoring.
 - Security transfers between Depots.
 - Foreign currencies.
 - Spin-offs and mergers with cash components.

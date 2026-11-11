@@ -36,7 +36,7 @@ FR10: Tommy can see current value, invested capital and Gain/Loss (absolute and 
 FR11: Tommy can see a chart of value and invested capital over a selectable Period for the Portfolio or a single Depot.
 FR12: Tommy can see Gain/Loss for a selectable Period split into realized and unrealized with dividends and fees; TTWROR and XIRR side by side for Portfolio and each Depot; realized Gain/Loss uses FIFO and matches Parqet's `realizedgains` per sale after migration; shown gross with taxes paid in the Period as a separate figure.
 FR13: Tommy can see the Portfolio or a Depot broken down by Position, by asset type (stock, ETF, fund, certificate, crypto, cash) and by Depot; no ETF look-through.
-FR14: Tommy can see news headlines of the last 14 days for held Securities, overall and per Security, each linking to the original article; where the source provides one, a short teaser text is readable in the app before opening the article.
+FR14: Tommy can see news headlines of the last 14 days for held Securities, overall and per Security, each linking to the original article; where the source provides one, a short teaser text is readable in the app before opening the article. Each item shows whether the Security is held and its change today.
 FR15: Tommy can import his full Transaction history once from Parqet CSV exports, one file per Depot with target Depot selected; Positions, invested capital and Cash Account balance match Parqet at export date; same-timestamp Security transfers paired by ISIN → split, single out/in of different ISINs → ISIN change, unpaired TransferIn → delivery (BUY + equal DEPOSIT), only unpaired TransferOut flagged; no per-row decisions, asset types estimated from names; exports without cash rows get minimal funding deposits so cash never goes negative; cash rows are paired per instant and unmatched differences booked as TAX so no trade is skipped; sells exceeding the holding by ≤ 0.001 units are clamped with the shortfall carried to the next buy; inflow-side cash differences become DEPOSITs, outflow-side become TAX, and minimal funding applies to every export so cash never goes negative; Cash movements become Deposits, Withdrawals and cash sides; later imported documents for migrated Transactions are detected as duplicates. Depends on FR3 and FR17.
 FR16: Tommy can export all Depots and Transactions to an open file format and restore from it; export → restore into an empty instance reproduces identical Depots, Cash Accounts, Transactions, manual Prices and evaluations; restore replaces, never merges.
 FR17: Tommy can see balance and booking history of each Depot's Cash Account; buy, sell, dividend, fee and tax book their cash side automatically; Deposits and Withdrawals are entered manually and change only the Cash Account.
@@ -52,6 +52,7 @@ FR27: Tommy can keep several named watchlists of Securities he does not need to 
 FR28: Tommy can connect Claude (Desktop, Code, iOS) via MCP with OAuth using his login, let it create, edit and delete watchlists and entries, and see and revoke connections in Settings.
 FR29: Per connection, Tommy can grant Claude read-only access to Depots, Positions, Transactions and figures; nothing is written via MCP.
 FR30: Tommy can see on a Security's detail page its technical position — trend against the 200-day average, RSI, MACD, TSI and distance to the 52-week high — each with a plain-German interpretation, plus an indicator chart switchable between TSI, RSI and MACD; no combined buy/sell verdict.
+FR31: Tommy can set a stop (fixed or trailing by %) and a target price with source and date for any held or watched Security, see the distance to both, and is warned in the app while the latest Price is below the stop or above the target (dashboard, securities list, watchlists, detail page); the analyst mean target is offered as a suggestion; Claude can read and set the marks.
 FR19: Tommy can open a detail page per Security across all Depots (also when no longer held) showing news, price history with his buys and sells marked, the Transaction history with Depot, and the all-time result since the first buy (realized, unrealized, dividends, fees, taxes, total, return in % and XIRR), and key figures (valuation, size, dividend, quality, 52-week range).
 
 ### NonFunctional Requirements
@@ -95,6 +96,7 @@ NFR11: Scope discipline (SM-C1) — no feature or Broker without a named persona
 - AR21: Parqet CSV format and quirks per `parqet-export-format.md` (semicolon, decimal comma, newest first, dividends `shares=1`, negative tax = refund, `cost` tax rows, rounding mismatches, synthetic times).
 - AR22: Testing — vitest; core, parsers and provider adapters unit-tested; provider contract test on a known split; migration reconciled against local untracked Parqet exports; no personal data in repo.
 - AR23 (AD-23): `core/technical` computes SMA200 trend, RSI(14, Wilder), MACD(12/26/9), TSI(25/13/7) and fixed German interpretations from split-adjusted trading-day closes (no carry-forward); computed on read; same function for card and MCP; no verdict.
+- AR24 (AD-24): `marks` module owns PriceMark (one per Security); `core/price-marks` derives effective stop (trailing never falls), distances and breach state on read, split-adjusted from the set date; no acknowledgement; never input to valuations; in export/restore; MCP writes via the service under `watchlist` scope.
 
 ### UX Design Requirements
 
@@ -120,6 +122,7 @@ UX-DR19: Voice and tone — German, short, factual microcopy per EXPERIENCE.md e
 UX-DR20: Interaction rules — no optimistic writes, no hover-only actions, no auto-booking, modal depth ≤ 1, Enter submits / Esc closes.
 UX-DR21: Accessibility floor — WCAG 2.2 AA, sign + arrow with gain/loss colors, keyboard-operable forms and chart tooltips, ≥ 44 px touch targets, semantic tables and readable stacked rows.
 UX-DR22: Card "Technische Lage" on the Security detail page (both layouts), closed by default (CollapsibleCard): signal rows "Signal · Wert · Einordnung"; opened adds an indicator chart with a TSI · RSI · MACD toggle sharing the price chart's Period and time axis; interpretation always in words, never colour alone.
+UX-DR23: Card "Kursmarken" on the Security detail page (both layouts) with stop and target rows "Stopp · 92,40 € · −7,4 %"; dashed horizontal lines in the price chart (stop `loss`, target `gain`, labelled); a breached mark shows a pill "Stopp unterschritten" / "Ziel erreicht" (`stale-soft`), always in words; dashboard card "Kursmarken erreicht" only when at least one mark is breached; news items show "im Depot" and the change today.
 
 ### FR Coverage Map
 
@@ -136,7 +139,7 @@ FR10: Epic 4 - Portfolio and Depot overview
 FR11: Epic 4 - Value development chart
 FR12: Epic 4 - Gain/Loss, TTWROR, XIRR
 FR13: Epic 4 - Composition
-FR14: Epic 3 - News on holdings, news teasers (Stories 3.7, 3.8)
+FR14: Epic 3 - News on holdings, news teasers (Stories 3.7, 3.8); holding and change today in Epic 12 (Story 12.1)
 FR15: Epic 2 - One-time Parqet migration (Stories 2.3, 2.4; hands-off rework in 2.5; cash-less exports and Depot deletion in 2.6; robust cash pairing and rounding tolerance in 2.7; missing deposits and fee-aware gain comparison in 2.8)
 FR16: Epic 6 - Export and restore
 FR17: Epic 1 - Cash Account balance and history
@@ -153,6 +156,7 @@ FR27: Epic 9 - Watchlists, Security detail without a holding, export/restore (St
 FR28: Epic 9 - Claude connector with OAuth, connected apps (Stories 9.4, 9.5)
 FR29: Epic 10 - Portfolio read permission and read tools (Stories 10.1, 10.2)
 FR30: Epic 11 - Technical position card, indicators, signals for Claude (Stories 11.1–11.4; ZigZag/Fibonacci optional in 11.5)
+FR31: Epic 12 - Price marks, warnings, Claude (Stories 12.2–12.5)
 
 ## Epic List
 
@@ -223,6 +227,10 @@ Tommy lets a connected Claude read his Depots, holdings, Transactions and figure
 ### Epic 11: Technische Lage
 Tommy sees at a glance on a Security's detail page how it stands technically — trend, momentum, overbought/oversold — to decide whether to buy a watched stock or hold or sell a held one, and Claude can use the same signals.
 **FRs covered:** FR30 · **Also:** AR1, AR9, AR23, NFR10
+
+### Epic 12: Kursmarken
+Tommy notes stop and target prices for held and watched stocks and sees in the app when one is crossed, and news show whether he holds a stock and how it moves today.
+**FRs covered:** FR14 (amended), FR31 · **Also:** AR1, AR9, AR12, AR22, AR24
 
 **Action outside the epics:** take the Parqet CSV export of every portfolio before cancelling the Parqet subscription.
 
@@ -1464,3 +1472,95 @@ So that I can read trend waves (Elliott-style) myself without the app pretending
 **And** for the last completed swing the 38,2 %, 50 % and 61,8 % retracement levels and the 161,8 % extension are drawn and labelled
 **And** the app shows no wave numbers and no Elliott count
 **And** unit tests cover pivot detection (threshold edges, a flat series, a split) and the level calculation
+
+## Epic 12: Kursmarken
+
+Tommy notes stop and target prices for held and watched stocks and sees in the app while one is crossed — no acknowledgement, no notifications outside the app — and news show whether he holds a stock and how it moves today.
+
+### Story 12.1: News with Holding and Change Today
+
+As Tommy,
+I want each news item to show whether I hold the stock and how it moves today,
+So that I can judge the headline at a glance.
+
+**Acceptance Criteria:**
+
+**Given** the news list (overall and on the Security detail page)
+**When** an item renders
+**Then** next to the Security name it shows a small "im Depot" chip when the Security is held in a non-archived Depot
+**And** it shows the change today in % (e.g. "+1,8 %"), from the same core function as the watchlist "Heute" column (latest Price against the Price of the previous date), with sign and gain/loss colour as a secondary cue only
+**And** without a previous Price it shows no change (no "0 %")
+**And** a stale Price shows the change with the stale marker from `isStale`
+**And** the figures are computed once per Security per page render, not per article
+**And** DOM tests cover held, watched only, no previous Price and stale
+
+### Story 12.2: Set Stop and Target
+
+As Tommy,
+I want to note a stop and a target price for a stock,
+So that recommendations from newspapers and analysts are kept in one place.
+
+**Acceptance Criteria:**
+
+**Given** a held or watched Security
+**When** I choose "Kursmarken bearbeiten" on the detail page, or open the watchlist entry dialog
+**Then** I can set, change or clear:
+  - **Stopp:** either a fixed price in € or "nachlaufend" with a percentage (1–50 %)
+  - **Ziel:** a price in €
+  - per mark an optional source text (≤ 200 characters) and the date set (default today, ≤ today)
+**And** for the target the mean analyst target (Story 9.7) is offered as "Analystenziel übernehmen (245,00 €)" when its currency is EUR; otherwise it is shown as a hint with its currency, without a button
+**And** inputs are validated (German decimal input, > 0; stop below the latest Price and target above it are only warnings, not errors)
+**And** a new `PriceMark` table (one row per Security, decimal strings) is owned by a new `marks` module with a service used by app and MCP (AD-24); a migration adds it
+**And** `core/price-marks` returns the effective stop (fixed, or highest split-adjusted close since the set date × (1 − %), never falling), the distances of the latest Price to stop and target, and `breached ∈ {stop, target, none}`, compared in today's units
+**And** marks follow an ISIN change to the successor Security
+**And** export contains `priceMarks`; restore reads them; an older export without the field restores unchanged
+**And** unit tests cover fixed and trailing stop, a split after the set date, a trailing high before and after the set date, missing Prices and both breach edges (equal = breached)
+
+### Story 12.3: Price Marks on the Detail Page
+
+As Tommy,
+I want to see stop and target on the stock's page and in its chart,
+So that I can see how close the price is to them.
+
+**Acceptance Criteria:**
+
+**Given** a Security with at least one mark
+**When** the detail page renders (both layouts)
+**Then** a card "Kursmarken" after the price chart shows per mark the value, the distance in % ("Stopp · 92,40 € · −7,4 %", trailing: "Stopp nachlaufend 15 % · 92,40 €"), the source and the date set, and the button "Kursmarken bearbeiten"
+**And** a breached mark shows a pill "Stopp unterschritten" or "Ziel erreicht" with the date of the Price, in words, `stale-soft` colours
+**And** without marks the card shows only "Keine Kursmarken" and the button
+**And** the price chart draws the effective stop and the target as dashed horizontal lines, labelled ("Stopp", "Ziel"); the trailing stop is drawn as its line over time since the set date
+**And** the card notes "geprüft gegen den letzten Kurs, nicht im Tagesverlauf"
+**And** DOM tests cover no marks, fixed and trailing stop, breached stop and reached target
+
+### Story 12.4: Warnings for Crossed Marks
+
+As Tommy,
+I want to see all stocks whose stop or target was crossed in one place,
+So that I do not miss a signal to react.
+
+**Acceptance Criteria:**
+
+**Given** at least one Security with a breached mark
+**When** I open the dashboard
+**Then** a card "Kursmarken erreicht" lists each such Security with logo, name, "Stopp unterschritten" / "Ziel erreicht", the mark, the latest Price and the distance, held ones marked "im Depot", each linking to the detail page
+**And** the card is absent when nothing is breached
+**And** the securities list and the watchlist table show a warning icon with tooltip and accessible text at breached Securities, and the securities list filter "Nur Probleme" is not affected
+**And** the warning stays as long as the mark is breached and disappears when the Price returns or the mark is changed or cleared; there is no acknowledgement
+**And** all screens use the same core state (AD-24)
+**And** page and DOM tests cover breached stop, reached target, both absent, and a held and a watched Security
+
+### Story 12.5: Price Marks for Claude
+
+As Tommy,
+I want Claude to know and set my stop and target prices,
+So that it can consider them and move targets from my notes into marks.
+
+**Acceptance Criteria:**
+
+**Given** a connected Claude
+**When** it calls `get_security` (scope `portfolio:read`) or `get_watchlist` (scope `watchlist`)
+**Then** each Security carries `price_marks`: stop (type, value or percentage, effective value), target, sources, dates set, distances and `breached`, from the same core function (AD-24), decimals as strings
+**And** a new tool `set_price_marks` (scope `watchlist`) sets or clears stop and target of one Security through the `marks` service, with the same validation as the app; omitted fields stay
+**And** the tool descriptions say marks are Tommy's own reference levels, not recommendations, and are checked against the latest close
+**And** tests cover read payloads, set, clear, validation refusals and the scope check

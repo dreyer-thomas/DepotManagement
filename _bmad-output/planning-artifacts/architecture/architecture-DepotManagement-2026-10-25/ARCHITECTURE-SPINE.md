@@ -8,8 +8,8 @@ scope: 'DepotManagement v1 — the whole product as defined by the PRD (FR-1..FR
 status: final
 created: '2026-10-25'
 updated: '2026-11-05'
-change_log: ['2026-10-25 sprint change: AD-7, AD-16 amended (hands-off Parqet migration, FUND type)', '2026-10-25 sprint change: AD-6 amended (funding for cash-less exports)', '2026-10-25 sprint change: AD-6 amended (group cash pairing, TAX differences, rounding clamp)', '2026-10-25 sprint change: AD-6 amended (inflow differences as DEPOSIT, funding for every export)', '2026-10-26 sprint change: AD-10 amended (Security-level figures, FR-19)', '2026-10-26 sprint change: AD-14 amended (ADJUSTMENT type, FR-20)', '2026-10-27 sprint change: AD-20 added (classification, FR-21/22)', '2026-10-28 sprint change: AD-22 added, AD-2/12/13/17/18 amended (watchlists, MCP connector, FR-27..29)', '2026-10-28 sprint change: AD-20 amended (key figures cache, Story 9.6)', '2026-11-05 sprint change: AD-9 amended (3J history for held Securities), AD-23 added (technical indicators)']
-binds: [FR-30, FR-29, FR-28, FR-27, FR-22, FR-21, FR-20, FR-19, FR-1, FR-2, FR-3, FR-4, FR-5, FR-6, FR-7, FR-8, FR-9, FR-10, FR-11, FR-12, FR-13, FR-14, FR-15, FR-16, FR-17, FR-18]
+change_log: ['2026-10-25 sprint change: AD-7, AD-16 amended (hands-off Parqet migration, FUND type)', '2026-10-25 sprint change: AD-6 amended (funding for cash-less exports)', '2026-10-25 sprint change: AD-6 amended (group cash pairing, TAX differences, rounding clamp)', '2026-10-25 sprint change: AD-6 amended (inflow differences as DEPOSIT, funding for every export)', '2026-10-26 sprint change: AD-10 amended (Security-level figures, FR-19)', '2026-10-26 sprint change: AD-14 amended (ADJUSTMENT type, FR-20)', '2026-10-27 sprint change: AD-20 added (classification, FR-21/22)', '2026-10-28 sprint change: AD-22 added, AD-2/12/13/17/18 amended (watchlists, MCP connector, FR-27..29)', '2026-10-28 sprint change: AD-20 amended (key figures cache, Story 9.6)', '2026-11-05 sprint change: AD-9 amended (3J history for held Securities), AD-23 added (technical indicators)', '2026-11-11 sprint change: AD-24 added (price marks), AD-2/22 amended']
+binds: [FR-31, FR-30, FR-29, FR-28, FR-27, FR-22, FR-21, FR-20, FR-19, FR-1, FR-2, FR-3, FR-4, FR-5, FR-6, FR-7, FR-8, FR-9, FR-10, FR-11, FR-12, FR-13, FR-14, FR-15, FR-16, FR-17, FR-18]
 sources:
   - _bmad-output/planning-artifacts/prds/prd-DepotManagement-2026-10-25/prd.md
   - _bmad-output/planning-artifacts/prds/prd-DepotManagement-2026-10-25/addendum.md
@@ -76,7 +76,7 @@ graph TD
 
 - **Binds:** all
 - **Prevents:** financial logic leaking into routes or modules; modules coupling via each other's tables.
-- **Rule:** `app → modules → core`, `modules → db`. `src/core` imports nothing from the project except its own files and `decimal.js`. A module reads or writes only the Prisma models it owns and reaches another module only through that module's exported service functions (`src/modules/<name>/index.ts`). Every writing service accepts an optional Prisma transaction client so callers can compose one DB transaction across modules. Ownership: `ledger` — Depot, Security, Transaction, CorporateAction; `prices` — ProviderMapping, Price; `import` — ImportBatch, ImportItem; `news` — news cache; `logos` — SecurityLogo and logo files; `auth` — session; `watchlist` — Watchlist, WatchlistEntry; `mcp` — OAuthClient, OAuthGrant, OAuthToken.
+- **Rule:** `app → modules → core`, `modules → db`. `src/core` imports nothing from the project except its own files and `decimal.js`. A module reads or writes only the Prisma models it owns and reaches another module only through that module's exported service functions (`src/modules/<name>/index.ts`). Every writing service accepts an optional Prisma transaction client so callers can compose one DB transaction across modules. Ownership: `ledger` — Depot, Security, Transaction, CorporateAction; `prices` — ProviderMapping, Price; `import` — ImportBatch, ImportItem; `news` — news cache; `logos` — SecurityLogo and logo files; `auth` — session; `watchlist` — Watchlist, WatchlistEntry; `mcp` — OAuthClient, OAuthGrant, OAuthToken; `marks` — PriceMark.
 
 ### AD-3 — One write path into the ledger `[ADOPTED]`
 
@@ -196,13 +196,19 @@ graph TD
 
 - **Binds:** FR-28, FR-29
 - **Prevents:** a second, unaudited API; long-lived secrets in Claude configs; MCP computing figures differently from the UI; Claude writing the ledger.
-- **Rule:** The `mcp` module serves one Streamable-HTTP MCP endpoint `/api/mcp` and an OAuth 2.1 authorization server per the MCP authorization spec (RFC 8414 and RFC 9728 metadata, RFC 7591 dynamic client registration, PKCE S256 only, exact redirect URI match). Authorization reuses the single-user login and shows a consent page; access tokens are opaque and short-lived, refresh tokens rotate (reuse revokes the grant), codes and tokens are stored only as hashes and are revocable per grant from Settings. Scopes: `watchlist` (read and write watchlists through the `watchlist` service) and `portfolio:read` (read-only, opt-in per grant, off by default). Tools are thin adapters over module services and core; they never compute financial figures themselves, and no tool writes ledger, prices, classification, tax or target data. Tokens, codes and amounts in tool payloads are never logged.
+- **Rule:** The `mcp` module serves one Streamable-HTTP MCP endpoint `/api/mcp` and an OAuth 2.1 authorization server per the MCP authorization spec (RFC 8414 and RFC 9728 metadata, RFC 7591 dynamic client registration, PKCE S256 only, exact redirect URI match). Authorization reuses the single-user login and shows a consent page; access tokens are opaque and short-lived, refresh tokens rotate (reuse revokes the grant), codes and tokens are stored only as hashes and are revocable per grant from Settings. Scopes: `watchlist` (read and write watchlists through the `watchlist` service) and `portfolio:read` (read-only, opt-in per grant, off by default). Tools are thin adapters over module services and core; they never compute financial figures themselves, and no tool writes ledger, prices, classification, tax or target data ("target data" means rebalancing targets; price marks are written through the `marks` service under the `watchlist` scope, AD-24). Tokens, codes and amounts in tool payloads are never logged.
 
 ### AD-23 — Technical indicators are pure core functions over trading-day closes
 
 - **Binds:** FR-30
 - **Prevents:** the card, the chart and the MCP tools computing indicators differently; weekends and holidays (carried-forward Prices) distorting momentum; interpretations drifting between screens; a hidden "recommendation".
 - **Rule:** One pure module `core/technical` computes SMA200 trend, RSI(14, Wilder smoothing), MACD(12, 26, 9), TSI(25, 13, signal 7) and their German interpretation from a series of split-adjusted closes on dates that have a stored Price (provider or manual; no carried-forward days). EMAs are seeded with the SMA of their first window. Parameters and interpretation thresholds live in one table in that module. Each signal needs a minimum number of closes, else it is `null` with reason `insufficient-history`. Indicators are computed on read, never stored or exported (AD-1). The UI card and the MCP tools call the same function. No function combines signals into a verdict.
+
+### AD-24 — Price marks are user reference data evaluated by one core function
+
+- **Binds:** FR-31
+- **Prevents:** a split firing a stop falsely; a trailing stop moving down; screens and Claude disagreeing about which marks are breached; marks feeding valuations.
+- **Rule:** The `marks` module owns one PriceMark per Security: optional stop (fixed EUR price, or trailing percentage), optional target (EUR price), optional source text (≤ 200 characters) per mark, and the business date each was set. App and MCP write only through its service. One pure function in `core/price-marks` derives the state as of today from the marks, the Security's split-adjusted closes since the set date and the latest resolved Price (AD-9 resolver): effective stop (fixed, or highest close since set date × (1 − percentage), which never falls), distance of the latest Price to stop and target, and `breached ∈ {stop, target, none}`. Marks are compared in the units of today (`adjustedPrice` from the set date). The state is computed on read, never stored, and there is no acknowledgement. Marks never enter valuations, returns or tax. They follow an ISIN change to the successor Security and are part of export/restore (AD-12, export format additive).
 
 ## Consistency Conventions
 
@@ -310,6 +316,7 @@ graph LR
 | FR-27 Watchlists | `modules/watchlist`, `core`, `app` | AD-1, AD-9, AD-12, AD-16, AD-17 |
 | FR-28, FR-29 Claude connector, portfolio access | `modules/mcp` | AD-2, AD-13, AD-22 |
 | FR-30 Technical position | `core/technical`, `modules/prices`, `app`, `modules/mcp` | AD-1, AD-9, AD-22, AD-23 |
+| FR-31 Price marks | `core/price-marks`, `modules/marks`, `modules/backup`, `app`, `modules/mcp` | AD-1, AD-9, AD-12, AD-22, AD-24 |
 | FR-17, FR-18 Cash Account | `core/cash`, `modules/ledger` | AD-6, AD-10, AD-14 |
 | NFR deployment, privacy, public repo | `modules/auth`, `modules/backup`, config | AD-13, AD-18 |
 
