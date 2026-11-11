@@ -23,14 +23,17 @@ import {
   listPositions,
   listTransactions,
   portfolioValuation,
+  recordIsinChange,
   recordTransaction,
   type RecordTransactionInput,
   securityDetail,
   valuationSummary,
 } from "@/modules/ledger";
+import { getPriceMarks, priceMarksView, setPriceMarks } from "@/modules/marks";
 import { latestStoredPrices, storedPriceHistory } from "@/modules/prices";
 import { addWatchlistEntry, createWatchlist } from "@/modules/watchlist";
 import { PORTFOLIO_READ_DENIED_MESSAGE, PORTFOLIO_TOOL_NAMES, requirePortfolioRead } from "./portfolio-tools";
+import { PRICE_MARKS_DESCRIPTION, priceMarksPayload } from "./price-marks";
 import { createMcpServer } from "./server";
 import { keyFiguresPayload, type McpToolContext, TECHNICAL_DESCRIPTION } from "./tools";
 
@@ -44,6 +47,7 @@ const latest = { storedPrices: (ids: string[], asOf: string) => latestStoredPric
 
 type Fixture = { main: string; old: string; sap: string; etf: string; watched: string; unpriced: string };
 let fx: Fixture;
+let priceMarksChanges: number;
 
 async function book(input: RecordTransactionInput) {
   const result = await recordTransaction(input, db());
@@ -120,6 +124,9 @@ function context(scopes: string[]): McpToolContext {
     clientName: "Claude",
     lookupIsin: async () => ({ status: "not-found" }),
     onWatchlistChange: () => {},
+    onPriceMarksChange: () => {
+      priceMarksChanges += 1;
+    },
   };
 }
 
@@ -153,6 +160,7 @@ const refused = (error: string) => ({ isError: true, payload: { error, message: 
 beforeEach(async () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   testDb = createTestDatabase();
+  priceMarksChanges = 0;
   fx = await seed();
   mcp = await client();
 });
@@ -680,6 +688,172 @@ describe("technical (story 11.4)", () => {
     const updated = await call("update_watchlist_entry", { entry_id: added.payload.id, note: "x" });
     expect(updated).toMatchObject({ isError: false, payload: { id: added.payload.id, note: "x" } });
     expect(updated.payload).not.toHaveProperty("technical");
+  });
+});
+
+describe("price marks (story 12.5)", () => {
+  async function marks(securityId: string, patch: Parameters<typeof setPriceMarks>[1]) {
+    const set = await setPriceMarks(securityId, patch, TODAY, db());
+    if (!set.ok) throw new Error("setup failed");
+  }
+
+  async function watchlist(securityIds: string[]): Promise<string> {
+    const created = await createWatchlist({ name: "Ideen" }, db());
+    if (!created.ok) throw new Error(`setup failed: ${created.reason}`);
+    for (const securityId of securityIds) {
+      const added = await addWatchlistEntry({ watchlistId: created.watchlist.id, security: { id: securityId } }, TODAY, db());
+      if (!added.ok) throw new Error(`setup failed: ${added.reason}`);
+    }
+    return created.watchlist.id;
+  }
+
+  it("get_security and get_watchlist carry the same price_marks, mapped from priceMarksView", async () => {
+    // SAP latest 140 (2026-10-27): FIXED stop 150 → breached stop.
+    await marks(fx.sap, { stop: { type: "FIXED", value: "150", source: "Börse Online", setDate: "2026-10-01" } });
+    // Apple latest 200: target 190 → reached target.
+    await marks(fx.watched, { target: { price: "190", source: "Analyst", setDate: "2026-10-02" } });
+    // ETF: trailing 10 % since 2026-10-01 (closes 55 on 09-30, 60 on 10-20) → high 60, effective 54, not breached.
+    await marks(fx.etf, { stop: { type: "TRAILING", value: "10", setDate: "2026-10-01" }, target: { price: "80" } });
+    const ids = [fx.sap, fx.watched, fx.etf, fx.unpriced];
+    const view = await priceMarksView(ids, TODAY, db());
+
+    const securities = await Promise.all(ids.map((id) => call("get_security", { security_id: id })));
+    securities.forEach(({ payload }, index) => expect(payload.price_marks).toEqual(priceMarksPayload(view[ids[index]])));
+    const [sap, watched, etf, unpriced] = securities.map(({ payload }) => payload.price_marks);
+    expect(sap).toEqual({
+      basis: "latest close",
+      price: "140",
+      price_date: "2026-10-27",
+      stop: { type: "FIXED", price: "150", percent: null, effective: "150", high: null, distance: expect.any(String), source: "Börse Online", set_date: "2026-10-01" },
+      target: null,
+      breached: "stop",
+    });
+    expect(watched).toMatchObject({ price: "200", stop: null, target: { price: "190", effective: "190", source: "Analyst", set_date: "2026-10-02" }, breached: "target" });
+    expect(etf).toMatchObject({
+      price: "60",
+      stop: { type: "TRAILING", price: null, percent: "10", effective: "54", high: "60", distance: "-0.1", source: null, set_date: "2026-10-01" },
+      target: { price: "80", set_date: TODAY },
+      breached: "none",
+    });
+    expect(unpriced).toEqual({ basis: "latest close", price: null, price_date: null, stop: null, target: null, breached: "none" });
+
+    const list = await call("get_watchlist", { watchlist_id: await watchlist(ids) });
+    expect(list.payload.entries.map((entry: { price_marks: unknown }) => entry.price_marks)).toEqual([sap, watched, etf, unpriced]);
+  });
+
+  it("set_price_marks sets, keeps omitted marks and clears; only get_watchlist entries carry price_marks", async () => {
+    const set = await call("set_price_marks", {
+      security_id: fx.watched,
+      stop: { type: "TRAILING", percent: "10" },
+      target: { price: "300", source: "Zeitung" },
+    });
+    expect(set.isError).toBe(false);
+    expect(set.payload).toEqual({
+      security_id: fx.watched,
+      name: "Apple Inc.",
+      price_marks: priceMarksPayload((await priceMarksView([fx.watched], TODAY, db()))[fx.watched]),
+    });
+    expect(set.payload.price_marks).toMatchObject({
+      stop: { type: "TRAILING", price: null, percent: "10", effective: "180", high: "200", source: null, set_date: TODAY },
+      target: { price: "300", source: "Zeitung", set_date: TODAY },
+      breached: "none",
+    });
+    expect(priceMarksChanges).toBe(1);
+    expect(await getPriceMarks(fx.watched, TODAY, db())).toEqual({
+      securityId: fx.watched,
+      stop: { type: "TRAILING", value: "10", source: null, setDate: TODAY },
+      target: { price: "300", source: "Zeitung", setDate: TODAY },
+    });
+
+    const stopOnly = await call("set_price_marks", { security_id: fx.watched, stop: { type: "FIXED", price: "150", set_date: "2026-10-01" } });
+    expect(stopOnly.payload.price_marks).toMatchObject({
+      stop: { type: "FIXED", price: "150", percent: null, set_date: "2026-10-01" },
+      target: { price: "300", source: "Zeitung", set_date: TODAY },
+    });
+    const nothing = await call("set_price_marks", { security_id: fx.watched });
+    expect(nothing.payload.price_marks).toEqual(stopOnly.payload.price_marks);
+    expect(priceMarksChanges).toBe(3);
+
+    const ideas = await watchlist([]);
+    const added = await call("add_watchlist_entry", { watchlist_id: ideas, isin: "US0378331005" });
+    expect(added.isError).toBe(false);
+    expect(added.payload).not.toHaveProperty("price_marks");
+    const updated = await call("update_watchlist_entry", { entry_id: added.payload.id, note: "Ziel 300" });
+    expect(updated.payload).not.toHaveProperty("price_marks");
+    expect((await call("get_watchlist", { watchlist_id: ideas })).payload.entries[0].price_marks).toEqual(stopOnly.payload.price_marks);
+
+    const cleared = await call("set_price_marks", { security_id: fx.watched, stop: null, target: null });
+    expect(cleared.payload).toEqual({
+      security_id: fx.watched,
+      name: "Apple Inc.",
+      price_marks: { basis: "latest close", price: "200", price_date: "2026-10-27", stop: null, target: null, breached: "none" },
+    });
+    expect(await db().priceMark.count()).toBe(0);
+    expect(priceMarksChanges).toBe(4);
+  });
+
+  it.each<[string, Record<string, unknown>, string, string]>([
+    ["trailing percent 60", { stop: { type: "TRAILING", percent: "60" } }, "stop.percent", "out-of-range"],
+    ["German decimal", { stop: { type: "FIXED", price: "92,40" } }, "stop.price", "invalid"],
+    ["future set date", { target: { price: "300", set_date: "2026-10-29" } }, "target.set_date", "future-date"],
+    ["source of 201 characters", { stop: { type: "FIXED", price: "100", source: "x".repeat(201) } }, "stop.source", "too-long"],
+    ["lower-case type", { stop: { type: "fixed", price: "100" } }, "stop.type", "invalid"],
+    ["trailing without percent", { stop: { type: "TRAILING", price: "100" } }, "stop.percent", "required"],
+    ["target price 0", { target: { price: "0" } }, "target.price", "not-positive"],
+    ["stop without type", { stop: { price: "100" } }, "stop.type", "invalid"],
+    ["target without price", { target: { source: "Zeitung" } }, "target.price", "required"],
+  ])("refuses a %s and writes nothing", async (_, args, field, problem) => {
+    await marks(fx.sap, { stop: { type: "FIXED", value: "120" }, target: { price: "160" } });
+    const before = await getPriceMarks(fx.sap, TODAY, db());
+    const refusal = await call("set_price_marks", { security_id: fx.sap, ...args });
+    expect(refusal).toEqual({ isError: true, payload: { error: "price-marks-invalid", field, problem, message: expect.any(String) } });
+    expect(await getPriceMarks(fx.sap, TODAY, db())).toEqual(before);
+    expect(priceMarksChanges).toBe(0);
+  });
+
+  it("writes the marks of an ISIN-change predecessor id to the successor and answers with the successor", async () => {
+    const successor = await ensureSecurity({ isin: "US5949181045" }, { name: "Apple Neu Inc.", assetType: "STOCK" }, db());
+    if (!successor.ok) throw new Error("setup failed");
+    const newId = successor.security.id;
+    await price(newId, "2026-10-27", "100");
+    const change = await recordIsinChange({ oldSecurityId: fx.watched, newSecurity: { id: newId }, date: "2026-10-15", oldQuantity: "1", newQuantity: "2" }, db());
+    expect(change.ok).toBe(true);
+    const set = await call("set_price_marks", { security_id: fx.watched, target: { price: "300" } });
+    expect(set.isError).toBe(false);
+    expect(set.payload).toMatchObject({ security_id: newId, name: "Apple Neu Inc.", price_marks: { price: "100", target: { price: "300" } } });
+    expect(await getPriceMarks(newId, TODAY, db())).toMatchObject({ securityId: newId, target: { price: "300" } });
+  });
+
+  it("refuses an unknown Security and writes nothing", async () => {
+    expect(await call("set_price_marks", { security_id: "x", target: { price: "300" } })).toEqual(refused("security-not-found"));
+    expect(await db().priceMark.count()).toBe(0);
+    expect(priceMarksChanges).toBe(0);
+  });
+
+  it("needs the watchlist scope", async () => {
+    const readOnly = await client(["portfolio:read"]);
+    const names = (await readOnly.listTools()).tools.map((tool) => tool.name);
+    expect(names).not.toContain("set_price_marks");
+    expect(names).not.toContain("get_watchlist");
+    expect(names).toContain("get_security");
+    const outcome = await readOnly
+      .callTool({ name: "set_price_marks", arguments: { security_id: fx.sap, target: { price: "300" } } })
+      .then((reply) => (reply as ToolResult).isError === true, () => true);
+    expect(outcome).toBe(true);
+    expect(await db().priceMark.count()).toBe(0);
+    expect(priceMarksChanges).toBe(0);
+    await readOnly.close();
+  });
+
+  it("explains the marks in the descriptions of get_security, get_watchlist and set_price_marks", async () => {
+    const { tools } = await mcp.listTools();
+    for (const name of ["get_security", "get_watchlist", "set_price_marks"]) {
+      const description = tools.find((tool) => tool.name === name)?.description ?? "";
+      expect(description).toContain(PRICE_MARKS_DESCRIPTION);
+    }
+    expect(PRICE_MARKS_DESCRIPTION).toContain("not recommendations");
+    expect(PRICE_MARKS_DESCRIPTION).toContain("latest close");
+    expect(tools.find((tool) => tool.name === "set_price_marks")?.annotations?.readOnlyHint).not.toBe(true);
   });
 });
 

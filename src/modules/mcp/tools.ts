@@ -1,19 +1,23 @@
-// The nine watchlist tools (story 9.4, scope `watchlist`). Thin adapters over the `watchlist` and `ledger`
+// The watchlist tools (story 9.4, scope `watchlist`; `set_price_marks` since story 12.5). Thin adapters over the `watchlist` and `ledger`
 // services and the `prices` OpenFIGI lookup: arguments go to the services unvalidated (so the app and Claude
 // refuse the same inputs), reasons become `{ error, message }`. No figures are computed here; `held` is part
 // of an entry only when the grant also holds `portfolio:read` (story 10.2). Payload values are never logged.
 // `get_watchlist` adds each entry's key figures (story 9.6: the classification module's snapshot plus the
 // 52-week figures computed by core) and, for stocks, the analyst ratings (story 9.7), and each entry's
-// technical signals (story 11.4: `technicalPosition` from core, latest values only, no series).
+// technical signals (story 11.4: `technicalPosition` from core, latest values only, no series) and its
+// `price_marks` (story 12.5, from the marks module's `priceMarksView`); `set_price_marks` writes the marks
+// through the marks service.
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { analystConsensusOf, analystCountOf, type AnalystRatings, consensusMean, targetChange } from "@/core/analyst-ratings";
 import { emptyKeyFigures, type FiftyTwoWeekFigures } from "@/core/key-figures";
+import { PRICE_MARK_SOURCE_MAX_LENGTH, TRAILING_STOP_MAX_PERCENT, TRAILING_STOP_MIN_PERCENT } from "@/core/price-marks";
 import { type InsufficientHistory, TECHNICAL_PARAMETERS, type TechnicalPosition } from "@/core/technical";
 import { WATCHLIST_NAME_MAX_LENGTH, WATCHLIST_NOTE_MAX_LENGTH } from "@/core/watchlist";
 import { type KeyFiguresInfo, listKeyFigures } from "@/modules/classification";
-import { type AssetType, findSecurity, listSecurities, SECURITY_NAME_MAX_LENGTH } from "@/modules/ledger";
+import { type AssetType, findSecurity, getSecurity, listSecurities, SECURITY_NAME_MAX_LENGTH } from "@/modules/ledger";
+import { type PriceMarksViewItem, priceMarksView, setPriceMarks } from "@/modules/marks";
 import type { IsinDetails, Lookup } from "@/modules/prices";
 import {
   addWatchlistEntry,
@@ -30,6 +34,7 @@ import {
 } from "@/modules/watchlist";
 import { PORTFOLIO_READ_SCOPE, WATCHLIST_SCOPE } from "./authorize";
 import type { McpDb } from "./clients";
+import { PRICE_MARKS_DESCRIPTION, priceMarksPatchOf, priceMarksPayload, priceMarksRefusal } from "./price-marks";
 import { inTransaction } from "./tokens";
 
 export const WATCHLIST_TOOL_NAMES = [
@@ -42,6 +47,7 @@ export const WATCHLIST_TOOL_NAMES = [
   "update_watchlist_entry",
   "remove_watchlist_entry",
   "search_securities",
+  "set_price_marks",
 ] as const;
 
 export const SEARCH_RESULT_LIMIT = 20;
@@ -58,6 +64,8 @@ export type McpToolContext = {
   lookupIsin: (isin: string) => Promise<Lookup<IsinDetails>>;
   /** After a successful write: revalidate watchlist/Security pages; `backfill` schedules the price backfill. */
   onWatchlistChange: (change: { backfill: boolean }) => void;
+  /** After a successful `set_price_marks`: revalidate every page that shows marks or their breaches. */
+  onPriceMarksChange: () => void;
 };
 
 const MESSAGES: Record<string, string> = {
@@ -265,9 +273,15 @@ export const TECHNICAL_DESCRIPTION =
 /**
  * An entry as the tools return it (snake_case, decimals as strings); with `keyFigures` (from
  * `listKeyFigures`) it also carries `key_figures`, with `withHeld` (the grant holds `portfolio:read`) `held`,
- * and `technical` when the view entry carries it (`watchlistView` with `technicalFor`).
+ * `technical` when the view entry carries it (`watchlistView` with `technicalFor`), and with `priceMarks`
+ * (from `priceMarksView` over the entries' Securities) `price_marks`.
  */
-export function entryPayload(entry: WatchlistEntryView, keyFigures?: Readonly<Record<string, KeyFiguresInfo>>, withHeld = false) {
+export function entryPayload(
+  entry: WatchlistEntryView,
+  keyFigures?: Readonly<Record<string, KeyFiguresInfo>>,
+  withHeld = false,
+  priceMarks?: Readonly<Record<string, PriceMarksViewItem>>,
+) {
   return {
     id: entry.id,
     security_id: entry.securityId,
@@ -287,6 +301,7 @@ export function entryPayload(entry: WatchlistEntryView, keyFigures?: Readonly<Re
     ...(withHeld ? { held: entry.held } : {}),
     ...(keyFigures ? { key_figures: keyFiguresPayload(entry.fiftyTwoWeek, keyFigures[entry.securityId]) } : {}),
     ...(entry.technical ? { technical: technicalPayload(entry.technical) } : {}),
+    ...(priceMarks?.[entry.securityId] ? { price_marks: priceMarksPayload(priceMarks[entry.securityId]) } : {}),
   };
 }
 
@@ -383,7 +398,8 @@ export function registerWatchlistTools(server: McpServer, ctx: McpToolContext): 
     "get_watchlist",
     {
       description:
-        "Returns one watchlist with its entries: Security, note, date added, latest price (EUR, decimal string), price date, stale flag, change today and change since added (ratios), and key_figures: Yahoo Finance figures as of `as_of` (null when not delivered; `stale` when older than 7 days; ratios as plain decimals, e.g. dividend_yield 0.0118 = 1.18 %, debt_to_equity_percent in percent units; amounts with their currency) plus fifty_two_week high/low (with dates), distance to high and 52-week performance computed from stored closing prices, and for stocks `analysts` (null without analyst data): the Yahoo listing `symbol` it comes from, consensus (optimistic ≤ 2.0 < neutral ≤ 3.0 < pessimistic on the 1 = strong buy … 5 = strong sell mean), consensus_mean, analyst_count, the monthly recommendation trend (oldest first, period \"0m\" = current month), price_target in that listing's currency (never converted) with implied_change versus its current price (ratio), and recent_changes (up to 10 up-/downgrades, newest first). Each entry also carries technical (see below)." +
+        "Returns one watchlist with its entries: Security, note, date added, latest price (EUR, decimal string), price date, stale flag, change today and change since added (ratios), and key_figures: Yahoo Finance figures as of `as_of` (null when not delivered; `stale` when older than 7 days; ratios as plain decimals, e.g. dividend_yield 0.0118 = 1.18 %, debt_to_equity_percent in percent units; amounts with their currency) plus fifty_two_week high/low (with dates), distance to high and 52-week performance computed from stored closing prices, and for stocks `analysts` (null without analyst data): the Yahoo listing `symbol` it comes from, consensus (optimistic ≤ 2.0 < neutral ≤ 3.0 < pessimistic on the 1 = strong buy … 5 = strong sell mean), consensus_mean, analyst_count, the monthly recommendation trend (oldest first, period \"0m\" = current month), price_target in that listing's currency (never converted) with implied_change versus its current price (ratio), and recent_changes (up to 10 up-/downgrades, newest first). Each entry also carries price_marks and technical (see below)." +
+        PRICE_MARKS_DESCRIPTION +
         TECHNICAL_DESCRIPTION +
         " Not investment advice.",
       inputSchema: { watchlist_id: id("watchlist") },
@@ -392,12 +408,13 @@ export function registerWatchlistTools(server: McpServer, ctx: McpToolContext): 
     guarded("get_watchlist", async ({ watchlist_id }) => {
       const list = (await watchlistView(ctx.today, ctx.db, { technicalFor: watchlist_id })).find((candidate) => candidate.id === watchlist_id);
       if (!list) return refusal("watchlist-not-found");
-      const keyFigures = await listKeyFigures(
-        list.entries.map((entry) => entry.securityId),
-        ctx.today,
-        ctx.db,
-      );
-      return result({ id: list.id, name: list.name, entries: list.entries.map((entry) => entryPayload(entry, keyFigures, withHeld(ctx))) });
+      const securityIds = list.entries.map((entry) => entry.securityId);
+      const [keyFigures, priceMarks] = await Promise.all([listKeyFigures(securityIds, ctx.today, ctx.db), priceMarksView(securityIds, ctx.today, ctx.db)]);
+      return result({
+        id: list.id,
+        name: list.name,
+        entries: list.entries.map((entry) => entryPayload(entry, keyFigures, withHeld(ctx), priceMarks)),
+      });
     }),
   );
 
@@ -531,6 +548,50 @@ export function registerWatchlistTools(server: McpServer, ctx: McpToolContext): 
           asset_type: security.assetType,
         })),
       );
+    }),
+  );
+  server.registerTool(
+    "set_price_marks",
+    {
+      description:
+        "Sets or clears Tommy's price marks (stop and target) of one Security, with the same validation as the app's dialog \"Kursmarken bearbeiten\". Omitted stop / target stay unchanged, null clears that mark, an object replaces that mark whole (absent source → none, absent set_date → today)." +
+        ` stop: { type "FIXED" with price (EUR) or "TRAILING" with percent (${TRAILING_STOP_MIN_PERCENT}..${TRAILING_STOP_MAX_PERCENT} below the highest close since set_date), source?, set_date? }; target: { price (EUR), source?, set_date? }.` +
+        ` Decimals as plain strings with a dot (e.g. "92.40"), greater than 0; source at most ${PRICE_MARK_SOURCE_MAX_LENGTH} characters; set_date YYYY-MM-DD, not in the future.` +
+        " The marks belong to the Security the id maps to today (the successor after an ISIN change). Useful e.g. to move a stop or target written in a watchlist note into the marks." +
+        " Returns { security_id, name, price_marks } (see below); a refused field gives { error: \"price-marks-invalid\", field (input path, e.g. stop.percent), problem, message } and writes nothing." +
+        PRICE_MARKS_DESCRIPTION,
+      inputSchema: {
+        security_id: z.string().describe("The Security id (from search_securities, get_watchlist or list_positions)."),
+        stop: z
+          .object({
+            type: z.string().optional().describe('"FIXED" or "TRAILING".'),
+            price: z.string().optional().describe("FIXED: the stop price in EUR, plain decimal string."),
+            percent: z.string().optional().describe(`TRAILING: percent below the high, ${TRAILING_STOP_MIN_PERCENT}..${TRAILING_STOP_MAX_PERCENT}, plain decimal string.`),
+            source: z.string().optional().describe(`Where the stop comes from, at most ${PRICE_MARK_SOURCE_MAX_LENGTH} characters.`),
+            set_date: z.string().optional().describe("YYYY-MM-DD, not in the future; default today."),
+          })
+          .nullable()
+          .optional()
+          .describe("Omit to keep the stop, null to clear it, an object to replace it."),
+        target: z
+          .object({
+            price: z.string().optional().describe("The target price in EUR, plain decimal string."),
+            source: z.string().optional().describe(`Where the target comes from, at most ${PRICE_MARK_SOURCE_MAX_LENGTH} characters.`),
+            set_date: z.string().optional().describe("YYYY-MM-DD, not in the future; default today."),
+          })
+          .nullable()
+          .optional()
+          .describe("Omit to keep the target, null to clear it, an object to replace it."),
+      },
+      annotations: { idempotentHint: true },
+    },
+    guarded("set_price_marks", async ({ security_id, stop, target }) => {
+      const set = await setPriceMarks(security_id, priceMarksPatchOf({ stop, target }), ctx.today, ctx.db);
+      if (!set.ok) return set.reason === "not-found" ? refusal("security-not-found") : priceMarksRefusal(set, stop?.type);
+      ctx.onPriceMarksChange();
+      const securityId = set.marks?.securityId ?? security_id;
+      const [view, security] = await Promise.all([priceMarksView([securityId], ctx.today, ctx.db), getSecurity(securityId, ctx.db)]);
+      return result({ security_id: securityId, name: security?.name ?? null, price_marks: priceMarksPayload(view[securityId]) });
     }),
   );
 }

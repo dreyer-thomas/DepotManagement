@@ -2,7 +2,8 @@
 // scope gets the specific refusal instead of "unknown tool"; each tool checks the scope at call time through
 // `requirePortfolioRead` and then calls the same exported module services and core functions the pages use
 // (story 10.2): no figure is computed here; `get_security` also returns the card's technical signals
-// (story 11.4, `technicalPayload` of `securityDetail().technical`). Read-only; amounts are EUR decimal
+// (story 11.4, `technicalPayload` of `securityDetail().technical`) and its price marks (story 12.5,
+// `priceMarksPayload` of the marks module's `priceMarksView`). Read-only; amounts are EUR decimal
 // strings, dates `YYYY-MM-DD`; payload values are never logged.
 import type { McpServer, ToolCallback } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
@@ -44,8 +45,10 @@ import {
   valuationSummary,
   type ValuationSummary,
 } from "@/modules/ledger";
+import { priceMarksView } from "@/modules/marks";
 import { latestStoredPrices, storedPriceHistory } from "@/modules/prices";
 import { PORTFOLIO_READ_SCOPE } from "./authorize";
+import { PRICE_MARKS_DESCRIPTION, priceMarksPayload } from "./price-marks";
 import { guarded, type Handler, keyFiguresPayload, type McpToolContext, refusal, result, TECHNICAL_DESCRIPTION, technicalPayload } from "./tools";
 
 export const PORTFOLIO_TOOL_NAMES = [
@@ -431,7 +434,8 @@ export function registerPortfolioTools(server: McpServer, ctx: McpToolContext): 
 
   register(
     "get_security",
-    "One Security (held, sold or only watched) as its detail page shows it, over all non-archived booking Depots or one depot_id: held (open Position in a non-archived Depot), booked, latest price with date and stale flag (of price_security: the Security whose prices are used, which differs from security after an ISIN change), Period figures (value at the Period end, gain split, TTWROR, XIRR, price change), the holding snapshot (quantity, Cost Basis, value, unrealized, average price), all_time results since the first buy (realized, unrealized, dividends, fees, taxes_paid, total = realized + unrealized + dividends − fees, total_invested, return_ratio, XIRR, value), the effective classification and key_figures (Yahoo Finance snapshot, 52-week figures from stored closes, analyst ratings for stocks) and technical (see below)." +
+    "One Security (held, sold or only watched) as its detail page shows it, over all non-archived booking Depots or one depot_id: held (open Position in a non-archived Depot), booked, latest price with date and stale flag (of price_security: the Security whose prices are used, which differs from security after an ISIN change), Period figures (value at the Period end, gain split, TTWROR, XIRR, price change), the holding snapshot (quantity, Cost Basis, value, unrealized, average price), all_time results since the first buy (realized, unrealized, dividends, fees, taxes_paid, total = realized + unrealized + dividends − fees, total_invested, return_ratio, XIRR, value), the effective classification and key_figures (Yahoo Finance snapshot, 52-week figures from stored closes, analyst ratings for stocks), price_marks and technical (see below)." +
+      PRICE_MARKS_DESCRIPTION +
       TECHNICAL_DESCRIPTION +
       " Not investment advice.",
     { security_id: z.string().describe("The Security id (from list_positions or search_securities)."), depot_id: optionalId("Depot"), period: periodArg },
@@ -443,10 +447,11 @@ export function registerPortfolioTools(server: McpServer, ctx: McpToolContext): 
       if (!detail) return refusal("security-not-found");
       if (depot_id !== undefined && detail.selected !== depot_id) return refusal("security-not-in-depot");
       const { security } = detail;
-      const [held, classifications, keyFigures] = await Promise.all([
+      const [held, classifications, keyFigures, priceMarks] = await Promise.all([
         listHeldSecurities(ctx.today, ctx.db),
         listClassifications(ctx.db),
         listKeyFigures([security.id], ctx.today, ctx.db),
+        priceMarksView([security.id], ctx.today, ctx.db),
       ]);
       const classification = classifications[security.id] ?? effective(null, security.assetType as ClassifiedAssetType);
       const end = detail.series.at(-1) ?? detail.start;
@@ -492,6 +497,7 @@ export function registerPortfolioTools(server: McpServer, ctx: McpToolContext): 
         classification: classificationPayload(classification),
         key_figures: keyFiguresPayload(detail.fiftyTwoWeek, keyFigures[security.id]),
         technical: technicalPayload(detail.technical),
+        price_marks: priceMarksPayload(priceMarks[security.id]),
       });
     },
   );

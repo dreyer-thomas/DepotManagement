@@ -360,12 +360,12 @@ describe("MCP tools through a real MCP client", () => {
     return { ideas: ideas.watchlist.id, dividends: dividends.watchlist.id, sap: sap.security.id };
   }
 
-  it("lists exactly the nine watchlist tools plus the nine portfolio read tools, with or without portfolio:read (acceptance)", async () => {
-    const writeTools = ["create_watchlist", "rename_watchlist", "delete_watchlist", "add_watchlist_entry", "update_watchlist_entry", "remove_watchlist_entry"];
+  it("lists exactly the ten watchlist tools plus the nine portfolio read tools, with or without portfolio:read (acceptance)", async () => {
+    const writeTools = ["create_watchlist", "rename_watchlist", "delete_watchlist", "add_watchlist_entry", "update_watchlist_entry", "remove_watchlist_entry", "set_price_marks"];
     for (const options of [{}, { scope: "watchlist portfolio:read", portfolioRead: true }]) {
       const client = await mcpClient((await connect(undefined, options)).access_token);
       const { tools } = await client.listTools();
-      expect(tools).toHaveLength(18);
+      expect(tools).toHaveLength(19);
       expect(tools.map((tool) => tool.name).sort()).toEqual([...WATCHLIST_TOOL_NAMES, ...PORTFOLIO_TOOL_NAMES].sort());
       for (const name of PORTFOLIO_TOOL_NAMES) expect(tools.find((tool) => tool.name === name)?.annotations?.readOnlyHint).toBe(true);
       // No tool outside the watchlist write tools may write: everything else is read-only.

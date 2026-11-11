@@ -17,6 +17,8 @@ export type McpHttpDeps = {
   lookupIsin?: McpToolContext["lookupIsin"];
   /** Passed in by the app layer: revalidation and the price backfill after a successful write. */
   onWatchlistChange?: McpToolContext["onWatchlistChange"];
+  /** Passed in by the app layer: revalidation after a successful `set_price_marks`. */
+  onPriceMarksChange?: McpToolContext["onPriceMarksChange"];
 };
 
 const MAX_FORM_BYTES = 16 * 1024;
@@ -160,6 +162,7 @@ export async function handleMcp(request: Request, deps: McpHttpDeps = {}): Promi
       clientName: grant.clientName,
       lookupIsin: deps.lookupIsin ?? ((isin) => lookupIsinDetails(isin)),
       onWatchlistChange: deps.onWatchlistChange ?? (() => {}),
+      onPriceMarksChange: deps.onPriceMarksChange ?? (() => {}),
     });
   } catch (error) {
     console.error(`MCP: request failed (${error instanceof Error ? error.name : "unknown"})`);

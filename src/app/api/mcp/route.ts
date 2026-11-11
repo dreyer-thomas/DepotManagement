@@ -12,8 +12,16 @@ function onWatchlistChange({ backfill }: { backfill: boolean }): void {
   if (backfill) schedulePriceBackfill();
 }
 
+/** After a successful `set_price_marks`: every page that shows marks or their breaches (as the app's marks action). */
+function onPriceMarksChange(): void {
+  revalidatePath("/");
+  revalidatePath("/securities");
+  revalidatePath("/securities/[id]", "page");
+  revalidatePath("/watchlists");
+}
+
 export function POST(request: Request): Promise<Response> {
-  return handleMcp(request, { onWatchlistChange });
+  return handleMcp(request, { onWatchlistChange, onPriceMarksChange });
 }
 
 export function GET(): Response {

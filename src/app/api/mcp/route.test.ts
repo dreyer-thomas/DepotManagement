@@ -36,6 +36,7 @@ beforeEach(async () => {
   await prisma.oAuthClient.deleteMany();
   await prisma.watchlistEntry.deleteMany();
   await prisma.watchlist.deleteMany();
+  await prisma.priceMark.deleteMany();
   await prisma.security.deleteMany();
 });
 
@@ -55,6 +56,35 @@ function rpc(body: unknown, headers: Record<string, string> = {}) {
     body: JSON.stringify(body),
     headers: { "content-type": "application/json", accept: "application/json, text/event-stream", "mcp-protocol-version": "2025-06-18", ...headers },
   });
+}
+
+/** Registers Claude Code, approves it with the default scope and returns its access token. */
+async function connectClaude(): Promise<string> {
+  const registered = await register(
+    new Request(`${APP_URL}/oauth/register`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ client_name: "Claude Code", redirect_uris: [REDIRECT] }),
+    }),
+  );
+  expect(registered.status).toBe(201);
+  const { client_id } = (await registered.json()) as { client_id: string };
+  const config = readMcpConfig({ APP_URL })!;
+  const validation = await validateAuthorizeRequest(
+    { response_type: "code", client_id, redirect_uri: REDIRECT, code_challenge: CHALLENGE, code_challenge_method: "S256" },
+    config,
+  );
+  if (validation.kind !== "ok") throw new Error("setup failed");
+  const code = new URL(await approveAuthorization(validation.request, config)).searchParams.get("code")!;
+  const issued = await token(
+    new Request(`${APP_URL}/oauth/token`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ grant_type: "authorization_code", code, redirect_uri: REDIRECT, code_verifier: VERIFIER, client_id }).toString(),
+    }),
+  );
+  expect(issued.status).toBe(200);
+  return ((await issued.json()) as { access_token: string }).access_token;
 }
 
 describe("OAuth and MCP routes", () => {
@@ -81,31 +111,7 @@ describe("OAuth and MCP routes", () => {
       `Bearer resource_metadata="${APP_URL}/.well-known/oauth-protected-resource/api/mcp"`,
     );
 
-    const registered = await register(
-      new Request(`${APP_URL}/oauth/register`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ client_name: "Claude Code", redirect_uris: [REDIRECT] }),
-      }),
-    );
-    expect(registered.status).toBe(201);
-    const { client_id } = (await registered.json()) as { client_id: string };
-    const config = readMcpConfig({ APP_URL })!;
-    const validation = await validateAuthorizeRequest(
-      { response_type: "code", client_id, redirect_uri: REDIRECT, code_challenge: CHALLENGE, code_challenge_method: "S256" },
-      config,
-    );
-    if (validation.kind !== "ok") throw new Error("setup failed");
-    const code = new URL(await approveAuthorization(validation.request, config)).searchParams.get("code")!;
-    const issued = await token(
-      new Request(`${APP_URL}/oauth/token`, {
-        method: "POST",
-        headers: { "content-type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({ grant_type: "authorization_code", code, redirect_uri: REDIRECT, code_verifier: VERIFIER, client_id }).toString(),
-      }),
-    );
-    expect(issued.status).toBe(200);
-    const { access_token } = (await issued.json()) as { access_token: string };
+    const access_token = await connectClaude();
 
     const list = await createWatchlist({ name: "Ideen" });
     const btc = await ensureSecurity({ cryptoSymbol: "BTC" }, { name: "Bitcoin", assetType: "CRYPTO" });
@@ -124,5 +130,23 @@ describe("OAuth and MCP routes", () => {
     expect(schedulePriceBackfill).toHaveBeenCalledTimes(1);
     const [view] = await watchlistView("2026-10-28");
     expect(view.entries[0]).toMatchObject({ source: "MCP", clientName: "Claude Code" });
+  });
+
+  it("revalidate every page showing marks after a successful set_price_marks", async () => {
+    const auth = { authorization: `Bearer ${await connectClaude()}` };
+    const sap = await ensureSecurity({ isin: "DE0007164600" }, { name: "SAP SE", assetType: "STOCK" });
+    if (!sap.ok) throw new Error("setup failed");
+    const response = await POST(
+      rpc({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "set_price_marks", arguments: { security_id: sap.security.id, target: { price: "300" } } } }, auth),
+    );
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { result: { isError?: boolean; content: { text: string }[] } };
+    expect(body.result.isError).toBeUndefined();
+    expect(JSON.parse(body.result.content[0].text)).toMatchObject({ security_id: sap.security.id, name: "SAP SE", price_marks: { target: { price: "300" } } });
+    expect(revalidatePath).toHaveBeenCalledWith("/");
+    expect(revalidatePath).toHaveBeenCalledWith("/securities");
+    expect(revalidatePath).toHaveBeenCalledWith("/securities/[id]", "page");
+    expect(revalidatePath).toHaveBeenCalledWith("/watchlists");
+    expect(schedulePriceBackfill).not.toHaveBeenCalled();
   });
 });
