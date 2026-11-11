@@ -1,18 +1,19 @@
 // The export file contract (story 6.1, AD-12): one versioned JSON document with every stored ledger,
 // price and manual-logo row, the manual classification overrides (version 2, story 7.1) and the tax settings
 // (version 3, story 8.3), the manual region splits (version 4, story 8.4), the target allocations
-// (version 5, story 8.5) and the watchlists with their entries (version 6, story 9.3; OAuth data is never
-// exported). Decimals and dates are the stored strings; nothing derived is included.
+// (version 5, story 8.5), the watchlists with their entries (version 6, story 9.3; OAuth data is never
+// exported) and the price marks (version 7, story 12.2). Decimals and dates are the stored strings; nothing derived is included.
 // Restore (story 6.2) parses files with this schema; older versions are upgraded before parsing.
 import { z } from "zod";
 import { ASSET_CLASSES, COMPANY_SIZES, CURRENCY_PATTERN, REGIONS } from "@/core/classification";
 import { isBusinessDate } from "@/core/dates";
-import { isDecimalString } from "@/core/decimal";
+import { ExactDecimal, isDecimalString } from "@/core/decimal";
+import { PRICE_MARK_SOURCE_MAX_LENGTH, STOP_TYPES } from "@/core/price-marks";
 import { SEGMENTS, type Segment } from "@/core/rebalancing";
 import { regionSplitFromRecord, SPLIT_REGIONS, type SplitRegion } from "@/core/region-split";
 import { WATCHLIST_NAME_MAX_LENGTH, WATCHLIST_NOTE_MAX_LENGTH } from "@/core/watchlist";
 
-export const EXPORT_SCHEMA_VERSION = 6;
+export const EXPORT_SCHEMA_VERSION = 7;
 
 const id = z.string().min(1);
 const decimal = z.string().refine(isDecimalString, "decimal string expected");
@@ -178,6 +179,22 @@ export const watchlistRecordSchema = z.strictObject({
   entries: z.array(watchlistEntryRecordSchema),
 });
 
+const positiveDecimal = z.string().refine((value) => isDecimalString(value) && new ExactDecimal(value).greaterThan(0), "positive decimal expected");
+const markSource = z.string().min(1).max(PRICE_MARK_SOURCE_MAX_LENGTH).nullable();
+
+/**
+ * Stop and target of one Security (marks module); at least one is set. `stop.value` is an EUR price
+ * (`FIXED`) or a percent (`TRAILING`); the consistency check enforces the percent range and one row per Security.
+ */
+export const priceMarkRecordSchema = z
+  .strictObject({
+    id,
+    securityId: id,
+    stop: z.strictObject({ type: z.enum(STOP_TYPES), value: positiveDecimal, source: markSource, setDate: businessDate }).nullable(),
+    target: z.strictObject({ price: positiveDecimal, source: markSource, setDate: businessDate }).nullable(),
+  })
+  .refine((record) => record.stop !== null || record.target !== null, "stop or target expected");
+
 /** The whole export file; keys appear in this order in the serialized JSON. */
 export const exportFileSchema = z.strictObject({
   schemaVersion: z.literal(EXPORT_SCHEMA_VERSION),
@@ -194,6 +211,7 @@ export const exportFileSchema = z.strictObject({
   teilfreistellungOverrides: z.array(teilfreistellungOverrideRecordSchema),
   targetAllocations: z.array(targetAllocationRecordSchema),
   watchlists: z.array(watchlistRecordSchema),
+  priceMarks: z.array(priceMarkRecordSchema),
 });
 
 export type ExportFile = z.infer<typeof exportFileSchema>;

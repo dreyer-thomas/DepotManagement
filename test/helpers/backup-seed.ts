@@ -117,3 +117,16 @@ export async function seedWatchlists(c: PrismaClient): Promise<void> {
     data: { id: "we-1", watchlistId: "wl-2", securityId: "sec-d", note: "Dividende prüfen", dateAdded: "2026-10-05", position: 1, createdAt: TS },
   });
 }
+
+/**
+ * Price marks (story 12.2) on top of `seedFullLedger`: a trailing stop with a source on `sec-a`, a fixed stop
+ * and a target on `sec-b`, inserted out of id order.
+ */
+export async function seedPriceMarks(c: PrismaClient): Promise<void> {
+  await c.priceMark.create({
+    data: { id: "pm-2", securityId: "sec-b", stopType: "FIXED", stopValue: "9.5", stopSetDate: "2026-03-01", targetPrice: "15", targetSource: "Analyst", targetSetDate: "2026-03-02", updatedAt: TS },
+  });
+  await c.priceMark.create({
+    data: { id: "pm-1", securityId: "sec-a", stopType: "TRAILING", stopValue: "7.5", stopSource: "Börse Online", stopSetDate: "2026-10-01", updatedAt: TS },
+  });
+}

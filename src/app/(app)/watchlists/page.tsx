@@ -8,6 +8,7 @@ import { PageLabel } from "@/app/_components/back-navigation/BackLink";
 import { PageTitle } from "@/app/_components/Placeholder";
 import { CreateWatchlistButton, DeleteWatchlistButton, RenameWatchlistButton } from "@/app/_components/watchlists/WatchlistDialogs";
 import { AddWatchlistEntryButton } from "@/app/_components/watchlists/WatchlistEntryDialog";
+import type { PriceMarksEditInfo } from "@/app/_components/price-marks/PriceMarkFields";
 import { analystsSummary } from "@/app/_components/security-detail/labels";
 import { type WatchlistKeyFigures, WatchlistTable } from "@/app/_components/watchlists/WatchlistTable";
 import { WatchlistTabs } from "@/app/_components/watchlists/WatchlistTabs";
@@ -20,6 +21,7 @@ import {
 import { businessDate } from "@/core/dates";
 import { listKeyFigures } from "@/modules/classification";
 import { listSecurities } from "@/modules/ledger";
+import { priceMarksView } from "@/modules/marks";
 import { watchlistView } from "@/modules/watchlist";
 
 export const metadata: Metadata = { title: "Watchlists" };
@@ -54,10 +56,8 @@ export default async function WatchlistsPage({ searchParams }: Props) {
     );
   }
   const tabs = lists.map((list) => ({ id: list.id, name: list.name }));
-  const figures = await listKeyFigures(
-    selected.entries.map((entry) => entry.securityId),
-    today,
-  );
+  const securityIds = selected.entries.map((entry) => entry.securityId);
+  const [figures, marks] = await Promise.all([listKeyFigures(securityIds, today), priceMarksView(securityIds, today)]);
   const keyFigures: Record<string, WatchlistKeyFigures> = {};
   for (const [securityId, info] of Object.entries(figures)) {
     if (info.snapshot) {
@@ -67,6 +67,16 @@ export default async function WatchlistsPage({ searchParams }: Props) {
         analysts: analystsSummary(info.snapshot.analysts),
       };
     }
+  }
+  // "Eintrag bearbeiten" (story 12.2): the marks, the latest Price they are checked against, the analyst mean target.
+  const priceMarks: Record<string, PriceMarksEditInfo> = {};
+  for (const securityId of securityIds) {
+    const target = figures[securityId]?.snapshot?.analysts?.target;
+    priceMarks[securityId] = {
+      marks: marks[securityId]?.marks ?? null,
+      latestPrice: marks[securityId]?.state.price ?? null,
+      analystTarget: target?.mean ? { mean: target.mean, currency: target.currency } : null,
+    };
   }
   return (
     <>
@@ -94,6 +104,7 @@ export default async function WatchlistsPage({ searchParams }: Props) {
         lists={tabs}
         today={today}
         keyFigures={keyFigures}
+        priceMarks={priceMarks}
         initialColumns={parseWatchlistColumns(cookieStore.get(WATCHLIST_COLUMNS_COOKIE)?.value)}
       />
     </>

@@ -20,6 +20,7 @@ import { addWatchlistEntry, createWatchlist } from "@/modules/watchlist";
 import { CreateWatchlistButton, DeleteWatchlistButton, RenameWatchlistButton } from "@/app/_components/watchlists/WatchlistDialogs";
 import { AddWatchlistEntryButton } from "@/app/_components/watchlists/WatchlistEntryDialog";
 import { WatchlistTable } from "@/app/_components/watchlists/WatchlistTable";
+import { setPriceMarks } from "@/modules/marks";
 import { WatchlistTabs } from "@/app/_components/watchlists/WatchlistTabs";
 import WatchlistsPage from "./page";
 
@@ -28,6 +29,7 @@ beforeEach(async () => {
   await prisma.watchlistEntry.deleteMany();
   await prisma.watchlist.deleteMany();
   await prisma.securityKeyFigures.deleteMany();
+  await prisma.priceMark.deleteMany();
   await prisma.security.deleteMany();
 });
 
@@ -143,5 +145,33 @@ describe("Watchlists page", () => {
     const table = findElement(await page(), WatchlistTable);
     expect(table?.props.keyFigures).toMatchObject({ [sap.security.id]: { analysts: { consensus: "Optimistisch", count: 31 } } });
     expect(table?.props.initialColumns).toEqual(["analysts"]);
+  });
+
+  it("passes each entry's price marks, latest Price and analyst mean target for Eintrag bearbeiten (story 12.2)", async () => {
+    const a = await list("A");
+    const sap = await ensureSecurity({ isin: "DE0007164600" }, { name: "SAP SE", assetType: "STOCK" });
+    if (!sap.ok) throw new Error("setup failed");
+    const today = businessDate(new Date());
+    expect((await addWatchlistEntry({ watchlistId: a, security: { id: sap.security.id } }, today)).ok).toBe(true);
+    expect((await setPriceMarks(sap.security.id, { stop: { type: "TRAILING", value: "10" } }, today)).ok).toBe(true);
+    await prisma.securityKeyFigures.create({
+      data: {
+        securityId: sap.security.id,
+        symbol: "SAP.DE",
+        kind: "stock",
+        figures: "{}",
+        analystSymbol: "SAP.DE",
+        analysts: JSON.stringify({ trend: [], consensusMean: null, target: { low: null, mean: "245", median: null, high: null, currentPrice: null, currency: "USD" } }),
+        fetchedAt: new Date().toISOString(),
+      },
+    });
+    const table = findElement(await page(), WatchlistTable);
+    expect(table?.props.priceMarks).toEqual({
+      [sap.security.id]: {
+        marks: { securityId: sap.security.id, stop: { type: "TRAILING", value: "10", source: null, setDate: today }, target: null },
+        latestPrice: null,
+        analystTarget: { mean: "245", currency: "USD" },
+      },
+    });
   });
 });

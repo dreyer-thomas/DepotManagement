@@ -25,6 +25,8 @@ export const UPGRADES: Readonly<Record<number, ExportUpgrade>> = {
   4: (document) => ({ ...document, schemaVersion: 5, targetAllocations: [] }),
   // Version 6 (story 9.3) adds the watchlists; a version-5 export has none.
   5: (document) => ({ ...document, schemaVersion: 6, watchlists: [] }),
+  // Version 7 (story 12.2) adds the price marks; a version-6 export has none.
+  6: (document) => ({ ...document, schemaVersion: 7, priceMarks: [] }),
 };
 
 export type UpgradeResult =

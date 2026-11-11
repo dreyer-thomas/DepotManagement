@@ -2,11 +2,12 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, wr
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { PNG, seedFullLedger, seedWatchlists, TS, writeLogo } from "../../../test/helpers/backup-seed";
+import { PNG, seedFullLedger, seedPriceMarks, seedWatchlists, TS, writeLogo } from "../../../test/helpers/backup-seed";
 import { createTestDatabase, type TestDatabase } from "../../../test/helpers/test-db";
 import type { PrismaClient } from "@/db/generated/prisma/client";
 import { depotValuation, listDepots, listPositions, portfolioValuation } from "@/modules/ledger";
 import { storedPriceHistory } from "@/modules/prices";
+import { priceMarksView } from "@/modules/marks";
 import { watchlistView } from "@/modules/watchlist";
 import { backupDir, createExport, exportFileName, RESTORE_MAX_FILE_BYTES, restoreExport, serializeExport } from "./index";
 
@@ -98,6 +99,7 @@ async function seedOtherData(i: Instance): Promise<void> {
   await c.watchlistEntry.create({
     data: { id: "other-we", watchlistId: "other-wl", securityId: "other-sec", note: "alt", dateAdded: "2025-05-06", position: 1, createdAt: TS },
   });
+  await c.priceMark.create({ data: { id: "other-pm", securityId: "other-sec", targetPrice: "9", targetSetDate: "2025-05-06", updatedAt: TS } });
   const batch = await c.importBatch.create({
     data: {
       id: "batch1",
@@ -187,13 +189,42 @@ describe("restoreExport", () => {
     expect(await restoreInto(target, JSON.stringify(version5))).toEqual({ ok: true, backupFileName: BACKUP_NAME });
     expect(await target.testDb.client.watchlist.count()).toBe(0);
     expect(await target.testDb.client.watchlistEntry.count()).toBe(0);
-    expect(JSON.parse(await exportOf(target))).toEqual({ ...current, watchlists: [] });
+    expect(JSON.parse(await exportOf(target))).toEqual({ ...current, watchlists: [], priceMarks: [] });
+  });
+
+  it("restores a version-6 file with no price marks, removing the target's marks", async () => {
+    await seedFullLedger(source.testDb.client, source.dataDir);
+    await seedPriceMarks(source.testDb.client);
+    const current = JSON.parse(await exportOf(source));
+    const version6 = { ...current, schemaVersion: 6 };
+    delete version6.priceMarks;
+    await seedOtherData(target);
+
+    expect(await restoreInto(target, JSON.stringify(version6))).toEqual({ ok: true, backupFileName: BACKUP_NAME });
+    expect(await target.testDb.client.priceMark.count()).toBe(0);
+    expect(JSON.parse(await exportOf(target))).toEqual({ ...current, priceMarks: [] });
+  });
+
+  it("restores the file's price marks identically", async () => {
+    await seedFullLedger(source.testDb.client, source.dataDir);
+    await seedPriceMarks(source.testDb.client);
+    const text = await exportOf(source);
+    await seedOtherData(target);
+
+    expect(await restoreInto(target, text)).toEqual({ ok: true, backupFileName: BACKUP_NAME });
+    expect(await exportOf(target)).toBe(text);
+    expect(await priceMarksView(["sec-a", "sec-b"], TODAY, target.testDb.client)).toEqual(await priceMarksView(["sec-a", "sec-b"], TODAY, source.testDb.client));
+    expect((await target.testDb.client.priceMark.findMany({ orderBy: { id: "asc" } })).map((row) => [row.id, row.securityId])).toEqual([
+      ["pm-1", "sec-a"],
+      ["pm-2", "sec-b"],
+    ]);
   });
 
   it("round-trips: restoring into an empty instance yields a byte-identical export and equal evaluations", async () => {
     await seedFullLedger(source.testDb.client, source.dataDir);
     await seedMorePrices(source.testDb.client);
     await seedWatchlists(source.testDb.client);
+    await seedPriceMarks(source.testDb.client);
     // A second Security held in the other Depot, so the Portfolio sums more than one Position.
     await source.testDb.client.depot.update({ where: { id: "depot-b" }, data: { archived: false } });
     await source.testDb.client.transaction.create({
@@ -258,13 +289,14 @@ describe("restoreExport", () => {
     // The automatic export of the (empty) target was written first.
     expect(readdirSync(target.backupDir)).toEqual([BACKUP_NAME]);
     expect(JSON.parse(readFileSync(join(target.backupDir, BACKUP_NAME), "utf8"))).toMatchObject({
-      schemaVersion: 6,
+      schemaVersion: 7,
       depots: [],
       classifications: [],
       taxAllowances: [],
       teilfreistellungOverrides: [],
       targetAllocations: [],
       watchlists: [],
+      priceMarks: [],
     });
   });
 
@@ -435,7 +467,7 @@ describe("restoreExport", () => {
     });
 
     it("a newer schema version", async () => {
-      await expectRejected(JSON.stringify({ ...file, schemaVersion: 7 }), { ok: false, reason: "version-unsupported" });
+      await expectRejected(JSON.stringify({ ...file, schemaVersion: 8 }), { ok: false, reason: "version-unsupported" });
     });
 
     it("a dangling reference", async () => {

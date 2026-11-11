@@ -26,6 +26,7 @@ import {
   type UpdateWatchlistEntryActionState,
   updateWatchlistEntryAction,
 } from "@/app/_actions/watchlists";
+import { PriceMarkFields, type PriceMarksEditInfo, usePriceMarksForm } from "@/app/_components/price-marks/PriceMarkFields";
 import { filterSecurityOptions, NEW_OPTION, optionLabel, type SecurityOption } from "@/app/_components/securities/security-options";
 import { WATCHLIST_NOTE_MAX_LENGTH } from "@/core/watchlist";
 import type { SecuritySummary } from "@/modules/ledger";
@@ -238,22 +239,26 @@ function AddEntryForm({
 }
 
 /**
- * "Eintrag bearbeiten": note, date added and the list (moving the entry); "Entfernen" removes it. The
- * Security and its Prices always stay. Success closes the dialog.
+ * "Eintrag bearbeiten": note, date added and the list (moving the entry), plus — with `priceMarks` — the
+ * Security's stop and target (story 12.2, `PriceMarkFields`); "Entfernen" removes it. The Security and its Prices always stay.
+ * Success closes the dialog.
  */
 function EditEntryForm({
   entry,
   lists,
+  priceMarks,
   today,
   titleId,
   onClose,
 }: {
   entry: EditableWatchlistEntry;
   lists: readonly { id: string; name: string }[];
+  priceMarks: PriceMarksEditInfo | undefined;
   today: string;
   titleId: string;
   onClose: () => void;
 }) {
+  const marksForm = usePriceMarksForm(priceMarks?.marks ?? null, today);
   const [note, setNote] = useState(entry.note);
   const [dateAdded, setDateAdded] = useState(entry.dateAdded);
   const [watchlistId, setWatchlistId] = useState(entry.watchlistId);
@@ -267,7 +272,8 @@ function EditEntryForm({
     return result;
   }, null);
   const removeFailure = removeState && !removeState.ok ? removeState : undefined;
-  const { errorFor, alert } = placement(removeFailure ?? (state && !state.ok ? state : undefined));
+  const marksError = !removeFailure && state && !state.ok && state.reason === "price-marks-invalid" ? { field: state.field, problem: state.problem } : undefined;
+  const { errorFor, alert } = placement(removeFailure ?? (state && !state.ok && state.reason !== "price-marks-invalid" ? state : undefined));
   const listError = errorFor("security") ?? errorFor("watchlist");
   const busy = pending || removing;
   const remove = () =>
@@ -311,6 +317,16 @@ function EditEntryForm({
               ))}
             </TextField>
             <NoteAndDate note={note} setNote={setNote} dateAdded={dateAdded} setDateAdded={setDateAdded} today={today} errorFor={errorFor} />
+            {priceMarks ? (
+              <PriceMarkFields
+                form={marksForm.form}
+                onChange={marksForm.update}
+                today={today}
+                latestPrice={priceMarks.latestPrice}
+                analystTarget={priceMarks.analystTarget}
+                error={marksError}
+              />
+            ) : null}
           </Stack>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2, mt: "auto", flexWrap: "wrap", rowGap: 1 }}>
@@ -468,13 +484,17 @@ export function AddWatchlistEntryButton({
   );
 }
 
-/** The "Eintrag bearbeiten" dialog of `entry`; change `formKey` to start a fresh form. */
+/**
+ * The "Eintrag bearbeiten" dialog of `entry`; change `formKey` to start a fresh form. `priceMarks`: the
+ * Security's marks, latest Price and analyst target; absent omits the marks fields (the marks stay as they are).
+ */
 export function EditWatchlistEntryDialog({
   open,
   onClose,
   formKey,
   entry,
   lists,
+  priceMarks,
   today,
 }: {
   open: boolean;
@@ -482,12 +502,15 @@ export function EditWatchlistEntryDialog({
   formKey: number;
   entry: EditableWatchlistEntry | null;
   lists: readonly { id: string; name: string }[];
+  priceMarks?: PriceMarksEditInfo;
   today: string;
 }) {
   return (
     <EntryDialog open={open && entry !== null} onClose={onClose}>
       {(titleId) =>
-        entry ? <EditEntryForm key={formKey} entry={entry} lists={lists} today={today} titleId={titleId} onClose={onClose} /> : null
+        entry ? (
+          <EditEntryForm key={formKey} entry={entry} lists={lists} priceMarks={priceMarks} today={today} titleId={titleId} onClose={onClose} />
+        ) : null
       }
     </EntryDialog>
   );

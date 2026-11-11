@@ -8,17 +8,19 @@ import MenuItem from "@mui/material/MenuItem";
 import { useState } from "react";
 import type { IsinChangeRecord, SecuritySummary, SplitRecord } from "@/modules/ledger";
 import { IsinChangeDialog } from "../corporate-actions/IsinChangeDialog";
+import type { PriceMarksEditInfo } from "../price-marks/PriceMarkFields";
+import { PriceMarksDialog } from "../price-marks/PriceMarksDialog";
 import { SplitDialog } from "../corporate-actions/SplitDialog";
 import { type DialogDepot, TransactionDialog } from "../transactions/TransactionDialog";
 import { AddToWatchlistDialog, type AddToWatchlistProps } from "../watchlists/WatchlistEntryDialog";
 
 const TOUCH_TARGET = { minHeight: 44 };
 
-type Dialog = { kind: "watchlist" } | { kind: "split" } | { kind: "isin-change" } | { kind: "transaction"; depot: DialogDepot };
+type Dialog = { kind: "watchlist" } | { kind: "price-marks" } | { kind: "split" } | { kind: "isin-change" } | { kind: "transaction"; depot: DialogDepot };
 
 /**
  * Kebab menu of the Security page ("Aktionen für <name>"): "Zur Watchlist …" (when `watchlist` is given),
- * "Split …", "ISIN-Wechsel …" and — when
+ * "Kursmarken bearbeiten …" (when `priceMarks` is given, story 12.2), "Split …", "ISIN-Wechsel …" and — when
  * `transactionDepots` is non-empty — "Neue Buchung" with the Security preselected: directly for one
  * Depot, after "Depot wählen" for several.
  */
@@ -29,6 +31,7 @@ export function SecurityActions({
   securities,
   transactionDepots,
   watchlist,
+  priceMarks,
   today,
 }: {
   security: SecuritySummary;
@@ -39,6 +42,8 @@ export function SecurityActions({
   transactionDepots: readonly DialogDepot[];
   /** Lists for "Zur Watchlist …"; absent omits the item. */
   watchlist?: Pick<AddToWatchlistProps, "lists" | "onLists">;
+  /** Marks, latest Price and analyst target for "Kursmarken bearbeiten …"; absent omits the item. */
+  priceMarks?: PriceMarksEditInfo;
   today: string;
 }) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
@@ -74,6 +79,11 @@ export function SecurityActions({
         {watchlist ? (
           <MenuItem sx={TOUCH_TARGET} onClick={() => start({ kind: "watchlist" })}>
             Zur Watchlist …
+          </MenuItem>
+        ) : null}
+        {priceMarks ? (
+          <MenuItem sx={TOUCH_TARGET} aria-haspopup="dialog" onClick={() => start({ kind: "price-marks" })}>
+            Kursmarken bearbeiten …
           </MenuItem>
         ) : null}
         <MenuItem sx={TOUCH_TARGET} onClick={() => start({ kind: "split" })}>
@@ -124,6 +134,9 @@ export function SecurityActions({
           onLists={watchlist.onLists}
           today={today}
         />
+      ) : null}
+      {dialog?.kind === "price-marks" && priceMarks ? (
+        <PriceMarksDialog open={open} onClose={close} formKey={session} security={security} info={priceMarks} today={today} />
       ) : null}
       {dialog?.kind === "split" ? (
         <SplitDialog key={session} open={open} onClose={close} security={security} splits={splits} />

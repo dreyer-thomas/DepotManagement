@@ -32,6 +32,7 @@ import { MOVING_AVERAGE_COOKIE, PIVOTS_COOKIE, SECURITY_CHART_COOKIE, TECHNICAL_
 import { securityDetail } from "@/modules/ledger";
 import { setMapping, storedPriceHistory } from "@/modules/prices";
 import { addWatchlistEntry, createWatchlist } from "@/modules/watchlist";
+import { setPriceMarks } from "@/modules/marks";
 import { setManualClassification } from "@/modules/classification";
 import { WatchHeader } from "../../../_components/security-detail/WatchHeader";
 import { WatchlistCard } from "../../../_components/security-detail/WatchlistCard";
@@ -48,6 +49,7 @@ beforeEach(async () => {
   cookieJar.set(PERIOD_COOKIE, "MAX");
   await prisma.watchlistEntry.deleteMany();
   await prisma.watchlist.deleteMany();
+  await prisma.priceMark.deleteMany();
   await prisma.securityClassification.deleteMany();
   await prisma.securityKeyFigures.deleteMany();
   await prisma.newsArticle.deleteMany();
@@ -267,6 +269,8 @@ describe("Security detail page", () => {
 
     // Watch layout: right after "Kennzahlen".
     let tree = await SecurityDetailPage(props(id));
+    // "Kursmarken bearbeiten …" (story 12.2) offers the EUR mean target; no marks yet, no Price.
+    expect(findElement(tree, SecurityActions)!.props.priceMarks).toEqual({ marks: null, latestPrice: null, analystTarget: { mean: "270", currency: "EUR" } });
     expect(findElement(tree, AnalystRatingsCard)!.props.snapshot).toMatchObject({ analystSymbol: "SAP.DE", analysts: { analystCount: 51 } });
     let html = renderHtml(tree);
     expect(html.indexOf('id="security-key-figures"')).toBeLessThan(html.indexOf('id="security-analyst-ratings"'));
@@ -279,7 +283,13 @@ describe("Security detail page", () => {
     // Booked layout: also right after "Kennzahlen".
     const a = await depot("Alpha");
     await book({ depotId: a, type: "BUY", date: "2026-02-02", quantity: "1", price: "100", security: { id } });
+    expect((await setPriceMarks(id, { target: { price: "250" } }, TODAY)).ok).toBe(true);
     tree = await SecurityDetailPage(props(id));
+    expect(findElement(tree, SecurityActions)!.props.priceMarks).toEqual({
+      marks: { securityId: id, stop: null, target: { price: "250", source: null, setDate: TODAY } },
+      latestPrice: "100",
+      analystTarget: { mean: "270", currency: "EUR" },
+    });
     expect(findElement(tree, AnalystRatingsCard)).toBeDefined();
     html = renderHtml(tree);
     expect(html.indexOf('id="security-key-figures"')).toBeLessThan(html.indexOf('id="security-analyst-ratings"'));

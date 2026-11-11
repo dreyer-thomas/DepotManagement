@@ -20,6 +20,7 @@ vi.mock("./price-refresh", () => ({ schedulePriceBackfill }));
 
 import { prisma } from "@/db";
 import { ensureSecurity } from "@/modules/ledger";
+import { getPriceMarks } from "@/modules/marks";
 import { WATCHLIST_FIELDS } from "@/app/_components/watchlists/form-fields";
 import {
   addWatchlistEntryAction,
@@ -180,5 +181,66 @@ describe("entry actions", () => {
     expect(await removeWatchlistEntryAction(entryId)).toEqual({ ok: false, reason: "not-found" });
     expect(revalidatePath).toHaveBeenCalledWith("/securities/[id]", "page");
     expect(await prisma.security.count()).toBe(1);
+  });
+});
+
+describe("Eintrag bearbeiten with price marks (story 12.2)", () => {
+  const MARKS = {
+    priceMarks: "1",
+    stopType: "TRAILING",
+    stopValue: "7,5",
+    stopSource: "Börse Online",
+    stopSetDate: "2026-10-20",
+    targetPrice: "245,00",
+    targetSource: "",
+    targetSetDate: "",
+  };
+
+  async function entry() {
+    const list = await createList("A");
+    const security = await sap();
+    const added = await addWatchlistEntryAction(null, form({ watchlistId: list, securityId: security, dateAdded: "2026-10-20" }));
+    if (!added?.ok) throw new Error("setup failed");
+    return { list, security, entryId: added.entry.id };
+  }
+
+  it("writes the marks after the entry and revalidates the dashboard", async () => {
+    const { list, security, entryId } = await entry();
+    revalidatePath.mockClear();
+    expect(await updateWatchlistEntryAction(null, form({ entryId, note: "Stopp", dateAdded: "2026-10-20", watchlistId: list, ...MARKS }))).toMatchObject({
+      ok: true,
+      entry: { note: "Stopp" },
+    });
+    expect(await getPriceMarks(security, "2026-10-28")).toEqual({
+      securityId: security,
+      stop: { type: "TRAILING", value: "7.5", source: "Börse Online", setDate: "2026-10-20" },
+      target: { price: "245", source: null, setDate: "2026-10-28" },
+    });
+    expect(revalidatePath).toHaveBeenCalledWith("/");
+    expect(revalidatePath).toHaveBeenCalledWith("/watchlists");
+
+    // "Kein Stopp" and an empty target clear both marks.
+    await updateWatchlistEntryAction(null, form({ entryId, note: "Stopp", dateAdded: "2026-10-20", watchlistId: list, ...MARKS, stopType: "", targetPrice: "" }));
+    expect(await getPriceMarks(security, "2026-10-28")).toBeNull();
+    expect(await prisma.priceMark.count()).toBe(0);
+  });
+
+  it("refuses invalid marks before changing the entry", async () => {
+    const { list, security, entryId } = await entry();
+    expect(await updateWatchlistEntryAction(null, form({ entryId, note: "geändert", dateAdded: "2026-10-20", watchlistId: list, ...MARKS, stopValue: "60" }))).toEqual({
+      ok: false,
+      reason: "price-marks-invalid",
+      field: "stopValue",
+      problem: "out-of-range",
+    });
+    expect((await prisma.watchlistEntry.findUniqueOrThrow({ where: { id: entryId } })).note).toBe("");
+    expect(await getPriceMarks(security, "2026-10-28")).toBeNull();
+  });
+
+  it("leaves the marks alone when the form carries no marks fields", async () => {
+    const { list, security, entryId } = await entry();
+    await updateWatchlistEntryAction(null, form({ entryId, note: "", dateAdded: "2026-10-20", watchlistId: list, ...MARKS }));
+    await updateWatchlistEntryAction(null, form({ entryId, note: "nur Notiz", dateAdded: "2026-10-20", watchlistId: list }));
+    expect(await getPriceMarks(security, "2026-10-28")).toMatchObject({ stop: { type: "TRAILING" }, target: { price: "245" } });
   });
 });

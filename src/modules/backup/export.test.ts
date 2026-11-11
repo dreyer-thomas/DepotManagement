@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { PNG, seedFullLedger as seed, seedWatchlists, TS, writeLogo as writeLogoIn } from "../../../test/helpers/backup-seed";
+import { PNG, seedFullLedger as seed, seedPriceMarks, seedWatchlists, TS, writeLogo as writeLogoIn } from "../../../test/helpers/backup-seed";
 import { createTestDatabase, type TestDatabase } from "../../../test/helpers/test-db";
 import { createExport, EXPORT_SCHEMA_VERSION, exportFileName, exportFileSchema, serializeExport } from "./index";
 
@@ -45,9 +45,11 @@ describe("createExport", () => {
       "teilfreistellungOverrides",
       "targetAllocations",
       "watchlists",
+      "priceMarks",
     ]);
-    expect(file.schemaVersion).toBe(6);
+    expect(file.schemaVersion).toBe(7);
     expect(file.watchlists).toEqual([]);
+    expect(file.priceMarks).toEqual([]);
     // Target allocations of the Portfolio and existing Depots only (sorted by scope).
     expect(file.targetAllocations).toEqual([
       { id: "ta-a", scope: "depot-a", weights: { cash: "100" }, threshold: "0.5" },
@@ -145,7 +147,7 @@ describe("createExport", () => {
     await seedFullLedger();
     await seedWatchlists(db());
     const file = await createExport(deps(), db());
-    expect(Object.keys(file).at(-1)).toBe("watchlists");
+    expect(Object.keys(file).at(-2)).toBe("watchlists");
     expect(file.watchlists).toEqual([
       {
         id: "wl-1",
@@ -256,7 +258,20 @@ describe("createExport", () => {
       teilfreistellungOverrides: [],
       targetAllocations: [],
       watchlists: [],
+      priceMarks: [],
     });
+  });
+
+  it("exports price marks by id with stop and target verbatim, without the write time", async () => {
+    await seedFullLedger();
+    await seedPriceMarks(db());
+    const file = await createExport(deps(), db());
+    expect(Object.keys(file).at(-1)).toBe("priceMarks");
+    expect(file.priceMarks).toEqual([
+      { id: "pm-1", securityId: "sec-a", stop: { type: "TRAILING", value: "7.5", source: "Börse Online", setDate: "2026-10-01" }, target: null },
+      { id: "pm-2", securityId: "sec-b", stop: { type: "FIXED", value: "9.5", source: null, setDate: "2026-03-01" }, target: { price: "15", source: "Analyst", setDate: "2026-03-02" } },
+    ]);
+    expect(exportFileSchema.parse(file)).toEqual(file);
   });
 
   it("omits a manual logo whose file is missing and warns without ids or data", async () => {
@@ -357,7 +372,7 @@ describe("exportFileSchema", () => {
     const file = await createExport(deps(), db());
     expect(exportFileSchema.safeParse({ ...file, schemaVersion: 1 }).success).toBe(false);
     expect(exportFileSchema.safeParse({ ...file, schemaVersion: 5 }).success).toBe(false);
-    expect(exportFileSchema.safeParse({ ...file, schemaVersion: 7 }).success).toBe(false);
+    expect(exportFileSchema.safeParse({ ...file, schemaVersion: 8 }).success).toBe(false);
     const withoutWatchlists: Partial<typeof file> = { ...file };
     delete withoutWatchlists.watchlists;
     expect(exportFileSchema.safeParse(withoutWatchlists).success).toBe(false);
@@ -414,5 +429,35 @@ describe("exportFileName", () => {
     expect(exportFileName(new Date("2026-01-15T23:30:05Z"))).toBe("depotmanagement-export-20260116-003005.json");
     expect(exportFileName(new Date("2026-07-01T08:09:10Z"))).toBe("depotmanagement-export-20260701-100910.json");
     expect(exportFileName(new Date("2026-10-25T22:00:00Z"))).toBe("depotmanagement-export-20261025-230000.json");
+  });
+});
+
+describe("exportFileSchema priceMarks", () => {
+  it("enforces positive decimals, stop types, source limits, business dates, one mark at least and strict keys", async () => {
+    await seedFullLedger();
+    await seedPriceMarks(db());
+    const file = await createExport(deps(), db());
+    const record = file.priceMarks[1];
+    const withRecord = (patch: object) => ({ ...file, priceMarks: [{ ...record, ...patch }] });
+    const withStop = (patch: object) => withRecord({ stop: { ...record.stop, ...patch } });
+    const withTarget = (patch: object) => withRecord({ target: { ...record.target, ...patch } });
+    expect(exportFileSchema.safeParse(withStop({ source: "x".repeat(200) })).success).toBe(true);
+    expect(exportFileSchema.safeParse(withRecord({ stop: null })).success).toBe(true);
+    for (const invalid of [
+      withRecord({ stop: null, target: null }),
+      withRecord({ extra: 1 }),
+      withStop({ type: "PERCENT" }),
+      withStop({ value: "0" }),
+      withStop({ value: "-1" }),
+      withStop({ value: "1,5" }),
+      withStop({ source: "" }),
+      withStop({ source: "x".repeat(201) }),
+      withStop({ setDate: "01.10.2026" }),
+      withStop({ extra: 1 }),
+      withTarget({ price: "abc" }),
+      withTarget({ setDate: "2026-02-30" }),
+    ]) {
+      expect(exportFileSchema.safeParse(invalid).success).toBe(false);
+    }
   });
 });

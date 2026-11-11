@@ -1,4 +1,4 @@
-// Restore from a JSON export (story 6.2, AD-12): replace, never merge (watchlists included, story 9.3). The pipeline validates the whole
+// Restore from a JSON export (story 6.2, AD-12): replace, never merge (watchlists included, story 9.3; price marks, story 12.2). The pipeline validates the whole
 // file before anything is written, then writes an automatic export of the current data to `BACKUP_DIR`,
 // then replaces all data in one interactive transaction through the owning modules' restore writers.
 // Files cannot join the transaction: new logo files are discarded on rollback, previous logo files and
@@ -11,6 +11,7 @@ import { replaceAllClassifications } from "@/modules/classification";
 import { clearImportStaging } from "@/modules/import";
 import { replaceAllLedger } from "@/modules/ledger";
 import { checkManualLogos, type LogoRestoreFiles, replaceAllLogos } from "@/modules/logos";
+import { replaceAllPriceMarks } from "@/modules/marks";
 import { clearOAuth } from "@/modules/mcp";
 import { clearNews } from "@/modules/news";
 import { replaceAllPrices } from "@/modules/prices";
@@ -129,6 +130,8 @@ export async function restoreExport(input: string, deps: RestoreDeps = {}, db: B
       await replaceAllPrices(file, tx);
       // Entries reference Securities, so the watchlists follow the ledger.
       await replaceAllWatchlists(file.watchlists, tx);
+      // Marks reference Securities too.
+      await replaceAllPriceMarks(file.priceMarks, tx, () => now);
       logoFiles = await replaceAllLogos(file.logos, { env: deps.env, now: () => now }, tx);
       await replaceAllClassifications(file.classifications, tx, () => now);
       await replaceAllTaxSettings({ taxAllowances: file.taxAllowances, teilfreistellungOverrides: file.teilfreistellungOverrides }, tx, () => now);
@@ -151,7 +154,7 @@ export async function restoreExport(input: string, deps: RestoreDeps = {}, db: B
     console.warn(`Restore: removing old files failed (${errorName(error)})`);
   }
   console.info(
-    `Restore: replaced all data (${file.depots.length} depots, ${file.transactions.length} transactions, ${file.prices.length} prices, ${file.logos.length} logos, ${file.classifications.length} classifications, ${file.taxAllowances.length} tax allowances, ${file.teilfreistellungOverrides.length} Teilfreistellung overrides, ${file.targetAllocations.length} target allocations, ${file.watchlists.length} watchlists)`,
+    `Restore: replaced all data (${file.depots.length} depots, ${file.transactions.length} transactions, ${file.prices.length} prices, ${file.logos.length} logos, ${file.classifications.length} classifications, ${file.taxAllowances.length} tax allowances, ${file.teilfreistellungOverrides.length} Teilfreistellung overrides, ${file.targetAllocations.length} target allocations, ${file.watchlists.length} watchlists, ${file.priceMarks.length} price marks)`,
   );
   return { ok: true, backupFileName };
 }

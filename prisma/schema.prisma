@@ -77,6 +77,8 @@ model Security {
   watchlistEntries   WatchlistEntry[]
   /// Key-figures snapshot (owned by the classification module; disposable cache, cascades with the Security).
   keyFigures         SecurityKeyFigures?
+  /// Price marks (stop / target) of this Security (owned by the marks module; cascade with the Security).
+  priceMark          PriceMark?
 }
 
 // Canonical Transaction shape (AD-14). Decimal values are TEXT strings; ordered by (date, sequence).
@@ -566,4 +568,29 @@ model SecurityKeyFigures {
   analysts   String?
   /// UTC ISO timestamp of the fetch.
   fetchedAt  String
+}
+
+enum PriceMarkStopType {
+  FIXED
+  TRAILING
+}
+
+// Owned by the marks module (story 12.2): the stop and target of one Security, user data (AD-12 export /
+// restore). Decimals are canonical TEXT strings, dates YYYY-MM-DD; a mark is absent when its columns are null
+// (stop: stopType/stopValue/stopSetDate; target: targetPrice/targetSetDate). FIXED stopValue is an EUR price,
+// TRAILING stopValue a percent (1..50). Effective stop, distances and breaches are computed on read by
+// core/price-marks, never stored. A row with neither mark is deleted.
+model PriceMark {
+  id            String             @id @default(cuid())
+  securityId    String             @unique
+  security      Security           @relation(fields: [securityId], references: [id], onDelete: Cascade)
+  stopType      PriceMarkStopType?
+  stopValue     String?
+  stopSource    String?
+  stopSetDate   String?
+  targetPrice   String?
+  targetSource  String?
+  targetSetDate String?
+  /// UTC ISO timestamp of the last write.
+  updatedAt     String
 }

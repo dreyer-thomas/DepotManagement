@@ -40,6 +40,7 @@ import { PriceDate } from "../prices/StaleBadge";
 import { SecurityLink } from "../security-detail/SecurityLink";
 import { securityHref } from "../security-detail/labels";
 import { SecurityLogo } from "../securities/SecurityLogo";
+import type { PriceMarksEditInfo } from "../price-marks/PriceMarkFields";
 import { EditWatchlistEntryDialog, type EditableWatchlistEntry } from "./WatchlistEntryDialog";
 import { HELD_LABEL, initialWatchlistSortDirection, VIA_CLAUDE_LABEL, WATCHLIST_SORT_LABELS } from "./labels";
 import { storeWatchlistColumns, WATCHLIST_COLUMN_KEYS, type WatchlistColumnKey } from "./watchlist-cookie";
@@ -406,6 +407,7 @@ export function WatchlistTable({
   today,
   initialSort = DEFAULT_WATCHLIST_SORT,
   keyFigures = {},
+  priceMarks = {},
   initialColumns = [],
 }: {
   entries: WatchlistEntryView[];
@@ -415,6 +417,8 @@ export function WatchlistTable({
   initialSort?: WatchlistSort;
   /** Provider key figures per Security id (absent = no snapshot). */
   keyFigures?: Readonly<Record<string, WatchlistKeyFigures>>;
+  /** Price marks, latest Price and analyst target per Security id for "Eintrag bearbeiten" (story 12.2). */
+  priceMarks?: Readonly<Record<string, PriceMarksEditInfo>>;
   /** The optional columns shown at first (from the cookie). */
   initialColumns?: readonly WatchlistColumnKey[];
 }) {
@@ -426,7 +430,7 @@ export function WatchlistTable({
     setColumns(next);
     storeWatchlistColumns(next);
   };
-  const [editing, setEditing] = useState<EditableWatchlistEntry | null>(null);
+  const [editing, setEditing] = useState<(EditableWatchlistEntry & { securityId: string }) | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [editKey, setEditKey] = useState(0);
   const rows = sortWatchlistEntries(entries, sort.key, sort.direction);
@@ -464,6 +468,7 @@ export function WatchlistTable({
         formKey={editKey}
         entry={editing}
         lists={lists}
+        priceMarks={editing ? priceMarks[editing.securityId] : undefined}
         today={today}
       />
     </>

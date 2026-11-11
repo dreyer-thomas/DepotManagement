@@ -2,6 +2,7 @@
 // reference resolves and the database's unique keys hold, so a restore fails before writing instead of
 // on a constraint. The returned path names the offending field, never its value.
 import { isThreshold, PORTFOLIO_SCOPE, targetsFromRecord } from "@/core/rebalancing";
+import { isTrailingStopPercent } from "@/core/price-marks";
 import { TEILFREISTELLUNG_RATES } from "@/core/tax";
 import type { ExportFile } from "./schema";
 
@@ -52,6 +53,7 @@ export function checkConsistency(file: ExportFile): ConsistencyResult {
     idsOf(file.teilfreistellungOverrides, "teilfreistellungOverrides");
     idsOf(file.targetAllocations, "targetAllocations");
     idsOf(file.watchlists, "watchlists");
+    idsOf(file.priceMarks, "priceMarks");
     const entryIds = new Set<string>();
     file.watchlists.forEach((list, l) =>
       list.entries.forEach((entry, i) => unique(entryIds, entry.id, `watchlists.${l}.entries.${i}.id`)),
@@ -147,6 +149,14 @@ export function checkConsistency(file: ExportFile): ConsistencyResult {
         resolves(securityIds, entry.securityId, `${path}.securityId`);
         unique(watched, entry.securityId, `${path}.securityId`);
       });
+    });
+
+    // One marks row per Security; a trailing stop's percent within its bounds.
+    const marked = new Set<string>();
+    file.priceMarks.forEach((record, i) => {
+      resolves(securityIds, record.securityId, `priceMarks.${i}.securityId`);
+      unique(marked, record.securityId, `priceMarks.${i}.securityId`);
+      if (record.stop?.type === "TRAILING" && !isTrailingStopPercent(record.stop.value)) throw new Inconsistent(`priceMarks.${i}.stop.value`);
     });
   } catch (error) {
     if (error instanceof Inconsistent) return { ok: false, path: error.path };

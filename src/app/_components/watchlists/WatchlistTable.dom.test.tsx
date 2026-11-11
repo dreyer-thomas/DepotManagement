@@ -154,6 +154,37 @@ describe("WatchlistTable", () => {
     expect((within(dialog).getByRole("textbox", { name: "Notiz" }) as HTMLTextAreaElement).value).toBe(SAP.note);
   });
 
+  it("passes the entry's price marks to the edit dialog (story 12.2)", async () => {
+    const user = userEvent.setup({ delay: null });
+    const { container } = render(
+      <LogoProvider versions={{}}>
+        <WatchlistTable
+          entries={[SAP]}
+          lists={LISTS}
+          today="2026-10-28"
+          priceMarks={{
+            "s-e1": {
+              marks: { securityId: "s-e1", stop: { type: "FIXED", value: "90", source: null, setDate: "2026-10-01" }, target: null },
+              latestPrice: "100",
+              analystTarget: null,
+            },
+          }}
+        />
+      </LogoProvider>,
+    );
+    await user.click(within(container.querySelector("table") as HTMLElement).getByRole("button", { name: "SAP SE bearbeiten" }));
+    const dialog = await screen.findByRole("dialog", { name: "Eintrag bearbeiten" });
+    expect((within(dialog).getByRole("textbox", { name: "Stoppkurs (€)" }) as HTMLInputElement).value).toBe("90");
+  });
+
+  it("omits the marks fields for an entry without price marks", async () => {
+    const user = userEvent.setup({ delay: null });
+    const { table } = renderTable([SAP]);
+    await user.click(within(table).getByRole("button", { name: "SAP SE bearbeiten" }));
+    const dialog = await screen.findByRole("dialog", { name: "Eintrag bearbeiten" });
+    expect(within(dialog).queryByRole("combobox", { name: "Stopp" })).toBeNull();
+  });
+
   it("renders stacked rows for phones with the same entries", () => {
     const { container } = renderTable();
     const list = container.querySelector('ul[aria-label="Watchlist-Einträge"]') as HTMLElement;

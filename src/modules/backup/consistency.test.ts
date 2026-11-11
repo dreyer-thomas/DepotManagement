@@ -7,7 +7,7 @@ const TS = "2026-10-26T10:00:00.000Z";
 /** A small, consistent synthetic export file. */
 function base(): ExportFile {
   return {
-    schemaVersion: 6,
+    schemaVersion: 7,
     depots: [
       { id: "d1", name: "Hauptdepot", broker: "COMDIRECT", archived: false },
       { id: "d2", name: "Zweitdepot", broker: "FINANZEN_ZERO", archived: false },
@@ -89,6 +89,10 @@ function base(): ExportFile {
         entries: [{ id: "e3", securityId: "s4", note: "", dateAdded: "2026-10-03", position: 1, source: "APP", clientName: null, createdAt: TS }],
       },
     ],
+    priceMarks: [
+      { id: "pm1", securityId: "s1", stop: { type: "TRAILING", value: "10", source: null, setDate: "2026-10-01" }, target: null },
+      { id: "pm2", securityId: "s2", stop: null, target: { price: "245", source: "Analyst", setDate: "2026-10-02" } },
+    ],
   };
 }
 
@@ -98,7 +102,7 @@ describe("checkConsistency", () => {
   it("accepts a consistent file and an empty one", () => {
     expect(checkConsistency(base())).toEqual({ ok: true });
     const empty = base();
-    for (const key of ["depots", "securities", "providerMappings", "transactions", "corporateActions", "reconciliationRuns", "prices", "logos", "classifications", "taxAllowances", "teilfreistellungOverrides", "targetAllocations", "watchlists"] as const) {
+    for (const key of ["depots", "securities", "providerMappings", "transactions", "corporateActions", "reconciliationRuns", "prices", "logos", "classifications", "taxAllowances", "teilfreistellungOverrides", "targetAllocations", "watchlists", "priceMarks"] as const) {
       empty[key] = [];
     }
     expect(checkConsistency(empty)).toEqual({ ok: true });
@@ -165,6 +169,10 @@ describe("checkConsistency", () => {
     ["watchlist names equal after NFC", (f) => ((f.watchlists[0].name = "Caf\u00e9"), (f.watchlists[1].name = "CAFE\u0301")), "watchlists.1.name"],
     ["dangling watchlist entry", (f) => (f.watchlists[0].entries[1].securityId = "nope"), "watchlists.0.entries.1.securityId"],
     ["Security twice on one list", (f) => (f.watchlists[0].entries[1].securityId = "s4"), "watchlists.0.entries.1.securityId"],
+    ["duplicate price mark id", (f) => (f.priceMarks[1].id = "pm1"), "priceMarks.1.id"],
+    ["dangling price mark", (f) => (f.priceMarks[1].securityId = "nope"), "priceMarks.1.securityId"],
+    ["two price marks of one Security", (f) => (f.priceMarks[1].securityId = "s1"), "priceMarks.1.securityId"],
+    ["trailing stop outside 1..50 %", (f) => (f.priceMarks[0].stop!.value = "60"), "priceMarks.0.stop.value"],
   ])("rejects a %s with its path", (_label, mutate, path) => {
     const file = base();
     mutate(file);

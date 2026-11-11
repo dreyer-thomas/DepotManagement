@@ -39,6 +39,7 @@ import { ExactDecimal } from "@/core/decimal";
 import { periodLabel } from "@/core/period";
 import { getSecurity, listHeldSecurities, listIsinChanges, listSecurities, listSplits, securityDetail } from "@/modules/ledger";
 import { listClassifications, listKeyFigures } from "@/modules/classification";
+import { priceMarksView } from "@/modules/marks";
 import { listSecurityNews, newsSecurityContext } from "@/modules/news";
 import { storedPriceHistory } from "@/modules/prices";
 import { listWatchlists, securityWatchlistEntries } from "@/modules/watchlist";
@@ -55,7 +56,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 /**
  * One Security across all Depots or one Depot (story 4-6), also when no longer held: header with the
- * watchlist chips, Period selector, the actions menu (with "Zur Watchlist …"), Depot switcher, hero (value,
+ * watchlist chips, Period selector, the actions menu (with "Zur Watchlist …" and "Kursmarken bearbeiten …"), Depot switcher, hero (value,
  * Period gain/loss, TTWROR, XIRR, price line, Kurs/Wert/Performance/Drawdown chart with the optional
  * moving average and "Wendepunkte" (story 11.5, ZigZag pivots with Fibonacci levels), breakdown), KPIs, "Gesamt seit Erstkauf" (story 4-7), "Kennzahlen" (story 9.6), "Technische Lage"
  * (story 11.3, signals and indicator chart), "Analystenbewertungen"
@@ -76,7 +77,7 @@ export default async function SecurityDetailPage({ params, searchParams }: Props
   if (!detail) notFound();
   const { security } = detail;
   const booked = detail.depots.length > 0;
-  const [splits, isinChanges, securities, articles, chartMode, movingAverage, pivotChoice, technicalIndicator, watchlists, entries, classifications, keyFigures, heldIds, newsContext] = await Promise.all([
+  const [splits, isinChanges, securities, articles, chartMode, movingAverage, pivotChoice, technicalIndicator, watchlists, entries, classifications, keyFigures, heldIds, newsContext, marks] = await Promise.all([
     listSplits(),
     listIsinChanges(),
     listSecurities(),
@@ -91,6 +92,7 @@ export default async function SecurityDetailPage({ params, searchParams }: Props
     listKeyFigures([security.id], today),
     listHeldSecurities(today),
     newsSecurityContext([security.id], today),
+    priceMarksView([security.id], today),
   ]);
   const watchlistOptions = watchlists.map(({ id: listId, name }) => ({ id: listId, name }));
   const onLists = entries.map((entry) => ({ id: entry.watchlistId, name: entry.watchlistName }));
@@ -115,6 +117,13 @@ export default async function SecurityDetailPage({ params, searchParams }: Props
       today={today}
     />
   );
+  // "Kursmarken bearbeiten …" (story 12.2): the marks, the latest Price they are checked against, the analyst mean target.
+  const analystTarget = keyFigureInfo?.snapshot?.analysts?.target;
+  const priceMarks = {
+    marks: marks[security.id]?.marks ?? null,
+    latestPrice: marks[security.id]?.state.price ?? null,
+    analystTarget: analystTarget?.mean ? { mean: analystTarget.mean, currency: analystTarget.currency } : null,
+  };
   // Technische Lage (story 11.3): the signals, the indicator series of the Period, the last close date.
   const { series: technicalSeries, ...technicalSignals } = detail.technical;
   const technicalCard = (
@@ -165,6 +174,7 @@ export default async function SecurityDetailPage({ params, searchParams }: Props
             securities={securities}
             transactionDepots={transactionDepots}
             watchlist={{ lists: watchlistOptions, onLists: onLists.map((list) => list.id) }}
+            priceMarks={priceMarks}
             today={today}
           />
         </Stack>

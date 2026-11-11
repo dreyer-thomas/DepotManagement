@@ -129,6 +129,68 @@ describe("EditWatchlistEntryDialog", () => {
     expect(await within(dialog).findByText("Steht schon auf dieser Liste")).toBeDefined();
   });
 
+  it("edits the Security's price marks along with the entry when given (story 12.2)", async () => {
+    update.mockResolvedValue({ ok: true } as Awaited<ReturnType<typeof updateWatchlistEntryAction>>);
+    const user = userEvent.setup({ delay: null });
+    const onClose = vi.fn();
+    render(
+      <EditWatchlistEntryDialog
+        open
+        onClose={onClose}
+        formKey={1}
+        entry={ENTRY}
+        lists={LISTS}
+        priceMarks={{
+          marks: { securityId: "s1", stop: { type: "FIXED", value: "90", source: "Zeitung", setDate: "2026-10-05" }, target: null },
+          latestPrice: "100",
+          analystTarget: { mean: "245", currency: "EUR" },
+        }}
+        today="2026-10-28"
+      />,
+    );
+    const dialog = screen.getByRole("dialog", { name: "Eintrag bearbeiten" });
+    expect((within(dialog).getByRole("textbox", { name: "Stoppkurs (€)" }) as HTMLInputElement).value).toBe("90");
+    await user.click(within(dialog).getByRole("button", { name: /Analystenziel übernehmen/ }));
+    await user.click(within(dialog).getByRole("button", { name: "Speichern" }));
+    await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(formEntries(update.mock.calls[0][1])).toEqual({
+      entryId: "e1",
+      watchlistId: "w1",
+      note: "Erste Zeile\nZweite",
+      dateAdded: "2026-10-01",
+      priceMarks: "1",
+      stopType: "FIXED",
+      stopValue: "90",
+      stopSource: "Zeitung",
+      stopSetDate: "2026-10-05",
+      targetPrice: "245",
+      targetSource: "",
+      targetSetDate: "2026-10-28",
+    });
+  });
+
+  it("shows a refused price mark on its field", async () => {
+    update.mockResolvedValue({ ok: false, reason: "price-marks-invalid", field: "targetPrice", problem: "not-positive" });
+    const user = userEvent.setup({ delay: null });
+    render(
+      <EditWatchlistEntryDialog
+        open
+        onClose={vi.fn()}
+        formKey={1}
+        entry={ENTRY}
+        lists={LISTS}
+        priceMarks={{ marks: null, latestPrice: null, analystTarget: { mean: "245", currency: "USD" } }}
+        today="2026-10-28"
+      />,
+    );
+    const dialog = screen.getByRole("dialog", { name: "Eintrag bearbeiten" });
+    expect(within(dialog).queryByRole("button", { name: /Analystenziel übernehmen/ })).toBeNull();
+    await user.type(within(dialog).getByRole("textbox", { name: "Kursziel (€)" }), "0");
+    await user.click(within(dialog).getByRole("button", { name: "Speichern" }));
+    expect(await within(dialog).findByText("Bitte einen Wert größer als 0 eingeben.")).toBeDefined();
+    expect(within(dialog).queryByRole("alert")).toBeNull();
+  });
+
   it("removes the entry with 'Entfernen'", async () => {
     remove.mockResolvedValue({ ok: true });
     const user = userEvent.setup({ delay: null });

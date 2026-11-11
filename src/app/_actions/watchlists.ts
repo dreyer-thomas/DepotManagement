@@ -2,9 +2,12 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { PRICE_MARK_FIELDS, PRICE_MARKS_MARKER, priceMarksFormOf } from "@/app/_components/price-marks/form-fields";
 import { NEW_SECURITY_MARKER, WATCHLIST_FIELDS } from "@/app/_components/watchlists/form-fields";
 import { businessDate } from "@/core/dates";
+import { parsePriceMarksForm, type PriceMarksInvalid, type ValidPriceMarksPatch } from "@/core/price-marks";
 import { getSession } from "@/modules/auth";
+import { setPriceMarks } from "@/modules/marks";
 import {
   addWatchlistEntry,
   type AddWatchlistEntryResult,
@@ -33,8 +36,8 @@ export type DeleteWatchlistActionState = DeleteWatchlistResult | Unauthorized | 
 /** Result of "Wertpapier hinzufügen"; `null` before the first submit. */
 export type AddWatchlistEntryActionState = AddWatchlistEntryResult | Unauthorized | null;
 
-/** Result of "Eintrag bearbeiten"; `null` before the first submit. */
-export type UpdateWatchlistEntryActionState = UpdateWatchlistEntryResult | Unauthorized | null;
+/** Result of "Eintrag bearbeiten" (with its price marks, story 12.2); `null` before the first submit. */
+export type UpdateWatchlistEntryActionState = UpdateWatchlistEntryResult | PriceMarksInvalid | Unauthorized | null;
 
 /** Result of "Entfernen". */
 export type RemoveWatchlistEntryActionResult = RemoveWatchlistEntryResult | Unauthorized;
@@ -117,14 +120,23 @@ export async function addWatchlistEntryAction(
 }
 
 /**
- * "Eintrag bearbeiten": note, date added and the list. A date moved earlier schedules a price backfill
- * (the history may have to reach further back).
+ * "Eintrag bearbeiten": note, date added and the list, plus the Security's stop and target when the form
+ * carries the marks fields (story 12.2). The marks are validated before the entry is updated (a refused
+ * mark writes nothing) and written through the marks service after it. A date moved earlier schedules a
+ * price backfill (the history may have to reach further back).
  */
 export async function updateWatchlistEntryAction(
   _previous: UpdateWatchlistEntryActionState,
   formData: FormData,
 ): Promise<UpdateWatchlistEntryActionState> {
   if (!(await getSession())) return UNAUTHORIZED;
+  const today = businessDate(new Date());
+  let marks: ValidPriceMarksPatch | null = null;
+  if (field(formData, PRICE_MARK_FIELDS.priceMarks) === PRICE_MARKS_MARKER) {
+    const parsed = parsePriceMarksForm(priceMarksFormOf(formData), today);
+    if (!parsed.ok) return parsed;
+    marks = parsed.patch;
+  }
   const watchlistId = field(formData, WATCHLIST_FIELDS.watchlistId);
   const result = await updateWatchlistEntry(
     field(formData, WATCHLIST_FIELDS.entryId),
@@ -133,9 +145,18 @@ export async function updateWatchlistEntryAction(
       dateAdded: field(formData, WATCHLIST_FIELDS.dateAdded),
       ...(watchlistId ? { watchlistId } : {}),
     },
-    businessDate(new Date()),
+    today,
   );
   if (result.ok) {
+    if (marks) {
+      const written = await setPriceMarks(result.entry.securityId, marks, today);
+      // Marks show on the dashboard too (story 12.4).
+      revalidatePath("/");
+      if (!written.ok) {
+        revalidateWatchlists();
+        return written;
+      }
+    }
     revalidateWatchlists();
     if (result.entry.dateAdded < result.previousDateAdded) schedulePriceBackfill();
   } else if (result.reason === "not-found") {

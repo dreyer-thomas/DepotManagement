@@ -25,6 +25,7 @@ vi.mock("@/app/_actions/corporate-actions", () => ({
   saveIsinChangeAction: vi.fn(),
   deleteIsinChangeAction: vi.fn(),
 }));
+vi.mock("@/app/_actions/price-marks", () => ({ setPriceMarksAction: vi.fn() }));
 vi.mock("@/app/_actions/prices", () => ({
   refreshPricesAction: vi.fn(),
   saveManualPriceAction: vi.fn(),
@@ -117,6 +118,16 @@ describe("SecurityActions", () => {
     expect(items).toEqual(["Zur Watchlist …", "Split …", "ISIN-Wechsel …"]);
     await user.click(screen.getByRole("menuitem", { name: "Zur Watchlist …" }));
     expect(await screen.findByRole("dialog", { name: "Zur Watchlist" })).toBeTruthy();
+  }, 20_000);
+
+  it("offers Kursmarken bearbeiten when marks are given and opens its dialog", async () => {
+    const user = userEvent.setup({ delay: null });
+    render(<SecurityActions {...props} transactionDepots={[]} priceMarks={{ marks: null, latestPrice: "100", analystTarget: null }} />);
+    await user.click(screen.getByRole("button", { name: "Aktionen für Welt ETF" }));
+    const items = (await screen.findAllByRole("menuitem")).map((item) => item.textContent);
+    expect(items).toEqual(["Kursmarken bearbeiten …", "Split …", "ISIN-Wechsel …"]);
+    await user.click(screen.getByRole("menuitem", { name: "Kursmarken bearbeiten …" }));
+    expect(await screen.findByRole("dialog", { name: "Kursmarken bearbeiten" })).toBeTruthy();
   }, 20_000);
 
   it("opens the split dialog from the menu", async () => {

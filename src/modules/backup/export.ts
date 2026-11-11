@@ -8,6 +8,7 @@ import type { Prisma } from "@/db/generated/prisma/client";
 import { exportClassifications } from "@/modules/classification";
 import { exportLedgerData } from "@/modules/ledger";
 import { exportManualLogos, type LogoDeps } from "@/modules/logos";
+import { exportPriceMarks } from "@/modules/marks";
 import { exportPriceData } from "@/modules/prices";
 import { exportTargetAllocations } from "@/modules/rebalancing";
 import { exportTaxSettings } from "@/modules/tax";
@@ -39,6 +40,7 @@ export async function createExport(deps: ExportDeps = {}, db: BackupDb = prisma)
     const tax = await exportTaxSettings(tx);
     const targetAllocations = await exportTargetAllocations(tx);
     const watchlists = await exportWatchlists(tx);
+    const priceMarks = await exportPriceMarks(tx);
     return {
       schemaVersion: EXPORT_SCHEMA_VERSION,
       depots: ledger.depots,
@@ -54,6 +56,7 @@ export async function createExport(deps: ExportDeps = {}, db: BackupDb = prisma)
       teilfreistellungOverrides: tax.teilfreistellungOverrides,
       targetAllocations,
       watchlists,
+      priceMarks,
     };
   });
   const parsed = exportFileSchema.safeParse(file);
