@@ -35,6 +35,7 @@ import { addWatchlistEntry, createWatchlist } from "@/modules/watchlist";
 import { setPriceMarks } from "@/modules/marks";
 import { setManualClassification } from "@/modules/classification";
 import { WatchHeader } from "../../../_components/security-detail/WatchHeader";
+import { PriceMarksCard } from "../../../_components/security-detail/PriceMarksCard";
 import { WatchlistCard } from "../../../_components/security-detail/WatchlistCard";
 import { KeyFiguresCard } from "../../../_components/security-detail/KeyFiguresCard";
 import { AnalystRatingsCard } from "../../../_components/security-detail/AnalystRatingsCard";
@@ -626,6 +627,48 @@ describe("Security detail page", () => {
 
     cookieJar.set(SECURITY_CHART_COOKIE, "nope");
     expect(chartOf(await SecurityDetailPage(props(id))).props.initialMode).toBe("price");
+  });
+
+  it("Kursmarken: card after the price chart in both layouts, lines on the charts, breach pill", async () => {
+    // Watch layout without marks and without Price: the card with only "Keine Kursmarken" and the button.
+    const id = await security();
+    let tree = await SecurityDetailPage(props(id));
+    let html = renderHtml(tree);
+    const empty = text(section(html, 'id="security-price-marks"', 'id="security-news"'));
+    expect(empty).toContain("Kursmarken Keine Kursmarken Kursmarken bearbeiten");
+    expect(html.indexOf('aria-label="Kurs"')).toBeLessThan(html.indexOf('id="security-price-marks"'));
+
+    // Watch layout with a trailing stop and a Price: lines on the Kurs chart, card right after the header.
+    await providerPrice(id, "2026-10-01", "100");
+    await providerPrice(id, "2026-10-02", "110");
+    await providerPrice(id, "2026-10-23", "105");
+    expect((await setPriceMarks(id, { stop: { type: "TRAILING", value: "15", source: "Börse Online", setDate: "2026-10-01" } }, TODAY)).ok).toBe(true);
+    tree = await SecurityDetailPage(props(id));
+    html = renderHtml(tree);
+    const watchChart = findElement(tree, WatchHeader)!.props.chart as { props: Record<string, unknown> };
+    const lines = watchChart.props.marks as { stop: { kind: string; points: { date: string; value: string | null }[] }; target: null };
+    expect(lines.stop.kind).toBe("trailing");
+    // MAX starts on the first stored Price, the set date.
+    expect(lines.stop.points[0]).toEqual({ date: "2026-10-01", value: "85" });
+    expect(lines.stop.points.at(-1)).toEqual({ date: TODAY, value: "93.5" });
+    expect(findElement(tree, PriceMarksCard)!.props.state).toMatchObject({ breached: "none", stop: { effective: "93.5" } });
+    const card = text(section(html, 'id="security-price-marks"', 'id="security-news"'));
+    expect(card).toContain("Stopp nachlaufend 15 % · 93,50 € · -11,0 %");
+    expect(card).toContain("Quelle: Börse Online · gesetzt am 01.10.2026");
+    expect(card).toContain("geprüft gegen den letzten Kurs, nicht im Tagesverlauf");
+    expect(html.indexOf('aria-label="Kurs"')).toBeLessThan(html.indexOf('id="security-price-marks"'));
+
+    // Booked layout with a reached target: card after the hero, before the KPIs; lines on the hero chart.
+    const a = await depot("Alpha");
+    await book({ depotId: a, type: "BUY", date: "2026-10-02", quantity: "1", price: "110", security: { id } });
+    expect((await setPriceMarks(id, { stop: null, target: { price: "104", setDate: "2026-10-01" } }, TODAY)).ok).toBe(true);
+    tree = await SecurityDetailPage(props(id));
+    html = renderHtml(tree);
+    expect((findElement(tree, SecurityHero)!.props.chart as { props: Record<string, unknown> }).props.marks).toEqual({ stop: null, target: "104" });
+    const booked = text(section(html, 'id="security-price-marks"'));
+    expect(booked).toContain("Ziel · 104,00 € · -1,0 % Ziel erreicht · Kurs vom 23.10.2026");
+    expect(html.indexOf('aria-label="Wert"')).toBeLessThan(html.indexOf('id="security-price-marks"'));
+    expect(html.indexOf('id="security-price-marks"')).toBeLessThan(html.indexOf('id="security-total"'));
   });
 
   it("shows the all-time card of a fully sold Security", async () => {

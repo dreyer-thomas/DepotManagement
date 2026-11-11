@@ -1,5 +1,5 @@
-import { formatFigure, formatMoney } from "@/core/format";
-import type { PriceMarkField, PriceMarkProblem, PriceMarkWarning, StopType } from "@/core/price-marks";
+import { formatDate, formatFigure, formatMoney, formatPercent, formatQuantity } from "@/core/format";
+import type { PriceMarkField, PriceMarkProblem, PriceMarkState, PriceMarkWarning, StopMark, StopType } from "@/core/price-marks";
 
 const NBSP = " ";
 
@@ -66,4 +66,43 @@ export function analystTargetHint(target: AnalystTargetSuggestion): string {
 /** A canonical decimal as German form input without grouping: `"1234.5"` → `"1234,5"`. */
 export function decimalInputText(value: string): string {
   return value.replace(".", ",");
+}
+
+/** Card "Kursmarken" (story 12.3) without marks. */
+export const NO_PRICE_MARKS_TEXT = "Keine Kursmarken";
+
+/** Card note on what the marks are checked against. */
+export const PRICE_MARKS_NOTE = "geprüft gegen den letzten Kurs, nicht im Tagesverlauf";
+
+const SEPARATOR = " · ";
+
+/** `value · distance` of a mark; the distance is omitted when unknown. */
+function valueAndDistance(value: string, distance: string | null): string {
+  return distance === null ? formatMoney(value) : `${formatMoney(value)}${SEPARATOR}${formatPercent(distance, 1)}`;
+}
+
+/**
+ * The stop row of the card: `Stopp · 92,40 € · -7,4 %`; trailing `Stopp nachlaufend 15 % · 92,40 € · -7,4 %`
+ * (`Stopp nachlaufend 15 % · noch kein Kurs` without any Price). Value and distance come from the state.
+ */
+export function stopRowText(stop: Pick<StopMark, "type" | "value">, state: NonNullable<PriceMarkState["stop"]>): string {
+  const label = stop.type === "FIXED" ? "Stopp" : `Stopp nachlaufend ${formatQuantity(stop.value)}${NBSP}%`;
+  if (state.effective === null) return `${label}${SEPARATOR}noch kein Kurs`;
+  return `${label}${SEPARATOR}${valueAndDistance(state.effective, state.distance)}`;
+}
+
+/** The target row of the card: `Ziel · 245,00 € · +8,1 %` (distance omitted without a Price). */
+export function targetRowText(state: NonNullable<PriceMarkState["target"]>): string {
+  return `Ziel${SEPARATOR}${valueAndDistance(state.price, state.distance)}`;
+}
+
+/** The line under a mark: `Quelle: Börse Online · gesetzt am 01.10.2026` (source part omitted without one). */
+export function markMetaText(mark: { source: string | null; setDate: string }): string {
+  const set = `gesetzt am ${formatDate(mark.setDate)}`;
+  return mark.source === null ? set : `Quelle: ${mark.source}${SEPARATOR}${set}`;
+}
+
+/** The breach pill: `Stopp unterschritten · Kurs vom 10.11.2026` / `Ziel erreicht · Kurs vom 10.11.2026`. */
+export function breachPillText(breach: "stop" | "target", priceDate: string): string {
+  return `${breach === "stop" ? "Stopp unterschritten" : "Ziel erreicht"}${SEPARATOR}Kurs vom ${formatDate(priceDate)}`;
 }

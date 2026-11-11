@@ -4,6 +4,9 @@ import type { CorporateActions } from "@/core/corporate-actions";
 import {
   carryPriceMarks,
   checkPriceMarksPatch,
+  NO_PRICE_MARK_LINES,
+  type PriceMarkLines,
+  priceMarkLines,
   type PriceMarks,
   type PriceMarksInvalid,
   type PriceMarksPatch,
@@ -136,6 +139,29 @@ export async function priceMarksView(
     view[id] = { marks, state: priceMarkState(marks ?? { securityId: id, stop: null, target: null }, observations, actions, today) };
   }
   return view;
+}
+
+/**
+ * The marks that apply to `securityId` as of `today` (the applicable row, uncarried) as lines of the price
+ * chart for `from..to`, in the units as of `to` (`core/price-marks` `priceMarkLines` over stored Prices and
+ * Transaction prices); no marks → no lines. Read-only, no provider call.
+ */
+export async function priceMarkChartLines(
+  securityId: string,
+  from: string,
+  to: string,
+  today: string,
+  db: MarksDb = prisma,
+): Promise<PriceMarkLines> {
+  const actions = await loadActions(today, db);
+  const rows = await rowsFor([securityId], actions, today, db);
+  const row = applicableRow(rows, securityId, actions, today);
+  if (row === null) return NO_PRICE_MARK_LINES;
+  // The row's own marks: `priceMarkLines` carries them from their set date to the units as of `to`.
+  const marks = rowToMarks(row);
+  const ids = [...new Set([securityId, currentSecurityId(securityId, actions, today), ...rows.map((candidate) => candidate.securityId)])];
+  const { observations } = await securityPriceObservations(ids, today, { storedPrices: (list, asOf) => storedPriceHistory(list, asOf, db) }, db);
+  return priceMarkLines(marks, observations, actions, from, to);
 }
 
 /**

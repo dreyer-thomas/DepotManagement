@@ -18,6 +18,7 @@ import { DepotSwitcher } from "@/app/_components/security-detail/DepotSwitcher";
 import { AnalystRatingsCard } from "@/app/_components/security-detail/AnalystRatingsCard";
 import { FifoLots } from "@/app/_components/security-detail/FifoLots";
 import { KeyFiguresCard } from "@/app/_components/security-detail/KeyFiguresCard";
+import { PriceMarksCard } from "@/app/_components/security-detail/PriceMarksCard";
 import { TechnicalCard } from "@/app/_components/security-detail/TechnicalCard";
 import { securityCaption } from "@/app/_components/security-detail/labels";
 import { PriceLine } from "@/app/_components/security-detail/PriceLine";
@@ -39,7 +40,7 @@ import { ExactDecimal } from "@/core/decimal";
 import { periodLabel } from "@/core/period";
 import { getSecurity, listHeldSecurities, listIsinChanges, listSecurities, listSplits, securityDetail } from "@/modules/ledger";
 import { listClassifications, listKeyFigures } from "@/modules/classification";
-import { priceMarksView } from "@/modules/marks";
+import { priceMarkChartLines, priceMarksView } from "@/modules/marks";
 import { listSecurityNews, newsSecurityContext } from "@/modules/news";
 import { storedPriceHistory } from "@/modules/prices";
 import { listWatchlists, securityWatchlistEntries } from "@/modules/watchlist";
@@ -58,11 +59,11 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
  * One Security across all Depots or one Depot (story 4-6), also when no longer held: header with the
  * watchlist chips, Period selector, the actions menu (with "Zur Watchlist …" and "Kursmarken bearbeiten …"), Depot switcher, hero (value,
  * Period gain/loss, TTWROR, XIRR, price line, Kurs/Wert/Performance/Drawdown chart with the optional
- * moving average and "Wendepunkte" (story 11.5, ZigZag pivots with Fibonacci levels), breakdown), KPIs, "Gesamt seit Erstkauf" (story 4-7), "Kennzahlen" (story 9.6), "Technische Lage"
+ * moving average, "Wendepunkte" (story 11.5, ZigZag pivots with Fibonacci levels) and the price-mark lines, breakdown), "Kursmarken" (story 12.3), KPIs, "Gesamt seit Erstkauf" (story 4-7), "Kennzahlen" (story 9.6), "Technische Lage"
  * (story 11.3, signals and indicator chart), "Analystenbewertungen"
  * (story 9.7, stocks with analyst data), "Performance-Heatmap" (story
  * 7-8), open FIFO lots, Transaction history and 14-day news. A never-booked Security (story 9.2) gets
- * the watch layout instead: Price header with the Period change and the Kurs chart (with both overlays), "Auf Watchlists",
+ * the watch layout instead: Price header with the Period change and the Kurs chart (with both overlays and the price-mark lines), "Kursmarken", "Auf Watchlists",
  * "Kennzahlen", "Technische Lage", "Analystenbewertungen", news and classification — no holding or Transaction blocks. Every figure comes from `core` via
  * `securityDetail` (AD-10); no provider call during render.
  */
@@ -77,7 +78,7 @@ export default async function SecurityDetailPage({ params, searchParams }: Props
   if (!detail) notFound();
   const { security } = detail;
   const booked = detail.depots.length > 0;
-  const [splits, isinChanges, securities, articles, chartMode, movingAverage, pivotChoice, technicalIndicator, watchlists, entries, classifications, keyFigures, heldIds, newsContext, marks] = await Promise.all([
+  const [splits, isinChanges, securities, articles, chartMode, movingAverage, pivotChoice, technicalIndicator, watchlists, entries, classifications, keyFigures, heldIds, newsContext, marks, markLines] = await Promise.all([
     listSplits(),
     listIsinChanges(),
     listSecurities(),
@@ -93,6 +94,7 @@ export default async function SecurityDetailPage({ params, searchParams }: Props
     listHeldSecurities(today),
     newsSecurityContext([security.id], today),
     priceMarksView([security.id], today),
+    priceMarkChartLines(security.id, detail.from, detail.to, today),
   ]);
   const watchlistOptions = watchlists.map(({ id: listId, name }) => ({ id: listId, name }));
   const onLists = entries.map((entry) => ({ id: entry.watchlistId, name: entry.watchlistName }));
@@ -124,6 +126,9 @@ export default async function SecurityDetailPage({ params, searchParams }: Props
     latestPrice: marks[security.id]?.state.price ?? null,
     analystTarget: analystTarget?.mean ? { mean: analystTarget.mean, currency: analystTarget.currency } : null,
   };
+  // "Kursmarken" (story 12.3): right after the price chart in both layouts; the state comes from core.
+  const marksState = marks[security.id]?.state ?? { price: null, priceDate: null, stop: null, target: null, breached: "none" as const };
+  const priceMarksCard = <PriceMarksCard security={security} info={priceMarks} state={marksState} today={today} />;
   // Technische Lage (story 11.3): the signals, the indicator series of the Period, the last close date.
   const { series: technicalSeries, ...technicalSignals } = detail.technical;
   const technicalCard = (
@@ -210,9 +215,11 @@ export default async function SecurityDetailPage({ params, searchParams }: Props
                 initialMovingAverage={movingAverage}
                 pivots={detail.pivots}
                 initialPivots={pivotChoice}
+                marks={markLines}
               />
             }
           />
+          {priceMarksCard}
           <SecurityKpis snapshot={detail.snapshot} dividends={detail.performance.dividends} periodLabel={periodLabel(period)} />
           <SecurityTotal total={detail.total} />
           {keyFiguresCard}
@@ -250,10 +257,12 @@ export default async function SecurityDetailPage({ params, searchParams }: Props
                   initialMovingAverage={movingAverage}
                   pivots={detail.pivots}
                   initialPivots={pivotChoice}
+                  marks={markLines}
                 />
               )
             }
           />
+          {priceMarksCard}
           <WatchlistCard entries={entries} lists={watchlistOptions} security={security} today={today} />
           {keyFiguresCard}
           {technicalCard}

@@ -421,6 +421,53 @@ describe("SecurityChart", () => {
     document.cookie = "dm_security_chart=; path=/; max-age=0";
   });
 
+  it("Kursmarken: dashed labelled Stopp / Ziel lines on Kurs only, trailing stop as a line", async () => {
+    const user = userEvent.setup({ delay: null });
+    const { unmount } = render(
+      <ThemeProvider theme={theme}>
+        <SecurityChart valuePoints={valuePoints} pricePoints={pricePoints} trades={trades} marks={{ stop: { kind: "fixed", value: "92.4" }, target: "120" }} />
+      </ThemeProvider>,
+    );
+    expect(screen.getByRole("figure").getAttribute("aria-label")).toMatch(/, mit Kursmarken: Stopp 92,40\u00a0€, Ziel 120,00\u00a0€$/);
+    await waitFor(() => {
+      if (document.querySelectorAll(".MuiChartsReferenceLine-line").length !== 2) throw new Error("not drawn yet");
+    });
+    const labels = [...document.querySelectorAll(".MuiChartsReferenceLine-label")].map((label) => label.textContent);
+    expect(labels).toEqual(["Stopp", "Ziel"]);
+    for (const line of document.querySelectorAll<SVGElement>(".MuiChartsReferenceLine-line")) {
+      expect(line.style.strokeDasharray).toBe("6 4");
+    }
+    await user.click(screen.getByRole("button", { name: "Wert" }));
+    expect(document.querySelectorAll(".MuiChartsReferenceLine-line")).toHaveLength(0);
+    unmount();
+
+    render(
+      <ThemeProvider theme={theme}>
+        <SecurityChart
+          valuePoints={[]}
+          pricePoints={pricePoints}
+          trades={[]}
+          marks={{
+            stop: {
+              kind: "trailing",
+              points: [
+                { date: "2026-10-21", value: null },
+                { date: "2026-10-22", value: "89.25" },
+              ],
+            },
+            target: null,
+          }}
+        />
+      </ThemeProvider>,
+    );
+    expect(screen.getByRole("figure").getAttribute("aria-label")).toMatch(/, mit Kursmarken: Stopp nachlaufend zuletzt 89,25\u00a0€$/);
+    await waitFor(() => {
+      if (!document.querySelector('.MuiLineChart-line[data-series="trailing-stop"]')) throw new Error("not drawn yet");
+    });
+    expect([...document.querySelectorAll(".MuiChartsReferenceLine-label")].map((label) => label.textContent)).toEqual(["Stopp"]);
+    document.cookie = "dm_security_chart=; path=/; max-age=0";
+  });
+
   it("without pivots the Wendepunkte switch is not offered", () => {
     render(
       <ThemeProvider theme={theme}>

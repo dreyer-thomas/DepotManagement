@@ -4,6 +4,7 @@
  * formatted from the original decimal strings via `core/format`.
  */
 import { formatDate, formatMoney, formatQuantity } from "@/core/format";
+import type { PriceMarkLines } from "@/core/price-marks";
 import type { FibonacciLevel, ZigzagPivot, ZigzagThreshold } from "@/core/zigzag";
 import { spanDays, tickLabel, utcDate } from "./value-chart";
 
@@ -48,6 +49,15 @@ export type PriceChartPivotOverlay = {
   retracements: readonly FibonacciLevel[];
   extension: FibonacciLevel | null;
 };
+
+/**
+ * The optional price-marks overlay (story 12.3, `core/price-marks` `priceMarkLines`): a fixed stop and the
+ * target as levels, a trailing stop as a line per chart day, in the chart's units.
+ */
+export type PriceChartMarks = PriceMarkLines;
+
+export const STOP_LINE_LABEL = "Stopp";
+export const TARGET_LINE_LABEL = "Ziel";
 
 export const TRADE_LABELS = { BUY: "Kauf", SELL: "Verkauf" } as const;
 export const NO_PRICE_HISTORY_TEXT = "Kein Kursverlauf vorhanden.";
@@ -146,8 +156,57 @@ export function pivotYRange(
   values: readonly (number | null)[],
   overlay: PriceChartPivotOverlay | undefined,
 ): { min: number; max: number } | null {
-  if (!overlay) return null;
-  const levels = pivotLevels(overlay).map((level) => Number(level.price));
+  return levelsYRange(values, overlay ? pivotLevels(overlay).map((level) => Number(level.price)) : []);
+}
+
+/** The horizontal levels of the marks overlay: fixed stop and target (trailing stops are a series). */
+export function markLevels(marks: PriceChartMarks | undefined): { label: string; kind: "stop" | "target"; price: string }[] {
+  if (!marks) return [];
+  return [
+    ...(marks.stop?.kind === "fixed" ? [{ label: STOP_LINE_LABEL, kind: "stop" as const, price: marks.stop.value }] : []),
+    ...(marks.target !== null ? [{ label: TARGET_LINE_LABEL, kind: "target" as const, price: marks.target }] : []),
+  ];
+}
+
+/** Plot coordinates of a trailing stop, index-aligned with the price points by date (`null` = gap); `null` without one. */
+export function toTrailingStopPlotData(points: readonly PriceChartPoint[], marks: PriceChartMarks | undefined): (number | null)[] | null {
+  if (marks?.stop?.kind !== "trailing") return null;
+  const byDate = new Map(marks.stop.points.map((point) => [point.date, point.value]));
+  const values = points.map((point) => {
+    const value = byDate.get(point.date);
+    return value == null ? null : Number(value);
+  });
+  return values.some((value) => value !== null) ? values : null;
+}
+
+/** The trailing stop's tooltip line of a day (`Stopp` · money), `null` without a trailing value that day. */
+export function stopTooltipLine(date: string, marks: PriceChartMarks | undefined): { label: string; value: string } | null {
+  if (marks?.stop?.kind !== "trailing") return null;
+  const value = marks.stop.points.find((point) => point.date === date)?.value ?? null;
+  return value === null ? null : { label: STOP_LINE_LABEL, value: formatMoney(value) };
+}
+
+/**
+ * Text-alternative suffix of the marks: `, mit Kursmarken: Stopp 92,40 €, Ziel 245,00 €` (trailing:
+ * `Stopp nachlaufend zuletzt 93,50 €`); empty without a drawn mark.
+ */
+export function marksAriaSuffix(marks: PriceChartMarks | undefined): string {
+  if (!marks) return "";
+  const parts: string[] = [];
+  if (marks.stop?.kind === "fixed") parts.push(`${STOP_LINE_LABEL} ${formatMoney(marks.stop.value)}`);
+  if (marks.stop?.kind === "trailing") {
+    const last = marks.stop.points.filter((point) => point.value !== null).at(-1)?.value;
+    if (last != null) parts.push(`${STOP_LINE_LABEL} nachlaufend zuletzt ${formatMoney(last)}`);
+  }
+  if (marks.target !== null) parts.push(`${TARGET_LINE_LABEL} ${formatMoney(marks.target)}`);
+  return parts.length === 0 ? "" : `, mit Kursmarken: ${parts.join(", ")}`;
+}
+
+/**
+ * The y-axis range covering the plotted values and the given levels (5 % padding of the span), or `null`
+ * without levels (the axis keeps its automatic range).
+ */
+export function levelsYRange(values: readonly (number | null)[], levels: readonly number[]): { min: number; max: number } | null {
   if (levels.length === 0) return null;
   const all = [...values.filter((value): value is number => value !== null), ...levels];
   const min = Math.min(...all);
@@ -212,13 +271,14 @@ function count(n: number, singular: string, plural: string): string {
 /**
  * Text alternative, e.g. `Kursverlauf 01.01.2026 – 26.10.2026: Kurs von 100,00 € auf 112,46 €, 2 Käufe,
  * 1 Verkauf` — first and last known price of the range; with the overlay `…, mit gleitendem Durchschnitt
- * 200 Tage` appended; with the pivots overlay `pivotAriaSuffix` after that.
+ * 200 Tage` appended; with the pivots overlay `pivotAriaSuffix` after that; with marks `marksAriaSuffix` last.
  */
 export function priceChartAriaLabel(
   points: readonly PriceChartPoint[],
   trades: readonly PriceChartTrade[],
   averageWindow?: PriceChartAverageWindow,
   pivots?: PriceChartPivotOverlay,
+  marks?: PriceChartMarks,
 ): string {
   const first = points.at(0);
   const last = points.at(-1);
@@ -232,7 +292,8 @@ export function priceChartAriaLabel(
     `Kursverlauf ${formatDate(first.date)} – ${formatDate(last.date)}: Kurs von ${formatMoney(from)} auf ${formatMoney(to)}, ` +
     `${count(buys, "Kauf", "Käufe")}, ${count(sells, "Verkauf", "Verkäufe")}` +
     (averageWindow ? `, mit gleitendem Durchschnitt ${averageWindow} Tage` : "") +
-    (pivots ? pivotAriaSuffix(pivots) : "")
+    (pivots ? pivotAriaSuffix(pivots) : "") +
+    marksAriaSuffix(marks)
   );
 }
 

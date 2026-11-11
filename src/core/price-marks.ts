@@ -11,7 +11,7 @@ import { canonicalDecimal, ExactDecimal, isDecimalString } from "./decimal";
 import { tradingDayCloses } from "./key-figures";
 import { type PriceObservation, resolvePrice } from "./prices";
 import { ratioString, ReturnDecimal } from "./returns";
-import { adjustedObservations, currentSecurityId } from "./security";
+import { adjustedObservations, currentSecurityId, securityPriceSeries } from "./security";
 
 /** Longest source text of a mark (trimmed, NFC). */
 export const PRICE_MARK_SOURCE_MAX_LENGTH = 200;
@@ -245,6 +245,11 @@ function maxOf(values: readonly string[]): string | null {
   return high === null ? null : canonicalDecimal(high);
 }
 
+/** A trailing stop below `high` by `percent`: high × (1 − p/100), canonical. */
+function trailingStopValue(high: string, percent: string): string {
+  return canonicalDecimal(new ExactDecimal(high).times(new ExactDecimal(1).minus(new ExactDecimal(percent).dividedBy(100))));
+}
+
 /**
  * The state of `marks` as of `today`. The latest Price is the single resolver's (`resolvePrice`) over the
  * observations carried to today's Securities and units, for the Security `marks.securityId` maps to today
@@ -278,8 +283,7 @@ export function priceMarkState(
         .filter((close) => close.date > setDate)
         .map((close) => close.price);
       high = maxOf([...(base ? [base.price] : []), ...later, ...(latestPrice !== null ? [latestPrice] : [])]);
-      effective =
-        high === null ? null : canonicalDecimal(new ExactDecimal(high).times(new ExactDecimal(1).minus(new ExactDecimal(marks.stop.value).dividedBy(100))));
+      effective = high === null ? null : trailingStopValue(high, marks.stop.value);
     }
     stop = { effective, high, distance: distance(effective, latestPrice) };
   }
@@ -323,4 +327,60 @@ export function carryPriceMarks(marks: PriceMarks, toSecurityId: string, actions
           : marks.stop,
     target: marks.target === null ? null : { ...marks.target, price: carry(marks.target.price, marks.target.setDate) },
   };
+}
+
+/** One day of a trailing stop line: the effective stop in the chart's units, `null` before its set date or without a Price. */
+export type PriceMarkLinePoint = { date: string; value: string | null };
+
+/** The stop of the price chart: a fixed level or a trailing line over the chart days. */
+export type PriceMarkStopLine = { kind: "fixed"; value: string } | { kind: "trailing"; points: PriceMarkLinePoint[] };
+
+/** The marks as chart lines in the units as of the chart end; `null` = not drawn. */
+export type PriceMarkLines = { stop: PriceMarkStopLine | null; target: string | null };
+
+export const NO_PRICE_MARK_LINES: PriceMarkLines = { stop: null, target: null };
+
+/**
+ * The marks as lines of the price chart for `from..to`, in the units as of `to` (as `securityPriceSeries`).
+ * Fixed stop and target: their value carried from the set date to `to` (`adjustedPrice`), only when set on or
+ * before `to`. Trailing stop (set on or before `to`): one point per day `d` of `from..to` — `null` before the
+ * set date, else high × (1 − p/100) with high = max of the Price resolved on the set date, the trading-day
+ * closes after the set date up to `d` and the Price resolved on `d` (`null` without any). With `to` = today
+ * the last point equals `priceMarkState(...).stop.effective`.
+ */
+export function priceMarkLines(
+  marks: PriceMarks | null,
+  observations: readonly PriceObservation[],
+  actions: CorporateActions,
+  from: string,
+  to: string,
+): PriceMarkLines {
+  if (marks === null) return NO_PRICE_MARK_LINES;
+  const carried = (value: string, setDate: string) => adjustedPrice(marks.securityId, setDate, value, actions, to).price;
+
+  let stop: PriceMarkStopLine | null = null;
+  if (marks.stop && marks.stop.setDate <= to) {
+    if (marks.stop.type === "FIXED") stop = { kind: "fixed", value: carried(marks.stop.value, marks.stop.setDate) };
+    else {
+      const { setDate, value: percent } = marks.stop;
+      const current = currentSecurityId(marks.securityId, actions, to);
+      const closes = tradingDayCloses(observations, marks.securityId, actions, to).filter((close) => close.date > setDate);
+      const base = resolvePrice(adjustedObservations(observations, actions, to), current, setDate);
+      // Running high of the set-date Price and the closes after it; the day's resolved Price counts for that day only.
+      let high: string | null = base?.price ?? null;
+      let next = 0;
+      const points: PriceMarkLinePoint[] = securityPriceSeries(observations, current, actions, from, to).map(({ date, price }) => {
+        if (date < setDate) return { date, value: null };
+        const reached: string[] = high === null ? [] : [high];
+        while (next < closes.length && closes[next].date <= date) reached.push(closes[next++].price);
+        high = maxOf(reached);
+        const dayHigh = maxOf([...(high === null ? [] : [high]), ...(price === null ? [] : [price])]);
+        return { date, value: dayHigh === null ? null : trailingStopValue(dayHigh, percent) };
+      });
+      stop = { kind: "trailing", points };
+    }
+  }
+
+  const target = marks.target && marks.target.setDate <= to ? carried(marks.target.price, marks.target.setDate) : null;
+  return { stop, target };
 }

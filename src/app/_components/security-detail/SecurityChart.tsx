@@ -24,6 +24,7 @@ import type { PerformanceChartPoint } from "@/app/_components/charts/performance
 import type {
   PriceChartAverage,
   PriceChartAverageWindow,
+  PriceChartMarks,
   PriceChartPoint,
   PriceChartTrade,
 } from "@/app/_components/charts/price-chart";
@@ -62,6 +63,8 @@ export type SecurityChartProps = {
   pivots?: Readonly<Record<ZigzagThreshold, ZigzagResult>>;
   /** The stored pivots choice (cookie) for the first render; default off. */
   initialPivots?: PivotChoice;
+  /** Price marks as chart lines (story 12.3), drawn on "Kurs" only; absent or empty draws none. */
+  marks?: PriceChartMarks;
 };
 
 const WINDOWS: readonly PriceChartAverageWindow[] = ["200", "38"];
@@ -71,7 +74,7 @@ const TOGGLE_SX = { minHeight: 44, minWidth: 44, px: 1.5, textTransform: "none" 
  * Hero chart of the Security page with the "Kurs" / "Wert" / "Performance" / "Drawdown" toggle (modes
  * without data are not offered — no value points, no "Wert"; a single mode shows no toggle) and, on
  * "Kurs", the optional "Gleitender Durchschnitt" overlay (200 / 38 Tage) and the "Wendepunkte" overlay
- * (ZigZag with Fibonacci levels at 5 / 8 / 12 %, story 11.5). Switching never reloads the page; the
+ * (ZigZag with Fibonacci levels at 5 / 8 / 12 %, story 11.5) plus the price marks (story 12.3). Switching never reloads the page; the
  * choices are stored in the `dm_security_chart`, `dm_moving_average` and `dm_pivots` cookies.
  */
 export function SecurityChart({
@@ -86,6 +89,7 @@ export function SecurityChart({
   initialMovingAverage = "off",
   pivots,
   initialPivots = "off",
+  marks,
 }: SecurityChartProps) {
   const modes = SECURITY_CHART_MODES.filter(
     (m) =>
@@ -205,7 +209,7 @@ export function SecurityChart({
           ) : null}
         </Box>
       ) : null}
-      {mode === "price" ? <PriceChart points={pricePoints} trades={trades} average={overlay} pivots={pivotOverlay} /> : null}
+      {mode === "price" ? <PriceChart points={pricePoints} trades={trades} average={overlay} pivots={pivotOverlay} marks={marks} /> : null}
       {mode === "value" ? <ValueChart points={valuePoints} /> : null}
       {mode === "performance" && performance ? (
         <PerformanceChart points={performance} trades={trades} dividends={dividends} />

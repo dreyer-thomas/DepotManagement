@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createTestDatabase, type TestDatabase } from "../../../test/helpers/test-db";
 import { ensureSecurity, recordIsinChange, recordSplit } from "@/modules/ledger";
-import { exportPriceMarks, getPriceMarks, priceMarksView, replaceAllPriceMarks, setPriceMarks } from "./index";
+import { exportPriceMarks, getPriceMarks, priceMarkChartLines, priceMarksView, replaceAllPriceMarks, setPriceMarks } from "./index";
 
 let testDb: TestDatabase;
 const db = () => testDb.client;
@@ -144,6 +144,56 @@ describe("setPriceMarks", () => {
       [sap]: { marks: null, state: { price: null, priceDate: null, stop: null, target: null, breached: "none" } },
     });
     expect(await priceMarksView([], TODAY, db())).toEqual({});
+  });
+});
+
+describe("priceMarkChartLines", () => {
+  it("returns no lines without marks", async () => {
+    const sap = await security("DE0007164600", "SAP SE");
+    expect(await priceMarkChartLines(sap, "2026-10-01", TODAY, TODAY, db())).toEqual({ stop: null, target: null });
+  });
+
+  it("draws a trailing stop over the chart days and the target in the chart's units", async () => {
+    const sap = await security("DE0007164600", "SAP SE");
+    await price(sap, "2026-10-01", "100");
+    await price(sap, "2026-10-02", "110");
+    await price(sap, "2026-10-03", "105");
+    await set(sap, { stop: { type: "TRAILING", value: "15", setDate: "2026-10-01" }, target: { price: "130", setDate: "2026-10-01" } });
+    const lines = await priceMarkChartLines(sap, "2026-09-30", "2026-10-03", TODAY, db());
+    expect(lines).toEqual({
+      stop: {
+        kind: "trailing",
+        points: [
+          { date: "2026-09-30", value: null },
+          { date: "2026-10-01", value: "85" },
+          { date: "2026-10-02", value: "93.5" },
+          { date: "2026-10-03", value: "93.5" },
+        ],
+      },
+      target: "130",
+    });
+    const today = await priceMarkChartLines(sap, "2026-10-01", TODAY, TODAY, db());
+    const points = today.stop?.kind === "trailing" ? today.stop.points : [];
+    expect(points.at(-1)?.value).toBe((await priceMarksView([sap], TODAY, db()))[sap].state.stop?.effective);
+  });
+
+  it("draws marks stored on an ISIN-change predecessor in the units as of the chart end", async () => {
+    const oldId = await security("DE0007164600", "Alt AG");
+    const newId = await security("DE000A1EWWW0", "Neu AG");
+    await price(oldId, "2026-10-01", "100");
+    await price(newId, "2026-11-10", "48");
+    await set(oldId, { stop: { type: "FIXED", value: "90", setDate: "2026-10-01" }, target: { price: "150", setDate: "2026-10-01" } });
+    const change = await recordIsinChange({ oldSecurityId: oldId, newSecurity: { id: newId }, date: "2026-10-15", oldQuantity: "1", newQuantity: "2" }, db());
+    expect(change.ok).toBe(true);
+
+    const { state } = (await priceMarksView([newId], TODAY, db()))[newId];
+    expect(await priceMarkChartLines(newId, "2026-10-01", TODAY, TODAY, db())).toEqual({
+      stop: { kind: "fixed", value: state.stop?.effective },
+      target: state.target?.price,
+    });
+    expect(state).toMatchObject({ stop: { effective: "45" }, target: { price: "75" } });
+    // A chart ending before the ISIN change stays in the predecessor's units.
+    expect(await priceMarkChartLines(oldId, "2026-10-01", "2026-10-10", TODAY, db())).toEqual({ stop: { kind: "fixed", value: "90" }, target: "150" });
   });
 });
 

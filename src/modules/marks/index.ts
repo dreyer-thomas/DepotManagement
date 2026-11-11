@@ -3,13 +3,16 @@
 // (effective stop, distances, breach) come from `core/price-marks`, never stored. It reaches Securities and
 // corporate actions only through `@/modules/ledger` and Prices only through `@/modules/prices`; marks never
 // feed valuations, returns, tax, the ledger or Prices. `backup` exports and restores the rows.
-export { getPriceMarks, priceMarksView, setPriceMarks } from "./marks";
+export { getPriceMarks, priceMarkChartLines, priceMarksView, setPriceMarks } from "./marks";
 export type { MarksDb, PriceMarksViewItem, SetPriceMarksResult } from "./marks";
 export { exportPriceMarks, replaceAllPriceMarks } from "./backup";
 export type { PriceMarkExport } from "./backup";
 export type {
   PriceMarkBreach,
   PriceMarkField,
+  PriceMarkLinePoint,
+  PriceMarkLines,
+  PriceMarkStopLine,
   PriceMarkProblem,
   PriceMarks,
   PriceMarksInvalid,

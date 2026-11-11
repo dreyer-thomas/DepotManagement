@@ -5,6 +5,7 @@ import {
   checkPriceMarksPatch,
   PRICE_MARK_SOURCE_MAX_LENGTH,
   type PriceMarks,
+  priceMarkLines,
   priceMarkState,
   priceMarkWarnings,
   parsePriceMarksForm,
@@ -287,5 +288,84 @@ describe("carryPriceMarks", () => {
     const own = marks(trailingStop("10"), null, "s2");
     expect(carryPriceMarks(own, "s2", actions, TODAY)).toBe(own);
     expect(carryPriceMarks(marks(trailingStop("10")), "s2", actions, TODAY).stop).toEqual(trailingStop("10"));
+  });
+});
+
+describe("priceMarkLines", () => {
+  const values = (lines: ReturnType<typeof priceMarkLines>) =>
+    lines.stop?.kind === "trailing" ? lines.stop.points.map((point) => point.value) : undefined;
+
+  it("no marks: no lines", () => {
+    expect(priceMarkLines(null, [obs("2026-11-10", "100")], NO_CORPORATE_ACTIONS, "2026-11-01", TODAY)).toEqual({ stop: null, target: null });
+  });
+
+  it("fixed stop and target: horizontal levels", () => {
+    const lines = priceMarkLines(marks(fixedStop("92.4"), target("245")), [obs("2026-11-10", "99.78")], NO_CORPORATE_ACTIONS, "2026-11-01", TODAY);
+    expect(lines).toEqual({ stop: { kind: "fixed", value: "92.4" }, target: "245" });
+  });
+
+  it("trailing stop: running high from the set date, null before, never falls", () => {
+    const observations = [obs("2026-09-30", "200"), obs("2026-10-01", "100"), obs("2026-10-02", "110"), obs("2026-10-03", "105")];
+    const lines = priceMarkLines(marks(trailingStop("15")), observations, NO_CORPORATE_ACTIONS, "2026-09-30", "2026-10-04");
+    expect(lines.stop?.kind).toBe("trailing");
+    expect(lines.stop?.kind === "trailing" ? lines.stop.points.map((point) => point.date) : []).toEqual([
+      "2026-09-30",
+      "2026-10-01",
+      "2026-10-02",
+      "2026-10-03",
+      "2026-10-04",
+    ]);
+    expect(values(lines)).toEqual([null, "85", "93.5", "93.5", "93.5"]);
+  });
+
+  it("trailing stop: closes between the set date and the chart start count", () => {
+    const observations = [obs("2026-10-01", "100"), obs("2026-10-05", "120"), obs("2026-10-20", "110")];
+    const lines = priceMarkLines(marks(trailingStop("10")), observations, NO_CORPORATE_ACTIONS, "2026-10-19", "2026-10-20");
+    expect(values(lines)).toEqual(["108", "108"]);
+  });
+
+  it("trailing stop without any Price: null points", () => {
+    const lines = priceMarkLines(marks(trailingStop("10")), [], NO_CORPORATE_ACTIONS, "2026-10-01", "2026-10-02");
+    expect(values(lines)).toEqual([null, null]);
+  });
+
+  it("marks set after the chart end are not drawn", () => {
+    const lines = priceMarkLines(
+      marks(trailingStop("10", "2026-11-05"), target("150", "2026-11-05")),
+      [obs("2026-10-01", "100")],
+      NO_CORPORATE_ACTIONS,
+      "2026-10-01",
+      "2026-10-31",
+    );
+    expect(lines).toEqual({ stop: null, target: null });
+    expect(priceMarkLines(marks(fixedStop("90", "2026-11-05")), [], NO_CORPORATE_ACTIONS, "2026-10-01", "2026-10-31").stop).toBeNull();
+  });
+
+  it("a split in the chart range: fixed stop and target in the units as of the chart end", () => {
+    const actions: CorporateActions = { splits: [{ securityId: "s1", date: "2026-10-15", ratioOld: "1", ratioNew: "2" }], isinChanges: [] };
+    const observations = [obs("2026-10-01", "100"), obs("2026-10-20", "50")];
+    expect(priceMarkLines(marks(fixedStop("90"), target("150")), observations, actions, "2026-10-01", "2026-10-31")).toEqual({
+      stop: { kind: "fixed", value: "45" },
+      target: "75",
+    });
+    // Before the split the chart is in the old units.
+    expect(priceMarkLines(marks(fixedStop("90")), observations, actions, "2026-10-01", "2026-10-10").stop).toEqual({ kind: "fixed", value: "90" });
+  });
+
+  it("with the chart end today the last trailing point equals the state's effective stop", () => {
+    const actions: CorporateActions = { splits: [{ securityId: "s1", date: "2026-10-15", ratioOld: "1", ratioNew: "2" }], isinChanges: [] };
+    const observations = [
+      obs("2026-09-20", "300"),
+      obs("2026-10-01", "100"),
+      obs("2026-10-02", "120"),
+      obs("2026-10-16", "58"),
+      obs("2026-11-10", "70", "s1", "manual"),
+      obs("2026-11-11", "64", "s1", "transaction"),
+    ];
+    const own = marks(trailingStop("12.5"));
+    const lines = priceMarkLines(own, observations, actions, "2026-09-01", TODAY);
+    const points = lines.stop?.kind === "trailing" ? lines.stop.points : [];
+    expect(points.at(-1)).toEqual({ date: TODAY, value: priceMarkState(own, observations, actions, TODAY).stop?.effective });
+    expect(points.at(-1)?.value).toBe("61.25");
   });
 });

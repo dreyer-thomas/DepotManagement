@@ -18,6 +18,7 @@ import {
   priceChartAriaLabel,
   priceTooltipLines,
   priceXFormatter,
+  stopTooltipLine,
   toAveragePlotData,
   toPricePlotData,
   tradeLine,
@@ -180,5 +181,26 @@ describe("pivots overlay helpers", () => {
       ...OVERLAY.pivots.map((pivot) => pivotTooltipLine(pivot.date, OVERLAY)?.value),
     ].join("\n");
     expect(texts).not.toMatch(/Welle|Elliott|\bWave\b|\(\s*[1-5ABC]\s*\)|\b[ABC]\b/);
+  });
+});
+
+describe("price marks overlay helpers", () => {
+  it("stopTooltipLine: the trailing stop of a day as money, null otherwise", () => {
+    const marks = {
+      stop: {
+        kind: "trailing" as const,
+        points: [
+          { date: "2026-10-21", value: null },
+          { date: "2026-10-22", value: "89.25" },
+        ],
+      },
+      target: null,
+    };
+    expect(stopTooltipLine("2026-10-22", marks)).toEqual({ label: "Stopp", value: "89,25\u00a0€" });
+    expect(stopTooltipLine("2026-10-21", marks)).toBeNull();
+    expect(stopTooltipLine("2026-10-23", marks)).toBeNull();
+    expect(stopTooltipLine("2026-10-22", { stop: { kind: "fixed", value: "90" }, target: "120" })).toBeNull();
+    expect(stopTooltipLine("2026-10-22", { stop: null, target: null })).toBeNull();
+    expect(stopTooltipLine("2026-10-22", undefined)).toBeNull();
   });
 });
