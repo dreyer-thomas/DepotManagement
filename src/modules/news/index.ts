@@ -7,6 +7,7 @@ export {
   NEWS_PER_SECURITY_LIMIT,
   NEWS_WINDOW_DAYS,
   newsNeedsRefresh,
+  newsSecurityContext,
   refreshNews,
   YAHOO_RSS_SPACING_MS,
 } from "./news";
@@ -18,6 +19,7 @@ export type {
   NewsProvider,
   NewsRunFailure,
   NewsRunResult,
+  NewsSecurityContext,
   RefreshNewsOptions,
 } from "./news";
 export { newsTerm } from "./terms";

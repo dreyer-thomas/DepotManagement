@@ -1,9 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from "vitest";
 import { createTestDatabase, type TestDatabase } from "../../../test/helpers/test-db";
 import { type FetchCall, fakeFetch, recorded, recordedText } from "../../../test/helpers/providers";
-import { createDepot, ensureSecurity, recordTrade } from "@/modules/ledger";
+import { createDepot, ensureSecurity, recordIsinChange, recordTrade } from "@/modules/ledger";
 import { setMapping } from "@/modules/prices";
-import { clearNews, listNews, listSecurityNews, NEWS_PER_SECURITY_LIMIT, newsNeedsRefresh, refreshNews, YAHOO_RSS_SPACING_MS } from "./index";
+import {
+  clearNews,
+  listNews,
+  listSecurityNews,
+  NEWS_PER_SECURITY_LIMIT,
+  newsNeedsRefresh,
+  newsSecurityContext,
+  refreshNews,
+  YAHOO_RSS_SPACING_MS,
+} from "./index";
 import type { FetchLike } from "./providers/shared";
 import type { YahooNewsSearch } from "./providers/yahoo";
 
@@ -515,5 +524,90 @@ describe("listNews / newsNeedsRefresh", () => {
     await db().newsFetch.create({ data: { securityId: sap, fetchedAt: "2026-10-26T06:30:00.000Z" } });
     expect(await newsNeedsRefresh(NOW, db())).toBe(false);
     expect(await newsNeedsRefresh(new Date("2026-10-26T10:31:00.000Z"), db())).toBe(true);
+  });
+});
+
+describe("newsSecurityContext", () => {
+  const price = (securityId: string, date: string, value: string) =>
+    db().price.create({ data: { securityId, date, source: "PROVIDER", price: value, fetchedAt: `${date}T18:00:00.000Z` } });
+
+  async function watched(isin: string, name: string): Promise<string> {
+    const security = await ensureSecurity({ isin }, { name, assetType: "STOCK" }, db());
+    if (!security.ok) throw new Error("setup failed");
+    return security.security.id;
+  }
+
+  it("held and fresh: chip flag and the change today of the latest Price against the previous day", async () => {
+    const sap = await held("DE0007164600", "SAP SE");
+    await price(sap, "2026-10-23", "100");
+    await price(sap, "2026-10-26", "101.8");
+    expect(await newsSecurityContext([sap], TODAY, db())).toEqual({
+      [sap]: { held: true, changeToday: "0.018", stale: false, priceDate: "2026-10-26" },
+    });
+  });
+
+  it("watched only: change without the held flag", async () => {
+    const apple = await watched("US0378331005", "Apple Inc.");
+    await price(apple, "2026-10-23", "200");
+    await price(apple, "2026-10-26", "196");
+    expect(await newsSecurityContext([apple], TODAY, db())).toEqual({
+      [apple]: { held: false, changeToday: "-0.02", stale: false, priceDate: "2026-10-26" },
+    });
+  });
+
+  it("is not held when the Position is only in an archived Depot", async () => {
+    const sap = await held("DE0007164600", "SAP SE");
+    await db().depot.update({ where: { id: depotId }, data: { archived: true } });
+    expect((await newsSecurityContext([sap], TODAY, db()))[sap].held).toBe(false);
+  });
+
+  it("without a previous Price: no change, no stale flag, no price date", async () => {
+    // Only the BUY Transaction price of 2026-10-01 (stale, but no change to show).
+    const sap = await held("DE0007164600", "SAP SE");
+    expect(await newsSecurityContext([sap], TODAY, db())).toEqual({
+      [sap]: { held: true, changeToday: null, stale: false, priceDate: null },
+    });
+  });
+
+  it("stale: keeps the change and flags the latest Price", async () => {
+    const sap = await held("DE0007164600", "SAP SE");
+    await price(sap, "2026-10-19", "100");
+    await price(sap, "2026-10-20", "95");
+    expect(await newsSecurityContext([sap], TODAY, db())).toEqual({
+      [sap]: { held: true, changeToday: "-0.05", stale: true, priceDate: "2026-10-20" },
+    });
+  });
+
+  it("follows the ISIN-change successor: the old Security is held and shows the successor's change", async () => {
+    const old = await held("DE0007164600", "SAP SE");
+    const change = await recordIsinChange(
+      {
+        oldSecurityId: old,
+        newSecurity: { new: { isin: "US0378331005", name: "SAP NEU", assetType: "STOCK" } },
+        date: "2026-10-15",
+        oldQuantity: "10",
+        newQuantity: "10",
+      },
+      db(),
+    );
+    if (!change.ok) throw new Error("setup failed");
+    const successor = change.isinChange.newSecurity.id;
+    await price(successor, "2026-10-23", "100");
+    await price(successor, "2026-10-26", "101.8");
+    expect((await newsSecurityContext([old], TODAY, db()))[old]).toEqual({
+      held: true,
+      changeToday: "0.018",
+      stale: false,
+      priceDate: "2026-10-26",
+    });
+  });
+
+  it("one entry per distinct id; unknown ids are neither held nor priced; [] is {}", async () => {
+    const sap = await held("DE0007164600", "SAP SE");
+    const apple = await watched("US0378331005", "Apple Inc.");
+    const context = await newsSecurityContext([sap, sap, apple, "unknown"], TODAY, db());
+    expect(Object.keys(context).sort()).toEqual([sap, apple, "unknown"].sort());
+    expect(context.unknown).toEqual({ held: false, changeToday: null, stale: false, priceDate: null });
+    expect(await newsSecurityContext([], TODAY, db())).toEqual({});
   });
 });

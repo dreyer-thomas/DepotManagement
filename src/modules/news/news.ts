@@ -4,8 +4,9 @@
 import { prisma } from "@/db";
 import { addDays, businessDate } from "@/core/dates";
 import type { NewsProvider, Prisma } from "@/db/generated/prisma/client";
-import { getSecurity, listHeldSecurities, listSecurities } from "@/modules/ledger";
-import { listSecuritiesWithMappings } from "@/modules/prices";
+import { currentSecurityId, entryFigures } from "@/core/watchlist";
+import { getSecurity, listHeldSecurities, listSecurities, securityPriceObservations } from "@/modules/ledger";
+import { listSecuritiesWithMappings, storedPriceHistory } from "@/modules/prices";
 import { searchGoogleNews } from "./providers/google-news";
 import { type FetchedArticle, type FetchLike, NEWS_ERROR, type NewsLookup } from "./providers/shared";
 import { searchYahooNews, type YahooNewsSearch } from "./providers/yahoo";
@@ -274,6 +275,51 @@ export async function listSecurityNews(today: string, securityId: string, db: Ne
 export async function newsNeedsRefresh(now: Date, db: NewsDb = prisma): Promise<boolean> {
   const held = await listHeldSecurities(businessDate(now), db);
   return (await staleOf(held, now, db)).length > 0;
+}
+
+/** What a news item shows next to the Security name (story 12.1), computed on read. */
+export type NewsSecurityContext = {
+  /** The Security (its ISIN-change successor, if any) is held in a non-archived Depot: the "im Depot" chip. */
+  held: boolean;
+  /** Change today as a ratio string (`entryFigures(...).changeToday.ratio`); `null` without a previous Price. */
+  changeToday: string | null;
+  /** The latest Price is stale (`isStale`); false when `changeToday` is null. */
+  stale: boolean;
+  /** Date of the latest Price; null when `changeToday` is null. */
+  priceDate: string | null;
+};
+
+/**
+ * Per distinct Security id, the held flag and the change today (with stale flag and price date) as of
+ * `today`, from the same core function as the watchlist "Heute" column (`entryFigures`). One price-observation
+ * load and one held lookup for all ids; an unknown id gives `held: false, changeToday: null`. Read-only,
+ * no provider call.
+ */
+export async function newsSecurityContext(
+  securityIds: readonly string[],
+  today: string,
+  db: NewsDb = prisma,
+): Promise<Record<string, NewsSecurityContext>> {
+  const ids = [...new Set(securityIds)];
+  if (ids.length === 0) return {};
+  const [held, { observations, actions }] = await Promise.all([
+    listHeldSecurities(today, db),
+    securityPriceObservations(ids, today, { storedPrices: (loadIds, asOf) => storedPriceHistory(loadIds, asOf, db) }, db),
+  ]);
+  const heldSet = new Set(held);
+  const context: Record<string, NewsSecurityContext> = {};
+  for (const id of ids) {
+    // `dateAdded` only affects `sinceAdded`, which news does not show.
+    const figures = entryFigures(observations, id, actions, today, today);
+    const change = figures.changeToday;
+    context[id] = {
+      held: heldSet.has(currentSecurityId(id, actions, today)),
+      changeToday: change === null ? null : change.ratio,
+      stale: change === null ? false : figures.stale,
+      priceDate: change === null ? null : figures.priceDate,
+    };
+  }
+  return context;
 }
 
 /** Restore (story 6.2): deletes every cached headline (teasers included) and refresh marker inside the caller's transaction. */

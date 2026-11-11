@@ -388,6 +388,19 @@ describe("Security detail page", () => {
     expect(news).not.toContain("Apple-Meldung");
   });
 
+  it("passes the news context: im Depot chip and the signed change today next to the name", async () => {
+    const a = await depot("Alpha");
+    const id = await security();
+    await book({ depotId: a, type: "BUY", date: "2026-02-02", quantity: "10", price: "100", security: { id } });
+    await providerPrice(id, addDays(TODAY, -1), "100");
+    await providerPrice(id, TODAY, "101.8");
+    await prisma.newsArticle.create({
+      data: { securityId: id, url: "https://news.example/1", title: "Welt-Meldung", source: "Quelle", provider: "GOOGLE_NEWS", publishedAt: `${addDays(TODAY, -1)}T08:00:00.000Z`, fetchedAt: `${TODAY}T08:00:00.000Z` },
+    });
+    const news = text(section(renderHtml(await SecurityDetailPage(props(id))), 'id="security-news"'));
+    expect(news).toContain("Welt ETF im Depot +1,80 % heute Welt-Meldung");
+  });
+
   it("shows a news item with a teaser as an accordion with the Kurztext marker", async () => {
     const a = await depot("Alpha");
     const id = await security();

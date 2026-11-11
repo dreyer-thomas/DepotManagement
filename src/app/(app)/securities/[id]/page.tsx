@@ -39,7 +39,7 @@ import { ExactDecimal } from "@/core/decimal";
 import { periodLabel } from "@/core/period";
 import { getSecurity, listHeldSecurities, listIsinChanges, listSecurities, listSplits, securityDetail } from "@/modules/ledger";
 import { listClassifications, listKeyFigures } from "@/modules/classification";
-import { listSecurityNews } from "@/modules/news";
+import { listSecurityNews, newsSecurityContext } from "@/modules/news";
 import { storedPriceHistory } from "@/modules/prices";
 import { listWatchlists, securityWatchlistEntries } from "@/modules/watchlist";
 
@@ -76,7 +76,7 @@ export default async function SecurityDetailPage({ params, searchParams }: Props
   if (!detail) notFound();
   const { security } = detail;
   const booked = detail.depots.length > 0;
-  const [splits, isinChanges, securities, articles, chartMode, movingAverage, pivotChoice, technicalIndicator, watchlists, entries, classifications, keyFigures, heldIds] = await Promise.all([
+  const [splits, isinChanges, securities, articles, chartMode, movingAverage, pivotChoice, technicalIndicator, watchlists, entries, classifications, keyFigures, heldIds, newsContext] = await Promise.all([
     listSplits(),
     listIsinChanges(),
     listSecurities(),
@@ -90,6 +90,7 @@ export default async function SecurityDetailPage({ params, searchParams }: Props
     booked ? Promise.resolve(null) : listClassifications(),
     listKeyFigures([security.id], today),
     listHeldSecurities(today),
+    newsSecurityContext([security.id], today),
   ]);
   const watchlistOptions = watchlists.map(({ id: listId, name }) => ({ id: listId, name }));
   const onLists = entries.map((entry) => ({ id: entry.watchlistId, name: entry.watchlistName }));
@@ -135,7 +136,7 @@ export default async function SecurityDetailPage({ params, searchParams }: Props
   const news = (
     <Box component="section" aria-labelledby="security-news">
       <CardHeading id="security-news">Nachrichten · 14 Tage</CardHeading>
-      <NewsList articles={articles} />
+      <NewsList articles={articles} context={newsContext} />
     </Box>
   );
 

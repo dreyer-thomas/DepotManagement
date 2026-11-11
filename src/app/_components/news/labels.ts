@@ -12,6 +12,8 @@ export const ALL_SECURITIES_LABEL = "Alle Wertpapiere";
 export const TEASER_MARKER = "Kurztext";
 /** Link from an expanded teaser to the original article (new tab). */
 export const READ_ARTICLE_LABEL = "Zum Artikel";
+/** Chip on a news item whose Security is held in a non-archived Depot. */
+export const HELD_IN_DEPOT_LABEL = "im Depot";
 
 /** Hidden visually, read by screen readers (same rules as MUI's `visuallyHidden`). */
 export const visuallyHidden = {

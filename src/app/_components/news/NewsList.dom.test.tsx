@@ -3,7 +3,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { registerDomCleanup } from "../../../../test/helpers/dom";
-import type { NewsListArticle } from "@/modules/news";
+import type { NewsListArticle, NewsSecurityContext } from "@/modules/news";
 import { LogoProvider } from "../securities/LogoContext";
 import { NewsList } from "./NewsList";
 
@@ -120,6 +120,62 @@ describe("NewsList", () => {
     expect(first.getAttribute("aria-expanded")).toBe("false");
     await user.keyboard("{Enter}");
     expect(first.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  describe("with the Security context (story 12.1)", () => {
+    const heldFresh: NewsSecurityContext = { held: true, changeToday: "0.018", stale: false, priceDate: "2026-10-26" };
+
+    it("shows the im Depot chip and the signed change next to the name in link and teaser rows", () => {
+      render(<NewsList articles={[teaserArticle, articles[0], articles[1]]} context={{ s1: heldFresh }} />);
+      const link = screen.getByRole("link", { name: /SAP hebt Prognose an/ });
+      const button = screen.getByRole("button", { name: /SAP-Aktie legt nach Zahlen zu/ });
+      for (const row of [link, button]) {
+        expect(within(row).getByText("im Depot")).toBeDefined();
+        const change = row.querySelector("[data-news-change]");
+        expect(change?.textContent).toBe("+1,80\u00a0% heute");
+        expect(change?.getAttribute("tabindex")).toBeNull();
+        expect(row.querySelector("[data-stale-badge]")).toBeNull();
+      }
+      // No context entry for s2: rendered as before.
+      const plain = screen.getByRole("link", { name: /Siemens baut Werk aus/ });
+      expect(plain.textContent).not.toContain("im Depot");
+      expect(plain.textContent).not.toContain("%");
+    });
+
+    it("watched only: change without the chip", () => {
+      render(<NewsList articles={[articles[0]]} context={{ s1: { held: false, changeToday: "-0.02", stale: false, priceDate: "2026-10-26" } }} />);
+      const link = screen.getByRole("link");
+      expect(link.textContent).not.toContain("im Depot");
+      expect(link.textContent).toContain("-2,00\u00a0%");
+    });
+
+    it("no previous Price: chip only, no percentage at all", () => {
+      render(<NewsList articles={[articles[0]]} context={{ s1: { held: true, changeToday: null, stale: false, priceDate: null } }} />);
+      const link = screen.getByRole("link");
+      expect(link.textContent).toContain("im Depot");
+      expect(link.textContent).not.toContain("%");
+      expect(link.textContent).not.toContain("veraltet");
+    });
+
+    it("stale: the change plus a non-focusable Kurs vom … – veraltet pill", () => {
+      render(
+        <NewsList articles={[teaserArticle]} context={{ s1: { held: false, changeToday: "-0.05", stale: true, priceDate: "2026-10-20" } }} />,
+      );
+      const button = screen.getByRole("button");
+      expect(button.textContent).toContain("-5,00\u00a0%");
+      const pill = button.querySelector("[data-stale-badge]");
+      expect(pill?.textContent).toBe("Kurs vom 20.10.2026 – veraltet");
+      expect(pill?.getAttribute("tabindex")).toBeNull();
+    });
+
+    it("shows no chip and no change without a context entry", () => {
+      const { container: withEmpty } = render(<NewsList articles={articles} context={{}} />);
+      const html = withEmpty.innerHTML;
+      withEmpty.remove();
+      const { container: without } = render(<NewsList articles={articles} />);
+      expect(without.innerHTML).toBe(html);
+      expect(without.textContent).not.toContain("im Depot");
+    });
   });
 
   it("shows the empty state", () => {

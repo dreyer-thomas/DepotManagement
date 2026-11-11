@@ -7,17 +7,26 @@ import List from "@mui/material/List";
 import ListItemButton from "@mui/material/ListItemButton";
 import Typography from "@mui/material/Typography";
 import { Fragment } from "react";
-import type { NewsListArticle } from "@/modules/news";
+import type { NewsListArticle, NewsSecurityContext } from "@/modules/news";
 import { SecurityLogo } from "../securities/SecurityLogo";
 import { articleMeta, NEW_TAB_HINT, NEWS_EMPTY_TEXT, visuallyHidden } from "./labels";
+import { NewsContext } from "./NewsContext";
 import { NewsTeaserItem } from "./NewsTeaserItem";
 
 /**
  * Headlines, newest first. A row without a teaser is one external link (new tab) to the original article
  * with the Security logo and name, the headline and "<source> · dd.mm.yyyy"; a row with a teaser is an
- * accordion (`NewsTeaserItem`) showing it in the app first. The empty state names the window.
+ * accordion (`NewsTeaserItem`) showing it in the app first. With `context` (story 12.1, keyed by Security
+ * id), the name is followed by the "im Depot" chip and the change today; without an entry the row is plain.
+ * The empty state names the window.
  */
-export function NewsList({ articles }: { articles: readonly NewsListArticle[] }) {
+export function NewsList({
+  articles,
+  context,
+}: {
+  articles: readonly NewsListArticle[];
+  context?: Readonly<Record<string, NewsSecurityContext>>;
+}) {
   if (articles.length === 0) {
     return (
       <Card>
@@ -34,7 +43,7 @@ export function NewsList({ articles }: { articles: readonly NewsListArticle[] })
           <Fragment key={article.id}>
             {index > 0 && <Divider component="li" aria-hidden />}
             {article.teaser ? (
-              <NewsTeaserItem article={article} teaser={article.teaser} />
+              <NewsTeaserItem article={article} teaser={article.teaser} context={context?.[article.securityId]} />
             ) : (
               <li>
                 <ListItemButton
@@ -46,9 +55,12 @@ export function NewsList({ articles }: { articles: readonly NewsListArticle[] })
                 >
                   <SecurityLogo securityId={article.securityId} name={article.name} />
                   <Box sx={{ minWidth: 0, flex: 1, overflowWrap: "anywhere" }}>
-                    <Typography variant="body2" color="text.secondary">
-                      {article.name}
-                    </Typography>
+                    <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", columnGap: 1, rowGap: 0.5 }}>
+                      <Typography variant="body2" color="text.secondary" component="span">
+                        {article.name}
+                      </Typography>
+                      <NewsContext context={context?.[article.securityId]} />
+                    </Box>
                     <Typography variant="body1" sx={{ fontWeight: 500 }}>
                       {article.title}
                     </Typography>

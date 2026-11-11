@@ -26,6 +26,7 @@ beforeEach(async () => {
   vi.useFakeTimers({ now: new Date("2026-10-26T10:00:00.000Z"), toFake: ["Date"] });
   await prisma.newsArticle.deleteMany();
   await prisma.newsFetch.deleteMany();
+  await prisma.price.deleteMany();
   await prisma.transaction.deleteMany();
   await prisma.depot.deleteMany();
   await prisma.security.deleteMany();
@@ -106,8 +107,9 @@ describe("News page", () => {
       "SAP hebt Prognose an",
     ]);
     const text = renderText(tree);
-    expect(text).toContain("Siemens AG Siemens baut Werk aus Beispiel Zeitung · 26.10.2026");
-    expect(text).toContain("SAP SE SAP hebt Prognose an Beispiel Zeitung · 25.10.2026");
+    // Held Securities carry the "im Depot" chip; with only the BUY price there is no change today.
+    expect(text).toContain("Siemens AG im Depot Siemens baut Werk aus Beispiel Zeitung · 26.10.2026");
+    expect(text).toContain("SAP SE im Depot SAP hebt Prognose an Beispiel Zeitung · 25.10.2026");
     expect(text).not.toContain("drei Wochen");
     const html = renderHtml(tree);
     expect(html).toContain('href="https://news.example.com/siemens" target="_blank" rel="noopener noreferrer"');
@@ -159,6 +161,24 @@ describe("News page", () => {
       "SAP hebt Prognose an",
     ]);
     expect(renderText(tree)).toContain("Nachrichten werden aktualisiert …");
+  });
+
+  it("passes the Security context (held flag, change today) of each listed Security to the list", async () => {
+    const { sap, siemens } = await seed();
+    await prisma.price.createMany({
+      data: [
+        { securityId: sap, date: "2026-10-23", source: "PROVIDER", price: "100", fetchedAt: "2026-10-23T18:00:00.000Z" },
+        { securityId: sap, date: "2026-10-26", source: "PROVIDER", price: "101.8", fetchedAt: "2026-10-26T09:00:00.000Z" },
+      ],
+    });
+
+    const tree = await render();
+
+    expect(findElement(tree, NewsList)?.props.context).toEqual({
+      [sap]: { held: true, changeToday: "0.018", stale: false, priceDate: "2026-10-26" },
+      [siemens]: { held: true, changeToday: null, stale: false, priceDate: null },
+    });
+    expect(renderText(tree)).toContain("SAP SE im Depot +1,80\u00a0% heute SAP hebt Prognose an");
   });
 
   it("lists all headlines for an unknown security parameter", async () => {

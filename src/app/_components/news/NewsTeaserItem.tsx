@@ -8,16 +8,26 @@ import Link from "@mui/material/Link";
 import ListItemButton from "@mui/material/ListItemButton";
 import Typography from "@mui/material/Typography";
 import { useId, useState } from "react";
-import type { NewsListArticle } from "@/modules/news";
+import type { NewsListArticle, NewsSecurityContext } from "@/modules/news";
 import { SecurityLogo } from "../securities/SecurityLogo";
+import { NewsContext } from "./NewsContext";
 import { articleMeta, NEW_TAB_HINT, READ_ARTICLE_LABEL, TEASER_MARKER, visuallyHidden } from "./labels";
 
 /**
  * A news item with a teaser: a native button row (logo, name, headline, "<source> · dd.mm.yyyy" and the
  * "Kurztext" marker) toggling a region with the teaser, the meta line and a "Zum Artikel" link (new tab).
- * Click, Enter and Space toggle it (native button); several items may be open at once.
+ * Click, Enter and Space toggle it (native button); several items may be open at once. `context` adds the
+ * "im Depot" chip and the change today next to the name (story 12.1).
  */
-export function NewsTeaserItem({ article, teaser }: { article: NewsListArticle; teaser: string }) {
+export function NewsTeaserItem({
+  article,
+  teaser,
+  context,
+}: {
+  article: NewsListArticle;
+  teaser: string;
+  context?: NewsSecurityContext;
+}) {
   const [open, setOpen] = useState(false);
   const id = useId();
   const buttonId = `${id}-button`;
@@ -36,9 +46,12 @@ export function NewsTeaserItem({ article, teaser }: { article: NewsListArticle; 
       >
         <SecurityLogo securityId={article.securityId} name={article.name} />
         <Box sx={{ minWidth: 0, flex: 1, overflowWrap: "anywhere" }}>
-          <Typography variant="body2" color="text.secondary">
-            {article.name}
-          </Typography>
+          <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", columnGap: 1, rowGap: 0.5 }}>
+            <Typography variant="body2" color="text.secondary" component="span">
+              {article.name}
+            </Typography>
+            <NewsContext context={context} />
+          </Box>
           <Typography variant="body1" sx={{ fontWeight: 500 }}>
             {article.title}
           </Typography>
