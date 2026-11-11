@@ -230,18 +230,39 @@ export function refreshNews(options: RefreshNewsOptions = {}, db: NewsDb = prism
   });
 }
 
+/** Which Securities the news list covers: held and watched, only held, or only watched. */
+export const NEWS_SCOPES = ["all", "held", "watched"] as const;
+export type NewsScope = (typeof NEWS_SCOPES)[number];
+
+export type ListNewsOptions = {
+  /** Ids of Securities on any watchlist; absent lists the held Securities only (the Overview). */
+  watched?: readonly string[];
+  /** Default `all`; ignored without `watched`. */
+  scope?: NewsScope;
+};
+
 /**
- * Cached headlines of the held Securities within the 14-day window ending `today`, newest first (tie: title),
- * optionally of one held Security (an unknown or non-held id lists all), plus the held Securities (name, de-DE).
+ * Cached headlines within the 14-day window ending `today`, newest first (tie: title), of the held
+ * Securities and — with `options.watched` — the watched ones, narrowed by `options.scope` ("held": held
+ * only, "watched": on a watchlist, held or not). Optionally of one listed Security (an unknown or
+ * unlisted id lists all), plus the listed Securities (name, de-DE).
  */
-export async function listNews(today: string, securityId?: string, db: NewsDb = prisma): Promise<NewsListing> {
+export async function listNews(
+  today: string,
+  securityId?: string,
+  db: NewsDb = prisma,
+  options: ListNewsOptions = {},
+): Promise<NewsListing> {
   const held = new Set(await listHeldSecurities(today, db));
+  const watched = new Set(options.watched ?? []);
+  const scope: NewsScope = options.watched ? (options.scope ?? "all") : "held";
+  const listed = new Set(scope === "held" ? held : scope === "watched" ? watched : [...held, ...watched]);
   const securities = (await listSecurities(db))
-    .filter((security) => held.has(security.id))
+    .filter((security) => listed.has(security.id))
     .map(({ id, name }) => ({ id, name }))
     .sort((a, b) => a.name.localeCompare(b.name, "de-DE"));
   const names = new Map(securities.map((security) => [security.id, security.name]));
-  const filter = securityId !== undefined && held.has(securityId) ? [securityId] : [...held];
+  const filter = securityId !== undefined && names.has(securityId) ? [securityId] : [...names.keys()];
   const rows = await db.newsArticle.findMany({
     where: { securityId: { in: filter } },
     select: { id: true, securityId: true, title: true, url: true, source: true, publishedAt: true, teaser: true },

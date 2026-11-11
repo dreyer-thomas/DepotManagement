@@ -5,6 +5,7 @@ export {
   listSecurityNews,
   NEWS_MAX_AGE_HOURS,
   NEWS_PER_SECURITY_LIMIT,
+  NEWS_SCOPES,
   NEWS_WINDOW_DAYS,
   newsNeedsRefresh,
   newsSecurityContext,
@@ -12,6 +13,7 @@ export {
   YAHOO_RSS_SPACING_MS,
 } from "./news";
 export type {
+  ListNewsOptions,
   NewsDb,
   NewsDeps,
   NewsListArticle,
@@ -19,6 +21,7 @@ export type {
   NewsProvider,
   NewsRunFailure,
   NewsRunResult,
+  NewsScope,
   NewsSecurityContext,
   RefreshNewsOptions,
 } from "./news";

@@ -13,12 +13,14 @@ vi.mock("@/app/_actions/news", () => ({ refreshNewsAction: vi.fn() }));
 
 import { prisma } from "@/db";
 import { createDepot, ensureSecurity, recordTrade } from "@/modules/ledger";
+import { addWatchlistEntry, createWatchlist } from "@/modules/watchlist";
 import { NewsAutoRefresh } from "../../_components/news/NewsAutoRefresh";
 import { NewsFilter } from "../../_components/news/NewsFilter";
 import { NewsList } from "../../_components/news/NewsList";
 import NewsPage from "./page";
 
-const render = (security?: string) => NewsPage({ searchParams: Promise.resolve(security ? { security } : {}) });
+const render = (security?: string, scope?: string) =>
+  NewsPage({ searchParams: Promise.resolve({ ...(security ? { security } : {}), ...(scope ? { scope } : {}) }) });
 
 beforeEach(async () => {
   vi.stubGlobal("fetch", fetchSpy);
@@ -30,6 +32,7 @@ beforeEach(async () => {
   await prisma.transaction.deleteMany();
   await prisma.depot.deleteMany();
   await prisma.security.deleteMany();
+  await prisma.watchlist.deleteMany();
 });
 
 afterAll(async () => {
@@ -101,6 +104,7 @@ describe("News page", () => {
         { id: siemens, name: "Siemens AG" },
       ],
       selected: undefined,
+      scope: "all",
     });
     expect((findElement(tree, NewsList)?.props.articles as { title: string }[]).map((a) => a.title)).toEqual([
       "Siemens baut Werk aus",
@@ -179,6 +183,42 @@ describe("News page", () => {
       [siemens]: { held: true, changeToday: null, stale: false, priceDate: null },
     });
     expect(renderText(tree)).toContain("SAP SE im Depot +1,80\u00a0% heute SAP hebt Prognose an");
+  });
+
+  it("adds watched Securities and narrows them with the scope toggle (Alle · Depot · Watchlist)", async () => {
+    const { sap } = await seed();
+    const idea = await ensureSecurity({ isin: "US0378331005" }, { name: "Apple Inc.", assetType: "STOCK" });
+    if (!idea.ok) throw new Error("setup failed");
+    const list = await createWatchlist({ name: "Ideen" });
+    if (!list.ok) throw new Error("setup failed");
+    for (const id of [idea.security.id, sap]) {
+      const entry = await addWatchlistEntry({ watchlistId: list.watchlist.id, security: { id } }, "2026-10-26");
+      if (!entry.ok) throw new Error("setup failed");
+    }
+    await prisma.newsArticle.create({
+      data: {
+        securityId: idea.security.id,
+        title: "Apple stellt vor",
+        url: "https://news.example.com/apple",
+        source: "Beispiel Zeitung",
+        publishedAt: "2026-10-26T07:00:00.000Z",
+        provider: "GOOGLE_NEWS",
+        fetchedAt: "2026-10-26T09:00:00.000Z",
+      },
+    });
+    const titles = (tree: unknown) => (findElement(tree, NewsList)?.props.articles as { title: string }[]).map((a) => a.title);
+
+    const all = await render();
+    expect(titles(all)).toEqual(["Apple stellt vor", "Siemens baut Werk aus", "SAP hebt Prognose an"]);
+    expect(findElement(all, NewsFilter)?.props.scope).toBe("all");
+    expect(renderText(all)).toContain("Alle Depot Watchlist");
+
+    expect(titles(await render(undefined, "held"))).toEqual(["Siemens baut Werk aus", "SAP hebt Prognose an"]);
+    const watched = await render(undefined, "watched");
+    expect(titles(watched)).toEqual(["Apple stellt vor", "SAP hebt Prognose an"]);
+    expect((findElement(watched, NewsFilter)?.props.securities as { name: string }[]).map((s) => s.name)).toEqual(["Apple Inc.", "SAP SE"]);
+    // An unknown scope falls back to "all".
+    expect(findElement(await render(undefined, "bogus"), NewsFilter)?.props.scope).toBe("all");
   });
 
   it("lists all headlines for an unknown security parameter", async () => {

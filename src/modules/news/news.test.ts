@@ -227,7 +227,7 @@ describe("refreshNews", () => {
     expect(stale.calls).toHaveLength(0);
     expect(await db().newsArticle.count({ where: { securityId: watchedId } })).toBe(cached);
 
-    // The news page stays held-only; the detail page lists the watched Security's own articles.
+    // Without `watched` the listing stays held-only (Overview); the detail page lists the watched Security's own articles.
     expect((await listNews(TODAY, undefined, db())).securities.map((security) => security.id)).toEqual([sap]);
     expect((await listNews(TODAY, undefined, db())).articles.every((article) => article.securityId === sap)).toBe(true);
     expect(await listSecurityNews(TODAY, watchedId, db())).toHaveLength(cached);
@@ -493,6 +493,29 @@ describe("listNews / newsNeedsRefresh", () => {
     expect((await listNews(TODAY, sap, db())).articles.map((article) => article.title)).toEqual(["A SAP gleichzeitig", "B SAP neu"]);
     expect((await listNews(TODAY, idle, db())).articles).toHaveLength(4);
     expect((await listNews(TODAY, "unknown", db())).articles).toHaveLength(4);
+  });
+
+  it("adds watched Securities with `watched`, narrowed by scope (held · watched · all)", async () => {
+    const { sap, siemens, idle } = await seed();
+    const names = (listing: { securities: { name: string }[] }) => listing.securities.map((security) => security.name);
+    const titles = (listing: { articles: { title: string }[] }) => listing.articles.map((article) => article.title);
+
+    const all = await listNews(TODAY, undefined, db(), { watched: [idle, sap] });
+    expect(names(all)).toEqual(["Apple Inc.", "SAP SE", "Siemens AG"]);
+    expect(titles(all)).toEqual(["Apple nicht gehalten", "Siemens heute", "A SAP gleichzeitig", "B SAP neu", "Siemens Fensterbeginn"]);
+
+    const held = await listNews(TODAY, undefined, db(), { watched: [idle, sap], scope: "held" });
+    expect(names(held)).toEqual(["SAP SE", "Siemens AG"]);
+    expect(titles(held)).not.toContain("Apple nicht gehalten");
+
+    // "watched" means on a watchlist, held or not.
+    const watched = await listNews(TODAY, undefined, db(), { watched: [idle, sap], scope: "watched" });
+    expect(names(watched)).toEqual(["Apple Inc.", "SAP SE"]);
+    expect(titles(watched)).toEqual(["Apple nicht gehalten", "A SAP gleichzeitig", "B SAP neu"]);
+
+    // A Security outside the scope is not a valid filter: the whole scope is listed.
+    expect(titles(await listNews(TODAY, idle, db(), { watched: [idle], scope: "all" }))).toEqual(["Apple nicht gehalten"]);
+    expect(titles(await listNews(TODAY, siemens, db(), { watched: [idle], scope: "watched" }))).toEqual(["Apple nicht gehalten"]);
   });
 
   it("listSecurityNews lists one Security's window articles, held or not; unknown id is empty", async () => {

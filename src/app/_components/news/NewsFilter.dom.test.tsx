@@ -18,9 +18,9 @@ const securities = [
 beforeEach(() => push.mockReset());
 
 describe("NewsFilter", () => {
-  it("offers all held Securities and navigates to the filtered page", async () => {
+  it("offers the listed Securities and navigates to the filtered page", async () => {
     const user = userEvent.setup({ delay: null });
-    render(<NewsFilter securities={securities} selected={undefined} />);
+    render(<NewsFilter securities={securities} selected={undefined} scope="all" />);
     const select = screen.getByRole("combobox", { name: "Wertpapier" });
     expect(select.textContent).toBe("Alle Wertpapiere");
     await user.click(select);
@@ -35,7 +35,7 @@ describe("NewsFilter", () => {
 
   it("shows the selected Security and goes back to all", async () => {
     const user = userEvent.setup({ delay: null });
-    render(<NewsFilter securities={securities} selected="s1" />);
+    render(<NewsFilter securities={securities} selected="s1" scope="all" />);
     const select = screen.getByRole("combobox", { name: "Wertpapier" });
     expect(select.textContent).toBe("SAP SE");
     await user.click(select);
@@ -44,7 +44,35 @@ describe("NewsFilter", () => {
   });
 
   it("treats an unknown selection as all", () => {
-    render(<NewsFilter securities={securities} selected="unknown" />);
+    render(<NewsFilter securities={securities} selected="unknown" scope="all" />);
     expect(screen.getByRole("combobox", { name: "Wertpapier" }).textContent).toBe("Alle Wertpapiere");
+  });
+
+  it("keeps the scope when picking a Security", async () => {
+    const user = userEvent.setup({ delay: null });
+    render(<NewsFilter securities={securities} selected={undefined} scope="watched" />);
+    await user.click(screen.getByRole("combobox", { name: "Wertpapier" }));
+    await user.click(await screen.findByRole("option", { name: "SAP SE" }));
+    expect(push).toHaveBeenCalledWith("/news?scope=watched&security=s1");
+  });
+
+  it("switches the scope Alle · Depot · Watchlist and resets the Security", async () => {
+    const user = userEvent.setup({ delay: null });
+    render(<NewsFilter securities={securities} selected="s1" scope="all" />);
+    const group = screen.getByRole("group", { name: "Nachrichten zeigen für" });
+    expect(screen.getByRole("button", { name: "Alle" }).getAttribute("aria-pressed")).toBe("true");
+    expect(group.textContent).toBe("AlleDepotWatchlist");
+    await user.click(screen.getByRole("button", { name: "Watchlist" }));
+    expect(push).toHaveBeenLastCalledWith("/news?scope=watched");
+    await user.click(screen.getByRole("button", { name: "Depot" }));
+    expect(push).toHaveBeenLastCalledWith("/news?scope=held");
+    await user.click(screen.getByRole("button", { name: "Alle" }));
+    expect(push).toHaveBeenCalledTimes(2);
+  });
+
+  it("hides the Security select when the scope lists none", () => {
+    render(<NewsFilter securities={[]} selected={undefined} scope="watched" />);
+    expect(screen.queryByRole("combobox", { name: "Wertpapier" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Watchlist" }).getAttribute("aria-pressed")).toBe("true");
   });
 });

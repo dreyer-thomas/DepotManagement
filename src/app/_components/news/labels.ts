@@ -38,7 +38,14 @@ export function articleMeta(source: string, publishedAt: string): string {
   return `${source} · ${formatDate(businessDate(new Date(publishedAt)))}`;
 }
 
-/** The news page URL, filtered to one Security or unfiltered. */
-export function newsHref(securityId: string | undefined): string {
-  return securityId ? `/news?security=${encodeURIComponent(securityId)}` : "/news";
+/** Labels of the scope toggle (Alle · Depot · Watchlist). */
+export const NEWS_SCOPE_LABELS = { all: "Alle", held: "Depot", watched: "Watchlist" } as const;
+
+/** The news page URL: optionally one Security and a scope other than "all". */
+export function newsHref(securityId: string | undefined, scope: keyof typeof NEWS_SCOPE_LABELS = "all"): string {
+  const params = [
+    ...(scope === "all" ? [] : [`scope=${scope}`]),
+    ...(securityId ? [`security=${encodeURIComponent(securityId)}`] : []),
+  ];
+  return params.length > 0 ? `/news?${params.join("&")}` : "/news";
 }
