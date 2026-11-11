@@ -9,6 +9,7 @@ import { PageTitle } from "@/app/_components/Placeholder";
 import { CreateWatchlistButton, DeleteWatchlistButton, RenameWatchlistButton } from "@/app/_components/watchlists/WatchlistDialogs";
 import { AddWatchlistEntryButton } from "@/app/_components/watchlists/WatchlistEntryDialog";
 import type { PriceMarksEditInfo } from "@/app/_components/price-marks/PriceMarkFields";
+import type { PriceMarkBreachInfo } from "@/app/_components/price-marks/PriceMarkWarning";
 import { analystsSummary } from "@/app/_components/security-detail/labels";
 import { type WatchlistKeyFigures, WatchlistTable } from "@/app/_components/watchlists/WatchlistTable";
 import { WatchlistTabs } from "@/app/_components/watchlists/WatchlistTabs";
@@ -70,7 +71,11 @@ export default async function WatchlistsPage({ searchParams }: Props) {
   }
   // "Eintrag bearbeiten" (story 12.2): the marks, the latest Price they are checked against, the analyst mean target.
   const priceMarks: Record<string, PriceMarksEditInfo> = {};
+  // Story 12.4: the warning icon of a breached mark, from the same core state.
+  const breaches: Record<string, PriceMarkBreachInfo> = {};
   for (const securityId of securityIds) {
+    const state = marks[securityId]?.state;
+    if (state && state.breached !== "none" && state.priceDate !== null) breaches[securityId] = { breach: state.breached, priceDate: state.priceDate };
     const target = figures[securityId]?.snapshot?.analysts?.target;
     priceMarks[securityId] = {
       marks: marks[securityId]?.marks ?? null,
@@ -105,6 +110,7 @@ export default async function WatchlistsPage({ searchParams }: Props) {
         today={today}
         keyFigures={keyFigures}
         priceMarks={priceMarks}
+        breaches={breaches}
         initialColumns={parseWatchlistColumns(cookieStore.get(WATCHLIST_COLUMNS_COOKIE)?.value)}
       />
     </>

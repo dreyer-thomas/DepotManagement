@@ -12,6 +12,7 @@ import { COMPOSITION_LABELS, compositionHoldings } from "@/app/_components/compo
 import { CreateDepotButton } from "@/app/_components/depots/DepotDialogs";
 import { AppLink } from "@/app/_components/depots/DepotLink";
 import { ParqetMigrationLink } from "@/app/_components/migration/ParqetMigrationLink";
+import { BreachedMarks } from "@/app/_components/overview/BreachedMarks";
 import { DepotPerformance, type DepotPerformanceRow } from "@/app/_components/overview/DepotPerformance";
 import { LATEST_NEWS, LatestNews } from "@/app/_components/overview/LatestNews";
 import { type DepotPosition, topPositions } from "@/app/_components/overview/labels";
@@ -26,6 +27,7 @@ import { compositionByAssetType, compositionByDepot, compositionByPosition } fro
 import { businessDate } from "@/core/dates";
 import { periodLabel } from "@/core/period";
 import { benchmarkLines, listDepots, listPositions, listSecurities, portfolioValuation, valuationSummary } from "@/modules/ledger";
+import { breachedPriceMarks } from "@/modules/marks";
 import { listNews } from "@/modules/news";
 import { latestStoredPrices, securityPriceInfo, storedPriceHistory } from "@/modules/prices";
 
@@ -97,9 +99,11 @@ export default async function OverviewPage() {
   const today = businessDate(new Date());
   const period = await readPeriod(today);
   const label = periodLabel(period);
-  const [portfolio, securities] = await Promise.all([
+  const [portfolio, securities, breached] = await Promise.all([
     portfolioValuation(period, today, undefined, { storedPrices: storedPriceHistory }),
     listSecurities(),
+    // Story 12.4: every Security whose stop or target is crossed (core state, nothing stored).
+    breachedPriceMarks(today),
   ]);
   const rows: DepotPerformanceRow[] = portfolio.depots.map(({ id, name, valuation }) => ({
     id,
@@ -112,11 +116,13 @@ export default async function OverviewPage() {
   const dialogDepots = portfolio.depots.map(({ id, name }) => ({ id, name }));
   const fab = <NewTransactionFab depots={dialogDepots} securities={securities} today={today} />;
   const depotsCard = <DepotPerformance rows={rows} periodLabel={label} />;
+  const breachedCard = breached.length > 0 ? <BreachedMarks items={breached} /> : null;
 
   if (!portfolio.hasTransactions) {
     return (
       <>
         <Header />
+        {breachedCard}
         <Message>
           <Typography>Noch keine Buchungen.</Typography>
         </Message>
@@ -174,6 +180,7 @@ export default async function OverviewPage() {
         <PeriodSelector period={period} today={today} />
       </Header>
       <StaleAlert count={staleCount} />
+      {breachedCard}
       <ValueSummary
         label="Portfoliowert"
         value={summary.value}

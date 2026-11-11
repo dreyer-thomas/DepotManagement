@@ -41,6 +41,7 @@ import { SecurityLink } from "../security-detail/SecurityLink";
 import { securityHref } from "../security-detail/labels";
 import { SecurityLogo } from "../securities/SecurityLogo";
 import type { PriceMarksEditInfo } from "../price-marks/PriceMarkFields";
+import { type PriceMarkBreachInfo, PriceMarkWarning } from "../price-marks/PriceMarkWarning";
 import { EditWatchlistEntryDialog, type EditableWatchlistEntry } from "./WatchlistEntryDialog";
 import { HELD_LABEL, initialWatchlistSortDirection, VIA_CLAUDE_LABEL, WATCHLIST_SORT_LABELS } from "./labels";
 import { storeWatchlistColumns, WATCHLIST_COLUMN_KEYS, type WatchlistColumnKey } from "./watchlist-cookie";
@@ -105,8 +106,8 @@ function Chips({ entry }: { entry: WatchlistEntryView }) {
   );
 }
 
-/** Logo, name (link to the Security detail), ISIN / symbol and the chips. */
-function SecurityCell({ entry }: { entry: WatchlistEntryView }) {
+/** Logo, name (link to the Security detail) with the warning icon of a breached mark, ISIN / symbol and the chips. */
+function SecurityCell({ entry, breach }: { entry: WatchlistEntryView; breach?: PriceMarkBreachInfo }) {
   return (
     <Stack direction="row" spacing={1.5} sx={{ alignItems: "center", minWidth: 0 }}>
       <SecurityLogo securityId={entry.security.id} name={entry.security.name} />
@@ -115,6 +116,12 @@ function SecurityCell({ entry }: { entry: WatchlistEntryView }) {
           <SecurityLink securityId={entry.security.id} stopPropagation>
             {entry.security.name}
           </SecurityLink>
+          {breach ? (
+            <>
+              {" "}
+              <PriceMarkWarning info={breach} />
+            </>
+          ) : null}
         </Typography>
         <Typography component="span" variant="caption" color="text.secondary">
           {entry.security.isin ?? entry.security.cryptoSymbol ?? ""}
@@ -219,10 +226,12 @@ function DesktopTable({
   onEdit,
   columns,
   keyFigures,
+  breaches,
 }: {
   rows: WatchlistEntryView[];
   columns: readonly WatchlistColumnKey[];
   keyFigures: Readonly<Record<string, WatchlistKeyFigures>>;
+  breaches: Readonly<Record<string, PriceMarkBreachInfo>>;
   sort: WatchlistSort;
   onSort: (key: WatchlistSortKey) => void;
   onOpen: (entry: WatchlistEntryView) => void;
@@ -270,7 +279,7 @@ function DesktopTable({
           {rows.map((entry) => (
             <TableRow key={entry.id} data-entry-row="" onClick={() => onOpen(entry)} sx={{ ...rowLink, "& td": { py: 1 } }}>
               <TableCell>
-                <SecurityCell entry={entry} />
+                <SecurityCell entry={entry} breach={breaches[entry.securityId]} />
               </TableCell>
               <TableCell sx={numeric}>
                 <Price entry={entry} />
@@ -311,10 +320,12 @@ function PhoneList({
   onEdit,
   columns,
   keyFigures,
+  breaches,
 }: {
   rows: WatchlistEntryView[];
   columns: readonly WatchlistColumnKey[];
   keyFigures: Readonly<Record<string, WatchlistKeyFigures>>;
+  breaches: Readonly<Record<string, PriceMarkBreachInfo>>;
   sort: WatchlistSort;
   onChange: (sort: WatchlistSort) => void;
   onOpen: (entry: WatchlistEntryView) => void;
@@ -361,7 +372,7 @@ function PhoneList({
             >
               <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                 <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <SecurityCell entry={entry} />
+                  <SecurityCell entry={entry} breach={breaches[entry.securityId]} />
                 </Box>
                 <EditButton entry={entry} onEdit={onEdit} />
               </Box>
@@ -408,6 +419,7 @@ export function WatchlistTable({
   initialSort = DEFAULT_WATCHLIST_SORT,
   keyFigures = {},
   priceMarks = {},
+  breaches = {},
   initialColumns = [],
 }: {
   entries: WatchlistEntryView[];
@@ -419,6 +431,8 @@ export function WatchlistTable({
   keyFigures?: Readonly<Record<string, WatchlistKeyFigures>>;
   /** Price marks, latest Price and analyst target per Security id for "Eintrag bearbeiten" (story 12.2). */
   priceMarks?: Readonly<Record<string, PriceMarksEditInfo>>;
+  /** Breached marks per Security id (story 12.4, from the core state): warning icon at the name. */
+  breaches?: Readonly<Record<string, PriceMarkBreachInfo>>;
   /** The optional columns shown at first (from the cookie). */
   initialColumns?: readonly WatchlistColumnKey[];
 }) {
@@ -460,8 +474,8 @@ export function WatchlistTable({
       <Stack direction="row" sx={{ justifyContent: "flex-end", mb: 0.5 }}>
         <ColumnMenu columns={columns} onToggle={toggleColumn} />
       </Stack>
-      <DesktopTable rows={rows} sort={sort} onSort={onSort} onOpen={open} onEdit={edit} columns={columns} keyFigures={keyFigures} />
-      <PhoneList rows={rows} sort={sort} onChange={setSort} onOpen={open} onEdit={edit} columns={columns} keyFigures={keyFigures} />
+      <DesktopTable rows={rows} sort={sort} onSort={onSort} onOpen={open} onEdit={edit} columns={columns} keyFigures={keyFigures} breaches={breaches} />
+      <PhoneList rows={rows} sort={sort} onChange={setSort} onOpen={open} onEdit={edit} columns={columns} keyFigures={keyFigures} breaches={breaches} />
       <EditWatchlistEntryDialog
         open={editOpen}
         onClose={() => setEditOpen(false)}

@@ -35,6 +35,7 @@ import {
   type RecordTransactionInput,
 } from "@/modules/ledger";
 import { hasValidIsinCheckDigit } from "@/modules/ledger/securities";
+import { setPriceMarks } from "@/modules/marks";
 import { latestStoredPrices, storedPriceHistory } from "@/modules/prices";
 import { CompositionCard, type CompositionCardProps } from "../../_components/composition/CompositionCard";
 import { CreateDepotButton } from "../../_components/depots/DepotDialogs";
@@ -69,6 +70,7 @@ beforeEach(async () => {
   await prisma.newsArticle.deleteMany();
   await prisma.newsFetch.deleteMany();
   await prisma.price.deleteMany();
+  await prisma.priceMark.deleteMany();
   await prisma.corporateAction.deleteMany();
   await prisma.transaction.deleteMany();
   await prisma.security.deleteMany();
@@ -451,6 +453,60 @@ describe("Overview page", () => {
         ["Guthaben", "900"],
       ],
     ]);
+  });
+
+  it("lists breached marks in 'Kursmarken erreicht' after the stale Alert and before the hero", async () => {
+    const a = await depot("Hauptdepot");
+    const sap = await security("DE0007164600", "SAP SE");
+    const watched = await security("US0378331005", "Apple Inc.");
+    await book({ depotId: a, type: "DEPOSIT", date: "2026-01-02", amount: "1000" });
+    await buy(a, sap, "2026-10-01", "1", "100");
+    const prices = [
+      { securityId: sap, date: addDays(TODAY, -1), price: "85" },
+      { securityId: watched, date: addDays(TODAY, -1), price: "125" },
+    ];
+    for (const p of prices) {
+      await prisma.price.create({ data: { ...p, source: "PROVIDER", fetchedAt: `${p.date}T18:00:00.000Z` } });
+    }
+    expect((await setPriceMarks(sap, { stop: { type: "FIXED", value: "90", setDate: "2026-10-01" } }, TODAY)).ok).toBe(true);
+    expect((await setPriceMarks(watched, { target: { price: "120", setDate: "2026-10-01" } }, TODAY)).ok).toBe(true);
+    const html = renderHtml(await OverviewPage());
+    const card = html.indexOf('id="overview-breached-marks"');
+    expect(card).toBeGreaterThan(0);
+    expect(card).toBeLessThan(html.indexOf('aria-label="Portfoliowert"'));
+    const marks = text(section(html, 'id="overview-breached-marks"', 'aria-label="Portfoliowert"'));
+    expect(marks).toContain(
+      ">Kursmarken erreicht AI Apple Inc. Ziel erreicht · Kurs vom 25.10.2026 Ziel · 120,00 € · -4,0 % Letzter Kurs 125,00 € " +
+        "SS SAP SE Stopp unterschritten · Kurs vom 25.10.2026 im Depot Stopp · 90,00 € · +5,9 % Letzter Kurs 85,00 €",
+    );
+    expect(html).toContain(`href="/securities/${sap}"`);
+    expect(html).toContain(`href="/securities/${watched}"`);
+
+    // Price back above the stop, target cleared: the card is gone.
+    await prisma.price.create({ data: { securityId: sap, date: TODAY, source: "PROVIDER", price: "95", fetchedAt: `${TODAY}T18:00:00.000Z` } });
+    expect((await setPriceMarks(watched, { target: null }, TODAY)).ok).toBe(true);
+    const after = renderHtml(await OverviewPage());
+    expect(after).not.toContain("Kursmarken erreicht");
+  });
+
+  it("has no 'Kursmarken erreicht' card when no mark is breached", async () => {
+    const a = await depot("Hauptdepot");
+    const sap = await security("DE0007164600", "SAP SE");
+    await book({ depotId: a, type: "DEPOSIT", date: "2026-01-02", amount: "1000" });
+    await buy(a, sap, addDays(TODAY, -1), "1", "100");
+    expect((await setPriceMarks(sap, { stop: { type: "FIXED", value: "90" }, target: { price: "120" } }, TODAY)).ok).toBe(true);
+    expect(renderText(await OverviewPage())).not.toContain("Kursmarken erreicht");
+  });
+
+  it("shows 'Kursmarken erreicht' also before the first Transaction", async () => {
+    await depot("Hauptdepot");
+    const watched = await security("US0378331005", "Apple Inc.");
+    await prisma.price.create({ data: { securityId: watched, date: addDays(TODAY, -1), source: "PROVIDER", price: "125", fetchedAt: `${TODAY}T08:00:00.000Z` } });
+    expect((await setPriceMarks(watched, { target: { price: "120" } }, TODAY)).ok).toBe(true);
+    const html = renderHtml(await OverviewPage());
+    const card = html.indexOf('id="overview-breached-marks"');
+    expect(card).toBeGreaterThan(0);
+    expect(card).toBeLessThan(html.indexOf("Noch keine Buchungen."));
   });
 
   it("has no stale Alert when every held price is fresh", async () => {

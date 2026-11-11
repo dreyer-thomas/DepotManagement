@@ -106,3 +106,6 @@ export function markMetaText(mark: { source: string | null; setDate: string }): 
 export function breachPillText(breach: "stop" | "target", priceDate: string): string {
   return `${breach === "stop" ? "Stopp unterschritten" : "Ziel erreicht"}${SEPARATOR}Kurs vom ${formatDate(priceDate)}`;
 }
+
+/** Dashboard card (story 12.4) listing every Security whose marks are breached. */
+export const BREACHED_MARKS_HEADING = "Kursmarken erreicht";

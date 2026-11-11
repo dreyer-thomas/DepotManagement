@@ -16,7 +16,7 @@ import {
   type TargetMark,
 } from "@/core/price-marks";
 import { currentSecurityId } from "@/core/security";
-import { getSecurity, securityPriceObservations } from "@/modules/ledger";
+import { getSecurity, listHeldSecurities, listSecurities, securityPriceObservations } from "@/modules/ledger";
 import { storedPriceHistory } from "@/modules/prices";
 
 /** Prisma client or interactive-transaction client; the service accepts either. */
@@ -139,6 +139,40 @@ export async function priceMarksView(
     view[id] = { marks, state: priceMarkState(marks ?? { securityId: id, stop: null, target: null }, observations, actions, today) };
   }
   return view;
+}
+
+/** A Security whose marks are breached as of today (story 12.4), as the dashboard and the lists show it. */
+export type BreachedPriceMark = {
+  securityId: string;
+  name: string;
+  /** Held in a non-archived Depot as of today (`listHeldSecurities`). */
+  held: boolean;
+  marks: PriceMarks;
+  state: PriceMarkState & { breached: "stop" | "target" };
+};
+
+/**
+ * Every Security whose marks are breached as of `today`: each PriceMark row's Security mapped to the
+ * Security it is today (`currentSecurityId`, ISIN successor), its state from `priceMarksView` (never a
+ * comparison of its own), kept when `breached` is not `none`; sorted by name (de-DE), then id. Read-only, no provider
+ * call, nothing stored.
+ */
+export async function breachedPriceMarks(today: string, db: MarksDb = prisma): Promise<BreachedPriceMark[]> {
+  const rows = await db.priceMark.findMany({ select: { securityId: true } });
+  if (rows.length === 0) return [];
+  const actions = await loadActions(today, db);
+  const ids = [...new Set(rows.map((row) => currentSecurityId(row.securityId, actions, today)))];
+  const [view, securities, held] = await Promise.all([priceMarksView(ids, today, db), listSecurities(db), listHeldSecurities(today, db)]);
+  const names = new Map(securities.map((security) => [security.id, security.name]));
+  const heldSet = new Set(held);
+  const items: BreachedPriceMark[] = [];
+  for (const id of ids) {
+    const { marks, state } = view[id];
+    const name = names.get(id);
+    if (marks === null || name === undefined || state.breached === "none") continue;
+    items.push({ securityId: id, name, held: heldSet.has(id), marks, state: { ...state, breached: state.breached } });
+  }
+  return items.sort((a, b) => a.name.localeCompare(b.name, "de-DE") || (a.securityId < b.securityId ? -1 : a.securityId > b.securityId ? 1 : 0));
 }
 
 /**

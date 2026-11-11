@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createTestDatabase, type TestDatabase } from "../../../test/helpers/test-db";
-import { ensureSecurity, recordIsinChange, recordSplit } from "@/modules/ledger";
-import { exportPriceMarks, getPriceMarks, priceMarkChartLines, priceMarksView, replaceAllPriceMarks, setPriceMarks } from "./index";
+import { createDepot, ensureSecurity, recordIsinChange, recordSplit, recordTrade } from "@/modules/ledger";
+import { breachedPriceMarks, exportPriceMarks, getPriceMarks, priceMarkChartLines, priceMarksView, replaceAllPriceMarks, setPriceMarks } from "./index";
 
 let testDb: TestDatabase;
 const db = () => testDb.client;
@@ -194,6 +194,76 @@ describe("priceMarkChartLines", () => {
     expect(state).toMatchObject({ stop: { effective: "45" }, target: { price: "75" } });
     // A chart ending before the ISIN change stays in the predecessor's units.
     expect(await priceMarkChartLines(oldId, "2026-10-01", "2026-10-10", TODAY, db())).toEqual({ stop: { kind: "fixed", value: "90" }, target: "150" });
+  });
+});
+
+describe("breachedPriceMarks", () => {
+  async function buy(securityId: string, date: string, priceValue: string) {
+    const depot = await createDepot({ name: "Hauptdepot", broker: "COMDIRECT" }, db());
+    if (!depot.ok) throw new Error("setup failed");
+    const trade = await recordTrade({ depotId: depot.depot.id, type: "BUY", date, quantity: "1", price: priceValue, security: { id: securityId } }, db());
+    if (!trade.ok) throw new Error("setup failed");
+  }
+
+  it("returns nothing without marks", async () => {
+    await security("DE0007164600", "SAP SE");
+    expect(await breachedPriceMarks(TODAY, db())).toEqual([]);
+  });
+
+  it("lists a breached stop (held) and a reached target (watched only), sorted by name", async () => {
+    const zeta = await security("DE0007164600", "Zeta AG");
+    const alpha = await security("DE000BASF111", "Alpha AG");
+    await buy(zeta, "2026-10-01", "100");
+    await price(zeta, "2026-11-10", "85");
+    await price(alpha, "2026-11-10", "125");
+    await set(zeta, { stop: { type: "FIXED", value: "90", setDate: "2026-10-01" } });
+    await set(alpha, { target: { price: "120", setDate: "2026-10-01" } });
+
+    const items = await breachedPriceMarks(TODAY, db());
+    expect(items.map((item) => [item.name, item.held, item.state.breached])).toEqual([
+      ["Alpha AG", false, "target"],
+      ["Zeta AG", true, "stop"],
+    ]);
+    expect(items[1]).toMatchObject({
+      securityId: zeta,
+      marks: { stop: { type: "FIXED", value: "90" }, target: null },
+      state: { price: "85", priceDate: "2026-11-10", stop: { effective: "90" } },
+    });
+  });
+
+  it("excludes marks that are not breached and marks without any Price", async () => {
+    const between = await security("DE0007164600", "Between AG");
+    const unpriced = await security("DE000BASF111", "Unpriced AG");
+    await price(between, "2026-11-10", "100");
+    await set(between, { stop: { type: "FIXED", value: "90" }, target: { price: "120" } });
+    await set(unpriced, { stop: { type: "FIXED", value: "90" }, target: { price: "120" } });
+    expect(await breachedPriceMarks(TODAY, db())).toEqual([]);
+  });
+
+  it("drops the item once the Price returns or the mark is cleared", async () => {
+    const sap = await security("DE0007164600", "SAP SE");
+    await price(sap, "2026-11-09", "85");
+    await set(sap, { stop: { type: "FIXED", value: "90", setDate: "2026-10-01" } });
+    expect(await breachedPriceMarks(TODAY, db())).toHaveLength(1);
+    await price(sap, "2026-11-10", "95");
+    expect(await breachedPriceMarks(TODAY, db())).toEqual([]);
+    await price(sap, "2026-11-11", "80");
+    expect(await breachedPriceMarks(TODAY, db())).toHaveLength(1);
+    await set(sap, { stop: null });
+    expect(await breachedPriceMarks(TODAY, db())).toEqual([]);
+  });
+
+  it("keys marks stored on an ISIN-change predecessor by the successor", async () => {
+    const oldId = await security("DE0007164600", "Alt AG");
+    const newId = await security("DE000A1EWWW0", "Neu AG");
+    await price(oldId, "2026-10-01", "100");
+    await price(newId, "2026-11-10", "40");
+    await set(oldId, { stop: { type: "FIXED", value: "90", setDate: "2026-10-01" } });
+    const change = await recordIsinChange({ oldSecurityId: oldId, newSecurity: { id: newId }, date: "2026-10-15", oldQuantity: "1", newQuantity: "2" }, db());
+    expect(change.ok).toBe(true);
+    const items = await breachedPriceMarks(TODAY, db());
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ securityId: newId, name: "Neu AG", state: { breached: "stop", stop: { effective: "45" } } });
   });
 });
 

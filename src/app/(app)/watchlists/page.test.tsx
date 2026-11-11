@@ -174,4 +174,20 @@ describe("Watchlists page", () => {
       },
     });
   });
+
+  it("passes the breached marks of the entries from the core state (story 12.4)", async () => {
+    const a = await list("A");
+    const sap = await ensureSecurity({ isin: "DE0007164600" }, { name: "SAP SE", assetType: "STOCK" });
+    const apple = await ensureSecurity({ isin: "US0378331005" }, { name: "Apple Inc.", assetType: "STOCK" });
+    if (!sap.ok || !apple.ok) throw new Error("setup failed");
+    const today = businessDate(new Date());
+    for (const security of [sap.security, apple.security]) {
+      expect((await addWatchlistEntry({ watchlistId: a, security: { id: security.id } }, today)).ok).toBe(true);
+      await prisma.price.create({ data: { securityId: security.id, date: today, source: "PROVIDER", price: "125", fetchedAt: new Date().toISOString() } });
+    }
+    expect((await setPriceMarks(sap.security.id, { target: { price: "120" } }, today)).ok).toBe(true);
+    expect((await setPriceMarks(apple.security.id, { target: { price: "130" } }, today)).ok).toBe(true);
+    const table = findElement(await page(), WatchlistTable);
+    expect(table?.props.breaches).toEqual({ [sap.security.id]: { breach: "target", priceDate: today } });
+  });
 });

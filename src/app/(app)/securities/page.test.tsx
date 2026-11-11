@@ -23,8 +23,11 @@ vi.mock("@/app/_actions/prices", () => ({
 }));
 
 import { prisma } from "@/db";
+import { businessDate } from "@/core/dates";
+import { formatDate } from "@/core/format";
 import { createDepot, ensureSecurity, recordTrade } from "@/modules/ledger";
 import { refreshClassifications, setAnalystSymbol, setManualClassification, setManualRegionSplit } from "@/modules/classification";
+import { setPriceMarks } from "@/modules/marks";
 import { setMapping } from "@/modules/prices";
 import { setTeilfreistellungOverride } from "@/modules/tax";
 import { addWatchlistEntry, createWatchlist } from "@/modules/watchlist";
@@ -41,6 +44,7 @@ beforeEach(async () => {
   await prisma.securityClassification.deleteMany();
   await prisma.teilfreistellungOverride.deleteMany();
   await prisma.price.deleteMany();
+  await prisma.priceMark.deleteMany();
   await prisma.providerMapping.deleteMany();
   await prisma.transaction.deleteMany();
   await prisma.depot.deleteMany();
@@ -105,6 +109,22 @@ describe("Securities page", () => {
     expect([...(findElement(tree, SecurityList)?.props.fetched as Set<string>)]).toEqual([msci.id]);
     expect(text).not.toContain("Kurs abrufen");
     expect(renderHtml(tree)).toMatch(/MuiChip-colorWarning[^>]*>(?:(?!<\/div>).)*Typ unbekannt/);
+  });
+
+  it("passes the breached marks (story 12.4) and shows the warning icon at the Security", async () => {
+    const breached = await security({ isin: "DE0007164600" }, "SAP", "STOCK");
+    const calm = await security({ isin: "US0378331005" }, "Apple", "STOCK");
+    const today = businessDate(new Date());
+    for (const id of [breached.id, calm.id]) {
+      await prisma.price.create({ data: { securityId: id, date: today, source: "PROVIDER", price: "85", fetchedAt: new Date().toISOString() } });
+    }
+    expect((await setPriceMarks(breached.id, { stop: { type: "FIXED", value: "90" } }, today)).ok).toBe(true);
+    expect((await setPriceMarks(calm.id, { stop: { type: "FIXED", value: "80" } }, today)).ok).toBe(true);
+    const tree = await SecuritiesPage();
+    expect(findElement(tree, SecurityList)?.props.breaches).toEqual({ [breached.id]: { breach: "stop", priceDate: today } });
+    const html = renderHtml(tree);
+    expect(html.match(/data-price-mark-warning/g)).toHaveLength(1);
+    expect(html).toContain(`aria-label="Stopp unterschritten · Kurs vom ${formatDate(today)}"`);
   });
 
   it("marks a Security only on watchlists with the Watchlist chip, a held one on a list not", async () => {

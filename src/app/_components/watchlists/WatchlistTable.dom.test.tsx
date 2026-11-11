@@ -185,6 +185,34 @@ describe("WatchlistTable", () => {
     expect(within(dialog).queryByRole("combobox", { name: "Stopp" })).toBeNull();
   });
 
+  it("shows a warning icon at an entry with a breached mark in both layouts (story 12.4)", () => {
+    const { container } = render(
+      <LogoProvider versions={{}}>
+        <WatchlistTable entries={[SAP, NEW]} lists={LISTS} today="2026-10-28" breaches={{ "s-e1": { breach: "target", priceDate: "2026-10-27" } }} />
+      </LogoProvider>,
+    );
+    const desktop = container.querySelector("table") as HTMLElement;
+    const phone = container.querySelector('ul[aria-label="Watchlist-Einträge"]') as HTMLElement;
+    for (const layout of [desktop, phone]) {
+      // One layout is hidden by its breakpoint display rule.
+      const icons = within(layout).getAllByRole("img", { name: "Ziel erreicht · Kurs vom 27.10.2026", hidden: true });
+      expect(icons).toHaveLength(1);
+      expect(icons[0].getAttribute("tabindex")).toBe("0");
+      expect(icons[0].closest(layout === desktop ? "tr" : "li")?.textContent).toContain("SAP SE");
+    }
+  });
+
+  it("does not open the Security detail when the warning icon is clicked", async () => {
+    const user = userEvent.setup({ delay: null });
+    const { container } = render(
+      <LogoProvider versions={{}}>
+        <WatchlistTable entries={[SAP]} lists={LISTS} today="2026-10-28" breaches={{ "s-e1": { breach: "stop", priceDate: "2026-10-27" } }} />
+      </LogoProvider>,
+    );
+    await user.click(within(container.querySelector("table") as HTMLElement).getByRole("img", { name: "Stopp unterschritten · Kurs vom 27.10.2026" }));
+    expect(push).not.toHaveBeenCalled();
+  });
+
   it("renders stacked rows for phones with the same entries", () => {
     const { container } = renderTable();
     const list = container.querySelector('ul[aria-label="Watchlist-Einträge"]') as HTMLElement;

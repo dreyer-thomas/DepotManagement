@@ -17,37 +17,12 @@ import {
   stopRowText,
   targetRowText,
 } from "@/app/_components/price-marks/labels";
+import { BreachPill } from "@/app/_components/price-marks/BreachPill";
 import type { PriceMarksEditInfo } from "@/app/_components/price-marks/PriceMarkFields";
 import { PriceMarksDialog } from "@/app/_components/price-marks/PriceMarksDialog";
 import type { PriceMarkState } from "@/core/price-marks";
 
 export const PRICE_MARKS_CARD_HEADING = "Kursmarken";
-
-/** Breach pill: text (never colour alone) in the stale-soft / stale colours, shaped like `StaleBadge`. */
-function BreachPill({ children }: { children: string }) {
-  return (
-    <Box
-      component="span"
-      data-breach-pill=""
-      sx={{
-        display: "inline-flex",
-        alignItems: "center",
-        px: 1,
-        py: 0.25,
-        borderRadius: 999,
-        fontSize: 12,
-        fontWeight: 600,
-        lineHeight: 1.4,
-        whiteSpace: "nowrap",
-        fontVariantNumeric: "tabular-nums",
-        bgcolor: "stale.soft",
-        color: "stale.main",
-      }}
-    >
-      {children}
-    </Box>
-  );
-}
 
 function MarkRow({ text, meta, pill }: { text: string; meta: string; pill: string | null }) {
   return (

@@ -7,11 +7,13 @@ import type { Metadata } from "next";
 import { PageTitle } from "@/app/_components/Placeholder";
 import { MappingAutoResolver } from "@/app/_components/securities/MappingAutoResolver";
 import { PriceRefreshButton } from "@/app/_components/securities/PriceRefreshButton";
+import type { PriceMarkBreachInfo } from "@/app/_components/price-marks/PriceMarkWarning";
 import { SecurityList } from "@/app/_components/securities/SecurityList";
 import { BENCHMARKS } from "@/core/benchmarks";
 import { businessDate } from "@/core/dates";
 import { listAnalystSymbols, listClassifications, listRegionSplits } from "@/modules/classification";
 import { listHeldSecurities } from "@/modules/ledger";
+import { breachedPriceMarks } from "@/modules/marks";
 import { listManualPrices, listSecuritiesWithMappings, securityPriceInfo } from "@/modules/prices";
 import { listTeilfreistellungOverrides } from "@/modules/tax";
 import { watchedSecurityIds } from "@/modules/watchlist";
@@ -24,7 +26,7 @@ export const metadata: Metadata = { title: "Wertpapiere" };
  */
 export default async function SecuritiesPage() {
   const today = businessDate(new Date());
-  const [securities, prices, manualPrices, classifications, teilfreistellungOverrides, regionSplits, analystSymbols, watched, held] = await Promise.all([
+  const [securities, prices, manualPrices, classifications, teilfreistellungOverrides, regionSplits, analystSymbols, watched, held, breached] = await Promise.all([
     listSecuritiesWithMappings(),
     securityPriceInfo(today),
     listManualPrices(),
@@ -34,7 +36,13 @@ export default async function SecuritiesPage() {
     listAnalystSymbols(),
     watchedSecurityIds(),
     listHeldSecurities(today),
+    breachedPriceMarks(today),
   ]);
+  // Story 12.4: warning icon at each Security with a breached mark (core state; "Nur Probleme" unaffected).
+  const breaches: Record<string, PriceMarkBreachInfo> = {};
+  for (const item of breached) {
+    if (item.state.priceDate !== null) breaches[item.securityId] = { breach: item.state.breached, priceDate: item.state.priceDate };
+  }
   const heldSet = new Set(held);
   const watchlistOnly = new Set(watched.filter((id) => !heldSet.has(id)));
   const benchmarkIsins = new Set(BENCHMARKS.map((benchmark) => benchmark.isin));
@@ -68,6 +76,7 @@ export default async function SecuritiesPage() {
             regionSplits={regionSplits}
             analystSymbols={analystSymbols}
             watchlistOnly={watchlistOnly}
+            breaches={breaches}
             fetched={fetched}
             today={today}
           />

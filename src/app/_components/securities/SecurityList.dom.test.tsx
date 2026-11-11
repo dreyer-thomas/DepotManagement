@@ -216,6 +216,32 @@ describe("SecurityList", () => {
     expect(screen.getAllByText(/^Analysten-Symbol:/)).toHaveLength(2);
   });
 
+  it("shows a warning icon with tooltip text at a Security with a breached mark; 'Nur Probleme' ignores it (story 12.4)", async () => {
+    const yahoo = (symbol: string) => ({ provider: "YAHOO" as const, symbol, origin: "MANUAL" as const, fetchError: null });
+    const base = { cryptoSymbol: null, assetType: "STOCK" as const };
+    const list: SecurityWithMapping[] = [
+      { ...base, id: "breached", name: "Breached AG", isin: "DE0000000001", mapping: yahoo("BRC.DE") },
+      { ...base, id: "calm", name: "Calm AG", isin: "DE0000000002", mapping: yahoo("CLM.DE") },
+    ];
+    const info = { date: "2026-10-24", source: "provider" as const, fetchedAt: null, provider: "YAHOO" as const, stale: false };
+    const user = userEvent.setup({ delay: null });
+    render(
+      <SecurityList
+        securities={list}
+        today="2026-10-26"
+        prices={{ breached: info, calm: info }}
+        breaches={{ breached: { breach: "stop", priceDate: "2026-10-24" } }}
+      />,
+    );
+    const icon = screen.getByRole("img", { name: "Stopp unterschritten · Kurs vom 24.10.2026" });
+    expect(icon.closest("li")?.textContent).toContain("Breached AG");
+    expect(screen.getAllByRole("img", { name: /Stopp unterschritten|Ziel erreicht/ })).toHaveLength(1);
+    await user.hover(icon);
+    expect((await screen.findByRole("tooltip")).textContent).toBe("Stopp unterschritten · Kurs vom 24.10.2026");
+    // A breach is not a price problem.
+    expect(screen.getByRole("switch", { name: "Nur Probleme (0)" })).toBeDefined();
+  });
+
   it("marks watchlist-only Securities with the Watchlist chip", () => {
     render(<SecurityList securities={securities} watchlistOnly={new Set(["s2"])} today="2026-10-26" />);
     expect(screen.getAllByText("Watchlist")).toHaveLength(1);

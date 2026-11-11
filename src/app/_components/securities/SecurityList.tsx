@@ -23,6 +23,7 @@ import { RegionSplitButton } from "./RegionSplitDialog";
 import { SecurityEditMenu } from "./SecurityEditMenu";
 import { SecurityPriceRefreshButton } from "./SecurityPriceRefreshButton";
 import { SecuritySearch } from "./SecuritySearch";
+import { type PriceMarkBreachInfo, PriceMarkWarning } from "../price-marks/PriceMarkWarning";
 import { SecurityLink } from "../security-detail/SecurityLink";
 import { teilfreistellungSummary } from "../tax/labels";
 import { TeilfreistellungButton } from "../tax/TeilfreistellungDialog";
@@ -48,6 +49,7 @@ export function SecurityList({
   regionSplits = {},
   analystSymbols = {},
   watchlistOnly = new Set(),
+  breaches = {},
   fetched,
   today,
 }: {
@@ -66,6 +68,8 @@ export function SecurityList({
   analystSymbols?: Record<string, AnalystSymbolInfo>;
   /** Securities on ≥ 1 watchlist and not held (story 9.2): chip "Watchlist". */
   watchlistOnly?: ReadonlySet<string>;
+  /** Breached price marks per Security id (story 12.4, `breachedPriceMarks`): warning icon at the name; not a problem. */
+  breaches?: Readonly<Record<string, PriceMarkBreachInfo>>;
   /**
    * Securities the price runs fetch (held, watched or a benchmark); only these get "Kurs abrufen" and count for
    * "Nur Probleme". Absent: all Securities.
@@ -79,6 +83,7 @@ export function SecurityList({
     const isFetched = fetched?.has(security.id) ?? true;
     const notFound = security.mapping !== null && security.mapping.provider === null;
     const price = prices[security.id];
+    const breach = breaches[security.id];
     const fetchFailed = Boolean(security.mapping?.provider && security.mapping.fetchError);
     const classification = classifications[security.id] ?? effective(null, security.assetType as ClassifiedAssetType);
     const fund = security.assetType === "ETF" || security.assetType === "FUND";
@@ -100,6 +105,12 @@ export function SecurityList({
               <Stack sx={{ flexGrow: 1, minWidth: 0, gap: 0.5 }}>
                 <Typography component="p" variant="subtitle1" sx={{ fontWeight: 600, overflowWrap: "anywhere" }}>
                   <SecurityLink securityId={security.id}>{security.name}</SecurityLink>
+                  {breach ? (
+                    <>
+                      {" "}
+                      <PriceMarkWarning info={breach} />
+                    </>
+                  ) : null}
                 </Typography>
                 <Stack direction="row" sx={{ alignItems: "center", gap: 1, flexWrap: "wrap" }}>
                   <Typography variant="body2" color="text.secondary">
